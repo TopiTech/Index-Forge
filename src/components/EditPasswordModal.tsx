@@ -78,10 +78,11 @@ export function EditPasswordModal({
     setLoading(true);
     setError(null);
 
-    const sanitizedMaxStocks = unlimitedStocks
+    const isAdminRole = role === "admin";
+    const sanitizedMaxStocks = isAdminRole || unlimitedStocks
       ? null
       : Math.min(500, Math.max(1, Math.floor(Number(maxStocks)) || 1));
-    const sanitizedMaxIndices = unlimitedIndices
+    const sanitizedMaxIndices = isAdminRole || unlimitedIndices
       ? null
       : Math.min(100, Math.max(1, Math.floor(Number(maxIndices)) || 1));
 
@@ -254,7 +255,14 @@ export function EditPasswordModal({
             <select
               id="edit-pw-role"
               value={role}
-              onChange={(e) => setRole(e.target.value as "user" | "admin")}
+              onChange={(e) => {
+                const nextRole = e.target.value as "user" | "admin";
+                setRole(nextRole);
+                if (nextRole === "admin") {
+                  setUnlimitedStocks(true);
+                  setUnlimitedIndices(true);
+                }
+              }}
               disabled={item.id === "admin-master"}
               style={{
                 width: "100%",
@@ -276,18 +284,19 @@ export function EditPasswordModal({
           <div style={{ marginBottom: 14 }}>
             <div className="row space-between" style={{ marginBottom: 5 }}>
               <label htmlFor="edit-pw-max-stocks" style={{ fontSize: 12, color: "var(--text-secondary)" }}>
-                最大銘柄数制限
+                最大銘柄数制限 {role === "admin" && <span style={{ color: "var(--accent-text)", fontSize: 11 }}>(管理者: 無制限)</span>}
               </label>
-              <label style={{ fontSize: 12, display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+              <label style={{ fontSize: 12, display: "inline-flex", alignItems: "center", gap: 6, cursor: role === "admin" ? "not-allowed" : "pointer", opacity: role === "admin" ? 0.6 : 1 }}>
                 <input
                   type="checkbox"
-                  checked={unlimitedStocks}
+                  checked={role === "admin" || unlimitedStocks}
+                  disabled={role === "admin"}
                   onChange={(e) => setUnlimitedStocks(e.target.checked)}
                 />
                 <span>無制限</span>
               </label>
             </div>
-            {!unlimitedStocks && (
+            {role !== "admin" && !unlimitedStocks && (
               <input
                 id="edit-pw-max-stocks"
                 type="number"
@@ -313,18 +322,19 @@ export function EditPasswordModal({
           <div style={{ marginBottom: 14 }}>
             <div className="row space-between" style={{ marginBottom: 5 }}>
               <label htmlFor="edit-pw-max-indices" style={{ fontSize: 12, color: "var(--text-secondary)" }}>
-                作成可能 指数上限数
+                作成可能 指数上限数 {role === "admin" && <span style={{ color: "var(--accent-text)", fontSize: 11 }}>(管理者: 無制限)</span>}
               </label>
-              <label style={{ fontSize: 12, display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+              <label style={{ fontSize: 12, display: "inline-flex", alignItems: "center", gap: 6, cursor: role === "admin" ? "not-allowed" : "pointer", opacity: role === "admin" ? 0.6 : 1 }}>
                 <input
                   type="checkbox"
-                  checked={unlimitedIndices}
+                  checked={role === "admin" || unlimitedIndices}
+                  disabled={role === "admin"}
                   onChange={(e) => setUnlimitedIndices(e.target.checked)}
                 />
                 <span>無制限</span>
               </label>
             </div>
-            {!unlimitedIndices && (
+            {role !== "admin" && !unlimitedIndices && (
               <input
                 id="edit-pw-max-indices"
                 type="number"

@@ -159,7 +159,7 @@ export function useIndices() {
     async (
       newIndex: CustomIndex,
       ownerToken?: string,
-    ): Promise<{ ok: boolean; error?: string; ownerToken?: string }> => {
+    ): Promise<{ ok: boolean; error?: string; ownerToken?: string; id?: string }> => {
       try {
         const storedToken = getIndexOwnerToken(newIndex.id);
         const token = ownerToken || storedToken || crypto.randomUUID();
@@ -185,13 +185,14 @@ export function useIndices() {
           typeof data.ownerToken === "string" && data.ownerToken.length > 0
             ? data.ownerToken
             : null;
+        const savedId = (typeof data?.id === "string" && data.id.trim()) || newIndex.id;
         // An administrator editing another user's index is intentionally not
         // given that index's owner token. Do not persist the random request
         // token in that case, or this browser would falsely label the index as
         // "My index" even though the token cannot authorize a later edit.
         const finalToken = responseToken || storedToken || (ownerToken ? token : null);
-        if (finalToken) {
-          saveIndexOwnerToken(newIndex.id, finalToken);
+        if (finalToken && savedId) {
+          saveIndexOwnerToken(savedId, finalToken);
         }
         try {
           localStorage.removeItem(INDICES_ETAG_KEY);
@@ -200,8 +201,9 @@ export function useIndices() {
         }
 
         await fetchIndices();
-        setSelectedIndex(newIndex);
-        return { ok: true, ownerToken: finalToken || undefined };
+        const savedIndex = { ...newIndex, id: savedId };
+        setSelectedIndex(savedIndex);
+        return { ok: true, ownerToken: finalToken || undefined, id: savedId };
       } catch (err) {
         const msg = err instanceof Error ? err.message : "指数の保存に失敗しました";
         return { ok: false, error: msg };

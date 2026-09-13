@@ -1390,6 +1390,11 @@ export default {
             updates.push("is_active = ?");
             params.push(isActive ? 1 : 0);
           }
+
+          if (updates.length === 0) {
+            return json({ error: "更新する項目が指定されていません" }, 400, request);
+          }
+
           const now = Math.floor(Date.now() / 1000);
           updates.push("updated_at = ?");
           params.push(now);

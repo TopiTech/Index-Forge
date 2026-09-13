@@ -34,37 +34,40 @@ export function calculateCustomIndex(
 
   if (selected.length === 0) return [];
 
-  // Build ticker → index map for O(1) lookup instead of findIndex
-  const tickerIndexMap = new Map(selected.map((s, i) => [normalizeTicker(s.ticker), i]));
-
-  // 全銘柄から存在する全日付を抽出してソート (YYYY-MM-DD sorts correctly as strings)
-  const allDates = Array.from(new Set(
-    selected.flatMap((stock) => stock.series.map((p) => p.date)),
-  )).sort();
-
-  if (allDates.length === 0) return [];
-
   // 基準日の価格（全銘柄の最初の有効な価格）を取得。
   // Stocks with no valid base price are excluded rather than aborting the
   // entire index: a single missing data point in a large basket should not
   // make the whole index uncomputable. The remaining stocks' weights are
   // re-normalized during the calculation loop below.
-  const basePrices = selected.map((stock) => {
+  const initialBasePrices = selected.map((stock) => {
     const sorted = [...stock.series].sort((a, b) => a.date.localeCompare(b.date));
     const first = sorted.find((p) => typeof p.close === "number" && Number.isFinite(p.close) && p.close > 0);
     return first ? first.close : 0;
   });
 
   // Filter out stocks that have no valid base price.
-  const validIndices = basePrices
+  const validIndices = initialBasePrices
     .map((bp, i) => (bp > 0 ? i : -1))
     .filter((i) => i >= 0);
 
   if (validIndices.length === 0) return [];
 
+  const validStocks = validIndices.map((i) => selected[i]);
+  const basePrices = validIndices.map((i) => initialBasePrices[i]);
+
+  // Build ticker → index map for O(1) lookup instead of findIndex
+  const tickerIndexMap = new Map(validStocks.map((s, i) => [normalizeTicker(s.ticker), i]));
+
+  // 有効銘柄から存在する全日付を抽出してソート (YYYY-MM-DD sorts correctly as strings)
+  const allDates = Array.from(new Set(
+    validStocks.flatMap((stock) => stock.series.map((p) => p.date)),
+  )).sort();
+
+  if (allDates.length === 0) return [];
+
   // 各銘柄の各日付における価格をマッピング
   // データ開始前は初値（基準価格）でバックフィルし、データ欠落時は前日価格でフォワードフィル
-  const stockPriceMatrix = selected.map((stock, stockIndex) => {
+  const stockPriceMatrix = validStocks.map((stock, stockIndex) => {
     const priceMap = new Map(stock.series.map((p) => [p.date, p.close]));
     const firstPrice = basePrices[stockIndex];
     let lastPrice = firstPrice;
@@ -81,7 +84,7 @@ export function calculateCustomIndex(
 
   return allDates.map((date, dateIndex) => {
     // この日付で有効なデータ（価格 > 0 かつ 基準価格が存在する）を持つ銘柄を抽出
-    const availableStocks = selected.filter((_, stockIndex) => {
+    const availableStocks = validStocks.filter((_, stockIndex) => {
       const price = stockPriceMatrix[stockIndex][dateIndex];
       const start = basePrices[stockIndex];
       return price > 0 && start > 0;
