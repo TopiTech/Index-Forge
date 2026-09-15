@@ -3488,7 +3488,7 @@ export default {
           headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload");
           headers.set(
             "Content-Security-Policy",
-            "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'self'; form-action 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'",
+            "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'self'; form-action 'self'; script-src 'self' 'unsafe-inline' https://s3.tradingview.com https://*.tradingview.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://*.tradingview.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https://s3.tradingview.com https://*.tradingview.com; frame-src 'self' https://www.tradingview-widget.com https://s.tradingview.com https://*.tradingview.com; connect-src 'self' https://*.tradingview.com https://*.tradingview-widget.com wss://*.tradingview.com",
           );
           headers.set("Permissions-Policy", "camera=(), geolocation=(), microphone=()");
 

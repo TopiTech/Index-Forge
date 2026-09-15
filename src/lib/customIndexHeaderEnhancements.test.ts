@@ -33,7 +33,7 @@ describe("Header, Admin Guard, BTC Benchmark & TradingView Enhancements", () => 
     });
   });
 
-  describe("ThemeControls Color Collapsing", () => {
+  describe("ThemeControls Color Collapsing & Layering", () => {
     it("collapses color options by default and opens on toggle in ThemeControls.tsx", () => {
       const themeControlsCode = readFileSync(
         resolve(__dirname, "../components/ThemeControls.tsx"),
@@ -42,6 +42,15 @@ describe("Header, Admin Guard, BTC Benchmark & TradingView Enhancements", () => 
       expect(themeControlsCode).toContain("const [isOpen, setIsOpen] = useState(false);");
       expect(themeControlsCode).toContain("theme-palette-toggle-btn");
       expect(themeControlsCode).toContain("accent-picker-popover");
+    });
+
+    it("ensures .top-header has overflow visible and proper z-index to prevent popover clipping", () => {
+      const cssCode = readFileSync(resolve(__dirname, "../index.css"), "utf8");
+      expect(cssCode).toContain(".top-header {");
+      // Must not be overflow: hidden, which clips the dropdown popover
+      expect(cssCode).toMatch(/\.top-header\s*\{[^}]*overflow:\s*visible;/s);
+      expect(cssCode).toMatch(/\.top-header\s*\{[^}]*z-index:\s*\d+;/s);
+      expect(cssCode).toContain(".accent-picker-popover {");
     });
   });
 

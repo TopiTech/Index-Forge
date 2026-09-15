@@ -440,7 +440,11 @@ describe("Code review fixes: Security headers, rate limiting, and password schem
     expect(res.headers.get("x-content-type-options")).toBe("nosniff");
     expect(res.headers.get("x-frame-options")).toBe("SAMEORIGIN");
     expect(res.headers.get("referrer-policy")).toBe("strict-origin-when-cross-origin");
-    expect(res.headers.get("content-security-policy")).toContain("script-src 'self'");
+    const csp = res.headers.get("content-security-policy") || "";
+    expect(csp).toContain("script-src 'self'");
+    expect(csp).toContain("https://s3.tradingview.com");
+    expect(csp).toContain("https://*.tradingview.com");
+    expect(csp).toContain("frame-src 'self' https://www.tradingview-widget.com");
     expect(res.headers.get("permissions-policy")).toContain("camera=()");
   });
 
