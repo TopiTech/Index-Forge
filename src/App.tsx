@@ -29,8 +29,31 @@ import { DisclaimerPage } from "./components/DisclaimerPage";
 import { parseViewFromLocation, getViewPath, type PageView } from "./lib/navigation";
 import type { Timeframe } from "./types";
 import type { CustomIndex } from "./data/indices";
+import type { ReactNode } from "react";
 
 const MOBILE_LAYOUT_QUERY = "(max-width: 1080px)";
+
+/** Shared page layout for all non-admin views (Header + TickerTape + Footer). */
+function PageLayout({
+  headerProps,
+  currentView,
+  navigateTo,
+  children,
+}: {
+  headerProps: React.ComponentProps<typeof Header>;
+  currentView: PageView;
+  navigateTo: (view: PageView) => void;
+  children: ReactNode;
+}) {
+  return (
+    <div className="app">
+      <Header {...headerProps} />
+      <TradingViewTickerTape />
+      <main style={{ minHeight: "calc(100vh - 280px)" }}>{children}</main>
+      <Footer onNavigate={navigateTo} currentView={currentView} />
+    </div>
+  );
+}
 
 function getInitialMobileLayout() {
   return typeof window !== "undefined" && window.matchMedia(MOBILE_LAYOUT_QUERY).matches;
@@ -60,14 +83,14 @@ export default function App() {
       window.history.pushState({}, "", targetPath);
     }
     if (typeof window !== "undefined") {
-      window.scrollTo({ top: 0, behavior: "smooth" });
+      window.scrollTo({ top: 0, behavior: "instant" });
     }
   }, []);
 
   useEffect(() => {
     const onPopState = () => {
       setCurrentView(parseViewFromLocation(window.location.pathname, window.location.search));
-      window.scrollTo({ top: 0, behavior: "smooth" });
+      window.scrollTo({ top: 0, behavior: "instant" });
     };
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
@@ -300,78 +323,45 @@ export default function App() {
     return chartData[chartData.length - 1]?.nikkei;
   }, [chartData]);
 
+  // Shared page layout props for Header
+  const pageLayoutHeaderProps = {
+    onNavigateToHome: () => navigateTo("dashboard"),
+    onNavigateToAdmin: () => navigateTo("admin"),
+    onNavigateToBuilder: () => navigateTo("builder"),
+    currentView,
+    benchmarkUpdatedAt,
+    calculationUpdatedAt,
+    dataLoading: loadingBenchmark || loadingCalc,
+    syncing,
+  };
+
   // Static pages do not depend on the index list. Render them even while the
   // optional dashboard data request is slow or unavailable.
   if (currentView === "builder") {
     return (
-      <div className="app">
-        <Header
-          onNavigateToHome={() => navigateTo("dashboard")}
-          onNavigateToAdmin={() => navigateTo("admin")}
-          onNavigateToBuilder={() => navigateTo("builder")}
-          currentView={currentView}
-          benchmarkUpdatedAt={benchmarkUpdatedAt}
-          calculationUpdatedAt={calculationUpdatedAt}
-          dataLoading={loadingBenchmark || loadingCalc}
-          syncing={syncing}
-          benchmarkStale={false}
+      <PageLayout headerProps={{ ...pageLayoutHeaderProps, benchmarkStale: false }} currentView={currentView} navigateTo={navigateTo}>
+        <IndexBuilderPage
+          onBackToDashboard={() => navigateTo("dashboard")}
+          onSave={saveCustomIndex}
+          onPreviewInDashboard={handlePreviewInDashboard}
         />
-        <TradingViewTickerTape />
-        <main style={{ minHeight: "calc(100vh - 280px)", paddingTop: 16 }}>
-          <IndexBuilderPage
-            onBackToDashboard={() => navigateTo("dashboard")}
-            onSave={saveCustomIndex}
-            onPreviewInDashboard={handlePreviewInDashboard}
-          />
-        </main>
-        <Footer onNavigate={navigateTo} currentView={currentView} />
-      </div>
+      </PageLayout>
     );
   }
 
   if (currentView === "portfolio") {
     return (
-      <div className="app">
-        <Header
-          onNavigateToHome={() => navigateTo("dashboard")}
-          onNavigateToAdmin={() => navigateTo("admin")}
-          onNavigateToBuilder={() => navigateTo("builder")}
-          currentView={currentView}
-          benchmarkUpdatedAt={benchmarkUpdatedAt}
-          calculationUpdatedAt={calculationUpdatedAt}
-          dataLoading={loadingBenchmark || loadingCalc}
-          syncing={syncing}
-          benchmarkStale={false}
-        />
-        <TradingViewTickerTape />
-        <main style={{ minHeight: "calc(100vh - 280px)" }}>
-          <PortfolioPage onNavigate={navigateTo} />
-        </main>
-        <Footer onNavigate={navigateTo} currentView={currentView} />
-      </div>
+      <PageLayout headerProps={{ ...pageLayoutHeaderProps, benchmarkStale: false }} currentView={currentView} navigateTo={navigateTo}>
+        <PortfolioPage onNavigate={navigateTo} />
+      </PageLayout>
     );
   }
 
   if (currentView === "disclaimer") {
     return (
-      <div className="app">
-        <Header
-          onNavigateToHome={() => navigateTo("dashboard")}
-          onNavigateToAdmin={() => navigateTo("admin")}
-          onNavigateToBuilder={() => navigateTo("builder")}
-          currentView={currentView}
-          benchmarkUpdatedAt={benchmarkUpdatedAt}
-          calculationUpdatedAt={calculationUpdatedAt}
-          dataLoading={loadingBenchmark || loadingCalc}
-          syncing={syncing}
-          benchmarkStale={false}
-        />
-        <TradingViewTickerTape />
-        <main style={{ minHeight: "calc(100vh - 280px)" }}>
-          <DisclaimerPage onNavigate={navigateTo} />
-        </main>
-        <Footer onNavigate={navigateTo} currentView={currentView} />
-      </div>
+      <PageLayout headerProps={{ ...pageLayoutHeaderProps, benchmarkStale: false }} currentView={currentView} navigateTo={navigateTo}>
+        <DisclaimerPage onNavigate={navigateTo} />
+      </PageLayout>
     );
   }
 
@@ -399,14 +389,7 @@ export default function App() {
   return (
     <div className="app">
       <Header
-        onNavigateToHome={() => navigateTo("dashboard")}
-        onNavigateToAdmin={() => navigateTo("admin")}
-        onNavigateToBuilder={() => navigateTo("builder")}
-        currentView={currentView}
-        benchmarkUpdatedAt={benchmarkUpdatedAt}
-        calculationUpdatedAt={calculationUpdatedAt}
-        dataLoading={loadingBenchmark || loadingCalc}
-        syncing={syncing}
+        {...pageLayoutHeaderProps}
         benchmarkStale={activeBenchmarkData?.stale === true}
       />
 

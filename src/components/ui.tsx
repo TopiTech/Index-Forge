@@ -135,3 +135,27 @@ export function StatCard({
     </div>
   );
 }
+
+export function MiniStatCard({
+  label,
+  value,
+  valueColor,
+  sub,
+  className = "",
+}: {
+  label: string;
+  value: ReactNode;
+  valueColor?: string;
+  sub?: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={`mini-stat-card ${className}`}>
+      <div className="mini-stat-label">{label}</div>
+      <div className="mini-stat-value" style={valueColor ? { color: valueColor } : undefined}>
+        {value}
+      </div>
+      {sub && <div className="mini-stat-sub">{sub}</div>}
+    </div>
+  );
+}

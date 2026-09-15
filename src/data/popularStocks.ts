@@ -89,3 +89,25 @@ export function searchPopularStocks(query: string, limit = 8): PopularStock[] {
       s.theme.toLowerCase().includes(q)
   ).slice(0, limit);
 }
+
+/**
+ * Curated subset of popular stocks shown as quick-add presets in modals/builders.
+ * Centralised here so AddStockModal, IndexBuilderContent, and any future UIs
+ * display the same list.
+ */
+export const PRESET_STOCKS: PopularStock[] = [
+  { ticker: "7203", name: "トヨタ自動車", theme: "モビリティ" },
+  { ticker: "9984", name: "ソフトバンクグループ", theme: "AI・投資" },
+  { ticker: "8035", name: "東京エレクトロン", theme: "半導体製造装置" },
+  { ticker: "6857", name: "アドバンテスト", theme: "半導体検査" },
+  { ticker: "6758", name: "ソニーグループ", theme: "エンタメ・電機" },
+  { ticker: "9983", name: "ファーストリテイリング", theme: "グローバル小売" },
+  { ticker: "8306", name: "三菱UFJ FG", theme: "メガバンク" },
+  { ticker: "8058", name: "三菱商事", theme: "総合商社" },
+  { ticker: "7974", name: "任天堂", theme: "ゲーム・IP" },
+  { ticker: "6861", name: "キーエンス", theme: "FA・センサー" },
+  { ticker: "3778", name: "さくらインターネット", theme: "クラウド・AI" },
+  { ticker: "6920", name: "レーザーテック", theme: "最先端マスク検査" },
+  { ticker: "6501", name: "日立製作所", theme: "社会インフラ・IT" },
+  { ticker: "5803", name: "フジクラ", theme: "光ファイバー・電力" },
+];

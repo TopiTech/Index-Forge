@@ -59,7 +59,7 @@ export function AuthModal({
       style={{
         position: "fixed",
         inset: 0,
-        zIndex: 99999,
+        zIndex: "var(--z-modal-overlay)" as unknown as number,
         display: "flex",
         alignItems: "center",
         justifyContent: "center",

@@ -1,4 +1,5 @@
 import React, { useMemo } from "react";
+import { MiniStatCard } from "./ui";
 import {
   ResponsiveContainer,
   ComposedChart,
@@ -245,152 +246,48 @@ export function SimulationPreview({
           gap: 8,
         }}
       >
-        <div
-          style={{
-            padding: "8px 10px",
-            background: "var(--bg-card)",
-            border: "1px solid var(--border-subtle)",
-            borderRadius: 6,
-          }}
-        >
-          <div className="tiny muted mono" style={{ fontSize: 10 }}>
-            期間リターン
-          </div>
-          <div
-            className="mono bold"
-            style={{
-              fontSize: 15,
-              color: periodCustomReturnPct >= 0 ? "var(--neon-green)" : "var(--neon-red)",
-            }}
-          >
-            {periodCustomReturnPct >= 0 ? "+" : ""}
-            {periodCustomReturnPct}%
-          </div>
-          <div className="tiny muted mono" style={{ fontSize: 9 }}>
-            vs {currentBenchmarkLabel} ({periodBenchmarkReturnPct >= 0 ? "+" : ""}
-            {periodBenchmarkReturnPct}%)
-          </div>
-        </div>
-
-        <div
-          style={{
-            padding: "8px 10px",
-            background: "var(--bg-card)",
-            border: "1px solid var(--border-subtle)",
-            borderRadius: 6,
-          }}
-        >
-          <div className="tiny muted mono" style={{ fontSize: 10 }}>
-            超過リターン (α)
-          </div>
-          <div
-            className="mono bold"
-            style={{
-              fontSize: 15,
-              color: alphaPct >= 0 ? "var(--accent-text)" : "var(--neon-yellow)",
-            }}
-          >
-            {alphaPct >= 0 ? "+" : ""}
-            {alphaPct}%
-          </div>
-          <div className="tiny muted mono" style={{ fontSize: 9 }}>
-            対比ベンチマーク差分
-          </div>
-        </div>
-
-        <div
-          style={{
-            padding: "8px 10px",
-            background: "var(--bg-card)",
-            border: "1px solid var(--border-subtle)",
-            borderRadius: 6,
-          }}
-        >
-          <div className="tiny muted mono" style={{ fontSize: 10 }}>
-            年率換算リターン
-          </div>
-          <div
-            className="mono bold"
-            style={{
-              fontSize: 15,
-              color: metrics.annualReturn >= 0 ? "var(--neon-green)" : "var(--neon-red)",
-            }}
-          >
-            {metrics.annualReturn >= 0 ? "+" : ""}
-            {metrics.annualReturn.toFixed(1)}%
-          </div>
-          <div className="tiny muted mono" style={{ fontSize: 9 }}>
-            CAGR 相当
-          </div>
-        </div>
-
-        <div
-          style={{
-            padding: "8px 10px",
-            background: "var(--bg-card)",
-            border: "1px solid var(--border-subtle)",
-            borderRadius: 6,
-          }}
-        >
-          <div className="tiny muted mono" style={{ fontSize: 10 }}>
-            ボラティリティ (年率)
-          </div>
-          <div className="mono bold" style={{ fontSize: 15, color: "var(--text-primary)" }}>
-            {metrics.annualVolatility.toFixed(1)}%
-          </div>
-          <div className="tiny muted mono" style={{ fontSize: 9 }}>
-            価格変動リスク
-          </div>
-        </div>
-
-        <div
-          style={{
-            padding: "8px 10px",
-            background: "var(--bg-card)",
-            border: "1px solid var(--border-subtle)",
-            borderRadius: 6,
-          }}
-        >
-          <div className="tiny muted mono" style={{ fontSize: 10 }}>
-            シャープレシオ
-          </div>
-          <div
-            className="mono bold"
-            style={{
-              fontSize: 15,
-              color:
-                metrics.sharpeRatio >= 1
-                  ? "var(--neon-green)"
-                  : metrics.sharpeRatio >= 0
-                    ? "var(--accent-text)"
-                    : "var(--neon-red)",
-            }}
-          >
-            {metrics.sharpeRatio.toFixed(2)}
-          </div>
-          <div className="tiny muted mono" style={{ fontSize: 9 }}>
-            リスク調整後収益
-          </div>
-        </div>
-
-        <div
-          style={{
-            padding: "8px 10px",
-            background: "var(--bg-card)",
-            border: "1px solid var(--border-subtle)",
-            borderRadius: 6,
-          }}
-        >
-          <div className="tiny muted mono" style={{ fontSize: 10 }}>
-            最大ドローダウン
-          </div>
-          <div className="mono bold" style={{ fontSize: 15, color: "var(--neon-red)" }}>
-            -{metrics.maxDrawdown.toFixed(1)}%
-          </div>
-          <div className="tiny muted mono" style={{ fontSize: 9 }}>
-            ピークからの最大下落
-          </div>
-        </div>
+        <MiniStatCard
+          label="期間リターン"
+          value={`${periodCustomReturnPct >= 0 ? "+" : ""}${periodCustomReturnPct}%`}
+          valueColor={periodCustomReturnPct >= 0 ? "var(--neon-green)" : "var(--neon-red)"}
+          sub={`vs ${currentBenchmarkLabel} (${periodBenchmarkReturnPct >= 0 ? "+" : ""}${periodBenchmarkReturnPct}%)`}
+        />
+        <MiniStatCard
+          label="超過リターン (α)"
+          value={`${alphaPct >= 0 ? "+" : ""}${alphaPct}%`}
+          valueColor={alphaPct >= 0 ? "var(--accent-text)" : "var(--neon-yellow)"}
+          sub="対比ベンチマーク差分"
+        />
+        <MiniStatCard
+          label="年率換算リターン"
+          value={`${metrics.annualReturn >= 0 ? "+" : ""}${metrics.annualReturn.toFixed(1)}%`}
+          valueColor={metrics.annualReturn >= 0 ? "var(--neon-green)" : "var(--neon-red)"}
+          sub="CAGR 相当"
+        />
+        <MiniStatCard
+          label="ボラティリティ (年率)"
+          value={`${metrics.annualVolatility.toFixed(1)}%`}
+          valueColor="var(--text-primary)"
+          sub="価格変動リスク"
+        />
+        <MiniStatCard
+          label="シャープレシオ"
+          value={metrics.sharpeRatio.toFixed(2)}
+          valueColor={
+            metrics.sharpeRatio >= 1
+              ? "var(--neon-green)"
+              : metrics.sharpeRatio >= 0
+                ? "var(--accent-text)"
+                : "var(--neon-red)"
+          }
+          sub="リスク調整後収益"
+        />
+        <MiniStatCard
+          label="最大ドローダウン"
+          value={`-${metrics.maxDrawdown.toFixed(1)}%`}
+          valueColor="var(--neon-red)"
+          sub="ピークからの最大下落"
+        />
       </div>
 
       {/* Interactive Performance Chart */}

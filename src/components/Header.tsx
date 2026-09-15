@@ -55,26 +55,22 @@ export function Header({
         className="top-header"
       >
         <div className="row space-between flex-wrap" style={{ gap: 12, alignItems: "center" }}>
-          <div
+          <a
             className={`header-brand row ${onNavigateToHome ? "clickable" : ""}`}
+            href="/"
             style={{
               gap: 10,
               alignItems: "center",
+              textDecoration: "none",
+              color: "inherit",
               cursor: onNavigateToHome ? "pointer" : "default",
             }}
-            onClick={onNavigateToHome}
-            role={onNavigateToHome ? "button" : undefined}
-            tabIndex={onNavigateToHome ? 0 : undefined}
-            onKeyDown={
-              onNavigateToHome
-                ? (e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      onNavigateToHome();
-                    }
-                  }
-                : undefined
-            }
+            onClick={(e) => {
+              if (onNavigateToHome) {
+                e.preventDefault();
+                onNavigateToHome();
+              }
+            }}
           >
             <div
               style={{
@@ -101,94 +97,100 @@ export function Header({
                 独自投資戦略・テーマ別ポートフォリオの客観的株価指数化プラットフォーム
               </p>
             </div>
-          </div>
+          </a>
 
-          <div className="header-meta row flex-wrap" style={{ gap: 8, alignItems: "center" }}>
-            <DataFreshness
-              benchmarkUpdatedAt={benchmarkUpdatedAt}
-              calculationUpdatedAt={calculationUpdatedAt}
-              loading={dataLoading}
-              syncing={syncing}
-              stale={benchmarkStale}
-            />
+          <div className="header-meta">
+            {/* Status indicators group */}
+            <div className="header-meta-group header-meta-status">
+              <DataFreshness
+                benchmarkUpdatedAt={benchmarkUpdatedAt}
+                calculationUpdatedAt={calculationUpdatedAt}
+                loading={dataLoading}
+                syncing={syncing}
+                stale={benchmarkStale}
+              />
+              <ThemeControls />
+            </div>
 
-            {/* Theme & Accent Controls */}
-            <ThemeControls />
+            <div className="header-meta-divider" aria-hidden="true" />
 
-            {/* Auth status indicator */}
-            {isAuthenticated ? (
-              <div className="row" style={{ gap: 6, alignItems: "center" }}>
-                <Badge variant={isAdmin ? "magenta" : "cyan"}>
-                  {isAdmin ? <ShieldCheck size={11} /> : <KeyRound size={11} />}
-                  {session?.name} {limitsText}
-                </Badge>
+            {/* Actions group */}
+            <div className="header-meta-group header-meta-actions">
+              {/* Auth status indicator */}
+              {isAuthenticated ? (
+                <div className="row" style={{ gap: 6, alignItems: "center" }}>
+                  <Badge variant={isAdmin ? "magenta" : "cyan"}>
+                    {isAdmin ? <ShieldCheck size={11} /> : <KeyRound size={11} />}
+                    {session?.name} {limitsText}
+                  </Badge>
+                  <button
+                    type="button"
+                    onClick={handleLogout}
+                    className="btn btn-sm btn-outline"
+                    style={{ padding: "4px 8px", fontSize: 11 }}
+                    aria-label="ログアウト"
+                  >
+                    ログアウト
+                  </button>
+                </div>
+              ) : (
                 <button
                   type="button"
-                  onClick={handleLogout}
-                  className="btn btn-sm btn-outline"
-                  style={{ padding: "4px 8px", fontSize: 11 }}
-                  aria-label="ログアウト"
+                  className="btn btn-sm btn-outline header-login-btn"
+                  onClick={() => setIsAuthModalOpen(true)}
+                  title="パスワード認証でログイン"
+                  aria-label="パスワード認証でログイン"
                 >
-                  ログアウト
+                  <LogIn size={12} style={{ color: "var(--accent-text)" }} />
+                  <span>ログイン</span>
+                  <span className="mono tiny muted" style={{ fontSize: 10 }}>
+                    (閲覧中)
+                  </span>
                 </button>
-              </div>
-            ) : (
-              <button
-                type="button"
-                className="btn btn-sm btn-outline header-login-btn"
-                onClick={() => setIsAuthModalOpen(true)}
-                title="パスワード認証でログイン"
-                aria-label="パスワード認証でログイン"
-              >
-                <LogIn size={12} style={{ color: "var(--accent-text)" }} />
-                <span>ログイン</span>
-                <span className="mono tiny muted" style={{ fontSize: 10 }}>
-                  (閲覧中)
-                </span>
-              </button>
-            )}
+              )}
 
-            {/* Index Builder & Simulator button */}
-            {onNavigateToBuilder && (
-              <button
-                type="button"
-                onClick={onNavigateToBuilder}
-                className={`btn btn-sm ${currentView === "builder" ? "btn-default" : "btn-outline"} builder-nav-btn`}
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 5,
-                  padding: "4px 9px",
-                  fontSize: 11,
-                  borderColor: currentView === "builder" ? undefined : "var(--accent-border)",
-                  color: currentView === "builder" ? undefined : "var(--accent-text)",
-                }}
-                title="独自指数ビルダー＆シミュレーター（未ログイン利用可能）"
-                aria-label="独自指数ビルダー＆シミュレーターへ移動"
-              >
-                <Sliders size={12} />
-                指数ビルダー
-              </button>
-            )}
+              {/* Index Builder & Simulator button */}
+              {onNavigateToBuilder && (
+                <button
+                  type="button"
+                  onClick={onNavigateToBuilder}
+                  className={`btn btn-sm ${currentView === "builder" ? "btn-default" : "btn-outline"} builder-nav-btn`}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 5,
+                    padding: "4px 9px",
+                    fontSize: 11,
+                    borderColor: currentView === "builder" ? undefined : "var(--accent-border)",
+                    color: currentView === "builder" ? undefined : "var(--accent-text)",
+                  }}
+                  title="独自指数ビルダー＆シミュレーター（未ログイン利用可能）"
+                  aria-label="独自指数ビルダー＆シミュレーターへ移動"
+                >
+                  <Sliders size={12} />
+                  指数ビルダー
+                </button>
+              )}
 
-            {/* Admin Page button (visible only to authenticated admins) */}
-            {isAdmin && onNavigateToAdmin && (
-              <button
-                type="button"
-                onClick={onNavigateToAdmin}
-                className="btn btn-sm btn-outline admin-nav-btn"
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 5,
-                  padding: "4px 9px",
-                  fontSize: 11,
-                }}
-              >
-                <Shield size={12} />
-                管理者ページ
-              </button>
-            )}
+              {/* Admin Page button (visible only to authenticated admins) */}
+              {isAdmin && onNavigateToAdmin && (
+                <button
+                  type="button"
+                  onClick={onNavigateToAdmin}
+                  className="btn btn-sm btn-outline admin-nav-btn"
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 5,
+                    padding: "4px 9px",
+                    fontSize: 11,
+                  }}
+                >
+                  <Shield size={12} />
+                  管理者ページ
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </motion.header>

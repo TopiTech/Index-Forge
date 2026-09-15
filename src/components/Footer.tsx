@@ -1,5 +1,5 @@
 import { ExternalLink, ShieldAlert, User, Home, Shield, Code2, Sliders } from "lucide-react";
-import type { PageView } from "../lib/navigation";
+import { getViewPath, type PageView } from "../lib/navigation";
 import { useAuth } from "../hooks/useAuth";
 
 export type { PageView };
@@ -27,6 +27,40 @@ export function XIcon({ size = 15, className = "" }: { size?: number; className?
 interface FooterProps {
   onNavigate: (view: PageView) => void;
   currentView?: PageView;
+}
+
+function FooterNavLink({
+  view,
+  currentView,
+  onNavigate,
+  icon,
+  label,
+}: {
+  view: PageView;
+  currentView?: PageView;
+  onNavigate: (view: PageView) => void;
+  icon: React.ReactNode;
+  label: string;
+}) {
+  const path = getViewPath(view);
+  const isActive = currentView === view;
+
+  return (
+    <a
+      href={path}
+      onClick={(e) => {
+        if (!e.ctrlKey && !e.metaKey && !e.shiftKey && e.button === 0) {
+          e.preventDefault();
+          onNavigate(view);
+        }
+      }}
+      className={`footer-link-btn ${isActive ? "is-active" : ""}`}
+      aria-current={isActive ? "page" : undefined}
+    >
+      {icon}
+      <span>{label}</span>
+    </a>
+  );
 }
 
 export function Footer({ onNavigate, currentView = "dashboard" }: FooterProps) {
@@ -58,56 +92,50 @@ export function Footer({ onNavigate, currentView = "dashboard" }: FooterProps) {
             <h4 className="footer-heading">ページ</h4>
             <ul className="footer-nav-list">
               <li>
-                <button
-                  type="button"
-                  onClick={() => onNavigate("dashboard")}
-                  className={`footer-link-btn ${currentView === "dashboard" ? "is-active" : ""}`}
-                >
-                  <Home size={14} />
-                  <span>ダッシュボード</span>
-                </button>
+                <FooterNavLink
+                  view="dashboard"
+                  currentView={currentView}
+                  onNavigate={onNavigate}
+                  icon={<Home size={14} />}
+                  label="ダッシュボード"
+                />
               </li>
               <li>
-                <button
-                  type="button"
-                  onClick={() => onNavigate("builder")}
-                  className={`footer-link-btn ${currentView === "builder" ? "is-active" : ""}`}
-                >
-                  <Sliders size={14} />
-                  <span>指数ビルダー & シミュレーター</span>
-                </button>
+                <FooterNavLink
+                  view="builder"
+                  currentView={currentView}
+                  onNavigate={onNavigate}
+                  icon={<Sliders size={14} />}
+                  label="指数ビルダー & シミュレーター"
+                />
               </li>
               <li>
-                <button
-                  type="button"
-                  onClick={() => onNavigate("portfolio")}
-                  className={`footer-link-btn ${currentView === "portfolio" ? "is-active" : ""}`}
-                >
-                  <User size={14} />
-                  <span>ポートフォリオ / SNS</span>
-                </button>
+                <FooterNavLink
+                  view="portfolio"
+                  currentView={currentView}
+                  onNavigate={onNavigate}
+                  icon={<User size={14} />}
+                  label="ポートフォリオ / SNS"
+                />
               </li>
-
               <li>
-                <button
-                  type="button"
-                  onClick={() => onNavigate("disclaimer")}
-                  className={`footer-link-btn ${currentView === "disclaimer" ? "is-active" : ""}`}
-                >
-                  <ShieldAlert size={14} />
-                  <span>免責事項</span>
-                </button>
+                <FooterNavLink
+                  view="disclaimer"
+                  currentView={currentView}
+                  onNavigate={onNavigate}
+                  icon={<ShieldAlert size={14} />}
+                  label="免責事項"
+                />
               </li>
               {isAdmin && (
                 <li>
-                  <button
-                    type="button"
-                    onClick={() => onNavigate("admin")}
-                    className={`footer-link-btn ${currentView === "admin" ? "is-active" : ""}`}
-                  >
-                    <Shield size={14} />
-                    <span>管理者ページ</span>
-                  </button>
+                  <FooterNavLink
+                    view="admin"
+                    currentView={currentView}
+                    onNavigate={onNavigate}
+                    icon={<Shield size={14} />}
+                    label="管理者ページ"
+                  />
                 </li>
               )}
             </ul>

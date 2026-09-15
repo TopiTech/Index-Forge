@@ -22,7 +22,7 @@ import type { CustomIndex } from "../data/indices";
 import { useAuth } from "../hooks/useAuth";
 import { AuthModal } from "./AuthModal";
 import { useToast } from "./Toast";
-import { searchPopularStocks, type PopularStock } from "../data/popularStocks";
+import { searchPopularStocks, PRESET_STOCKS, type PopularStock } from "../data/popularStocks";
 import { toFiniteNumberOr } from "../lib/downloadFileName";
 import { useSimulation } from "../hooks/useSimulation";
 import { SimulationPreview } from "./SimulationPreview";
@@ -85,23 +85,7 @@ export const STRATEGY_PRESETS: StrategyPreset[] = [
   },
 ];
 
-const SAMPLE_STOCKS: { ticker: string; name: string; theme: string }[] = [
-  { ticker: "7203", name: "トヨタ自動車", theme: "モビリティ" },
-  { ticker: "9984", name: "ソフトバンクグループ", theme: "AI・投資" },
-  { ticker: "8035", name: "東京エレクトロン", theme: "半導体" },
-  { ticker: "6857", name: "アドバンテスト", theme: "半導体検査" },
-  { ticker: "6758", name: "ソニーグループ", theme: "エンタメ・電機" },
-  { ticker: "9983", name: "ファーストリテイリング", theme: "グローバル小売" },
-  { ticker: "8306", name: "三菱UFJ FG", theme: "メガバンク" },
-  { ticker: "8058", name: "三菱商事", theme: "総合商社" },
-  { ticker: "7974", name: "任天堂", theme: "ゲーム・IP" },
-  { ticker: "6861", name: "キーエンス", theme: "ファクトリーオートメーション" },
-  { ticker: "3778", name: "さくらインターネット", theme: "クラウド・AI" },
-  { ticker: "6501", name: "日立製作所", theme: "社会イノベーション" },
-  { ticker: "9432", name: "日本電信電話 (NTT)", theme: "通信・IOWN" },
-  { ticker: "5803", name: "フジクラ", theme: "光ファイバー・電力" },
-  { ticker: "6920", name: "レーザーテック", theme: "最先端マスク検査" },
-];
+// SAMPLE_STOCKS is now PRESET_STOCKS from ../data/popularStocks
 
 export interface IndexBuilderContentProps {
   onSave: (
@@ -359,19 +343,7 @@ export function IndexBuilderContent({
       }}
     >
       {/* Auth status & simulation banner */}
-      <div
-        style={{
-          padding: "10px 16px",
-          background: isAuthenticated ? "var(--accent-subtle)" : "rgba(6, 182, 212, 0.08)",
-          borderBottom: `1px solid ${isAuthenticated ? "var(--accent-border)" : "var(--border-cyan)"}`,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          flexWrap: "wrap",
-          gap: 8,
-          fontSize: 12,
-        }}
-      >
+      <div className={`builder-auth-banner ${isAuthenticated ? "is-auth" : ""}`}>
         <div className="row" style={{ gap: 8, alignItems: "center" }}>
           {isAuthenticated ? (
             <>
@@ -447,19 +419,7 @@ export function IndexBuilderContent({
       </div>
 
       {error && (
-        <div
-          role="alert"
-          aria-live="assertive"
-          style={{
-            margin: "12px 20px 0",
-            padding: "8px 12px",
-            background: "rgba(255, 51, 102, 0.15)",
-            border: "1px solid var(--neon-red)",
-            borderRadius: 6,
-            color: "var(--neon-red)",
-            fontSize: 12,
-          }}
-        >
+        <div role="alert" aria-live="assertive" className="form-alert-error">
           {error}
         </div>
       )}
@@ -498,12 +458,9 @@ export function IndexBuilderContent({
                   style={{
                     textAlign: "left",
                     padding: "8px 10px",
-                    background: "var(--surface-control)",
-                    border: "1px solid var(--border-subtle)",
                     borderRadius: 8,
                     cursor: "pointer",
                     color: "inherit",
-                    transition: "all 0.15s ease",
                   }}
                 >
                   <div className="row space-between" style={{ marginBottom: 2 }}>
@@ -762,14 +719,7 @@ export function IndexBuilderContent({
                 basket.map((item) => (
                   <div
                     key={item.ticker}
-                    className="row space-between"
-                    style={{
-                      padding: "6px 10px",
-                      background: "var(--bg-card)",
-                      border: "1px solid var(--border-subtle)",
-                      borderRadius: 6,
-                      gap: 8,
-                    }}
+                    className="builder-basket-row"
                   >
                     <div style={{ minWidth: 120 }}>
                       <div className="row" style={{ gap: 4, alignItems: "center" }}>

@@ -73,6 +73,13 @@
   --glow-green: 0 1px 3px rgba(0, 0, 0, 0.3), 0 0 10px rgba(16, 185, 129, 0.25);
   --glow-red: 0 1px 3px rgba(0, 0, 0, 0.3), 0 0 10px rgba(244, 63, 94, 0.25);
 
+  /* Z-Index Layers */
+  --z-sidebar-backdrop: 10000;
+  --z-sidebar: 10001;
+  --z-modal-overlay: 20000;
+  --z-toast: 30000;
+  --z-tooltip: 40000;
+
   font-family: var(--primary-font);
   color: var(--text-primary);
   background: var(--bg-dark);
@@ -381,6 +388,26 @@ h3 {
   flex-wrap: wrap;
 }
 
+.header-meta-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.header-meta-divider {
+  width: 1px;
+  height: 20px;
+  background: var(--border-subtle);
+  flex-shrink: 0;
+}
+
+@media (max-width: 768px) {
+  .header-meta-divider {
+    display: none;
+  }
+}
+
 /* TradingView Ticker Tape Bar */
 .tradingview-ticker-bar {
   background: #131722;
@@ -602,6 +629,41 @@ h3 {
   background: rgba(255, 255, 255, 0.06);
   border: 1px solid var(--border-subtle);
   color: var(--text-secondary);
+}
+
+/* Compact stat card (e.g. SimulationPreview metrics) */
+.mini-stat-card {
+  padding: 8px 10px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  transition: border-color var(--transition-fast, 0.15s ease), background var(--transition-fast, 0.15s ease);
+}
+
+.mini-stat-card:hover {
+  border-color: var(--border-cyan);
+  background: var(--bg-card-hover);
+}
+
+.mini-stat-card .mini-stat-label {
+  font-size: 10px;
+  color: var(--text-secondary);
+  font-family: var(--mono-font);
+  margin-bottom: 2px;
+}
+
+.mini-stat-card .mini-stat-value {
+  font-size: 15px;
+  font-weight: 700;
+  font-family: var(--mono-font);
+  line-height: 1.2;
+}
+
+.mini-stat-card .mini-stat-sub {
+  font-size: 9px;
+  color: var(--text-secondary);
+  font-family: var(--mono-font);
+  margin-top: 2px;
 }
 
 .btn {
@@ -1742,7 +1804,7 @@ h3 {
 
   .index-sidebar {
     position: fixed;
-    z-index: 10001;
+    z-index: var(--z-sidebar);
     top: 0;
     right: auto;
     bottom: 0;
@@ -1806,7 +1868,7 @@ h3 {
   .sidebar-backdrop {
     display: block;
     position: fixed;
-    z-index: 10000;
+    z-index: var(--z-sidebar-backdrop);
     inset: 0;
     width: 100%;
     height: 100%;
@@ -2065,6 +2127,8 @@ body::before,
   min-height: 150px;
   padding: 24px;
   text-align: left;
+  text-transform: none;
+  font-family: var(--display-font);
 }
 
 .empty-state-compact {
@@ -2246,7 +2310,7 @@ body::before,
 .heatmap-tooltip-portal {
   position: fixed;
   pointer-events: none;
-  z-index: 99999;
+  z-index: var(--z-tooltip);
   background: var(--surface-tooltip);
   color: var(--text-primary);
   border: 1px solid var(--border-cyan);
@@ -2350,7 +2414,90 @@ textarea:focus-visible {
 }
 
 .modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal-overlay);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--surface-overlay);
+  backdrop-filter: blur(8px);
+  padding: 16px;
   overscroll-behavior: contain;
+}
+
+.modal-dialog {
+  width: 100%;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-cyan);
+  border-radius: 14px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8), 0 0 30px var(--accent-glow);
+  overflow: hidden;
+}
+
+.modal-dialog-danger {
+  border-color: var(--neon-red);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8), 0 0 25px rgba(244, 63, 94, 0.2);
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: linear-gradient(90deg, var(--accent-subtle), transparent);
+}
+
+.modal-header-danger {
+  background: linear-gradient(90deg, rgba(244, 63, 94, 0.08), transparent);
+}
+
+.modal-title-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.modal-title {
+  font-size: 16px;
+  margin: 0;
+  font-weight: 700;
+  color: var(--text-heading);
+}
+
+.modal-title-icon {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.modal-close-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s ease;
+}
+
+.modal-close-btn:hover {
+  color: var(--text-primary);
+}
+
+.modal-body {
+  padding: 20px 22px;
+}
+
+.modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
 }
 
 .modal-subtitle {
@@ -2540,7 +2687,7 @@ textarea:focus-visible {
   position: fixed;
   bottom: 24px;
   right: 24px;
-  z-index: 100000;
+  z-index: var(--z-toast);
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -2811,6 +2958,8 @@ textarea:focus-visible {
   border: none;
   padding: 6px 8px;
   color: var(--text-secondary);
+  text-decoration: none;
+  box-sizing: border-box;
   font-size: 13px;
   display: inline-flex;
   align-items: center;
@@ -3487,5 +3636,55 @@ textarea:focus-visible {
 .builder-nav-btn:hover {
   background: var(--accent-subtle);
   border-color: var(--accent-color);
+}
+
+.builder-auth-banner {
+  padding: 10px 16px;
+  background: rgba(6, 182, 212, 0.08);
+  border-bottom: 1px solid var(--border-cyan);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.builder-auth-banner.is-auth {
+  background: var(--accent-subtle);
+  border-bottom-color: var(--accent-border);
+}
+
+.form-alert-error {
+  margin: 12px 20px 0;
+  padding: 8px 12px;
+  background: rgba(255, 51, 102, 0.15);
+  border: 1px solid var(--neon-red);
+  border-radius: 6px;
+  color: var(--neon-red);
+  font-size: 12px;
+}
+
+.info-panel {
+  padding: 8px 10px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+}
+
+.builder-basket-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  gap: 8px;
+  transition: border-color var(--transition-fast, 0.15s ease);
+}
+
+.builder-basket-row:hover {
+  border-color: var(--border-cyan);
 }
 

@@ -19,7 +19,56 @@ import { calculateSMA } from "../lib/analytics";
 import { filterByTimeframe } from "../lib/timeframe";
 
 const fmt = new Intl.NumberFormat("ja-JP", { maximumFractionDigits: 2 });
-const pct = new Intl.NumberFormat("ja-JP", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const pct = new Intl.NumberFormat("ja-JP", {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
+function ChartLegendIndicator({
+  color,
+  dashed = false,
+  dashArray,
+  lineWidth = 2.5,
+  label,
+}: {
+  color: string;
+  dashed?: boolean;
+  dashArray?: string;
+  lineWidth?: number;
+  label: React.ReactNode;
+}) {
+  return (
+    <span
+      className="chart-legend-item"
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 6,
+        marginRight: 12,
+      }}
+    >
+      <svg
+        width="20"
+        height="10"
+        viewBox="0 0 20 10"
+        aria-hidden="true"
+        style={{ flexShrink: 0, verticalAlign: "middle" }}
+      >
+        <line
+          x1="0"
+          y1="5"
+          x2="20"
+          y2="5"
+          stroke={color}
+          strokeWidth={lineWidth}
+          strokeDasharray={dashArray || (dashed ? "4 3" : undefined)}
+          strokeLinecap="round"
+        />
+      </svg>
+      <span>{label}</span>
+    </span>
+  );
+}
 
 interface ChartPoint {
   date: string;
@@ -527,14 +576,12 @@ export function PerformanceChart({
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              gap: 8,
             }}
-            className="muted mono tiny uppercase"
           >
             {loading ? (
-              <>
+              <div className="muted mono tiny uppercase" style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <Loader2 className="animate-spin" size={16} /> 指数データを計算中...
-              </>
+              </div>
             ) : (
               <EmptyState
                 title={emptyTitle}
@@ -623,18 +670,46 @@ export function PerformanceChart({
       )}
 
       <div className="chart-legend-footer row space-between flex-wrap" style={{ marginTop: 14, gap: 8 }}>
-        <div className="chart-legend muted tiny mono">
+        <div className="chart-legend muted tiny mono" style={{ display: "flex", flexWrap: "wrap", alignItems: "center" }}>
           {viewMode === "spread" ? (
             <>
-              <span style={{ color: "var(--accent-color)" }}>―</span> 独自指数 市場超過リターン (α){" "}
-              <span style={{ color: "var(--text-muted)" }}>---</span> {benchmarkLabel}基準線 (±0%pt)
+              <ChartLegendIndicator
+                color="var(--accent-color)"
+                label="独自指数 市場超過リターン (α)"
+              />
+              <ChartLegendIndicator
+                color="var(--text-muted)"
+                dashed
+                dashArray="3 3"
+                label={`${benchmarkLabel}基準線 (±0%pt)`}
+              />
             </>
           ) : (
             <>
-              <span style={{ color: "var(--accent-color)" }}>―</span> 独自指数{" "}
-              <span style={{ color: "var(--text-muted)" }}>---</span> {benchmarkLabel} (Base {baseValue}正規化)
-              {showSMA5 && <span style={{ color: "var(--neon-yellow)" }}> ― SMA5</span>}
-              {showSMA25 && <span style={{ color: "var(--neon-magenta)" }}> ― SMA25</span>}
+              <ChartLegendIndicator
+                color="var(--accent-color)"
+                label="独自指数"
+              />
+              <ChartLegendIndicator
+                color="var(--text-muted)"
+                dashed
+                dashArray="4 4"
+                label={`${benchmarkLabel} (Base ${baseValue}正規化)`}
+              />
+              {showSMA5 && (
+                <ChartLegendIndicator
+                  color="var(--neon-yellow)"
+                  lineWidth={1.5}
+                  label="SMA5"
+                />
+              )}
+              {showSMA25 && (
+                <ChartLegendIndicator
+                  color="var(--neon-magenta)"
+                  lineWidth={1.5}
+                  label="SMA25"
+                />
+              )}
             </>
           )}
         </div>

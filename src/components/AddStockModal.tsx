@@ -3,7 +3,7 @@ import { motion } from "framer-motion";
 import { Plus, X, AlertCircle, Sparkles } from "lucide-react";
 import type { BasketItem } from "../types";
 import { useModalFocus } from "../hooks/useModalFocus";
-import { searchPopularStocks } from "../data/popularStocks";
+import { searchPopularStocks, PRESET_STOCKS } from "../data/popularStocks";
 import { toFiniteNumberOr } from "../lib/downloadFileName";
 
 interface AddStockModalProps {
@@ -15,22 +15,7 @@ interface AddStockModalProps {
   onAddStock: (stock: BasketItem) => Promise<{ ok: boolean; error?: string }>;
 }
 
-const PRESET_STOCKS = [
-  { ticker: "7203", name: "トヨタ自動車", theme: "モビリティ" },
-  { ticker: "9984", name: "ソフトバンクグループ", theme: "AI・投資" },
-  { ticker: "8035", name: "東京エレクトロン", theme: "半導体製造装置" },
-  { ticker: "6857", name: "アドバンテスト", theme: "半導体検査" },
-  { ticker: "6758", name: "ソニーグループ", theme: "エンタメ・電機" },
-  { ticker: "9983", name: "ファーストリテイリング", theme: "グローバル小売" },
-  { ticker: "8306", name: "三菱UFJ FG", theme: "メガバンク" },
-  { ticker: "8058", name: "三菱商事", theme: "総合商社" },
-  { ticker: "7974", name: "任天堂", theme: "ゲーム・IP" },
-  { ticker: "6861", name: "キーエンス", theme: "FA・センサー" },
-  { ticker: "3778", name: "さくらインターネット", theme: "クラウド・AI" },
-  { ticker: "6920", name: "レーザーテック", theme: "最先端マスク検査" },
-  { ticker: "6501", name: "日立製作所", theme: "社会インフラ・IT" },
-  { ticker: "5803", name: "フジクラ", theme: "光ファイバー・電力" },
-];
+
 
 export function AddStockModal({
   isOpen,
@@ -119,7 +104,7 @@ export function AddStockModal({
       style={{
         position: "fixed",
         inset: 0,
-        zIndex: 99999,
+        zIndex: "var(--z-modal-overlay)" as unknown as number,
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
