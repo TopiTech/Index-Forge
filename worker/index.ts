@@ -570,6 +570,21 @@ export async function ensurePasswordTable(env: Env): Promise<void> {
     } catch {
       // The table may already exist on an upgraded database.
     }
+    // Ensure stock_series table if not exists
+    try {
+      await runStatement(
+        env,
+        `
+        CREATE TABLE IF NOT EXISTS stock_series (
+          ticker TEXT PRIMARY KEY,
+          prices TEXT NOT NULL,
+          updated_at INTEGER NOT NULL
+        )
+      `,
+      );
+    } catch {
+      // The table may already exist on an upgraded database.
+    }
     isPasswordTableEnsured = true;
   } catch (err) {
     // Schema initialization is best-effort; log the failure so operators can

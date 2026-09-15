@@ -70,6 +70,21 @@ export const DEFAULT_INDICES: CustomIndex[] = [
     ],
   },
   {
+    id: "eroge-index",
+    name: "完全エロゲ指数（EROGE Index）",
+    description: "国内エロゲ・同人DL市場への直接・間接エクスポージャーを重視した構成です。",
+    baseValue: 1000,
+    basket: [
+      { ticker: "2681", name: "ゲオホールディングス", weight: 35, theme: "DLSite" },
+      { ticker: "7803", name: "ブシロード", weight: 20, theme: "萌えゲーム" },
+      { ticker: "3657", name: "ポールトゥウィンHD", weight: 15, theme: "開発支援" },
+      { ticker: "3791", name: "IGポート", weight: 10, theme: "アニメIP" },
+      { ticker: "2652", name: "まんだらけ", weight: 8, theme: "同人市場" },
+      { ticker: "9468", name: "KADOKAWA", weight: 4, theme: "ゲーム/アニメ" },
+      { ticker: "4751", name: "サイバーエージェント", weight: 8, theme: "ゲーム/アニメ" },
+    ],
+  },
+  {
     id: "nikkei-175",
     name: "日経175指数",
     description: "掲示板センチメント、モメンタム、国策テーマ、技術投機など175銘柄で構成される独自指数です。",

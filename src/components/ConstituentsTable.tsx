@@ -369,9 +369,15 @@ export function ConstituentsTable({
                   border: "none",
                   color: "inherit",
                   cursor: "pointer",
-                  padding: 0,
+                  padding: "0 2px",
+                  marginLeft: 4,
+                  fontSize: 12,
+                  lineHeight: 1,
+                  display: "inline-flex",
+                  alignItems: "center",
                 }}
                 aria-label="検索キーワードをクリア"
+                title="検索キーワードをクリア"
               >
                 ✕
               </button>

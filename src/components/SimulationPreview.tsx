@@ -32,7 +32,8 @@ const TIMEFRAMES: { label: string; value: Timeframe }[] = [
   { label: "1ヶ月", value: "1M" },
   { label: "3ヶ月", value: "3M" },
   { label: "6ヶ月", value: "6M" },
-  { label: "1年", value: "1Y" },
+  { label: "年初来 (YTD)", value: "YTD" },
+  { label: "1年 (全期間)", value: "1Y" },
 ];
 
 export function SimulationPreview({

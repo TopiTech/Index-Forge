@@ -354,7 +354,7 @@ export function calculateConstituentPerformance(
     };
   });
 }
-function getTickerBasePrice(ticker: string): number {
+export function getTickerBasePrice(ticker: string): number {
   const KNOWN_PRICES: Record<string, number> = {
     "7203": 2850,
     "9984": 9150,
@@ -372,9 +372,10 @@ function getTickerBasePrice(ticker: string): number {
     "5803": 5420,
     "6920": 21500,
   };
-  if (KNOWN_PRICES[ticker]) return KNOWN_PRICES[ticker];
+  const cleanTicker = ticker.trim().toUpperCase().replace(/\.T$/, "");
+  if (KNOWN_PRICES[cleanTicker]) return KNOWN_PRICES[cleanTicker];
   let hash = 0;
-  for (let i = 0; i < ticker.length; i++) hash = (hash * 31 + ticker.charCodeAt(i)) & 0xffff;
+  for (let i = 0; i < cleanTicker.length; i++) hash = (hash * 31 + cleanTicker.charCodeAt(i)) & 0xffff;
   return 1000 + (hash % 4000);
 }
 
