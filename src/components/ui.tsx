@@ -1,5 +1,5 @@
 import type { PropsWithChildren, ReactNode } from "react";
-import { Search } from "lucide-react";
+import { Search, X } from "lucide-react";
 
 export function Card({
   children,
@@ -61,11 +61,45 @@ export function SearchInput({
       <input
         type="text"
         className="input-search"
+        style={value ? { paddingRight: 32 } : undefined}
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Escape" && value) {
+            e.stopPropagation();
+            onChange("");
+          }
+        }}
         placeholder={placeholder}
         aria-label={ariaLabel || placeholder}
       />
+      {value && (
+        <button
+          type="button"
+          onClick={() => onChange("")}
+          className="input-search-clear-btn"
+          aria-label="検索キーワードを消去"
+          title="検索キーワードを消去"
+          style={{
+            position: "absolute",
+            right: 8,
+            top: "50%",
+            transform: "translateY(-50%)",
+            background: "transparent",
+            border: "none",
+            color: "var(--text-muted)",
+            cursor: "pointer",
+            padding: 4,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            borderRadius: 4,
+            transition: "color 0.15s ease",
+          }}
+        >
+          <X size={14} />
+        </button>
+      )}
     </div>
   );
 }

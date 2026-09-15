@@ -1,6 +1,18 @@
 import { useState } from "react";
-import { motion } from "framer-motion";
-import { TrendingUp, Shield, KeyRound, ShieldCheck, LogIn, Sliders } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import {
+  TrendingUp,
+  Shield,
+  KeyRound,
+  ShieldCheck,
+  LogIn,
+  Sliders,
+  Briefcase,
+  FileText,
+  Menu,
+  X,
+  Home,
+} from "lucide-react";
 import { Badge } from "./ui";
 import { useAuth } from "../hooks/useAuth";
 import { useToast } from "./Toast";
@@ -12,6 +24,8 @@ interface HeaderProps {
   onNavigateToHome?: () => void;
   onNavigateToAdmin?: () => void;
   onNavigateToBuilder?: () => void;
+  onNavigateToPortfolio?: () => void;
+  onNavigateToDisclaimer?: () => void;
   currentView?: string;
   benchmarkUpdatedAt?: number | null;
   calculationUpdatedAt?: number | null;
@@ -24,6 +38,8 @@ export function Header({
   onNavigateToHome,
   onNavigateToAdmin,
   onNavigateToBuilder,
+  onNavigateToPortfolio,
+  onNavigateToDisclaimer,
   currentView,
   benchmarkUpdatedAt,
   calculationUpdatedAt,
@@ -31,10 +47,10 @@ export function Header({
   syncing = false,
   benchmarkStale = false,
 }: HeaderProps) {
-
   const { session, isAuthenticated, isAdmin, isUser, maxStocks, maxIndices, logout } = useAuth();
   const { success, info } = useToast();
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   const limitsText =
     isUser && (maxStocks || maxIndices)
@@ -45,6 +61,8 @@ export function Header({
     logout();
     info("ログアウトしました（閲覧モード）");
   };
+
+  const closeMobileMenu = () => setIsMobileMenuOpen(false);
 
   return (
     <>
@@ -69,6 +87,7 @@ export function Header({
               if (onNavigateToHome) {
                 e.preventDefault();
                 onNavigateToHome();
+                closeMobileMenu();
               }
             }}
           >
@@ -90,7 +109,7 @@ export function Header({
               <TrendingUp size={16} strokeWidth={2.2} />
             </div>
             <div>
-              <h1 style={{ fontSize: "clamp(1.1rem, 2vw, 1.35rem)", margin: 0 }}>
+              <h1 style={{ fontSize: "clamp(1.05rem, 2vw, 1.35rem)", margin: 0 }}>
                 ORIGINAL INDEX TRACKER
               </h1>
               <p className="muted header-desc" style={{ margin: 0, fontSize: 11, lineHeight: 1.2 }}>
@@ -118,7 +137,7 @@ export function Header({
             <div className="header-meta-group header-meta-actions">
               {/* Auth status indicator */}
               {isAuthenticated ? (
-                <div className="row" style={{ gap: 6, alignItems: "center" }}>
+                <div className="row header-auth-status" style={{ gap: 6, alignItems: "center" }}>
                   <Badge variant={isAdmin ? "magenta" : "cyan"}>
                     {isAdmin ? <ShieldCheck size={11} /> : <KeyRound size={11} />}
                     {session?.name} {limitsText}
@@ -149,50 +168,190 @@ export function Header({
                 </button>
               )}
 
-              {/* Index Builder & Simulator button */}
-              {onNavigateToBuilder && (
-                <button
-                  type="button"
-                  onClick={onNavigateToBuilder}
-                  className={`btn btn-sm ${currentView === "builder" ? "btn-default" : "btn-outline"} builder-nav-btn`}
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: 5,
-                    padding: "4px 9px",
-                    fontSize: 11,
-                    borderColor: currentView === "builder" ? undefined : "var(--accent-border)",
-                    color: currentView === "builder" ? undefined : "var(--accent-text)",
-                  }}
-                  title="独自指数ビルダー＆シミュレーター（未ログイン利用可能）"
-                  aria-label="独自指数ビルダー＆シミュレーターへ移動"
-                >
-                  <Sliders size={12} />
-                  指数ビルダー
-                </button>
-              )}
+              {/* Desktop Nav Items */}
+              <div className="header-nav-desktop row" style={{ gap: 6, alignItems: "center" }}>
+                {/* Index Builder */}
+                {onNavigateToBuilder && (
+                  <button
+                    type="button"
+                    onClick={onNavigateToBuilder}
+                    className={`btn btn-sm ${currentView === "builder" ? "btn-default" : "btn-outline"} builder-nav-btn`}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 5,
+                      padding: "4px 9px",
+                      fontSize: 11,
+                      borderColor: currentView === "builder" ? undefined : "var(--accent-border)",
+                      color: currentView === "builder" ? undefined : "var(--accent-text)",
+                    }}
+                    title="独自指数ビルダー＆シミュレーター（未ログイン利用可能）"
+                    aria-label="独自指数ビルダー＆シミュレーターへ移動"
+                  >
+                    <Sliders size={12} />
+                    <span>指数ビルダー</span>
+                  </button>
+                )}
 
-              {/* Admin Page button (visible only to authenticated admins) */}
-              {isAdmin && onNavigateToAdmin && (
-                <button
-                  type="button"
-                  onClick={onNavigateToAdmin}
-                  className="btn btn-sm btn-outline admin-nav-btn"
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: 5,
-                    padding: "4px 9px",
-                    fontSize: 11,
-                  }}
-                >
-                  <Shield size={12} />
-                  管理者ページ
-                </button>
-              )}
+                {/* Portfolio */}
+                {onNavigateToPortfolio && (
+                  <button
+                    type="button"
+                    onClick={onNavigateToPortfolio}
+                    className={`btn btn-sm ${currentView === "portfolio" ? "btn-default" : "btn-outline"} portfolio-nav-btn`}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 5,
+                      padding: "4px 9px",
+                      fontSize: 11,
+                    }}
+                    title="ポートフォリオ・保有銘柄確認"
+                    aria-label="ポートフォリオへ移動"
+                  >
+                    <Briefcase size={12} />
+                    <span>ポートフォリオ</span>
+                  </button>
+                )}
+
+                {/* Disclaimer */}
+                {onNavigateToDisclaimer && (
+                  <button
+                    type="button"
+                    onClick={onNavigateToDisclaimer}
+                    className={`btn btn-sm ${currentView === "disclaimer" ? "btn-default" : "btn-outline"} disclaimer-nav-btn`}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 5,
+                      padding: "4px 9px",
+                      fontSize: 11,
+                    }}
+                    title="免責事項・利用規約"
+                    aria-label="免責事項へ移動"
+                  >
+                    <FileText size={12} />
+                    <span>免責事項</span>
+                  </button>
+                )}
+
+                {/* Admin Page button (visible only to authenticated admins) */}
+                {isAdmin && onNavigateToAdmin && (
+                  <button
+                    type="button"
+                    onClick={onNavigateToAdmin}
+                    className="btn btn-sm btn-outline admin-nav-btn"
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 5,
+                      padding: "4px 9px",
+                      fontSize: 11,
+                    }}
+                  >
+                    <Shield size={12} />
+                    <span>管理者ページ</span>
+                  </button>
+                )}
+              </div>
+
+              {/* Mobile Menu Toggle Button */}
+              <button
+                type="button"
+                className="btn btn-sm btn-outline header-mobile-menu-btn"
+                onClick={() => setIsMobileMenuOpen((prev) => !prev)}
+                aria-expanded={isMobileMenuOpen}
+                aria-label={isMobileMenuOpen ? "メニューを閉じる" : "メニューを開く"}
+                style={{ padding: "5px 8px", fontSize: 12 }}
+              >
+                {isMobileMenuOpen ? <X size={15} /> : <Menu size={15} />}
+                <span className="header-mobile-menu-label">メニュー</span>
+              </button>
             </div>
           </div>
         </div>
+
+        {/* Mobile Navigation Drawer */}
+        <AnimatePresence>
+          {isMobileMenuOpen && (
+            <motion.nav
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="header-mobile-nav-panel"
+              aria-label="モバイルナビゲーション"
+            >
+              <div className="header-mobile-nav-links">
+                {onNavigateToHome && (
+                  <button
+                    type="button"
+                    className={`header-mobile-nav-item ${currentView === "dashboard" ? "active" : ""}`}
+                    onClick={() => {
+                      onNavigateToHome();
+                      closeMobileMenu();
+                    }}
+                  >
+                    <Home size={16} />
+                    <span>ダッシュボード</span>
+                  </button>
+                )}
+                {onNavigateToBuilder && (
+                  <button
+                    type="button"
+                    className={`header-mobile-nav-item ${currentView === "builder" ? "active" : ""}`}
+                    onClick={() => {
+                      onNavigateToBuilder();
+                      closeMobileMenu();
+                    }}
+                  >
+                    <Sliders size={16} />
+                    <span>指数ビルダー＆シミュレーター</span>
+                  </button>
+                )}
+                {onNavigateToPortfolio && (
+                  <button
+                    type="button"
+                    className={`header-mobile-nav-item ${currentView === "portfolio" ? "active" : ""}`}
+                    onClick={() => {
+                      onNavigateToPortfolio();
+                      closeMobileMenu();
+                    }}
+                  >
+                    <Briefcase size={16} />
+                    <span>ポートフォリオ</span>
+                  </button>
+                )}
+                {onNavigateToDisclaimer && (
+                  <button
+                    type="button"
+                    className={`header-mobile-nav-item ${currentView === "disclaimer" ? "active" : ""}`}
+                    onClick={() => {
+                      onNavigateToDisclaimer();
+                      closeMobileMenu();
+                    }}
+                  >
+                    <FileText size={16} />
+                    <span>免責事項</span>
+                  </button>
+                )}
+                {isAdmin && onNavigateToAdmin && (
+                  <button
+                    type="button"
+                    className={`header-mobile-nav-item ${currentView === "admin" ? "active" : ""}`}
+                    onClick={() => {
+                      onNavigateToAdmin();
+                      closeMobileMenu();
+                    }}
+                  >
+                    <Shield size={16} />
+                    <span>管理者ページ</span>
+                  </button>
+                )}
+              </div>
+            </motion.nav>
+          )}
+        </AnimatePresence>
       </motion.header>
 
       <AuthModal

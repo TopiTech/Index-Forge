@@ -763,7 +763,7 @@ export function ConstituentsTable({
                               <motion.div
                                 className="weight-progress-bar"
                                 initial={{ width: 0 }}
-                                animate={{ width: `${Math.min(item.weight * 2.5, 100)}%` }}
+                                animate={{ width: `${Math.min(item.weight, 100)}%` }}
                                 transition={{ duration: 0.5 }}
                               />
                             </div>
@@ -901,7 +901,7 @@ export function ConstituentsTable({
                       <motion.div
                         className="weight-progress-bar"
                         initial={{ width: 0 }}
-                        animate={{ width: `${Math.min(item.weight * 2.5, 100)}%` }}
+                        animate={{ width: `${Math.min(item.weight, 100)}%` }}
                         transition={{ duration: 0.5 }}
                       />
                     </div>

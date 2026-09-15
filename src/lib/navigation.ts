@@ -29,9 +29,46 @@ export function parseViewFromLocation(pathname: string, search: string = ""): Pa
   return "dashboard";
 }
 
+export type DashboardQueryParams = {
+  indexId?: string;
+  benchmark?: string;
+  timeframe?: string;
+};
+
 /**
- * Returns the URL pathname for the given PageView.
+ * Parses dashboard-specific query parameters (index ID, benchmark symbol, timeframe).
  */
+export function parseDashboardParams(search: string = ""): DashboardQueryParams {
+  const params = new URLSearchParams(search);
+  const indexId = params.get("index") || undefined;
+  const benchmark = params.get("bm") || undefined;
+  const timeframe = params.get("tf") || undefined;
+
+  return { indexId, benchmark, timeframe };
+}
+
+/**
+ * Builds a query string preserving existing non-dashboard params when present.
+ */
+export function buildDashboardQuery(
+  currentSearch: string,
+  updates: DashboardQueryParams,
+): string {
+  const params = new URLSearchParams(currentSearch);
+
+  if (updates.indexId) params.set("index", updates.indexId);
+  else if (updates.indexId === null) params.delete("index");
+
+  if (updates.benchmark) params.set("bm", updates.benchmark);
+  else if (updates.benchmark === null) params.delete("bm");
+
+  if (updates.timeframe) params.set("tf", updates.timeframe);
+  else if (updates.timeframe === null) params.delete("tf");
+
+  const qs = params.toString();
+  return qs ? `?${qs}` : "";
+}
+
 export function getViewPath(view: PageView): string {
   switch (view) {
     case "admin":

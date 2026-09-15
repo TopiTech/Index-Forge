@@ -388,7 +388,7 @@ export function IndexBuilderContent({
 
         <div className="row" style={{ gap: 8, alignItems: "center" }}>
           {/* Mobile Tab Switcher */}
-          <div className="mobile-builder-tabs row" style={{ gap: 4, display: "none" }}>
+          <div className="mobile-builder-tabs row" style={{ gap: 4 }}>
             <button
               type="button"
               className={`btn btn-sm ${activeTab === "builder" ? "btn-default" : "btn-outline"}`}
@@ -668,7 +668,19 @@ export function IndexBuilderContent({
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             <div className="row space-between flex-wrap" style={{ gap: 6 }}>
               <span className="mono tiny bold uppercase" style={{ color: "var(--accent-text)" }}>
-                構成銘柄 & ウェイト ({basket.length} 銘柄 / 合計: {totalWeight.toFixed(1)}%
+                構成銘柄 & ウェイト ({basket.length} 銘柄 / 合計:{" "}
+                <span
+                  style={{
+                    color:
+                      Math.abs(totalWeight - 100) <= 0.05
+                        ? "var(--neon-green)"
+                        : totalWeight > 100
+                          ? "var(--neon-red)"
+                          : "var(--neon-yellow)",
+                  }}
+                >
+                  {totalWeight.toFixed(1)}%
+                </span>
                 {Math.abs(totalWeight - 100) > 0.05 ? " ※自動正規化" : ""})
               </span>
               <div className="row" style={{ gap: 4 }}>
@@ -691,6 +703,34 @@ export function IndexBuilderContent({
                   均等配分
                 </button>
               </div>
+            </div>
+
+            {/* Total Weight Progress Bar Indicator */}
+            <div
+              className="weight-total-bar-bg"
+              style={{
+                height: 4,
+                background: "var(--border-subtle)",
+                borderRadius: 2,
+                overflow: "hidden",
+                margin: "2px 0 6px",
+              }}
+              title={`合計ウェイト: ${totalWeight.toFixed(1)}%`}
+              aria-label={`合計ウェイト: ${totalWeight.toFixed(1)}%`}
+            >
+              <div
+                style={{
+                  height: "100%",
+                  width: `${Math.min(totalWeight, 100)}%`,
+                  background:
+                    Math.abs(totalWeight - 100) <= 0.05
+                      ? "var(--neon-green)"
+                      : totalWeight > 100
+                        ? "var(--neon-red)"
+                        : "var(--neon-yellow)",
+                  transition: "width 0.2s ease, background 0.2s ease",
+                }}
+              />
             </div>
 
             <div
@@ -716,7 +756,7 @@ export function IndexBuilderContent({
                     key={item.ticker}
                     className="builder-basket-row"
                   >
-                    <div style={{ minWidth: 120 }}>
+                    <div style={{ minWidth: 110, flex: "1 1 auto" }}>
                       <div className="row" style={{ gap: 4, alignItems: "center" }}>
                         <span className="mono bold" style={{ fontSize: 11, color: "var(--accent-text)" }}>
                           {item.ticker}
@@ -728,7 +768,7 @@ export function IndexBuilderContent({
                       </span>
                     </div>
 
-                    <div className="row" style={{ flex: 1, gap: 8, maxWidth: 220, alignItems: "center" }}>
+                    <div className="row" style={{ flex: "2 1 200px", gap: 8, alignItems: "center", justifyContent: "flex-end" }}>
                       <input
                         type="range"
                         min={1}
@@ -736,11 +776,33 @@ export function IndexBuilderContent({
                         step={1}
                         value={item.weight}
                         onChange={(e) => handleWeightChange(item.ticker, e.target.value)}
-                        style={{ flex: 1, accentColor: "var(--accent-color)", height: 4 }}
+                        style={{ flex: 1, minWidth: 60, accentColor: "var(--accent-color)", height: 4 }}
+                        aria-label={`${item.name}のウェイト比率スライダー`}
                       />
-                      <span className="mono bold" style={{ width: 38, textAlign: "right", fontSize: 11 }}>
-                        {item.weight.toFixed(0)}%
-                      </span>
+                      <div className="row" style={{ alignItems: "center", gap: 2 }}>
+                        <input
+                          type="number"
+                          min={0.1}
+                          max={100}
+                          step={0.5}
+                          value={Number(item.weight.toFixed(1))}
+                          onChange={(e) => handleWeightChange(item.ticker, e.target.value)}
+                          aria-label={`${item.name}のウェイト比率数値`}
+                          className="input-search"
+                          style={{
+                            width: 50,
+                            height: 24,
+                            padding: "2px 4px",
+                            textAlign: "right",
+                            fontSize: 11,
+                            fontFamily: "var(--mono-font)",
+                            fontWeight: 600,
+                          }}
+                        />
+                        <span className="mono tiny bold" style={{ fontSize: 10, color: "var(--text-secondary)" }}>
+                          %
+                        </span>
+                      </div>
                     </div>
 
                     <button
@@ -753,6 +815,7 @@ export function IndexBuilderContent({
                         cursor: "pointer",
                         padding: 2,
                         opacity: 0.8,
+                        flexShrink: 0,
                       }}
                       title="削除"
                       aria-label={`${item.name}を削除`}

@@ -402,9 +402,70 @@ h3 {
   flex-shrink: 0;
 }
 
+.header-mobile-menu-btn {
+  display: none;
+}
+
+.header-mobile-nav-panel {
+  display: none;
+}
+
 @media (max-width: 768px) {
   .header-meta-divider {
     display: none;
+  }
+
+  .header-nav-desktop {
+    display: none !important;
+  }
+
+  .header-mobile-menu-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .header-mobile-nav-panel {
+    display: block;
+    width: 100%;
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border-subtle);
+    overflow: hidden;
+  }
+
+  .header-mobile-nav-links {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+
+  .header-mobile-nav-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 12px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-primary);
+    background: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+    border-radius: 8px;
+    cursor: pointer;
+    text-align: left;
+    transition: background 0.15s ease, border-color 0.15s ease;
+  }
+
+  .header-mobile-nav-item:hover,
+  .header-mobile-nav-item:focus-visible {
+    background: var(--surface-hover);
+    border-color: var(--accent-border);
+  }
+
+  .header-mobile-nav-item.active {
+    background: var(--accent-subtle);
+    border-color: var(--accent-border);
+    color: var(--accent-text);
   }
 }
 
@@ -442,14 +503,14 @@ h3 {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-@media (max-width: 1100px) {
+@media (max-width: 1080px) {
   .grid-4 {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
-@media (max-width: 600px) {
-  .grid-4,
+@media (max-width: 640px) {
+  .grid-4:not(.stats-grid),
   .grid-2 {
     grid-template-columns: 1fr;
   }
@@ -461,15 +522,21 @@ h3 {
   gap: 20px;
   margin-top: 16px;
   align-items: start;
+  transition: grid-template-columns 0.28s cubic-bezier(0.4, 0, 0.2, 1), gap 0.28s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .layout.sidebar-collapsed {
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: 0px minmax(0, 1fr);
   gap: 0px;
 }
 
 .layout.sidebar-collapsed .index-sidebar {
-  display: none;
+  opacity: 0;
+  transform: translateX(-16px);
+  pointer-events: none;
+  visibility: hidden;
+  max-width: 0;
+  overflow: hidden;
 }
 
 @media (max-width: 1080px) {
@@ -660,7 +727,7 @@ h3 {
 }
 
 .mini-stat-card .mini-stat-sub {
-  font-size: 9px;
+  font-size: 11px;
   color: var(--text-secondary);
   font-family: var(--mono-font);
   margin-top: 2px;
@@ -1263,13 +1330,13 @@ h3 {
   margin-bottom: 16px;
 }
 
-@media (max-width: 900px) {
+@media (max-width: 768px) {
   .admin-passwords-layout {
     grid-template-columns: 1fr;
   }
 }
 
-@media (max-width: 600px) {
+@media (max-width: 640px) {
   .admin-index-meta-grid {
     grid-template-columns: 1fr;
   }
@@ -2007,9 +2074,10 @@ h3 {
   }
 
   .chart-controls {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    gap: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: 100%;
   }
 
   .chart-controls > .btn-group {
@@ -2018,20 +2086,27 @@ h3 {
 
   .chart-controls .timeframe-group {
     display: grid;
-    grid-column: 1 / -1;
     grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 2px;
   }
 
-  .chart-controls .view-mode-group,
+  .chart-controls .view-mode-group {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 2px;
+  }
+
   .chart-controls .technical-group {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 2px;
   }
 
   .chart-controls .btn-group-item {
     min-width: 0;
     padding: 7px 4px !important;
     white-space: nowrap;
+    text-align: center;
   }
 
   .chart-legend-footer {
@@ -2054,12 +2129,8 @@ h3 {
     width: 100%;
   }
 
-  .stats-grid {
-    grid-template-columns: 1fr !important;
-  }
-
   .stat-card {
-    padding: 12px;
+    padding: 10px;
   }
 
   .index-selector-collapsed-summary {
@@ -2220,12 +2291,12 @@ body::before,
 }
 
 .heatmap-tile.is-small .heatmap-tile-code {
-  font-size: 9px;
+  font-size: 10.5px;
 }
 
 .heatmap-tile.is-small .heatmap-tile-weight,
 .heatmap-tile.is-small .heatmap-tile-change {
-  font-size: 9px;
+  font-size: 10px;
 }
 
 .heatmap-tile:hover {
@@ -2247,7 +2318,7 @@ body::before,
 
 .heatmap-tile-weight {
   font-family: var(--mono-font);
-  font-size: 9px;
+  font-size: 10px;
   color: var(--text-secondary);
 }
 
@@ -2810,7 +2881,7 @@ textarea:focus-visible {
   display: none;
 }
 
-@media (max-width: 860px) {
+@media (max-width: 768px) {
   .mobile-sort-controls {
     display: flex;
     align-items: center;
@@ -3020,7 +3091,7 @@ textarea:focus-visible {
   line-height: 1.5;
 }
 
-@media (max-width: 860px) {
+@media (max-width: 768px) {
   .footer-grid {
     grid-template-columns: 1fr;
     gap: 24px;
@@ -3606,7 +3677,11 @@ textarea:focus-visible {
   max-width: 1180px !important;
 }
 
-@media (max-width: 900px) {
+.mobile-builder-tabs {
+  display: none;
+}
+
+@media (max-width: 768px) {
   .builder-main-split {
     grid-template-columns: 1fr !important;
     gap: 16px !important;

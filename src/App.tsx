@@ -2,7 +2,7 @@ import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { ChevronRight, Menu, X } from "lucide-react";
 import { useIndices } from "./hooks/useIndices";
-import { isBenchmarkDataForSymbol, useBenchmark } from "./hooks/useBenchmark";
+import { isBenchmarkDataForSymbol, useBenchmark, AVAILABLE_BENCHMARKS } from "./hooks/useBenchmark";
 import { useCalculation } from "./hooks/useCalculation";
 import { useAuth } from "./hooks/useAuth";
 import { Header } from "./components/Header";
@@ -26,10 +26,25 @@ import { filterByTimeframe } from "./lib/timeframe";
 import { Footer } from "./components/Footer";
 import { PortfolioPage } from "./components/PortfolioPage";
 import { DisclaimerPage } from "./components/DisclaimerPage";
-import { parseViewFromLocation, getViewPath, type PageView } from "./lib/navigation";
-import type { Timeframe } from "./types";
+import {
+  parseViewFromLocation,
+  getViewPath,
+  parseDashboardParams,
+  buildDashboardQuery,
+  type PageView,
+} from "./lib/navigation";
+import type { Timeframe, BenchmarkSymbol } from "./types";
 import type { CustomIndex } from "./data/indices";
 import type { ReactNode } from "react";
+
+const VALID_TIMEFRAMES: readonly Timeframe[] = ["1W", "1M", "3M", "6M", "YTD", "1Y"] as const;
+function isValidTimeframe(tf: string | undefined): tf is Timeframe {
+  return typeof tf === "string" && (VALID_TIMEFRAMES as readonly string[]).includes(tf);
+}
+
+function isBenchmarkSymbol(s: string | undefined): s is BenchmarkSymbol {
+  return AVAILABLE_BENCHMARKS.some((b) => b.symbol === s);
+}
 
 const MOBILE_LAYOUT_QUERY = "(max-width: 1080px)";
 
@@ -65,10 +80,16 @@ function getInitialView(): PageView {
 }
 
 export default function App() {
+  const initialDashboardParamsRef = useRef(
+    typeof window !== "undefined" ? parseDashboardParams(window.location.search) : {},
+  );
   const [isMobileLayout, setIsMobileLayout] = useState(getInitialMobileLayout);
   const [isSidebarOpen, setIsSidebarOpen] = useState(() => !getInitialMobileLayout());
   const [isDesktopSidebarOpen, setIsDesktopSidebarOpen] = useState(true);
-  const [timeframe, setTimeframe] = useState<Timeframe>("1M");
+  const [timeframe, setTimeframe] = useState<Timeframe>(() => {
+    const initialTf = initialDashboardParamsRef.current.timeframe;
+    return isValidTimeframe(initialTf) ? initialTf : "1M";
+  });
   const sidebarToggleRef = useRef<HTMLButtonElement>(null);
   const sidebarRef = useRef<HTMLElement>(null);
   const sidebarWasOpenRef = useRef(false);
@@ -87,14 +108,6 @@ export default function App() {
     }
   }, []);
 
-  useEffect(() => {
-    const onPopState = () => {
-      setCurrentView(parseViewFromLocation(window.location.pathname, window.location.search));
-      window.scrollTo({ top: 0, behavior: "instant" });
-    };
-    window.addEventListener("popstate", onPopState);
-    return () => window.removeEventListener("popstate", onPopState);
-  }, []);
 
   useEffect(() => {
     const mediaQuery = window.matchMedia(MOBILE_LAYOUT_QUERY);
@@ -215,6 +228,16 @@ export default function App() {
     lastUpdatedAt: benchmarkUpdatedAt,
   } = useBenchmark("^N225", currentView === "dashboard");
 
+  const initialBenchmarkHandledRef = useRef(false);
+  useEffect(() => {
+    if (initialBenchmarkHandledRef.current) return;
+    const targetBenchmark = initialDashboardParamsRef.current.benchmark;
+    if (isBenchmarkSymbol(targetBenchmark)) {
+      setSelectedBenchmark(targetBenchmark);
+    }
+    initialBenchmarkHandledRef.current = true;
+  }, [setSelectedBenchmark]);
+
   const {
     customSeries,
     stockDetails,
@@ -236,6 +259,58 @@ export default function App() {
   const canEditSelectedIndex = Boolean(
     selectedIndex && (isAdmin || isOwner(selectedIndex.id)),
   );
+
+  const initialIndexHandledRef = useRef(false);
+  useEffect(() => {
+    if (initialIndexHandledRef.current || !indices || indices.length === 0) return;
+    const targetIndexId = initialDashboardParamsRef.current.indexId;
+    if (targetIndexId) {
+      const match = indices.find((idx) => idx.id === targetIndexId);
+      if (match) {
+        selectIndex(match);
+      }
+    }
+    initialIndexHandledRef.current = true;
+  }, [indices, selectIndex]);
+
+  // Keep URL query parameters synchronized with dashboard state
+  useEffect(() => {
+    if (currentView !== "dashboard" || typeof window === "undefined") return;
+    const targetQuery = buildDashboardQuery(window.location.search, {
+      indexId: selectedIndex?.id,
+      benchmark: selectedBenchmark,
+      timeframe,
+    });
+    const currentUrl = window.location.pathname + window.location.search;
+    const targetUrl = window.location.pathname + targetQuery;
+    if (currentUrl !== targetUrl) {
+      window.history.replaceState(window.history.state, "", targetUrl);
+    }
+  }, [currentView, selectedIndex?.id, selectedBenchmark, timeframe]);
+
+  // Sync state when user navigates using browser back / forward buttons
+  useEffect(() => {
+    const onPopState = () => {
+      const newView = parseViewFromLocation(window.location.pathname, window.location.search);
+      setCurrentView(newView);
+      if (newView === "dashboard") {
+        const params = parseDashboardParams(window.location.search);
+        if (isValidTimeframe(params.timeframe)) {
+          setTimeframe(params.timeframe);
+        }
+        if (isBenchmarkSymbol(params.benchmark)) {
+          setSelectedBenchmark(params.benchmark);
+        }
+        if (params.indexId && indices) {
+          const match = indices.find((idx) => idx.id === params.indexId);
+          if (match) selectIndex(match);
+        }
+      }
+      window.scrollTo({ top: 0, behavior: "instant" });
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, [indices, selectIndex, setSelectedBenchmark]);
 
   const [selectedTheme, setSelectedTheme] = useState<string | null>(null);
   const [isBuilderOpen, setIsBuilderOpen] = useState(false);
@@ -328,6 +403,8 @@ export default function App() {
     onNavigateToHome: () => navigateTo("dashboard"),
     onNavigateToAdmin: () => navigateTo("admin"),
     onNavigateToBuilder: () => navigateTo("builder"),
+    onNavigateToPortfolio: () => navigateTo("portfolio"),
+    onNavigateToDisclaimer: () => navigateTo("disclaimer"),
     currentView,
     benchmarkUpdatedAt,
     calculationUpdatedAt,
@@ -456,52 +533,50 @@ export default function App() {
           )}
         </AnimatePresence>
 
-        {(!isMobileLayout ? isDesktopSidebarOpen : true) && (
-          <aside
-            id="index-sidebar"
-            ref={sidebarRef}
-            className={`index-sidebar ${isSidebarOpen ? "is-open" : ""}`}
-            aria-label="指数セレクター"
-            aria-hidden={isMobileLayout && !isSidebarOpen}
-            role={isMobileLayout ? "dialog" : undefined}
-            aria-modal={isMobileLayout ? isSidebarOpen : undefined}
-            inert={isMobileLayout && !isSidebarOpen ? true : undefined}
-            tabIndex={isMobileLayout ? -1 : undefined}
-          >
-            <div className="sidebar-drawer-header">
-              <div className="row" style={{ gap: 8 }}>
-                <Menu size={16} style={{ color: "var(--accent-text)" }} />
-                <span className="mono tiny uppercase">指数メニュー</span>
-              </div>
-              <button
-                type="button"
-                className="sidebar-close-button"
-                onClick={() => setIsSidebarOpen(false)}
-                aria-label="指数メニューを閉じる"
-              >
-                <X size={18} />
-              </button>
+        <aside
+          id="index-sidebar"
+          ref={sidebarRef}
+          className={`index-sidebar ${isSidebarOpen ? "is-open" : ""}`}
+          aria-label="指数セレクター"
+          aria-hidden={isMobileLayout ? !isSidebarOpen : !isDesktopSidebarOpen}
+          role={isMobileLayout ? "dialog" : undefined}
+          aria-modal={isMobileLayout ? isSidebarOpen : undefined}
+          inert={isMobileLayout && !isSidebarOpen ? true : undefined}
+          tabIndex={isMobileLayout ? -1 : undefined}
+        >
+          <div className="sidebar-drawer-header">
+            <div className="row" style={{ gap: 8 }}>
+              <Menu size={16} style={{ color: "var(--accent-text)" }} />
+              <span className="mono tiny uppercase">指数メニュー</span>
             </div>
+            <button
+              type="button"
+              className="sidebar-close-button"
+              onClick={() => setIsSidebarOpen(false)}
+              aria-label="指数メニューを閉じる"
+            >
+              <X size={18} />
+            </button>
+          </div>
 
-            <AnimatePresence mode="wait">
-              <motion.div
-                key="sidebar"
-                initial={{ opacity: 0, x: -10 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ duration: 0.25 }}
-              >
-                <IndexSelector
-                  indices={indices}
-                  selectedIndex={selectedIndex}
-                  onSelect={handleSelectIndex}
-                  onCreateIndex={handleOpenBuilder}
-                  onDeleteIndex={deleteCustomIndex}
-                  isOwner={isOwner}
-                />
-              </motion.div>
-            </AnimatePresence>
-          </aside>
-        )}
+          <AnimatePresence mode="wait">
+            <motion.div
+              key="sidebar"
+              initial={{ opacity: 0, x: -10 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ duration: 0.25 }}
+            >
+              <IndexSelector
+                indices={indices}
+                selectedIndex={selectedIndex}
+                onSelect={handleSelectIndex}
+                onCreateIndex={handleOpenBuilder}
+                onDeleteIndex={deleteCustomIndex}
+                isOwner={isOwner}
+              />
+            </motion.div>
+          </AnimatePresence>
+        </aside>
 
         <main className="dashboard-main grid" style={{ gap: 20 }}>
           {/* Benchmark Selector Bar with Sidebar Toggle */}

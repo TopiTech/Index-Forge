@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { parseViewFromLocation, getViewPath } from "./navigation";
+import {
+  parseViewFromLocation,
+  getViewPath,
+  parseDashboardParams,
+  buildDashboardQuery,
+} from "./navigation";
 
 describe("Navigation & View Routing Logic", () => {
   describe("parseViewFromLocation", () => {
@@ -47,6 +52,37 @@ describe("Navigation & View Routing Logic", () => {
       expect(getViewPath("portfolio")).toBe("/portfolio");
       expect(getViewPath("disclaimer")).toBe("/disclaimer");
       expect(getViewPath("builder")).toBe("/builder");
+    });
+  });
+
+  describe("parseDashboardParams & buildDashboardQuery", () => {
+    it("parses dashboard parameters correctly", () => {
+      const parsed = parseDashboardParams("?index=nikkei225&bm=topix&tf=1Y");
+      expect(parsed).toEqual({
+        indexId: "nikkei225",
+        benchmark: "topix",
+        timeframe: "1Y",
+      });
+    });
+
+    it("handles missing parameters", () => {
+      const parsed = parseDashboardParams("");
+      expect(parsed).toEqual({
+        indexId: undefined,
+        benchmark: undefined,
+        timeframe: undefined,
+      });
+    });
+
+    it("builds query updates while preserving existing params", () => {
+      const query = buildDashboardQuery("?page=dashboard&other=123", {
+        indexId: "custom-1",
+        timeframe: "5Y",
+      });
+      expect(query).toContain("index=custom-1");
+      expect(query).toContain("tf=5Y");
+      expect(query).toContain("page=dashboard");
+      expect(query).toContain("other=123");
     });
   });
 });

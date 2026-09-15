@@ -186,10 +186,10 @@ export function PerformanceChart({
 
   // Key chart statistics
   const stats = useMemo(() => {
-    if (filteredData.length === 0) return null;
-    const values = filteredData.map((d) => d.value);
-    const minVal = Math.min(...values);
-    const maxVal = Math.max(...values);
+    if (filteredData.length === 0 || displayData.length === 0) return null;
+    const rawValues = filteredData.map((d) => d.value);
+    const minVal = Math.min(...rawValues);
+    const maxVal = Math.max(...rawValues);
     const startVal = filteredData[0].value;
     const endVal = filteredData[filteredData.length - 1].value;
     const periodReturn = startVal > 0 ? ((endVal - startVal) / startVal) * 100 : 0;
@@ -199,13 +199,19 @@ export function PerformanceChart({
     const nikkeiReturn = startNikkei > 0 ? ((lastNikkei - startNikkei) / startNikkei) * 100 : 0;
     const alpha = periodReturn - nikkeiReturn;
 
+    const displayValues = displayData.map((d) => d.value);
+    const displayMin = Math.min(...displayValues);
+    const displayMax = Math.max(...displayValues);
+
     return {
       min: minVal,
       max: maxVal,
+      displayMin,
+      displayMax,
       periodReturn,
       alpha,
     };
-  }, [filteredData]);
+  }, [filteredData, displayData]);
 
   return (
     <Card className="section" role="region" aria-label="パフォーマンス分析チャート">
@@ -599,16 +605,60 @@ export function PerformanceChart({
       {stats && (
         <div className="chart-stats-summary">
           <div className="chart-stat-item">
-            <span className="chart-stat-title">期間高値 (HIGH)</span>
-            <span className="chart-stat-val" style={{ color: "var(--neon-green)" }}>
-              {fmt.format(stats.max)}
+            <span className="chart-stat-title">
+              {viewMode === "percent"
+                ? "期間最高騰落率"
+                : viewMode === "spread"
+                  ? "期間最大超過幅 (α)"
+                  : "期間高値 (HIGH)"}
+            </span>
+            <span
+              className="chart-stat-val"
+              style={{
+                color:
+                  viewMode === "value"
+                    ? "var(--neon-green)"
+                    : stats.displayMax > 0
+                      ? "var(--neon-green)"
+                      : stats.displayMax < 0
+                        ? "var(--neon-red)"
+                        : "inherit",
+              }}
+            >
+              {viewMode === "percent"
+                ? `${stats.displayMax >= 0 ? "+" : ""}${pct.format(stats.displayMax)}%`
+                : viewMode === "spread"
+                  ? `${stats.displayMax >= 0 ? "+" : ""}${pct.format(stats.displayMax)}%pt`
+                  : fmt.format(stats.max)}
             </span>
           </div>
 
           <div className="chart-stat-item">
-            <span className="chart-stat-title">期間安値 (LOW)</span>
-            <span className="chart-stat-val" style={{ color: "var(--neon-red)" }}>
-              {fmt.format(stats.min)}
+            <span className="chart-stat-title">
+              {viewMode === "percent"
+                ? "期間最低騰落率"
+                : viewMode === "spread"
+                  ? "期間最小超過幅 (α)"
+                  : "期間安値 (LOW)"}
+            </span>
+            <span
+              className="chart-stat-val"
+              style={{
+                color:
+                  viewMode === "value"
+                    ? "var(--neon-red)"
+                    : stats.displayMin > 0
+                      ? "var(--neon-green)"
+                      : stats.displayMin < 0
+                        ? "var(--neon-red)"
+                        : "inherit",
+              }}
+            >
+              {viewMode === "percent"
+                ? `${stats.displayMin >= 0 ? "+" : ""}${pct.format(stats.displayMin)}%`
+                : viewMode === "spread"
+                  ? `${stats.displayMin >= 0 ? "+" : ""}${pct.format(stats.displayMin)}%pt`
+                  : fmt.format(stats.min)}
             </span>
           </div>
 

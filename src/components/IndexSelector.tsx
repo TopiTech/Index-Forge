@@ -118,7 +118,7 @@ export function IndexSelector({
               />
             </div>
 
-            <div className="index-list" role="listbox" aria-label="指数一覧">
+            <div className="index-list" aria-label="指数一覧">
         {filteredIndices.map((idx) => {
           const isSelected = selectedIndex?.id === idx.id;
           const isSystem = SYSTEM_INDEX_IDS.has(idx.id);
@@ -132,15 +132,6 @@ export function IndexSelector({
               whileTap={{ scale: 0.98 }}
               className={`index-item ${isSelected ? "active" : ""}`}
               onClick={() => onSelect(idx)}
-              tabIndex={0}
-              role="option"
-              aria-selected={isSelected}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  onSelect(idx);
-                }
-              }}
             >
               <div className="row space-between index-item-header" style={{ marginBottom: 4 }}>
                 <button
@@ -311,7 +302,7 @@ export function IndexSelector({
                       <motion.div
                         className="weight-progress-bar"
                         initial={{ width: 0 }}
-                        animate={{ width: `${Math.min(item.weight * 2, 100)}%` }}
+                        animate={{ width: `${Math.min(item.weight, 100)}%` }}
                         transition={{ duration: 0.6 }}
                       />
                     </div>

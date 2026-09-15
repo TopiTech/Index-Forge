@@ -26,6 +26,7 @@ export function ConfirmModal({
   loading = false,
 }: ConfirmModalProps) {
   const confirmBtnRef = useRef<HTMLButtonElement>(null);
+  const cancelBtnRef = useRef<HTMLButtonElement>(null);
   const handleClose = () => {
     if (!loading) onClose();
   };
@@ -41,7 +42,7 @@ export function ConfirmModal({
       ariaDescribedBy="confirm-modal-description"
       maxWidth={420}
       variant={isDanger ? "danger" : "default"}
-      initialFocusRef={confirmBtnRef}
+      initialFocusRef={isDanger ? cancelBtnRef : confirmBtnRef}
       icon={
         isDanger ? (
           <AlertTriangle size={18} style={{ color: "var(--neon-red)" }} />
@@ -53,6 +54,7 @@ export function ConfirmModal({
       footer={
         <div className="row" style={{ justifyContent: "flex-end", gap: 10 }}>
           <button
+            ref={cancelBtnRef}
             type="button"
             className="btn btn-sm btn-outline"
             onClick={handleClose}
