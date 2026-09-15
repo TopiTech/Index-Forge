@@ -1,5 +1,5 @@
 import React, { useRef } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import { X, Sliders } from "lucide-react";
 import type { CustomIndex } from "../data/indices";
 import { useModalFocus } from "../hooks/useModalFocus";

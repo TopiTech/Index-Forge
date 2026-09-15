@@ -1,21 +1,16 @@
-import React, { useRef, useState, useMemo, useEffect } from "react";
+import React, { useRef, useState, useMemo } from "react";
 import {
-  X,
   Plus,
   Trash2,
   Sliders,
   Check,
   RefreshCw,
   KeyRound,
-  Lock,
   Sparkles,
   Scale,
   Zap,
-  Play,
   Copy,
   ExternalLink,
-  Layers,
-  ArrowRight,
 } from "lucide-react";
 import type { BasketItem } from "../types";
 import type { CustomIndex } from "../data/indices";
@@ -103,7 +98,7 @@ export function IndexBuilderContent({
   onPreviewInDashboard,
   isFullPage = false,
 }: IndexBuilderContentProps) {
-  const { session, isAuthenticated, isUser, maxStocks, maxIndices } = useAuth();
+  const { session, isAuthenticated, isUser, maxStocks } = useAuth();
   const { success: toastSuccess, info: toastInfo } = useToast();
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [pendingSaveAfterAuth, setPendingSaveAfterAuth] = useState(false);
@@ -556,7 +551,7 @@ export function IndexBuilderContent({
               <span className="mono tiny muted uppercase">代表銘柄クイック追加</span>
             </div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
-              {SAMPLE_STOCKS.map((s) => {
+              {PRESET_STOCKS.map((s: PopularStock) => {
                 const isAdded = basket.some((b) => b.ticker === s.ticker);
                 const isDisabled = isAdded || isLimitReached;
                 return (

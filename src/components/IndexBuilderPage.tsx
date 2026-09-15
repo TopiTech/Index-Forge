@@ -1,6 +1,6 @@
 import React from "react";
 import { motion } from "framer-motion";
-import { ArrowLeft, Sliders, Sparkles, TrendingUp } from "lucide-react";
+import { ArrowLeft, Sliders, Sparkles } from "lucide-react";
 import type { CustomIndex } from "../data/indices";
 import { IndexBuilderContent } from "./IndexBuilderContent";
 import { Card } from "./ui";

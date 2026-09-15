@@ -10,7 +10,7 @@ import type {
 import { calculateCustomIndex, normalizeWeights } from "../lib/indexEngine";
 import { calculateRiskMetrics } from "../lib/analytics";
 import { filterByTimeframe } from "../lib/timeframe";
-import { useBenchmark, AVAILABLE_BENCHMARKS } from "./useBenchmark";
+import { useBenchmark } from "./useBenchmark";
 
 export interface ConstituentPerformance {
   ticker: string;

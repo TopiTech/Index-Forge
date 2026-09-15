@@ -12,16 +12,12 @@ import {
   ReferenceLine,
 } from "recharts";
 import {
-  TrendingUp,
   Activity,
-  ShieldAlert,
-  BarChart3,
-  Percent,
   RefreshCw,
   Sparkles,
   Zap,
 } from "lucide-react";
-import type { Timeframe, BenchmarkSymbol, PricePoint } from "../types";
+import type { Timeframe, BenchmarkSymbol } from "../types";
 import { AVAILABLE_BENCHMARKS } from "../hooks/useBenchmark";
 import type { SimulationResult } from "../hooks/useSimulation";
 
