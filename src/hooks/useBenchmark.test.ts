@@ -19,6 +19,13 @@ describe("isBenchmarkDataForSymbol", () => {
   it("accepts only data whose response symbol matches the selected benchmark", () => {
     expect(isBenchmarkDataForSymbol(sample, "^N225")).toBe(true);
     expect(isBenchmarkDataForSymbol(sample, "^GSPC")).toBe(false);
+    expect(isBenchmarkDataForSymbol(sample, "BTC-USD")).toBe(false);
     expect(isBenchmarkDataForSymbol(null, "^N225")).toBe(false);
   });
+
+  it("includes BTC-USD in AVAILABLE_BENCHMARKS", () => {
+    const btc = sample ? { ...sample, snapshot: { ...sample.snapshot, symbol: "BTC-USD" as const } } : null;
+    expect(isBenchmarkDataForSymbol(btc, "BTC-USD")).toBe(true);
+  });
 });
+

@@ -27,6 +27,13 @@ describe("Navigation & View Routing Logic", () => {
       expect(parseViewFromLocation("/", "?page=disclaimer")).toBe("disclaimer");
     });
 
+    it("parses builder path and search parameter", () => {
+      expect(parseViewFromLocation("/builder")).toBe("builder");
+      expect(parseViewFromLocation("/simulator")).toBe("builder");
+      expect(parseViewFromLocation("/", "?page=builder")).toBe("builder");
+      expect(parseViewFromLocation("/", "?page=simulator")).toBe("builder");
+    });
+
     it("falls back to dashboard for unknown paths", () => {
       expect(parseViewFromLocation("/unknown-page")).toBe("dashboard");
       expect(parseViewFromLocation("/", "?page=other")).toBe("dashboard");
@@ -39,6 +46,8 @@ describe("Navigation & View Routing Logic", () => {
       expect(getViewPath("admin")).toBe("/admin");
       expect(getViewPath("portfolio")).toBe("/portfolio");
       expect(getViewPath("disclaimer")).toBe("/disclaimer");
+      expect(getViewPath("builder")).toBe("/builder");
     });
   });
 });
+

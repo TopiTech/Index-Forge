@@ -6,6 +6,7 @@ import { isBenchmarkDataForSymbol, useBenchmark } from "./hooks/useBenchmark";
 import { useCalculation } from "./hooks/useCalculation";
 import { useAuth } from "./hooks/useAuth";
 import { Header } from "./components/Header";
+import { TradingViewTickerTape } from "./components/TradingViewTickerTape";
 import { StatsGrid } from "./components/StatsGrid";
 import { BenchmarkSelector } from "./components/BenchmarkSelector";
 import { IndexSelector } from "./components/IndexSelector";
@@ -15,7 +16,9 @@ import { ThemeBreakdown } from "./components/ThemeBreakdown";
 import { RiskMetricsCard } from "./components/RiskMetricsCard";
 import { ConstituentsTable } from "./components/ConstituentsTable";
 import { IndexBuilderModal } from "./components/IndexBuilderModal";
+import { IndexBuilderPage } from "./components/IndexBuilderPage";
 import { AdminDashboard } from "./components/AdminDashboard";
+
 import { ErrorFallback } from "./components/ErrorFallback";
 import { LoadingScreen } from "./components/LoadingScreen";
 import { buildChartData } from "./lib/chartData";
@@ -228,6 +231,17 @@ export default function App() {
     setIsBuilderOpen(true);
   }, []);
 
+  const handlePreviewInDashboard = useCallback(
+    (tempIndex: CustomIndex) => {
+      setSelectedTheme(null);
+      selectIndex(tempIndex);
+      setIsBuilderOpen(false);
+      navigateTo("dashboard");
+    },
+    [selectIndex, navigateTo],
+  );
+
+
   const handleRetry = useCallback(() => {
     if (benchmarkError) refetchBenchmark();
     if (calcError || !customSeries.length) recalculate(true);
@@ -288,18 +302,48 @@ export default function App() {
 
   // Static pages do not depend on the index list. Render them even while the
   // optional dashboard data request is slow or unavailable.
-  if (currentView === "portfolio") {
+  if (currentView === "builder") {
     return (
       <div className="app">
         <Header
           onNavigateToHome={() => navigateTo("dashboard")}
           onNavigateToAdmin={() => navigateTo("admin")}
+          onNavigateToBuilder={() => navigateTo("builder")}
+          currentView={currentView}
           benchmarkUpdatedAt={benchmarkUpdatedAt}
           calculationUpdatedAt={calculationUpdatedAt}
           dataLoading={loadingBenchmark || loadingCalc}
           syncing={syncing}
           benchmarkStale={false}
         />
+        <TradingViewTickerTape />
+        <main style={{ minHeight: "calc(100vh - 280px)", paddingTop: 16 }}>
+          <IndexBuilderPage
+            onBackToDashboard={() => navigateTo("dashboard")}
+            onSave={saveCustomIndex}
+            onPreviewInDashboard={handlePreviewInDashboard}
+          />
+        </main>
+        <Footer onNavigate={navigateTo} currentView={currentView} />
+      </div>
+    );
+  }
+
+  if (currentView === "portfolio") {
+    return (
+      <div className="app">
+        <Header
+          onNavigateToHome={() => navigateTo("dashboard")}
+          onNavigateToAdmin={() => navigateTo("admin")}
+          onNavigateToBuilder={() => navigateTo("builder")}
+          currentView={currentView}
+          benchmarkUpdatedAt={benchmarkUpdatedAt}
+          calculationUpdatedAt={calculationUpdatedAt}
+          dataLoading={loadingBenchmark || loadingCalc}
+          syncing={syncing}
+          benchmarkStale={false}
+        />
+        <TradingViewTickerTape />
         <main style={{ minHeight: "calc(100vh - 280px)" }}>
           <PortfolioPage onNavigate={navigateTo} />
         </main>
@@ -314,12 +358,15 @@ export default function App() {
         <Header
           onNavigateToHome={() => navigateTo("dashboard")}
           onNavigateToAdmin={() => navigateTo("admin")}
+          onNavigateToBuilder={() => navigateTo("builder")}
+          currentView={currentView}
           benchmarkUpdatedAt={benchmarkUpdatedAt}
           calculationUpdatedAt={calculationUpdatedAt}
           dataLoading={loadingBenchmark || loadingCalc}
           syncing={syncing}
           benchmarkStale={false}
         />
+        <TradingViewTickerTape />
         <main style={{ minHeight: "calc(100vh - 280px)" }}>
           <DisclaimerPage onNavigate={navigateTo} />
         </main>
@@ -328,9 +375,10 @@ export default function App() {
     );
   }
 
-  if (indicesError) {
+  if (indicesError && indices.length === 0) {
     return <ErrorFallback error={indicesError} onRetry={() => window.location.reload()} />;
   }
+
 
   if (loadingIndices) {
     return <LoadingScreen />;
@@ -353,12 +401,16 @@ export default function App() {
       <Header
         onNavigateToHome={() => navigateTo("dashboard")}
         onNavigateToAdmin={() => navigateTo("admin")}
+        onNavigateToBuilder={() => navigateTo("builder")}
+        currentView={currentView}
         benchmarkUpdatedAt={benchmarkUpdatedAt}
         calculationUpdatedAt={calculationUpdatedAt}
         dataLoading={loadingBenchmark || loadingCalc}
         syncing={syncing}
         benchmarkStale={activeBenchmarkData?.stale === true}
       />
+
+      <TradingViewTickerTape />
 
       <div className="mobile-dashboard-toolbar" aria-label="ダッシュボード操作">
         <div className="mobile-current-index">
@@ -595,7 +647,9 @@ export default function App() {
         isOpen={isBuilderOpen}
         onClose={() => setIsBuilderOpen(false)}
         onSave={saveCustomIndex}
+        onPreviewInDashboard={handlePreviewInDashboard}
       />
     </div>
   );
 }
+

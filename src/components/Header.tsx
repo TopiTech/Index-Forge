@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { TrendingUp, Shield, KeyRound, ShieldCheck, LogIn } from "lucide-react";
+import { TrendingUp, Shield, KeyRound, ShieldCheck, LogIn, Sliders } from "lucide-react";
 import { Badge } from "./ui";
 import { useAuth } from "../hooks/useAuth";
 import { useToast } from "./Toast";
@@ -11,6 +11,8 @@ import { AuthModal } from "./AuthModal";
 interface HeaderProps {
   onNavigateToHome?: () => void;
   onNavigateToAdmin?: () => void;
+  onNavigateToBuilder?: () => void;
+  currentView?: string;
   benchmarkUpdatedAt?: number | null;
   calculationUpdatedAt?: number | null;
   dataLoading?: boolean;
@@ -21,12 +23,15 @@ interface HeaderProps {
 export function Header({
   onNavigateToHome,
   onNavigateToAdmin,
+  onNavigateToBuilder,
+  currentView,
   benchmarkUpdatedAt,
   calculationUpdatedAt,
   dataLoading = false,
   syncing = false,
   benchmarkStale = false,
 }: HeaderProps) {
+
   const { session, isAuthenticated, isAdmin, isUser, maxStocks, maxIndices, logout } = useAuth();
   const { success, info } = useToast();
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
@@ -143,8 +148,31 @@ export function Header({
               </button>
             )}
 
-            {/* Admin Page button */}
-            {onNavigateToAdmin && (
+            {/* Index Builder & Simulator button */}
+            {onNavigateToBuilder && (
+              <button
+                type="button"
+                onClick={onNavigateToBuilder}
+                className={`btn btn-sm ${currentView === "builder" ? "btn-default" : "btn-outline"} builder-nav-btn`}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 5,
+                  padding: "4px 9px",
+                  fontSize: 11,
+                  borderColor: currentView === "builder" ? undefined : "var(--accent-border)",
+                  color: currentView === "builder" ? undefined : "var(--accent-text)",
+                }}
+                title="独自指数ビルダー＆シミュレーター（未ログイン利用可能）"
+                aria-label="独自指数ビルダー＆シミュレーターへ移動"
+              >
+                <Sliders size={12} />
+                指数ビルダー
+              </button>
+            )}
+
+            {/* Admin Page button (visible only to authenticated admins) */}
+            {isAdmin && onNavigateToAdmin && (
               <button
                 type="button"
                 onClick={onNavigateToAdmin}

@@ -1,252 +1,33 @@
-import React, { useRef, useState, useMemo } from "react";
-import { motion } from "framer-motion";
-import {
-  X,
-  Plus,
-  Trash2,
-  Sliders,
-  Check,
-  RefreshCw,
-  KeyRound,
-  Lock,
-  Sparkles,
-  Scale,
-} from "lucide-react";
-import type { BasketItem } from "../types";
+import React, { useRef } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { X, Sliders } from "lucide-react";
 import type { CustomIndex } from "../data/indices";
-import { useAuth } from "../hooks/useAuth";
-import { AuthModal } from "./AuthModal";
 import { useModalFocus } from "../hooks/useModalFocus";
-import { useToast } from "./Toast";
-import { searchPopularStocks, type PopularStock } from "../data/popularStocks";
-import { toFiniteNumberOr } from "../lib/downloadFileName";
+import { IndexBuilderContent } from "./IndexBuilderContent";
 
-interface IndexBuilderModalProps {
+export interface IndexBuilderModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSave: (
     index: CustomIndex,
     ownerToken?: string,
   ) => Promise<{ ok: boolean; error?: string; ownerToken?: string }>;
+  onPreviewInDashboard?: (index: CustomIndex) => void;
 }
 
-const SAMPLE_STOCKS: { ticker: string; name: string; theme: string }[] = [
-  { ticker: "7203", name: "トヨタ自動車", theme: "モビリティ" },
-  { ticker: "9984", name: "ソフトバンクグループ", theme: "AI・投資" },
-  { ticker: "8035", name: "東京エレクトロン", theme: "半導体" },
-  { ticker: "6857", name: "アドバンテスト", theme: "半導体検査" },
-  { ticker: "6758", name: "ソニーグループ", theme: "エンタメ・電機" },
-  { ticker: "9983", name: "ファーストリテイリング", theme: "グローバル小売" },
-  { ticker: "8306", name: "三菱UFJ FG", theme: "メガバンク" },
-  { ticker: "8058", name: "三菱商事", theme: "総合商社" },
-  { ticker: "7974", name: "任天堂", theme: "ゲーム・IP" },
-  { ticker: "6861", name: "キーエンス", theme: "ファクトリーオートメーション" },
-  { ticker: "3778", name: "さくらインターネット", theme: "クラウド・AI" },
-  { ticker: "6501", name: "日立製作所", theme: "社会イノベーション" },
-  { ticker: "9432", name: "日本電信電話 (NTT)", theme: "通信・IOWN" },
-  { ticker: "5803", name: "フジクラ", theme: "光ファイバー・電力" },
-  { ticker: "6920", name: "レーザーテック", theme: "最先端マスク検査" },
-];
-
-export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModalProps) {
-  const { session, isAuthenticated, isUser, maxStocks, maxIndices } = useAuth();
-  const { success: toastSuccess } = useToast();
-  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const [baseValue, setBaseValue] = useState(1000);
-  const [basket, setBasket] = useState<BasketItem[]>([
-    { ticker: "9984", name: "ソフトバンクグループ", theme: "AI・投資", weight: 30 },
-    { ticker: "8035", name: "東京エレクトロン", theme: "半導体", weight: 30 },
-    { ticker: "7203", name: "トヨタ自動車", theme: "モビリティ", weight: 40 },
-  ]);
-
-  const [customTicker, setCustomTicker] = useState("");
-  const [customName, setCustomName] = useState("");
-  const [customTheme, setCustomTheme] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+export function IndexBuilderModal({
+  isOpen,
+  onClose,
+  onSave,
+  onPreviewInDashboard,
+}: IndexBuilderModalProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
-  const nameInputRef = useRef<HTMLInputElement>(null);
   const handleClose = () => {
-    if (!saving) onClose();
+    onClose();
   };
-  useModalFocus(isOpen, dialogRef, handleClose, nameInputRef);
-
-  const popularSuggestions = useMemo(() => {
-    const query = customTicker || customName;
-    if (!query.trim() || query.trim().length < 1) return [];
-    return searchPopularStocks(query, 5).filter((s) => !basket.some((b) => b.ticker === s.ticker));
-  }, [customTicker, customName, basket]);
+  useModalFocus(isOpen, dialogRef, handleClose);
 
   if (!isOpen) return null;
-
-  const isLimitReached =
-    isUser && maxStocks !== null && maxStocks > 0 && basket.length >= maxStocks;
-
-  const handleSelectSuggestion = (s: PopularStock) => {
-    setCustomTicker(s.ticker);
-    setCustomName(s.name);
-    setCustomTheme(s.theme);
-    setError(null);
-  };
-
-  const handleAddStock = (stock: { ticker: string; name: string; theme: string }) => {
-    if (isLimitReached) {
-      setError(
-        `このパスワードの上限（最大${maxStocks}銘柄）に達しているため、これ以上追加できません`,
-      );
-      return;
-    }
-    if (basket.some((b) => b.ticker === stock.ticker)) {
-      setError(`銘柄コード ${stock.ticker} は既に追加されています`);
-      return;
-    }
-    setError(null);
-    const newWeight = Math.max(5, Math.floor(100 / (basket.length + 1)));
-    setBasket([...basket, { ...stock, weight: newWeight }]);
-  };
-
-  const handleAddCustom = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (isLimitReached) {
-      setError(
-        `このパスワードの上限（最大${maxStocks}銘柄）に達しているため、これ以上追加できません`,
-      );
-      return;
-    }
-    if (!customTicker.trim() || !customName.trim()) {
-      setError("銘柄コードと銘柄名は必須です");
-      return;
-    }
-    const cleanTicker = customTicker.trim().toUpperCase();
-    if (!/^[A-Za-z0-9.-]+$/.test(cleanTicker) || cleanTicker.length > 20) {
-      setError(
-        "銘柄コードは半角英数字、ハイフン、ピリオド（最大20文字）のみ使用可能です (例: 7203, AAPL)",
-      );
-      return;
-    }
-    if (basket.some((b) => b.ticker === cleanTicker)) {
-      setError(`銘柄コード ${cleanTicker} は既に追加されています`);
-      return;
-    }
-    setError(null);
-    setBasket([
-      ...basket,
-      {
-        ticker: cleanTicker,
-        name: customName.trim().slice(0, 100),
-        theme: customTheme.trim().slice(0, 100) || "カスタム",
-        weight: 10,
-      },
-    ]);
-    setCustomTicker("");
-    setCustomName("");
-    setCustomTheme("");
-  };
-
-  const handleRemoveStock = (ticker: string) => {
-    setBasket(basket.filter((b) => b.ticker !== ticker));
-  };
-
-  const handleWeightChange = (ticker: string, raw: string) => {
-    const weight = Math.min(100, Math.max(0.1, toFiniteNumberOr(raw, 1)));
-    setBasket(
-      basket.map((b) => (b.ticker === ticker ? { ...b, weight } : b)),
-    );
-  };
-
-  const handleEqualWeight = () => {
-    if (basket.length === 0) return;
-    const eqWeight = Number((100 / basket.length).toFixed(2));
-    setBasket(basket.map((b) => ({ ...b, weight: eqWeight })));
-  };
-
-  const handleNormalizeWeights = () => {
-    if (basket.length === 0) return;
-    const currentTotal = basket.reduce((sum, b) => sum + b.weight, 0);
-    if (currentTotal <= 0) return;
-    setBasket(
-      basket.map((b) => ({
-        ...b,
-        weight: Number(((b.weight / currentTotal) * 100).toFixed(1)),
-      })),
-    );
-  };
-
-  const totalWeight = basket.reduce((sum, b) => sum + b.weight, 0);
-
-  const handleSubmit = async () => {
-    if (!name.trim()) {
-      setError("指数名を入力してください");
-      return;
-    }
-    if (name.trim().length > 100) {
-      setError("指数名は100文字以内で入力してください");
-      return;
-    }
-    if (basket.length === 0) {
-      setError("構成銘柄を1つ以上追加してください");
-      return;
-    }
-
-    if (
-      typeof baseValue !== "number" ||
-      !Number.isFinite(baseValue) ||
-      baseValue <= 0 ||
-      baseValue > 1000000
-    ) {
-      setError("基準値は1〜1,000,000の正の数値を入力してください");
-      return;
-    }
-
-    if (!isAuthenticated) {
-      setIsAuthModalOpen(true);
-      setError("指数の保存にはパスワード認証が必要です。パスワードを入力してください。");
-      return;
-    }
-
-    if (isUser && maxStocks !== null && maxStocks > 0 && basket.length > maxStocks) {
-      setError(
-        `このパスワードの上限（最大${maxStocks}銘柄）を超えています（現在${basket.length}銘柄）`,
-      );
-      return;
-    }
-
-    const safeBase = baseValue;
-
-    setSaving(true);
-    setError(null);
-
-    const ownerToken = crypto.randomUUID();
-    const newIndex: CustomIndex = {
-      id: `idx-${crypto.randomUUID()}`,
-      name: name.trim(),
-      description:
-        description.trim().slice(0, 500) || `${basket.length}銘柄で構成されたカスタム指数`,
-      baseValue: safeBase,
-      basket,
-    };
-
-    const res = await onSave(newIndex, ownerToken);
-    setSaving(false);
-
-    if (res.ok) {
-      toastSuccess(`独自指数「${newIndex.name}」を作成・保存しました`);
-      setName("");
-      setDescription("");
-      setBaseValue(1000);
-      setBasket([
-        { ticker: "9984", name: "ソフトバンクグループ", theme: "AI・投資", weight: 30 },
-        { ticker: "8035", name: "東京エレクトロン", theme: "半導体", weight: 30 },
-        { ticker: "7203", name: "トヨタ自動車", theme: "モビリティ", weight: 40 },
-      ]);
-      setError(null);
-      onClose();
-    } else {
-      setError(res.error || "保存に失敗しました");
-    }
-  };
 
   return (
     <div
@@ -267,7 +48,7 @@ export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModal
       }}
     >
       <motion.div
-        className="modal-dialog"
+        className="modal-dialog builder-modal-dialog"
         role="dialog"
         aria-modal="true"
         aria-labelledby="modal-builder-title"
@@ -279,12 +60,12 @@ export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModal
         exit={{ opacity: 0, scale: 0.95 }}
         style={{
           width: "100%",
-          maxWidth: 720,
-          maxHeight: "90vh",
+          maxWidth: 1180,
+          maxHeight: "92vh",
           backgroundColor: "var(--bg-surface)",
           border: "1px solid var(--border-cyan)",
           borderRadius: 14,
-          boxShadow: "0 20px 60px rgba(0,0,0,0.8), 0 0 30px rgba(0,229,255,0.2)",
+          boxShadow: "0 20px 60px rgba(0,0,0,0.8), 0 0 35px rgba(6,182,212,0.25)",
           display: "flex",
           flexDirection: "column",
           overflow: "hidden",
@@ -294,26 +75,25 @@ export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModal
         <div
           className="row space-between"
           style={{
-            padding: "16px 22px",
+            padding: "14px 22px",
             borderBottom: "1px solid var(--border-subtle)",
             background: "linear-gradient(90deg, var(--accent-subtle), transparent)",
           }}
         >
-          <div className="row" style={{ gap: 8 }}>
+          <div className="row" style={{ gap: 8, alignItems: "center" }}>
             <Sliders size={18} style={{ color: "var(--accent-text)" }} />
             <div>
               <h2 id="modal-builder-title" style={{ fontSize: 16, margin: 0 }}>
-                独自指数ビルダー & シミュレーター
+                独自指数ビルダー & リアルタイムシミュレーター
               </h2>
-              <p id="modal-builder-description" className="modal-subtitle">
-                構成銘柄とウェイトを設定して、独自指数を作成します。
+              <p id="modal-builder-description" className="modal-subtitle" style={{ margin: 0, fontSize: 11 }}>
+                構成銘柄とウェイトを設定して、バックテスト推移を即時シミュレーション（ゲスト利用可能）
               </p>
             </div>
           </div>
           <button
             type="button"
             onClick={handleClose}
-            disabled={saving}
             aria-label="閉じる"
             style={{
               background: "transparent",
@@ -327,438 +107,14 @@ export function IndexBuilderModal({ isOpen, onClose, onSave }: IndexBuilderModal
           </button>
         </div>
 
-        {/* Modal Body */}
-        <div style={{ padding: "20px 24px", overflowY: "auto", flex: 1 }}>
-          {error && (
-            <div
-              id="modal-builder-error"
-              role="alert"
-              aria-live="assertive"
-              style={{
-                padding: "8px 12px",
-                background: "rgba(255, 51, 102, 0.15)",
-                border: "1px solid var(--neon-red)",
-                borderRadius: 6,
-                color: "var(--neon-red)",
-                fontSize: 12,
-                marginBottom: 16,
-              }}
-            >
-              {error}
-            </div>
-          )}
-
-          {/* Auth status indicator bar */}
-          <div
-            style={{
-              padding: "8px 12px",
-              background: isAuthenticated ? "var(--accent-subtle)" : "rgba(255, 170, 0, 0.1)",
-              border: `1px solid ${isAuthenticated ? "var(--accent-border)" : "rgba(255, 170, 0, 0.3)"}`,
-              borderRadius: 8,
-              marginBottom: 16,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              fontSize: 12,
-            }}
-          >
-            <div className="row" style={{ gap: 6, alignItems: "center" }}>
-              {isAuthenticated ? (
-                <>
-                  <KeyRound size={14} style={{ color: "var(--accent-text)" }} />
-                  <span>
-                    編集権限: <strong>{session?.name}</strong>
-                  </span>
-                  <span className="mono" style={{ color: "var(--accent-text)" }}>
-                    (
-                    {[
-                      maxStocks ? `上限 ${maxStocks}銘柄` : "銘柄数無制限",
-                      maxIndices ? `指数上限 ${maxIndices}件` : "",
-                    ]
-                      .filter(Boolean)
-                      .join(" / ")}
-                    )
-                  </span>
-                </>
-              ) : (
-                <div className="row" style={{ gap: 8, alignItems: "center" }}>
-                  <Lock size={14} style={{ color: "var(--neon-amber)" }} />
-                  <span style={{ color: "var(--neon-amber)" }}>
-                    未認証状態です。指数の保存にはパスワード認証が必要です。
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setIsAuthModalOpen(true)}
-                    className="btn btn-sm btn-outline"
-                    style={{
-                      padding: "2px 8px",
-                      fontSize: 11,
-                      borderColor: "var(--accent-border)",
-                      color: "var(--accent-text)",
-                    }}
-                  >
-                    <KeyRound size={11} /> パスワード認証
-                  </button>
-                </div>
-              )}
-            </div>
-            <div className="mono tiny">
-              構成銘柄: {basket.length} {maxStocks ? `/ ${maxStocks}` : ""} 銘柄
-            </div>
-          </div>
-
-          {/* Basic Info */}
-          <div className="grid grid-2" style={{ gap: 14, marginBottom: 16 }}>
-            <div>
-              <label
-                htmlFor="builder-index-name"
-                className="mono tiny muted uppercase"
-                style={{ display: "block", marginBottom: 6 }}
-              >
-                指数名 *
-              </label>
-              <input
-                id="builder-index-name"
-                ref={nameInputRef}
-                type="text"
-                className="input-search"
-                style={{ paddingLeft: 12 }}
-                placeholder="例: 次世代AIフロンティア指数"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                aria-invalid={Boolean(error)}
-                aria-describedby={error ? "modal-builder-error" : undefined}
-              />
-            </div>
-
-            <div>
-              <label
-                htmlFor="builder-base-value"
-                className="mono tiny muted uppercase"
-                style={{ display: "block", marginBottom: 6 }}
-              >
-                基準値 (Base Value)
-              </label>
-              <input
-                id="builder-base-value"
-                type="number"
-                className="input-search"
-                style={{ paddingLeft: 12 }}
-                placeholder="1000"
-                value={baseValue}
-                onChange={(e) => setBaseValue(toFiniteNumberOr(e.target.value, 1000))}
-              />
-            </div>
-          </div>
-
-          <div style={{ marginBottom: 20 }}>
-            <label
-              htmlFor="builder-description"
-              className="mono tiny muted uppercase"
-              style={{ display: "block", marginBottom: 6 }}
-            >
-              指数のコンセプト・説明
-            </label>
-            <input
-              id="builder-description"
-              type="text"
-              className="input-search"
-              style={{ paddingLeft: 12 }}
-              placeholder="例: 国内AIスタートアップおよび先端半導体関連の加重平均指数"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-            />
-          </div>
-
-          {/* Stock Quick Picker */}
-          <div style={{ marginBottom: 18 }}>
-            <div className="row space-between" style={{ marginBottom: 8 }}>
-              <span className="mono tiny muted uppercase">代表銘柄クイック追加</span>
-            </div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-              {SAMPLE_STOCKS.map((s) => {
-                const isAdded = basket.some((b) => b.ticker === s.ticker);
-                const isDisabled = isAdded || isLimitReached;
-                return (
-                  <button
-                    key={s.ticker}
-                    type="button"
-                    disabled={isDisabled}
-                    onClick={() => handleAddStock(s)}
-                    className="tag"
-                    style={{
-                      cursor: isDisabled ? "default" : "pointer",
-                      opacity: isDisabled ? 0.4 : 1,
-                      border: isDisabled
-                        ? "1px solid var(--border-subtle)"
-                        : "1px solid var(--border-cyan)",
-                      background: isDisabled ? "transparent" : "rgba(0,229,255,0.08)",
-                    }}
-                  >
-                    <Plus size={10} style={{ marginRight: 3 }} />
-                    {s.name} ({s.ticker})
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Custom Stock Form */}
-          <form
-            onSubmit={handleAddCustom}
-            className="column"
-            style={{
-              gap: 8,
-              padding: "10px 12px",
-              background: "var(--surface-inset)",
-              border: "1px dashed var(--border-subtle)",
-              borderRadius: 8,
-              marginBottom: 20,
-              opacity: isLimitReached ? 0.6 : 1,
-            }}
-          >
-            <div className="row flex-wrap" style={{ gap: 8 }}>
-              <input
-                type="text"
-                placeholder="コード (例: 6701, NVDA)"
-                aria-label="新規追加 銘柄コード"
-                className="input-search"
-                disabled={isLimitReached}
-                style={{ flex: "1 1 90px", height: 32, paddingLeft: 8, fontSize: 12 }}
-                value={customTicker}
-                onChange={(e) => setCustomTicker(e.target.value)}
-              />
-              <input
-                type="text"
-                placeholder="銘柄名 (例: NEC)"
-                aria-label="新規追加 銘柄名"
-                className="input-search"
-                disabled={isLimitReached}
-                style={{ flex: "2 1 120px", height: 32, paddingLeft: 8, fontSize: 12 }}
-                value={customName}
-                onChange={(e) => setCustomName(e.target.value)}
-              />
-              <input
-                type="text"
-                placeholder="テーマ (例: 通信)"
-                aria-label="新規追加 テーマ"
-                className="input-search"
-                disabled={isLimitReached}
-                style={{ flex: "1 1 90px", height: 32, paddingLeft: 8, fontSize: 12 }}
-                value={customTheme}
-                onChange={(e) => setCustomTheme(e.target.value)}
-              />
-              <button
-                type="submit"
-                disabled={isLimitReached}
-                className="btn btn-sm btn-default"
-                style={{ height: 32 }}
-              >
-                <Plus size={12} /> 自由追加
-              </button>
-            </div>
-
-            {/* Popular Stock Incremental Suggestions */}
-            {popularSuggestions.length > 0 && (
-              <div
-                className="row flex-wrap"
-                style={{ gap: 6, alignItems: "center", paddingTop: 4 }}
-              >
-                <span
-                  className="mono tiny muted"
-                  style={{ fontSize: 10, display: "inline-flex", alignItems: "center", gap: 3 }}
-                >
-                  <Sparkles size={11} style={{ color: "var(--accent-text)" }} /> 候補補完:
-                </span>
-                {popularSuggestions.map((s) => (
-                  <button
-                    key={s.ticker}
-                    type="button"
-                    onClick={() => handleSelectSuggestion(s)}
-                    className="tag tag-muted"
-                    style={{
-                      cursor: "pointer",
-                      fontSize: 10,
-                      padding: "2px 6px",
-                      background: "var(--accent-subtle)",
-                      border: "1px solid var(--accent-border)",
-                      color: "var(--text-primary)",
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: 4,
-                    }}
-                    title="クリックしてフォームに入力"
-                  >
-                    <strong style={{ color: "var(--accent-text)" }}>{s.ticker}</strong>
-                    <span>{s.name}</span>
-                    <span className="muted" style={{ fontSize: 9 }}>
-                      ({s.theme})
-                    </span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </form>
-
-          {/* Basket List & Weight Sliders */}
-          <div>
-            <div className="row space-between flex-wrap" style={{ marginBottom: 10, gap: 8 }}>
-              <span className="mono tiny bold uppercase" style={{ color: "var(--accent-text)" }}>
-                構成銘柄とウェイト設定 ({basket.length} 銘柄 / 合計: {totalWeight.toFixed(1)}%
-                {Math.abs(totalWeight - 100) > 0.05 ? " ※保存時に100%へ自動正規化" : ""})
-              </span>
-              <div className="row" style={{ gap: 6 }}>
-                <button
-                  type="button"
-                  onClick={handleNormalizeWeights}
-                  className="btn btn-sm btn-outline"
-                  style={{ fontSize: 10, padding: "2px 8px" }}
-                  title="現在の比率バランスを保ったまま合計100%に再配分"
-                >
-                  <Scale size={11} /> 100%に再配分
-                </button>
-                <button
-                  type="button"
-                  onClick={handleEqualWeight}
-                  className="btn btn-sm btn-outline"
-                  style={{ fontSize: 10, padding: "2px 8px" }}
-                  title="全銘柄を同じ比率に均等配分"
-                >
-                  均等配分に揃える
-                </button>
-              </div>
-            </div>
-
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: 8,
-                maxHeight: 220,
-                overflowY: "auto",
-              }}
-            >
-              {basket.map((item) => (
-                <div
-                  key={item.ticker}
-                  className="row space-between builder-stock-row"
-                  style={{
-                    padding: "8px 12px",
-                    background: "var(--surface-inset)",
-                    border: "1px solid var(--border-subtle)",
-                    borderRadius: 6,
-                    gap: 12,
-                  }}
-                >
-                  <div className="builder-stock-identity" style={{ minWidth: 140 }}>
-                    <div className="row" style={{ gap: 6 }}>
-                      <span
-                        className="mono bold"
-                        style={{ fontSize: 12, color: "var(--accent-text)" }}
-                      >
-                        {item.ticker}
-                      </span>
-                      <span style={{ fontSize: 12 }}>{item.name}</span>
-                    </div>
-                    <span className="tiny muted">{item.theme}</span>
-                  </div>
-
-                  <div
-                    className="row builder-stock-controls"
-                    style={{ flex: 1, gap: 10, maxWidth: 300 }}
-                  >
-                    <input
-                      type="range"
-                      min={1}
-                      max={100}
-                      step={1}
-                      aria-label={`${item.name} (${item.ticker}) の構成比率`}
-                      value={item.weight}
-                      onChange={(e) => handleWeightChange(item.ticker, e.target.value)}
-                      style={{ flex: 1, accentColor: "var(--accent-color)" }}
-                    />
-                    <span
-                      className="mono bold"
-                      style={{ width: 45, textAlign: "right", fontSize: 12 }}
-                    >
-                      {item.weight.toFixed(0)}%
-                    </span>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => handleRemoveStock(item.ticker)}
-                    style={{
-                      background: "transparent",
-                      border: "none",
-                      color: "var(--neon-red)",
-                      cursor: "pointer",
-                      padding: 4,
-                      opacity: 0.8,
-                    }}
-                    title="削除"
-                    aria-label={`${item.name} (${item.ticker}) を構成銘柄から削除`}
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* Modal Footer */}
-        <div
-          className="row space-between flex-wrap"
-          style={{
-            padding: "14px 24px",
-            borderTop: "1px solid var(--border-subtle)",
-            background: "var(--surface-footer)",
-            gap: 12,
-          }}
-        >
-          <div className="tiny muted mono">
-            ※ 作成端末が記録され、あなたのみ削除・編集できるよう暗号化保護されます
-          </div>
-
-          <div className="row" style={{ gap: 10 }}>
-            <button
-              type="button"
-              className="btn btn-outline"
-              onClick={handleClose}
-              disabled={saving}
-            >
-              キャンセル
-            </button>
-            <button
-              type="button"
-              className="btn btn-default"
-              onClick={handleSubmit}
-              disabled={saving || basket.length === 0}
-            >
-              {saving ? (
-                <>
-                  <RefreshCw size={13} className="animate-spin" /> 保存中...
-                </>
-              ) : (
-                <>
-                  <Check size={13} /> 指数を保存・追跡開始
-                </>
-              )}
-            </button>
-          </div>
-        </div>
+        {/* Modal Content */}
+        <IndexBuilderContent
+          onSave={onSave}
+          onClose={onClose}
+          onPreviewInDashboard={onPreviewInDashboard}
+          isFullPage={false}
+        />
       </motion.div>
-
-      {/* Inline Auth Modal for preserving builder state */}
-      <AuthModal
-        isOpen={isAuthModalOpen}
-        onClose={() => setIsAuthModalOpen(false)}
-        onSuccess={() => {
-          setIsAuthModalOpen(false);
-          setError(null);
-        }}
-      />
     </div>
   );
 }

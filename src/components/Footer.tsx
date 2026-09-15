@@ -1,5 +1,6 @@
-import { ExternalLink, ShieldAlert, User, Home, Shield, Code2 } from "lucide-react";
+import { ExternalLink, ShieldAlert, User, Home, Shield, Code2, Sliders } from "lucide-react";
 import type { PageView } from "../lib/navigation";
+import { useAuth } from "../hooks/useAuth";
 
 export type { PageView };
 
@@ -29,6 +30,7 @@ interface FooterProps {
 }
 
 export function Footer({ onNavigate, currentView = "dashboard" }: FooterProps) {
+  const { isAdmin } = useAuth();
   const currentYear = new Date().getFullYear();
 
   return (
@@ -68,6 +70,16 @@ export function Footer({ onNavigate, currentView = "dashboard" }: FooterProps) {
               <li>
                 <button
                   type="button"
+                  onClick={() => onNavigate("builder")}
+                  className={`footer-link-btn ${currentView === "builder" ? "is-active" : ""}`}
+                >
+                  <Sliders size={14} />
+                  <span>指数ビルダー & シミュレーター</span>
+                </button>
+              </li>
+              <li>
+                <button
+                  type="button"
                   onClick={() => onNavigate("portfolio")}
                   className={`footer-link-btn ${currentView === "portfolio" ? "is-active" : ""}`}
                 >
@@ -75,6 +87,7 @@ export function Footer({ onNavigate, currentView = "dashboard" }: FooterProps) {
                   <span>ポートフォリオ / SNS</span>
                 </button>
               </li>
+
               <li>
                 <button
                   type="button"
@@ -85,16 +98,18 @@ export function Footer({ onNavigate, currentView = "dashboard" }: FooterProps) {
                   <span>免責事項</span>
                 </button>
               </li>
-              <li>
-                <button
-                  type="button"
-                  onClick={() => onNavigate("admin")}
-                  className={`footer-link-btn ${currentView === "admin" ? "is-active" : ""}`}
-                >
-                  <Shield size={14} />
-                  <span>管理者ページ</span>
-                </button>
-              </li>
+              {isAdmin && (
+                <li>
+                  <button
+                    type="button"
+                    onClick={() => onNavigate("admin")}
+                    className={`footer-link-btn ${currentView === "admin" ? "is-active" : ""}`}
+                  >
+                    <Shield size={14} />
+                    <span>管理者ページ</span>
+                  </button>
+                </li>
+              )}
             </ul>
           </div>
 

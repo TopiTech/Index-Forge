@@ -46,7 +46,7 @@ export type Snapshot = {
 
 export type Timeframe = "1W" | "1M" | "3M" | "6M" | "YTD" | "1Y";
 
-export type BenchmarkSymbol = "^N225" | "^GSPC" | "USDJPY=X";
+export type BenchmarkSymbol = "^N225" | "^GSPC" | "USDJPY=X" | "BTC-USD";
 
 export interface BenchmarkOption {
   symbol: BenchmarkSymbol;

@@ -359,6 +359,28 @@ h3 {
   flex-wrap: wrap;
 }
 
+/* TradingView Ticker Tape Bar */
+.tradingview-ticker-bar {
+  background: var(--surface-header);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  overflow: hidden;
+  margin-bottom: 16px;
+  min-height: 48px;
+  position: relative;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+}
+
+[data-theme="light"] .tradingview-ticker-bar {
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+  border-color: var(--border-subtle);
+}
+
+.tradingview-ticker-bar .tradingview-widget-container {
+  width: 100%;
+}
+
 /* Grid Layouts */
 .grid {
   display: grid;
@@ -3387,3 +3409,61 @@ textarea:focus-visible {
     justify-content: center;
   }
 }
+
+/* ==========================================================================
+   Index Builder & Real-time Simulator Enhancements
+   ========================================================================== */
+
+.preset-card-btn {
+  background: var(--surface-control);
+  border: 1px solid var(--border-subtle);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.preset-card-btn:hover {
+  background: var(--accent-subtle) !important;
+  border-color: var(--accent-border) !important;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.preset-card-btn:active {
+  transform: translateY(0);
+}
+
+.builder-modal-dialog {
+  max-width: 1180px !important;
+}
+
+@media (max-width: 900px) {
+  .builder-main-split {
+    grid-template-columns: 1fr !important;
+    gap: 16px !important;
+  }
+
+  .mobile-builder-tabs {
+    display: flex !important;
+  }
+
+  .builder-left-pane,
+  .builder-right-pane {
+    display: none !important;
+  }
+
+  .builder-left-pane.active-pane,
+  .builder-right-pane.active-pane {
+    display: flex !important;
+  }
+}
+
+.builder-nav-btn {
+  border-color: var(--accent-border);
+  color: var(--accent-text);
+  transition: all 0.2s ease;
+}
+
+.builder-nav-btn:hover {
+  background: var(--accent-subtle);
+  border-color: var(--accent-color);
+}
+

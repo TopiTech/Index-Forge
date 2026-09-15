@@ -1,0 +1,75 @@
+import { describe, it, expect } from "vitest";
+import { readFileSync } from "fs";
+import { resolve } from "path";
+import { AVAILABLE_BENCHMARKS } from "../hooks/useBenchmark";
+
+describe("Header, Admin Guard, BTC Benchmark & TradingView Enhancements", () => {
+  describe("BTC Benchmark Option", () => {
+    it("includes BTC-USD in AVAILABLE_BENCHMARKS with expected properties", () => {
+      const btc = AVAILABLE_BENCHMARKS.find((b) => b.symbol === "BTC-USD");
+      expect(btc).toBeDefined();
+      expect(btc?.shortLabel).toBe("BTC");
+      expect(btc?.currency).toBe("USD");
+      expect(btc?.label).toContain("ビットコイン");
+    });
+
+    it("has 4 benchmarks defined: Nikkei, S&P 500, USD/JPY, and BTC", () => {
+      const symbols = AVAILABLE_BENCHMARKS.map((b) => b.symbol);
+      expect(symbols).toEqual(["^N225", "^GSPC", "USDJPY=X", "BTC-USD"]);
+    });
+  });
+
+  describe("Admin Navigation Guard", () => {
+    it("guards admin page button with isAdmin in Header.tsx", () => {
+      const headerCode = readFileSync(resolve(__dirname, "../components/Header.tsx"), "utf8");
+      expect(headerCode).toContain("isAdmin && onNavigateToAdmin");
+    });
+
+    it("guards admin page link with isAdmin in Footer.tsx", () => {
+      const footerCode = readFileSync(resolve(__dirname, "../components/Footer.tsx"), "utf8");
+      expect(footerCode).toContain("const { isAdmin } = useAuth();");
+      expect(footerCode).toContain("{isAdmin && (");
+      expect(footerCode).toContain("管理者ページ");
+    });
+  });
+
+  describe("ThemeControls Color Collapsing", () => {
+    it("collapses color options by default and opens on toggle in ThemeControls.tsx", () => {
+      const themeControlsCode = readFileSync(
+        resolve(__dirname, "../components/ThemeControls.tsx"),
+        "utf8",
+      );
+      expect(themeControlsCode).toContain("const [isOpen, setIsOpen] = useState(false);");
+      expect(themeControlsCode).toContain("theme-palette-toggle-btn");
+      expect(themeControlsCode).toContain("accent-picker-popover");
+    });
+  });
+
+  describe("TradingView Ticker Tape Widget", () => {
+    it("excludes TOPIX due to TSE licensing restriction and includes global alternatives", () => {
+      const tvCode = readFileSync(
+        resolve(__dirname, "../components/TradingViewTickerTape.tsx"),
+        "utf8",
+      );
+      // Verify TOPIX is NOT present
+      expect(tvCode).not.toContain("INDEX:TOPX");
+      expect(tvCode).not.toContain("TVC:TPX");
+
+      // Verify global assets and BTC are present
+      expect(tvCode).toContain("TVC:NI225");
+      expect(tvCode).toContain("TVC:DJI");
+      expect(tvCode).toContain("FOREXCOM:SPXUSD");
+      expect(tvCode).toContain("FOREXCOM:NSXUSD");
+      expect(tvCode).toContain("FX_IDC:USDJPY");
+      expect(tvCode).toContain("FX_IDC:XAUUSD");
+      expect(tvCode).toContain("TVC:USOIL");
+      expect(tvCode).toContain("BITSTAMP:BTCUSD");
+      expect(tvCode).toContain("BITSTAMP:ETHUSD");
+    });
+
+    it("mounts TradingViewTickerTape in App.tsx below Header", () => {
+      const appCode = readFileSync(resolve(__dirname, "../App.tsx"), "utf8");
+      expect(appCode).toContain("<TradingViewTickerTape />");
+    });
+  });
+});

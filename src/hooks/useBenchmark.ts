@@ -15,6 +15,7 @@ export const AVAILABLE_BENCHMARKS: BenchmarkOption[] = [
   { symbol: "^N225", label: "日経225", shortLabel: "日経225", currency: "円" },
   { symbol: "^GSPC", label: "S&P 500 (米国)", shortLabel: "S&P500", currency: "USD" },
   { symbol: "USDJPY=X", label: "米ドル/円 (為替)", shortLabel: "USD/JPY", currency: "円" },
+  { symbol: "BTC-USD", label: "ビットコイン (BTC/USD)", shortLabel: "BTC", currency: "USD" },
 ];
 
 export type BenchmarkData = {
