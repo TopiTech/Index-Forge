@@ -101,6 +101,18 @@ export function applyTheme(theme: ThemeMode, accent: AccentColor): void {
   doc.documentElement.setAttribute("data-accent", accent);
 }
 
+const listeners = new Set<() => void>();
+
+function notifyThemeListeners(): void {
+  listeners.forEach((listener) => {
+    try {
+      listener();
+    } catch {
+      // Ignore listener error
+    }
+  });
+}
+
 export function useTheme() {
   const [theme, setThemeState] = useState<ThemeMode>(() => getStoredTheme());
   const [accent, setAccentState] = useState<AccentColor>(() => getStoredAccent());
@@ -108,6 +120,34 @@ export function useTheme() {
   useEffect(() => {
     applyTheme(theme, accent);
   }, [theme, accent]);
+
+  useEffect(() => {
+    const handleSync = () => {
+      setThemeState(getStoredTheme());
+      setAccentState(getStoredAccent());
+    };
+    listeners.add(handleSync);
+
+    const handleStorage = (e: unknown) => {
+      const key = (e as { key?: string | null } | null)?.key;
+      if (key === THEME_STORAGE_KEY || key === ACCENT_STORAGE_KEY) {
+        handleSync();
+      }
+    };
+    const win = globalThis as unknown as {
+      addEventListener?: (type: string, listener: (e: unknown) => void) => void;
+      removeEventListener?: (type: string, listener: (e: unknown) => void) => void;
+    };
+    if (typeof win.addEventListener === "function") {
+      win.addEventListener("storage", handleStorage);
+    }
+    return () => {
+      listeners.delete(handleSync);
+      if (typeof win.removeEventListener === "function") {
+        win.removeEventListener("storage", handleStorage);
+      }
+    };
+  }, []);
 
   const setTheme = useCallback((newTheme: ThemeMode) => {
     setThemeState(newTheme);
@@ -117,6 +157,7 @@ export function useTheme() {
       // Storage may be unavailable or read-only.
     }
     applyTheme(newTheme, accent);
+    notifyThemeListeners();
   }, [accent]);
 
   const toggleTheme = useCallback(() => {
@@ -132,6 +173,7 @@ export function useTheme() {
       // Storage may be unavailable or read-only.
     }
     applyTheme(theme, newAccent);
+    notifyThemeListeners();
   }, [theme]);
 
   return {
@@ -143,3 +185,4 @@ export function useTheme() {
     accentOptions: ACCENT_OPTIONS,
   };
 }
+

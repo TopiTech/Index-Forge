@@ -64,9 +64,9 @@ describe("Header, Admin Guard, BTC Benchmark & TradingView Enhancements", () => 
       expect(tvCode).not.toContain("INDEX:TOPX");
       expect(tvCode).not.toContain("TVC:TPX");
 
-      // Verify global assets and BTC are present
-      expect(tvCode).toContain("TVC:NI225");
-      expect(tvCode).toContain("TVC:DJI");
+      // Verify global assets and BTC are present with supported embed symbols
+      expect(tvCode).toContain("INDEX:NKY");
+      expect(tvCode).toContain("FOREXCOM:DJI");
       expect(tvCode).toContain("FOREXCOM:SPXUSD");
       expect(tvCode).toContain("FOREXCOM:NSXUSD");
       expect(tvCode).toContain("FX_IDC:USDJPY");

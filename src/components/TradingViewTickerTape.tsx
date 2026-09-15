@@ -22,8 +22,8 @@ export function TradingViewTickerTape() {
     script.async = true;
     script.innerHTML = JSON.stringify({
       symbols: [
-        { proName: "TVC:NI225", title: "日経平均" },
-        { proName: "TVC:DJI", title: "NYダウ" },
+        { proName: "INDEX:NKY", title: "日経平均" },
+        { proName: "FOREXCOM:DJI", title: "NYダウ" },
         { proName: "FOREXCOM:SPXUSD", title: "S&P 500" },
         { proName: "FOREXCOM:NSXUSD", title: "NASDAQ 100" },
         { proName: "FX_IDC:USDJPY", title: "米ドル/円" },
@@ -33,7 +33,7 @@ export function TradingViewTickerTape() {
         { proName: "BITSTAMP:ETHUSD", title: "イーサリアム" },
       ],
       showSymbolLogo: true,
-      isTransparent: true,
+      isTransparent: false,
       displayMode: "adaptive",
       colorTheme: theme === "light" ? "light" : "dark",
       locale: "ja",
