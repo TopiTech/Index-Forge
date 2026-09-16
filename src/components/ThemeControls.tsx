@@ -129,18 +129,6 @@ export function ThemeControls() {
               exit={{ opacity: 0, y: -6, scale: 0.95 }}
               transition={{ duration: 0.15, ease: "easeOut" }}
               className="accent-picker-popover"
-              style={{
-                position: "absolute",
-                top: "calc(100% + 6px)",
-                right: 0,
-                zIndex: 150,
-                background: "var(--bg-card)",
-                border: "1px solid var(--border-subtle)",
-                borderRadius: 10,
-                padding: "8px 10px",
-                boxShadow: "0 10px 25px -5px rgba(0, 0, 0, 0.45), 0 0 0 1px var(--border-subtle)",
-                minWidth: 150,
-              }}
             >
               <div
                 className="mono tiny muted uppercase"
@@ -178,20 +166,14 @@ export function ThemeControls() {
                         setAccent(opt.key);
                       }}
                       style={{
-                        width: 22,
-                        height: 22,
-                        borderRadius: "50%",
                         background: opt.color,
                         border: isSelected
                           ? "2px solid var(--text-on-selection)"
-                          : "2px solid transparent",
+                          : undefined,
                         boxShadow: isSelected
                           ? `0 0 12px ${opt.color}`
-                          : "0 2px 4px rgba(0,0,0,0.2)",
-                        cursor: "pointer",
-                        padding: 0,
-                        transform: isSelected ? "scale(1.15)" : "scale(1)",
-                        transition: "all 0.15s ease",
+                          : `0 2px 5px rgba(0,0,0,0.35)`,
+                        transform: isSelected ? "scale(1.18)" : undefined,
                       }}
                     />
                   );

@@ -52,6 +52,41 @@ describe("Header, Admin Guard, BTC Benchmark & TradingView Enhancements", () => 
       expect(cssCode).toMatch(/\.top-header\s*\{[^}]*z-index:\s*\d+;/s);
       expect(cssCode).toContain(".accent-picker-popover {");
     });
+
+    it("ensures .top-header z-index is strictly higher than .tradingview-ticker-bar so popovers take mouse clicks", () => {
+      const cssCode = readFileSync(resolve(__dirname, "../index.css"), "utf8");
+      const headerZMatch = cssCode.match(/\.top-header\s*\{[^}]*z-index:\s*(\d+);/s);
+      const tickerZMatch = cssCode.match(/\.tradingview-ticker-bar\s*\{[^}]*z-index:\s*(\d+);/s);
+
+      expect(headerZMatch).not.toBeNull();
+      expect(tickerZMatch).not.toBeNull();
+
+      const headerZ = parseInt(headerZMatch![1], 10);
+      const tickerZ = parseInt(tickerZMatch![1], 10);
+
+      expect(headerZ).toBeGreaterThan(tickerZ);
+    });
+
+    it("ensures .accent-picker-popover has an opaque background and ThemeControls does not override with translucent background", () => {
+      const cssCode = readFileSync(resolve(__dirname, "../index.css"), "utf8");
+      const themeControlsCode = readFileSync(
+        resolve(__dirname, "../components/ThemeControls.tsx"),
+        "utf8",
+      );
+
+      // CSS must define opaque backgrounds for dark and light themes
+      expect(cssCode).toMatch(/:root\[data-theme="dark"\]\s+\.accent-picker-popover\s*\{[^}]*background:\s*#0e1628/s);
+      expect(cssCode).toMatch(/:root\[data-theme="light"\]\s+\.accent-picker-popover\s*\{[^}]*background:\s*#ffffff/s);
+
+      // ThemeControls.tsx motion.div should NOT inline override background to translucent var(--bg-card)
+      expect(themeControlsCode).not.toContain('background: "var(--bg-card)"');
+    });
+
+    it("ensures .accent-option has defined styles with borders to enhance visibility", () => {
+      const cssCode = readFileSync(resolve(__dirname, "../index.css"), "utf8");
+      expect(cssCode).toContain(".accent-option {");
+      expect(cssCode).toMatch(/\.accent-option:not\(\[aria-checked="true"\]\)\s*\{[^}]*border:/s);
+    });
   });
 
   describe("TradingView Ticker Tape Widget", () => {
