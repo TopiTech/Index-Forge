@@ -39,7 +39,8 @@ function normalizeAnalyticsSeries(
  * later SMA values (NaN + x = NaN).
  */
 export function calculateSMA(data: number[], window: number): (number | null)[] {
-  if (window <= 0 || data.length === 0) return data.map(() => null);
+  const win = Math.floor(window);
+  if (!Number.isFinite(win) || win <= 0 || data.length === 0) return data.map(() => null);
   const result: (number | null)[] = [];
   let sum = 0;
   let validCount = 0;
@@ -51,17 +52,17 @@ export function calculateSMA(data: number[], window: number): (number | null)[] 
       sum += val;
       validCount += 1;
     }
-    if (i >= window) {
-      const outgoing = data[i - window];
+    if (i >= win) {
+      const outgoing = data[i - win];
       const wasFinite = typeof outgoing === "number" && Number.isFinite(outgoing);
       if (wasFinite) {
         sum -= outgoing;
         validCount -= 1;
       }
     }
-    if (i >= window - 1) {
+    if (i >= win - 1) {
       // Only emit a value when every element in the window is finite.
-      result.push(validCount === window ? Number((sum / window).toFixed(2)) : null);
+      result.push(validCount === win ? Number((sum / win).toFixed(2)) : null);
     } else {
       result.push(null);
     }
@@ -235,17 +236,21 @@ export function calculateRiskMetrics(
       ? Number((customReturns.reduce((min, r) => (r < min ? r : min), Infinity) * 100).toFixed(2))
       : 0;
 
-  const safeNum = (n: number, fallback = 0) => (Number.isFinite(n) ? n : fallback);
+  const roundSafe = (n: number, decimals: number, fallback = 0) => {
+    if (!Number.isFinite(n)) return fallback;
+    const rounded = Number(n.toFixed(decimals));
+    return Object.is(rounded, -0) ? 0 : rounded;
+  };
 
   return {
-    annualReturn: Number(safeNum(annualReturn).toFixed(2)),
-    annualVolatility: Number(safeNum(annualVolatility).toFixed(2)),
-    sharpeRatio: safeNum(sharpeRatio),
-    maxDrawdown: Number(safeNum(maxDrawdown).toFixed(2)),
-    beta: beta === null ? null : safeNum(beta),
-    winRate: safeNum(winRate),
-    bestDay: safeNum(bestDay),
-    worstDay: safeNum(worstDay),
+    annualReturn: roundSafe(annualReturn, 2),
+    annualVolatility: roundSafe(annualVolatility, 2),
+    sharpeRatio: roundSafe(sharpeRatio, 2),
+    maxDrawdown: roundSafe(maxDrawdown, 2),
+    beta: beta === null ? null : roundSafe(beta, 2),
+    winRate: roundSafe(winRate, 1),
+    bestDay: roundSafe(bestDay, 2),
+    worstDay: roundSafe(worstDay, 2),
   };
 }
 

@@ -133,7 +133,7 @@ export function calculateCustomIndex(
 
     return allDates.map((date) => {
       const price = priceMap.get(date);
-      if (price !== undefined && price > 0) {
+      if (price !== undefined && typeof price === "number" && Number.isFinite(price) && price > 0) {
         lastPrice = price;
         return price;
       }

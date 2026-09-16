@@ -43,8 +43,12 @@ interface CardDimensions {
 export function getSavedDimensions(): CardDimensions {
   if (typeof window === "undefined") return DEFAULT_SIZE;
   const isMobile = window.innerWidth <= 640;
-  const minW = isMobile ? Math.min(320, Math.floor(window.innerWidth * 0.94)) : 480;
-  const minH = isMobile ? Math.min(300, Math.floor(window.innerHeight * 0.80)) : 360;
+  const minW = isMobile
+    ? Math.min(320, Math.floor(window.innerWidth * 0.94))
+    : Math.min(480, Math.floor(window.innerWidth * 0.94));
+  const minH = isMobile
+    ? Math.min(300, Math.floor(window.innerHeight * 0.80))
+    : Math.min(360, Math.floor(window.innerHeight * 0.88));
 
   try {
     const saved = localStorage.getItem(STORAGE_KEY_SIZE);
@@ -228,8 +232,12 @@ export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModal
     const dx = e.clientX - resizeStartRef.current.x;
     const dy = e.clientY - resizeStartRef.current.y;
     const isMobile = typeof window !== "undefined" && window.innerWidth <= 640;
-    const minW = isMobile ? Math.min(320, Math.floor(window.innerWidth * 0.94)) : 480;
-    const minH = isMobile ? Math.min(300, Math.floor(window.innerHeight * 0.80)) : 380;
+    const minW = isMobile
+      ? Math.min(320, Math.floor(window.innerWidth * 0.94))
+      : Math.min(480, Math.floor(window.innerWidth * 0.94));
+    const minH = isMobile
+      ? Math.min(300, Math.floor(window.innerHeight * 0.80))
+      : Math.min(380, Math.floor(window.innerHeight * 0.88));
     const maxW = Math.max(minW, Math.floor(window.innerWidth * 0.96));
     const maxH = Math.max(minH, Math.floor(window.innerHeight * 0.94));
     const newW = Math.min(maxW, Math.max(minW, Math.round(resizeStartRef.current.w + dx)));
