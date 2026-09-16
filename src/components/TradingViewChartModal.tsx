@@ -1,5 +1,14 @@
-import React, { useEffect, useRef } from "react";
-import { X, ExternalLink, TrendingUp, TrendingDown, BarChart2 } from "lucide-react";
+import React, { useEffect, useRef, useState, useCallback } from "react";
+import {
+  X,
+  ExternalLink,
+  TrendingUp,
+  TrendingDown,
+  BarChart2,
+  Maximize2,
+  Minimize2,
+  RotateCcw,
+} from "lucide-react";
 import { useTheme } from "../lib/theme";
 
 export interface PopupSymbolInfo {
@@ -16,9 +25,118 @@ interface TradingViewChartModalProps {
   onClose: () => void;
 }
 
+const STORAGE_KEY_SIZE = "tv_chart_popup_custom_size";
+
+// Default generous dimensions for high-resolution & comfortable analysis
+const DEFAULT_SIZE = {
+  width: 880,
+  height: 560,
+};
+
+interface CardDimensions {
+  width: number;
+  height: number;
+}
+
+function getSavedDimensions(): CardDimensions {
+  if (typeof window === "undefined") return DEFAULT_SIZE;
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY_SIZE);
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (
+        typeof parsed.width === "number" &&
+        typeof parsed.height === "number" &&
+        parsed.width >= 480 &&
+        parsed.height >= 360
+      ) {
+        // Clamp to current viewport
+        const maxW = Math.max(480, window.innerWidth * 0.94);
+        const maxH = Math.max(360, window.innerHeight * 0.92);
+        return {
+          width: Math.min(parsed.width, maxW),
+          height: Math.min(parsed.height, maxH),
+        };
+      }
+    }
+  } catch {
+    // Ignore storage parse errors
+  }
+  // Default based on screen width
+  const responsiveW = Math.min(DEFAULT_SIZE.width, window.innerWidth * 0.94);
+  const responsiveH = Math.min(DEFAULT_SIZE.height, window.innerHeight * 0.88);
+  return { width: Math.max(480, responsiveW), height: Math.max(380, responsiveH) };
+}
+
 export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModalProps) {
   const { theme } = useTheme();
   const widgetContainerRef = useRef<HTMLDivElement>(null);
+  const cardRef = useRef<HTMLDivElement>(null);
+
+  const [dimensions, setDimensions] = useState<CardDimensions>(getSavedDimensions);
+  const [isMaximized, setIsMaximized] = useState(false);
+  const preMaximizedSizeRef = useRef<CardDimensions>(getSavedDimensions());
+
+  // Save dimensions whenever they change (debounce to localStorage)
+  const saveDimensions = useCallback((dims: CardDimensions) => {
+    try {
+      localStorage.setItem(STORAGE_KEY_SIZE, JSON.stringify(dims));
+    } catch {
+      // Ignore
+    }
+  }, []);
+
+  // Track resize with ResizeObserver
+  useEffect(() => {
+    const cardEl = cardRef.current;
+    if (!cardEl) return;
+
+    let resizeTimer: ReturnType<typeof setTimeout> | null = null;
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const { width, height } = entry.contentRect;
+        if (width >= 460 && height >= 340 && !isMaximized) {
+          if (resizeTimer) clearTimeout(resizeTimer);
+          resizeTimer = setTimeout(() => {
+            const newDims = { width: Math.round(width), height: Math.round(height) };
+            setDimensions(newDims);
+            saveDimensions(newDims);
+          }, 300);
+        }
+      }
+    });
+
+    observer.observe(cardEl);
+    return () => {
+      observer.disconnect();
+      if (resizeTimer) clearTimeout(resizeTimer);
+    };
+  }, [isMaximized, saveDimensions]);
+
+  // Toggle maximize
+  const handleToggleMaximize = useCallback(() => {
+    if (!isMaximized) {
+      preMaximizedSizeRef.current = dimensions;
+      const maxW = Math.floor(window.innerWidth * 0.95);
+      const maxH = Math.floor(window.innerHeight * 0.92);
+      setDimensions({ width: maxW, height: maxH });
+      setIsMaximized(true);
+    } else {
+      setDimensions(preMaximizedSizeRef.current);
+      saveDimensions(preMaximizedSizeRef.current);
+      setIsMaximized(false);
+    }
+  }, [isMaximized, dimensions, saveDimensions]);
+
+  // Reset to default size
+  const handleResetSize = useCallback(() => {
+    const responsiveW = Math.min(DEFAULT_SIZE.width, window.innerWidth * 0.94);
+    const responsiveH = Math.min(DEFAULT_SIZE.height, window.innerHeight * 0.88);
+    const newDims = { width: Math.max(480, responsiveW), height: Math.max(380, responsiveH) };
+    setDimensions(newDims);
+    setIsMaximized(false);
+    saveDimensions(newDims);
+  }, [saveDimensions]);
 
   // Close on Escape key press
   useEffect(() => {
@@ -101,7 +219,12 @@ export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModal
       aria-label={`${symbol.title}のTradingViewチャートプレビュー`}
     >
       <div
-        className="tv-chart-popover-card"
+        ref={cardRef}
+        className={`tv-chart-popover-card ${isMaximized ? "is-maximized" : ""}`}
+        style={{
+          width: `${dimensions.width}px`,
+          height: `${dimensions.height}px`,
+        }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -109,8 +232,8 @@ export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModal
           <div className="row" style={{ gap: 8, alignItems: "center" }}>
             <div
               style={{
-                width: 24,
-                height: 24,
+                width: 26,
+                height: 26,
                 borderRadius: 6,
                 background: "var(--accent-subtle)",
                 border: "1px solid var(--accent-border)",
@@ -120,11 +243,11 @@ export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModal
                 color: "var(--accent-text)",
               }}
             >
-              <BarChart2 size={14} />
+              <BarChart2 size={15} />
             </div>
             <div>
-              <div className="row" style={{ gap: 6, alignItems: "baseline" }}>
-                <strong style={{ fontSize: 13, color: "var(--text-heading)" }}>
+              <div className="row" style={{ gap: 8, alignItems: "baseline" }}>
+                <strong style={{ fontSize: 14, color: "var(--text-heading)", fontWeight: 700 }}>
                   {symbol.title}
                 </strong>
                 <span className="mono tiny muted" style={{ fontSize: 10 }}>
@@ -134,9 +257,9 @@ export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModal
             </div>
           </div>
 
-          <div className="row" style={{ gap: 6, alignItems: "center" }}>
+          <div className="row" style={{ gap: 8, alignItems: "center" }}>
             {symbol.price && (
-              <span className="mono bold" style={{ fontSize: 12 }}>
+              <span className="mono bold" style={{ fontSize: 13, color: "var(--text-primary)" }}>
                 {symbol.price}
               </span>
             )}
@@ -144,34 +267,53 @@ export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModal
               <span
                 className={`mono tiny ${symbol.isPositive ? "positive" : "negative"}`}
                 style={{
-                  fontSize: 10,
+                  fontSize: 11,
                   display: "inline-flex",
                   alignItems: "center",
-                  gap: 2,
+                  gap: 3,
                   color: symbol.isPositive ? "var(--neon-green)" : "var(--neon-red)",
+                  padding: "1px 6px",
+                  borderRadius: 4,
+                  background: symbol.isPositive ? "rgba(16, 185, 129, 0.12)" : "rgba(255, 51, 102, 0.12)",
                 }}
               >
-                {symbol.isPositive ? <TrendingUp size={10} /> : <TrendingDown size={10} />}
+                {symbol.isPositive ? <TrendingUp size={11} /> : <TrendingDown size={11} />}
                 {symbol.changePercent}
               </span>
             )}
-            <button
-              type="button"
-              onClick={onClose}
-              className="btn btn-sm btn-outline"
-              style={{
-                padding: "2px 6px",
-                marginLeft: 6,
-                border: "none",
-                background: "rgba(255, 255, 255, 0.06)",
-                cursor: "pointer",
-                borderRadius: 4,
-              }}
-              title="チャートを閉じる (Esc)"
-              aria-label="チャートを閉じる"
-            >
-              <X size={14} />
-            </button>
+
+            {/* Window controls */}
+            <div className="row" style={{ gap: 4, marginLeft: 4 }}>
+              <button
+                type="button"
+                onClick={handleResetSize}
+                className="tv-window-control-btn"
+                title="サイズを初期値に戻す"
+                aria-label="サイズを初期値に戻す"
+              >
+                <RotateCcw size={12} />
+              </button>
+
+              <button
+                type="button"
+                onClick={handleToggleMaximize}
+                className="tv-window-control-btn"
+                title={isMaximized ? "元のサイズに戻す" : "画面に合わせて最大化"}
+                aria-label={isMaximized ? "元のサイズに戻す" : "画面に合わせて最大化"}
+              >
+                {isMaximized ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+              </button>
+
+              <button
+                type="button"
+                onClick={onClose}
+                className="tv-window-control-btn tv-close-btn"
+                title="チャートを閉じる (Esc)"
+                aria-label="チャートを閉じる"
+              >
+                <X size={14} />
+              </button>
+            </div>
           </div>
         </div>
 
@@ -186,9 +328,15 @@ export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModal
 
         {/* Footer */}
         <div className="tv-chart-popover-footer">
-          <span className="muted" style={{ fontSize: 10 }}>
-            TradingView リアルタイム・インタラクティブ分析
-          </span>
+          <div className="row" style={{ gap: 8, alignItems: "center" }}>
+            <span className="muted" style={{ fontSize: 10 }}>
+              TradingView リアルタイム・インタラクティブ分析
+            </span>
+            <span className="mono tiny muted" style={{ fontSize: 9 }}>
+              ※枠右下の角をドラッグして好みの大きさに調整可能（次回以降も記憶）
+            </span>
+          </div>
+
           <a
             href={tradingViewSymbolUrl}
             target="_blank"

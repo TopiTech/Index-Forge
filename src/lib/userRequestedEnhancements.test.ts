@@ -85,7 +85,7 @@ describe("User Requested Enhancements: Portfolio Tooltip, Menu Button, Builder M
       expect(tvCode).toContain("activePopupSymbol");
     });
 
-    it("implements TradingViewChartModal with embed widget", () => {
+    it("implements TradingViewChartModal with embed widget and persistent sizing", () => {
       const modalCode = readFileSync(
         resolve(__dirname, "../components/TradingViewChartModal.tsx"),
         "utf8",
@@ -93,6 +93,11 @@ describe("User Requested Enhancements: Portfolio Tooltip, Menu Button, Builder M
       expect(modalCode).toContain("TradingViewChartModal");
       expect(modalCode).toContain("embed-widget-symbol-overview.js");
       expect(modalCode).toContain("tv-chart-popover-card");
+      expect(modalCode).toContain("tv_chart_popup_custom_size");
+      expect(modalCode).toContain("ResizeObserver");
+      expect(modalCode).toContain("isMaximized");
+      expect(modalCode).toContain("handleToggleMaximize");
+      expect(modalCode).toContain("handleResetSize");
     });
   });
 });

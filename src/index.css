@@ -471,27 +471,7 @@ h3 {
   }
 }
 
-/* TradingView Ticker Tape Bar */
-.tradingview-ticker-bar {
-  background: #131722;
-  border: 1px solid var(--border-subtle);
-  border-radius: 10px;
-  overflow: hidden;
-  margin-bottom: 16px;
-  min-height: 48px;
-  position: relative;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
-}
 
-[data-theme="light"] .tradingview-ticker-bar {
-  background: #ffffff;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
-  border-color: var(--border-subtle);
-}
-
-.tradingview-ticker-bar .tradingview-widget-container {
-  width: 100%;
-}
 
 /* Grid Layouts */
 .grid {
@@ -3986,28 +3966,42 @@ textarea:focus-visible {
    ========================================================================== */
 .tradingview-ticker-bar {
   width: 100%;
-  background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border-subtle);
+  height: 36px;
+  background: rgba(10, 15, 25, 0.9);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  overflow: hidden;
+  margin-bottom: 14px;
   position: relative;
   z-index: 900;
   font-family: var(--display-font);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  display: flex;
+  align-items: stretch;
+}
+
+[data-theme="light"] .tradingview-ticker-bar {
+  background: #ffffff;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+  border-color: var(--border-subtle);
 }
 
 .tv-interactive-ticker-wrapper {
   position: relative;
   width: 100%;
+  height: 100%;
   overflow: hidden;
   display: flex;
-  align-items: center;
-  background: rgba(10, 15, 25, 0.85);
-  backdrop-filter: blur(8px);
+  align-items: stretch;
+  background: transparent;
 }
 
 .tv-ticker-track {
   display: flex;
-  align-items: center;
+  align-items: stretch;
   white-space: nowrap;
   gap: 0;
+  height: 100%;
   animation: tvMarquee 45s linear infinite;
   will-change: transform;
 }
@@ -4029,7 +4023,8 @@ textarea:focus-visible {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 16px;
+  padding: 0 16px;
+  height: 100%;
   border-right: 1px solid var(--border-subtle);
   cursor: pointer;
   user-select: none;
@@ -4100,24 +4095,35 @@ textarea:focus-visible {
 }
 
 .tv-chart-popover-card {
-  width: 440px;
-  max-width: 92vw;
+  width: 880px;
+  height: 560px;
+  min-width: 480px;
+  min-height: 380px;
+  max-width: 96vw;
+  max-height: 94vh;
   background: var(--bg-card);
   border: 1px solid var(--border-cyan);
   border-radius: 12px;
-  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.8), 0 0 30px rgba(6, 182, 212, 0.25);
-  overflow: hidden;
+  box-shadow: 0 25px 60px rgba(0, 0, 0, 0.85), 0 0 40px rgba(6, 182, 212, 0.25);
   display: flex;
   flex-direction: column;
   position: relative;
   z-index: 10002;
-  animation: popoverScale 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  resize: both;
+  overflow: hidden;
+  animation: popoverScale 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: width 0.2s cubic-bezier(0.4, 0, 0.2, 1), height 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.tv-chart-popover-card.is-maximized {
+  resize: none !important;
+  border-radius: 8px;
 }
 
 @keyframes popoverScale {
   0% {
     opacity: 0;
-    transform: scale(0.92) translateY(8px);
+    transform: scale(0.95) translateY(6px);
   }
   100% {
     opacity: 1;
@@ -4129,26 +4135,56 @@ textarea:focus-visible {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 14px;
+  padding: 10px 16px;
   background: linear-gradient(90deg, var(--accent-subtle), transparent);
   border-bottom: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+}
+
+.tv-window-control-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  border: 1px solid var(--border-subtle);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.tv-window-control-btn:hover {
+  background: var(--accent-subtle);
+  color: var(--accent-text);
+  border-color: var(--accent-border);
+}
+
+.tv-window-control-btn.tv-close-btn:hover {
+  background: rgba(255, 51, 102, 0.18);
+  color: var(--neon-red);
+  border-color: var(--neon-red);
 }
 
 .tv-chart-popover-body {
   width: 100%;
-  height: 280px;
+  flex: 1;
+  min-height: 0;
   background: #131722;
   position: relative;
+  overflow: hidden;
 }
 
 .tv-chart-popover-footer {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 6px 12px;
+  padding: 6px 14px;
   background: var(--surface-footer);
   border-top: 1px solid var(--border-subtle);
   font-size: 10px;
+  flex-shrink: 0;
 }
 
 
