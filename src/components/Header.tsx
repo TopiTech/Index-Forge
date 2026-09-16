@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   TrendingUp,
@@ -51,6 +51,25 @@ export function Header({
   const { success, info } = useToast();
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const mobileMenuToggleRef = useRef<HTMLButtonElement>(null);
+
+  // Close the mobile navigation drawer with Escape and restore focus to the
+  // toggle button, matching the sidebar drawer's keyboard behavior. The
+  // desktop layout hides the toggle, so focus restoration is skipped there.
+  useEffect(() => {
+    if (!isMobileMenuOpen) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setIsMobileMenuOpen(false);
+        mobileMenuToggleRef.current?.focus();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isMobileMenuOpen]);
 
   const limitsText =
     isUser && (maxStocks || maxIndices)
@@ -258,6 +277,7 @@ export function Header({
               {/* Mobile Menu Toggle Button */}
               <button
                 type="button"
+                ref={mobileMenuToggleRef}
                 className="btn btn-sm btn-outline header-mobile-menu-btn"
                 onClick={() => setIsMobileMenuOpen((prev) => !prev)}
                 aria-expanded={isMobileMenuOpen}

@@ -45,6 +45,22 @@ export interface SimulationResult {
 
 const API_BASE = "/api";
 
+/**
+ * Maximum tickers accepted per /api/sync-prices request. The Worker rejects
+ * larger requests with a 400 instead of silently truncating, so callers must
+ * batch themselves.
+ */
+const SYNC_BATCH_SIZE = 30;
+
+/** Split tickers into sync batches no larger than the Worker's request limit. */
+export function buildSyncBatches(tickers: readonly string[], maxBatch = SYNC_BATCH_SIZE): string[][] {
+  const batches: string[][] = [];
+  for (let i = 0; i < tickers.length; i += maxBatch) {
+    batches.push(tickers.slice(i, i + maxBatch));
+  }
+  return batches;
+}
+
 export function useSimulation(
   basket: BasketItem[],
   baseValue: number = 1000,
@@ -115,16 +131,21 @@ export function useSimulation(
 
         // 1. Sync prices in background (if needed) - unauthenticated viewers can sync safely with force=false
         try {
-          const syncRes = await fetch(`${API_BASE}/sync-prices`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ tickers: tickersToSync.slice(0, 30), force: false }),
-            signal: controller.signal,
-          });
-          if (controller.signal.aborted) return;
-          // Ignore non-fatal sync issues and proceed to calculate
-          if (!syncRes.ok) {
-            // Not fatal: /api/calculate will use whatever is in DB or Yahoo fallback
+          // The Worker rejects a single request carrying more than 30 tickers
+          // (it used to silently truncate the excess, which made callers believe
+          // every ticker had been refreshed). Batch so baskets larger than the
+          // limit sync completely instead of leaving the preview with missing
+          // prices and fabricated fallback data.
+          for (const batch of buildSyncBatches(tickersToSync)) {
+            await fetch(`${API_BASE}/sync-prices`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ tickers: batch, force: false }),
+              signal: controller.signal,
+            });
+            if (controller.signal.aborted) return;
+            // Ignore non-fatal sync issues and proceed to calculate:
+            // /api/calculate will use whatever is in DB or Yahoo fallback.
           }
         } catch {
           // Ignore network errors in sync preflight
