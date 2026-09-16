@@ -12,6 +12,7 @@ import {
   Menu,
   X,
   Home,
+  ChevronDown,
 } from "lucide-react";
 import { Badge } from "./ui";
 import { useAuth } from "../hooks/useAuth";
@@ -53,8 +54,11 @@ export function Header({
   const { success, info } = useToast();
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isDesktopMenuOpen, setIsDesktopMenuOpen] = useState(false);
   const mobileMenuToggleRef = useRef<HTMLButtonElement>(null);
   const mobileMenuRef = useRef<HTMLElement>(null);
+  const desktopMenuToggleRef = useRef<HTMLButtonElement>(null);
+  const desktopMenuRef = useRef<HTMLDivElement>(null);
 
   // Close the mobile navigation drawer with Escape, trap focus inside while open,
   // and restore focus to the toggle button on close.
@@ -117,6 +121,42 @@ export function Header({
     setIsMobileMenuOpen(false);
     mobileMenuToggleRef.current?.focus();
   }, []);
+
+  const closeDesktopMenu = useCallback(() => {
+    setIsDesktopMenuOpen(false);
+    desktopMenuToggleRef.current?.focus();
+  }, []);
+
+  // Close the desktop dropdown on outside click or Escape key
+  useEffect(() => {
+    if (!isDesktopMenuOpen) return;
+
+    const handleMouseDown = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (
+        desktopMenuRef.current &&
+        !desktopMenuRef.current.contains(target) &&
+        desktopMenuToggleRef.current &&
+        !desktopMenuToggleRef.current.contains(target)
+      ) {
+        setIsDesktopMenuOpen(false);
+      }
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeDesktopMenu();
+      }
+    };
+
+    document.addEventListener("mousedown", handleMouseDown);
+    window.addEventListener("keydown", handleKeyDown, true);
+    return () => {
+      document.removeEventListener("mousedown", handleMouseDown);
+      window.removeEventListener("keydown", handleKeyDown, true);
+    };
+  }, [isDesktopMenuOpen, closeDesktopMenu]);
 
   return (
     <>
@@ -209,15 +249,6 @@ export function Header({
                       <span className="header-user-name">{session?.name}</span>
                       {limitsText && <span className="header-user-limits">{limitsText}</span>}
                     </Badge>
-                    <button
-                      type="button"
-                      onClick={handleLogout}
-                      className="btn btn-sm btn-outline"
-                      style={{ padding: "4px 8px", fontSize: 11 }}
-                      aria-label="ログアウト"
-                    >
-                      ログアウト
-                    </button>
                   </div>
                 ) : (
                   <button
@@ -236,91 +267,132 @@ export function Header({
                 )}
               </div>
 
-              {/* Desktop Nav Items */}
-              <div className="header-nav-desktop row" style={{ gap: 6, alignItems: "center" }}>
-                {/* Index Builder */}
-                {onNavigateToBuilder && (
-                  <button
-                    type="button"
-                    onClick={onNavigateToBuilder}
-                    className={`btn btn-sm ${currentView === "builder" ? "btn-default" : "btn-outline"} builder-nav-btn`}
+              {/* Desktop Menu Toggle Button */}
+              <div className="header-desktop-menu-wrapper">
+                <button
+                  type="button"
+                  ref={desktopMenuToggleRef}
+                  className="btn btn-sm btn-outline header-desktop-menu-btn"
+                  onClick={() => setIsDesktopMenuOpen((prev) => !prev)}
+                  aria-expanded={isDesktopMenuOpen}
+                  aria-controls="header-desktop-dropdown"
+                  aria-label={isDesktopMenuOpen ? "メニューを閉じる" : "メニューを開く"}
+                >
+                  <Menu size={14} />
+                  <span>メニュー</span>
+                  <ChevronDown
+                    size={12}
                     style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: 5,
-                      padding: "4px 9px",
-                      fontSize: 11,
-                      borderColor: currentView === "builder" ? undefined : "var(--accent-border)",
-                      color: currentView === "builder" ? undefined : "var(--accent-text)",
+                      transition: "transform 0.2s ease",
+                      transform: isDesktopMenuOpen ? "rotate(180deg)" : "rotate(0deg)",
                     }}
-                    title="独自指数ビルダー＆シミュレーター（未ログイン利用可能）"
-                    aria-label="独自指数ビルダー＆シミュレーターへ移動"
-                  >
-                    <Sliders size={12} />
-                    <span>指数ビルダー</span>
-                  </button>
-                )}
+                  />
+                </button>
 
-                {/* Portfolio */}
-                {onNavigateToPortfolio && (
-                  <button
-                    type="button"
-                    onClick={onNavigateToPortfolio}
-                    className={`btn btn-sm ${currentView === "portfolio" ? "btn-default" : "btn-outline"} portfolio-nav-btn`}
-                    style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: 5,
-                      padding: "4px 9px",
-                      fontSize: 11,
-                    }}
-                    title="開発者ポートフォリオ・自己紹介"
-                    aria-label="開発者ポートフォリオ・自己紹介へ移動"
-                  >
-                    <Briefcase size={12} />
-                    <span>ポートフォリオ</span>
-                  </button>
-                )}
-
-                {/* Disclaimer */}
-                {onNavigateToDisclaimer && (
-                  <button
-                    type="button"
-                    onClick={onNavigateToDisclaimer}
-                    className={`btn btn-sm ${currentView === "disclaimer" ? "btn-default" : "btn-outline"} disclaimer-nav-btn`}
-                    style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: 5,
-                      padding: "4px 9px",
-                      fontSize: 11,
-                    }}
-                    title="免責事項・利用規約"
-                    aria-label="免責事項へ移動"
-                  >
-                    <FileText size={12} />
-                    <span>免責事項</span>
-                  </button>
-                )}
-
-                {/* Admin Page button (visible only to authenticated admins) */}
-                {isAdmin && onNavigateToAdmin && (
-                  <button
-                    type="button"
-                    onClick={onNavigateToAdmin}
-                    className="btn btn-sm btn-outline admin-nav-btn"
-                    style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: 5,
-                      padding: "4px 9px",
-                      fontSize: 11,
-                    }}
-                  >
-                    <Shield size={12} />
-                    <span>管理者ページ</span>
-                  </button>
-                )}
+                {/* Desktop Dropdown Panel */}
+                <AnimatePresence>
+                  {isDesktopMenuOpen && (
+                    <motion.div
+                      ref={desktopMenuRef}
+                      initial={{ opacity: 0, y: -8, scale: 0.96 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: -8, scale: 0.96 }}
+                      transition={{ duration: 0.15, ease: "easeOut" }}
+                      className="header-desktop-dropdown"
+                      id="header-desktop-dropdown"
+                      role="menu"
+                      aria-label="ナビゲーションメニュー"
+                    >
+                      {onNavigateToHome && (
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className={`header-desktop-dropdown-item ${currentView === "dashboard" ? "active" : ""}`}
+                          onClick={() => {
+                            onNavigateToHome();
+                            closeDesktopMenu();
+                          }}
+                        >
+                          <Home size={15} />
+                          <span>ダッシュボード</span>
+                        </button>
+                      )}
+                      {onNavigateToBuilder && (
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className={`header-desktop-dropdown-item ${currentView === "builder" ? "active" : ""}`}
+                          onClick={() => {
+                            onNavigateToBuilder();
+                            closeDesktopMenu();
+                          }}
+                        >
+                          <Sliders size={15} />
+                          <span>指数ビルダー</span>
+                        </button>
+                      )}
+                      {onNavigateToPortfolio && (
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className={`header-desktop-dropdown-item ${currentView === "portfolio" ? "active" : ""}`}
+                          onClick={() => {
+                            onNavigateToPortfolio();
+                            closeDesktopMenu();
+                          }}
+                        >
+                          <Briefcase size={15} />
+                          <span>ポートフォリオ</span>
+                        </button>
+                      )}
+                      {onNavigateToDisclaimer && (
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className={`header-desktop-dropdown-item ${currentView === "disclaimer" ? "active" : ""}`}
+                          onClick={() => {
+                            onNavigateToDisclaimer();
+                            closeDesktopMenu();
+                          }}
+                        >
+                          <FileText size={15} />
+                          <span>免責事項</span>
+                        </button>
+                      )}
+                      {isAdmin && onNavigateToAdmin && (
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className={`header-desktop-dropdown-item ${currentView === "admin" ? "active" : ""}`}
+                          onClick={() => {
+                            onNavigateToAdmin();
+                            closeDesktopMenu();
+                          }}
+                        >
+                          <Shield size={15} />
+                          <span>管理者ページ</span>
+                        </button>
+                      )}
+                      {isAuthenticated && (
+                        <>
+                          <div className="header-desktop-dropdown-divider" aria-hidden="true" />
+                          <button
+                            type="button"
+                            role="menuitem"
+                            className="header-desktop-dropdown-item header-desktop-dropdown-logout"
+                            onClick={() => {
+                              handleLogout();
+                              closeDesktopMenu();
+                            }}
+                          >
+                            <LogIn size={15} style={{ transform: "scaleX(-1)" }} />
+                            <span>ログアウト</span>
+                          </button>
+                        </>
+                      )}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
 
               {/* Mobile Menu Toggle Button */}
