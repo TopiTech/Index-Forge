@@ -1152,7 +1152,7 @@ export default {
       const url = new URL(request.url);
 
       if (url.pathname === "/api/health") {
-        return json({ ok: true, service: "original-stock-index-worker" }, 200, request);
+        return json({ ok: true, service: "indexforge-worker" }, 200, request);
       }
 
       // パスワード認証確認

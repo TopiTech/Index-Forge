@@ -121,7 +121,7 @@ describe("worker fetch handlers", () => {
     const res = await worker.fetch(req, env as any);
     expect(res.status).toBe(200);
     const data = await res.json();
-    expect(data).toEqual({ ok: true, service: "original-stock-index-worker" });
+    expect(data).toEqual({ ok: true, service: "indexforge-worker" });
   });
 
   it("handles GET /api/indices", async () => {

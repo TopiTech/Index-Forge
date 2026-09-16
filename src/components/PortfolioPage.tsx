@@ -51,7 +51,7 @@ export function PortfolioPage({ onNavigate }: PortfolioPageProps) {
               <p className="profile-bio">
                 金融・株式データ分析とモダンWeb技術に関心を持つ個人開発者です。
                 投資家自身が客観的にポートフォリオや独自インデックスを追跡・評価できるツール
-                「<strong>Original Stock Index Tracker</strong>」をはじめ、
+                「<strong>IndexForge</strong>」をはじめ、
                 直感的かつ高速で実用性の高いアプリケーションの設計・開発を行っています。
               </p>
             </div>
@@ -123,7 +123,7 @@ export function PortfolioPage({ onNavigate }: PortfolioPageProps) {
 
           <div className="project-feature-card">
             <div className="project-badge-row">
-              <span className="badge badge-accent mono tiny">ORIGINAL STOCK INDEX TRACKER</span>
+              <span className="badge badge-accent mono tiny">IndexForge</span>
               <span className="badge badge-subtle mono tiny">LIVE SERVICE</span>
             </div>
             <h3 className="project-title">独自株価指数トラッカー & クオンツ分析プラットフォーム</h3>

@@ -1,4 +1,4 @@
-# Original Index Tracker (Cloudflare Workers Edition)
+# IndexForge (Cloudflare Workers Edition)
 
 Cloudflare D1 データベースと連携し、独自のカスタム株価指数を日足終値ベースで追跡・分析するためのプラットフォームです。
 

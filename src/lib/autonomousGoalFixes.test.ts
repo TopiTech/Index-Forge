@@ -129,7 +129,7 @@ describe("Autonomous Goal Review Fixes: ExecutionContext in Worker", () => {
     const response = await worker.fetch(request, mockEnv, ctx);
     expect(response.status).toBe(200);
     const body = await response.json();
-    expect(body).toEqual({ ok: true, service: "original-stock-index-worker" });
+    expect(body).toEqual({ ok: true, service: "indexforge-worker" });
   });
 
   it("worker fetch operates reliably even without ExecutionContext provided", async () => {

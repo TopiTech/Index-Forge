@@ -36,7 +36,7 @@ export function DisclaimerPage({ onNavigate }: DisclaimerPageProps) {
           </div>
           <h1 className="disclaimer-title">免責事項（Disclaimer）</h1>
           <p className="disclaimer-subtitle muted">
-            Original Stock Index Tracker（以下、「当サービス」）をご利用いただくにあたり、
+            IndexForge（以下、「当サービス」）をご利用いただくにあたり、
             以下の免責事項・注意事項を必ずお読みいただき、同意の上でご利用ください。
           </p>
           <div className="disclaimer-date mono tiny muted">

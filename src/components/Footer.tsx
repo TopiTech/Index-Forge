@@ -74,7 +74,7 @@ export function Footer({ onNavigate, currentView = "dashboard" }: FooterProps) {
           {/* Brand Info */}
           <div className="footer-col footer-col-brand">
             <div className="footer-brand-header">
-              <span className="footer-brand-title">ORIGINAL STOCK INDEX TRACKER</span>
+              <span className="footer-brand-title">IndexForge</span>
               <span className="badge badge-subtle mono tiny" style={{ fontSize: 10, padding: "2px 6px" }}>v0.1.0</span>
             </div>
             <p className="footer-desc muted">

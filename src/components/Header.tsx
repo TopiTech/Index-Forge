@@ -129,7 +129,7 @@ export function Header({
             </div>
             <div>
               <h1 style={{ fontSize: "clamp(1.05rem, 2vw, 1.35rem)", margin: 0 }}>
-                ORIGINAL INDEX TRACKER
+                IndexForge
               </h1>
               <p className="muted header-desc" style={{ margin: 0, fontSize: 11, lineHeight: 1.2 }}>
                 独自投資戦略・テーマ別ポートフォリオの客観的株価指数化プラットフォーム
