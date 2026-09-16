@@ -38,6 +38,8 @@ export interface SimulationResult {
   error: string | null;
   /** True when the preview shows generated demo prices instead of API data. */
   usingDemoData: boolean;
+  /** True when the benchmark comparison line/alpha is based on generated demo data. */
+  usingDemoBenchmark: boolean;
   timeframe: Timeframe;
   setTimeframe: (tf: Timeframe) => void;
   selectedBenchmark: BenchmarkSymbol;
@@ -267,6 +269,17 @@ export function useSimulation(
     return [];
   }, [benchmarkData, filteredCustomSeries, selectedBenchmark, timeframe]);
 
+  // The benchmark line and the alpha metric must never read as real market
+  // data when the snapshot API is unavailable: disclose the generated fallback
+  // the same way the custom series does.
+  const usingDemoBenchmark = useMemo(
+    () =>
+      !benchmarkLoading &&
+      !(benchmarkData && benchmarkData.series.length > 0) &&
+      filteredBenchmarkSeries.length > 0,
+    [benchmarkLoading, benchmarkData, filteredBenchmarkSeries],
+  );
+
 
   // Calculate quantitative risk metrics
   const metrics = useMemo<RiskMetrics>(() => {
@@ -335,6 +348,8 @@ export function useSimulation(
     error,
     /** True when the preview shows generated demo prices instead of API data. */
     usingDemoData,
+    /** True when the benchmark comparison is generated demo data. */
+    usingDemoBenchmark,
     timeframe,
     setTimeframe,
     selectedBenchmark,

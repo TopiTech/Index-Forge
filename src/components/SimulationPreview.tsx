@@ -52,6 +52,7 @@ export function SimulationPreview({
     loading,
     error,
     usingDemoData,
+    usingDemoBenchmark,
     timeframe,
     setTimeframe,
     selectedBenchmark,
@@ -237,7 +238,7 @@ export function SimulationPreview({
       )}
 
       {/* Demo data notice: generated prices must never read as real market data */}
-      {usingDemoData && !error && (
+      {(usingDemoData || usingDemoBenchmark) && !error && (
         <div
           role="status"
           style={{
@@ -249,7 +250,9 @@ export function SimulationPreview({
             fontSize: 11,
           }}
         >
-          ⚠️ 実データを取得できなかったため、デモデータで表示しています。数値は参考値です。
+          {usingDemoData
+            ? "⚠️ 実データを取得できなかったため、デモデータで表示しています。数値は参考値です。"
+            : `⚠️ ${currentBenchmarkLabel}の実データを取得できなかったため、比較線・超過リターン (α) はデモデータに基づいています。`}
         </div>
       )}
 
@@ -270,8 +273,8 @@ export function SimulationPreview({
         <MiniStatCard
           label="超過リターン (α)"
           value={`${alphaPct >= 0 ? "+" : ""}${alphaPct}%`}
-          valueColor={alphaPct >= 0 ? "var(--accent-text)" : "var(--neon-yellow)"}
-          sub="対比ベンチマーク差分"
+          valueColor={alphaPct >= 0 ? "var(--neon-green)" : "var(--neon-red)"}
+          sub={`vs ${currentBenchmarkLabel}${usingDemoBenchmark ? " (デモ比較)" : ""}`}
         />
         <MiniStatCard
           label="年率換算リターン"

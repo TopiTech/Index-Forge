@@ -1,4 +1,4 @@
-import React, { useRef, useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import {
   Plus,
   Trash2,
@@ -177,8 +177,6 @@ export function IndexBuilderContent({
   const [customTheme, setCustomTheme] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const nameInputRef = useRef<HTMLInputElement>(null);
 
   // Real-time unauthenticated simulation hook
   const simulation = useSimulation(basket, baseValue);
@@ -567,7 +565,6 @@ export function IndexBuilderContent({
               </label>
               <input
                 id="builder-name-input"
-                ref={nameInputRef}
                 type="text"
                 className="input-search"
                 style={{ paddingLeft: 10, height: 34 }}
