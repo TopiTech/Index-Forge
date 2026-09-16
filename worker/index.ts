@@ -1185,7 +1185,8 @@ function json(
       headers["access-control-allow-origin"] = origin;
       headers["access-control-allow-methods"] = "GET,POST,PUT,DELETE,OPTIONS";
       headers["access-control-allow-headers"] =
-        "content-type,x-owner-token,x-admin-key,x-auth-password,authorization";
+        "content-type,x-owner-token,x-admin-key,x-auth-password,authorization,cache-control,if-none-match";
+      headers["access-control-expose-headers"] = "etag, x-data-stale, x-cache";
       headers["vary"] = "Origin";
     }
 
@@ -1217,7 +1218,8 @@ function notModified(request?: Request, customHeaders?: Record<string, string>) 
       headers["access-control-allow-origin"] = origin;
       headers["access-control-allow-methods"] = "GET,POST,PUT,DELETE,OPTIONS";
       headers["access-control-allow-headers"] =
-        "content-type,x-owner-token,x-admin-key,x-auth-password,authorization";
+        "content-type,x-owner-token,x-admin-key,x-auth-password,authorization,cache-control,if-none-match";
+      headers["access-control-expose-headers"] = "etag, x-data-stale, x-cache";
       headers["vary"] = "Origin";
     }
   }

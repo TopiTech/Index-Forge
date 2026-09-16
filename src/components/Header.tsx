@@ -312,6 +312,8 @@ export function Header({
                             onNavigateToHome();
                             closeDesktopMenu();
                           }}
+                          title="ダッシュボード"
+                          aria-label="ダッシュボードへ移動"
                         >
                           <Home size={15} />
                           <span>ダッシュボード</span>
@@ -326,6 +328,8 @@ export function Header({
                             onNavigateToBuilder();
                             closeDesktopMenu();
                           }}
+                          title="指数ビルダー"
+                          aria-label="指数ビルダーへ移動"
                         >
                           <Sliders size={15} />
                           <span>指数ビルダー</span>
@@ -340,6 +344,8 @@ export function Header({
                             onNavigateToPortfolio();
                             closeDesktopMenu();
                           }}
+                          title="開発者ポートフォリオ・自己紹介"
+                          aria-label="開発者ポートフォリオ・自己紹介へ移動"
                         >
                           <Briefcase size={15} />
                           <span>ポートフォリオ</span>
@@ -354,6 +360,8 @@ export function Header({
                             onNavigateToDisclaimer();
                             closeDesktopMenu();
                           }}
+                          title="免責事項・利用規約"
+                          aria-label="免責事項へ移動"
                         >
                           <FileText size={15} />
                           <span>免責事項</span>
@@ -368,6 +376,8 @@ export function Header({
                             onNavigateToAdmin();
                             closeDesktopMenu();
                           }}
+                          title="管理者ページ"
+                          aria-label="管理者ページへ移動"
                         >
                           <Shield size={15} />
                           <span>管理者ページ</span>
@@ -484,6 +494,8 @@ export function Header({
                       onNavigateToHome();
                       closeMobileMenu();
                     }}
+                    title="ダッシュボード"
+                    aria-label="ダッシュボードへ移動"
                   >
                     <Home size={16} />
                     <span>ダッシュボード</span>
@@ -497,6 +509,8 @@ export function Header({
                       onNavigateToBuilder();
                       closeMobileMenu();
                     }}
+                    title="指数ビルダー＆シミュレーター"
+                    aria-label="指数ビルダー＆シミュレーターへ移動"
                   >
                     <Sliders size={16} />
                     <span>指数ビルダー＆シミュレーター</span>
@@ -510,6 +524,8 @@ export function Header({
                       onNavigateToPortfolio();
                       closeMobileMenu();
                     }}
+                    title="開発者ポートフォリオ・自己紹介"
+                    aria-label="開発者ポートフォリオ・自己紹介へ移動"
                   >
                     <Briefcase size={16} />
                     <span>ポートフォリオ</span>
@@ -523,6 +539,8 @@ export function Header({
                       onNavigateToDisclaimer();
                       closeMobileMenu();
                     }}
+                    title="免責事項・利用規約"
+                    aria-label="免責事項へ移動"
                   >
                     <FileText size={16} />
                     <span>免責事項</span>
@@ -536,6 +554,8 @@ export function Header({
                       onNavigateToAdmin();
                       closeMobileMenu();
                     }}
+                    title="管理者ページ"
+                    aria-label="管理者ページへ移動"
                   >
                     <Shield size={16} />
                     <span>管理者ページ</span>

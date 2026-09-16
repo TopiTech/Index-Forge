@@ -312,10 +312,14 @@ export function calculateStockDetails(
       Math.abs(rawContributionPt) < 0.005 || Object.is(rawContributionPt, -0)
         ? 0
         : Number(rawContributionPt.toFixed(2));
-    const contributionPct =
+    const rawContributionPct =
       prevIndexVal > 0 && Math.abs(contributionPt) >= 0.005
         ? Number(((contributionPt / prevIndexVal) * 100).toFixed(2))
         : 0;
+    const contributionPct =
+      Math.abs(rawContributionPct) < 0.005 || Object.is(rawContributionPct, -0)
+        ? 0
+        : rawContributionPct;
 
     // スパークライン（直近10営業日分）
     const sparkline = series.slice(-10).map((p) => p.close);

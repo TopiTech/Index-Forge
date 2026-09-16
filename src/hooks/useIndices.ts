@@ -267,6 +267,9 @@ export function useIndices() {
           "Content-Type": "application/json",
           ...authHeaders,
         };
+        if (password) {
+          headers["x-auth-password"] = password;
+        }
         if (token) {
           headers["x-owner-token"] = token;
         }

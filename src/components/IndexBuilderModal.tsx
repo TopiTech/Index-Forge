@@ -22,6 +22,7 @@ export function IndexBuilderModal({
   onPreviewInDashboard,
 }: IndexBuilderModalProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
+  const isBackdropMouseDownRef = useRef(false);
   const handleClose = () => {
     onClose();
   };
@@ -29,12 +30,22 @@ export function IndexBuilderModal({
 
   if (!isOpen) return null;
 
+  const handleBackdropMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    isBackdropMouseDownRef.current = e.target === e.currentTarget;
+  };
+
+  const handleBackdropClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (isBackdropMouseDownRef.current && e.target === e.currentTarget) {
+      handleClose();
+    }
+    isBackdropMouseDownRef.current = false;
+  };
+
   return (
     <div
       className="modal-overlay"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) handleClose();
-      }}
+      onMouseDown={handleBackdropMouseDown}
+      onClick={handleBackdropClick}
       style={{
         position: "fixed",
         inset: 0,
@@ -55,6 +66,7 @@ export function IndexBuilderModal({
         aria-describedby="modal-builder-description"
         data-modal-dialog
         ref={dialogRef}
+        onMouseDown={(e) => e.stopPropagation()}
         initial={{ opacity: 0, scale: 0.95, y: 20 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.95 }}

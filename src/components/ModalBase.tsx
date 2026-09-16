@@ -37,18 +37,29 @@ export function ModalBase({
   showCloseButton = true,
 }: ModalBaseProps) {
   const internalDialogRef = useRef<HTMLDivElement>(null);
+  const isBackdropMouseDownRef = useRef(false);
   useModalFocus(isOpen, internalDialogRef, onClose, initialFocusRef);
 
   if (!isOpen) return null;
 
   const isDanger = variant === "danger";
 
+  const handleBackdropMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    isBackdropMouseDownRef.current = e.target === e.currentTarget;
+  };
+
+  const handleBackdropClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (isBackdropMouseDownRef.current && e.target === e.currentTarget) {
+      onClose();
+    }
+    isBackdropMouseDownRef.current = false;
+  };
+
   return (
     <div
       className="modal-overlay"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
+      onMouseDown={handleBackdropMouseDown}
+      onClick={handleBackdropClick}
     >
       <motion.div
         className={`modal-dialog ${isDanger ? "modal-dialog-danger" : ""}`}
@@ -58,6 +69,7 @@ export function ModalBase({
         aria-describedby={ariaDescribedBy}
         data-modal-dialog
         ref={internalDialogRef}
+        onMouseDown={(e) => e.stopPropagation()}
         initial={{ opacity: 0, scale: 0.95, y: 15 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.95 }}
