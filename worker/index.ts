@@ -306,6 +306,39 @@ const BENCHMARK_MAP: Record<string, { label: string; desc: string }> = {
   "BTC-USD": { label: "ビットコイン", desc: "Bitcoin / USD (日足)" },
 };
 
+export interface TickerPriceQuote {
+  proName: string;
+  symbol: string;
+  price: number;
+  change: number;
+  changePercent: number;
+  formattedPrice: string;
+  formattedChange: string;
+  formattedChangePercent: string;
+  isPositive: boolean;
+  updatedAt?: string;
+}
+
+export interface TickerMappingItem {
+  proName: string;
+  symbol: string;
+  defaultPrice: number;
+  defaultChange: number;
+  defaultChangePercent: number;
+}
+
+export const TICKER_MAPPINGS: TickerMappingItem[] = [
+  { proName: "INDEX:NKY", symbol: "^N225", defaultPrice: 38980.5, defaultChange: 145.2, defaultChangePercent: 0.37 },
+  { proName: "FOREXCOM:DJI", symbol: "^DJI", defaultPrice: 43825.1, defaultChange: 210.4, defaultChangePercent: 0.48 },
+  { proName: "FOREXCOM:SPXUSD", symbol: "^GSPC", defaultPrice: 5860.25, defaultChange: 18.9, defaultChangePercent: 0.32 },
+  { proName: "FOREXCOM:NSXUSD", symbol: "^NDX", defaultPrice: 20410.8, defaultChange: 95.3, defaultChangePercent: 0.47 },
+  { proName: "FX_IDC:USDJPY", symbol: "USDJPY=X", defaultPrice: 155.2, defaultChange: 0.15, defaultChangePercent: 0.1 },
+  { proName: "FX_IDC:XAUUSD", symbol: "GC=F", defaultPrice: 2680.5, defaultChange: -8.4, defaultChangePercent: -0.31 },
+  { proName: "TVC:USOIL", symbol: "CL=F", defaultPrice: 71.45, defaultChange: -0.65, defaultChangePercent: -0.9 },
+  { proName: "BITSTAMP:BTCUSD", symbol: "BTC-USD", defaultPrice: 91240.0, defaultChange: 1250.0, defaultChangePercent: 1.39 },
+  { proName: "BITSTAMP:ETHUSD", symbol: "ETH-USD", defaultPrice: 3340.5, defaultChange: 45.2, defaultChangePercent: 1.37 },
+];
+
 // Upper bound for a single index basket. The save path chunks basket writes so
 // this remains below D1 statement-parameter and Worker invocation limits while
 // comfortably accommodating the largest built-in index (175 stocks).
@@ -951,6 +984,165 @@ async function fetchYahooFinance(symbol: string, range = "1y"): Promise<PricePoi
     console.error(`Error fetching ${symbol}:`, err);
     return [];
   }
+}
+
+export function formatTickerPrice(price: number): string {
+  return price.toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+export function formatTickerChange(change: number): string {
+  const formatted = Math.abs(change).toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+  if (change > 0) return `+${formatted}`;
+  if (change < 0) return `-${formatted}`;
+  return `0.00`;
+}
+
+export function formatTickerChangePercent(pct: number): string {
+  const formatted = Math.abs(pct).toFixed(2);
+  if (pct > 0) return `+${formatted}%`;
+  if (pct < 0) return `-${formatted}%`;
+  return `0.00%`;
+}
+
+export interface YahooQuoteSummary {
+  price: number;
+  change: number;
+  changePercent: number;
+}
+
+export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteSummary | null> {
+  const encodedSymbol = encodeURIComponent(symbol);
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodedSymbol}?interval=1d&range=5d`;
+  try {
+    const res = await fetch(url, {
+      signal: AbortSignal.timeout(6000),
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      },
+    });
+    if (!res.ok) return null;
+
+    const data: YahooChartResponse & {
+      chart?: {
+        result?: {
+          meta?: {
+            regularMarketPrice?: number;
+            chartPreviousClose?: number;
+            previousClose?: number;
+          };
+          timestamp: number[];
+          indicators: {
+            quote: { close: (number | null)[] }[];
+          };
+        }[];
+      };
+    } = await res.json();
+
+    const result = data.chart?.result?.[0];
+    if (!result) return null;
+
+    const meta = result.meta || {};
+    const closes: (number | null)[] = result.indicators?.quote?.[0]?.close ?? [];
+    const validCloses = closes.filter(
+      (c): c is number => typeof c === "number" && Number.isFinite(c) && c > 0,
+    );
+
+    let price: number | null = null;
+    if (
+      typeof meta.regularMarketPrice === "number" &&
+      Number.isFinite(meta.regularMarketPrice) &&
+      meta.regularMarketPrice > 0
+    ) {
+      price = meta.regularMarketPrice;
+    } else if (validCloses.length > 0) {
+      price = validCloses[validCloses.length - 1];
+    }
+
+    if (price === null) return null;
+
+    let prevClose: number | null = null;
+    if (
+      typeof meta.chartPreviousClose === "number" &&
+      Number.isFinite(meta.chartPreviousClose) &&
+      meta.chartPreviousClose > 0
+    ) {
+      prevClose = meta.chartPreviousClose;
+    } else if (
+      typeof meta.previousClose === "number" &&
+      Number.isFinite(meta.previousClose) &&
+      meta.previousClose > 0
+    ) {
+      prevClose = meta.previousClose;
+    } else if (validCloses.length >= 2) {
+      prevClose = validCloses[validCloses.length - 2];
+    } else {
+      prevClose = price;
+    }
+
+    const change = Number((price - prevClose).toFixed(2));
+    const changePercent = prevClose > 0 ? Number(((change / prevClose) * 100).toFixed(2)) : 0;
+
+    return {
+      price: Number(price.toFixed(2)),
+      change,
+      changePercent,
+    };
+  } catch (err) {
+    console.error(`fetchYahooQuote error for ${symbol}:`, err);
+    return null;
+  }
+}
+
+export async function fetchAllTickerQuotes(
+  prevQuotes?: Map<string, TickerPriceQuote>,
+): Promise<TickerPriceQuote[]> {
+  const promises = TICKER_MAPPINGS.map(async (mapping) => {
+    try {
+      const quote = await fetchYahooQuote(mapping.symbol);
+      if (quote) {
+        return {
+          proName: mapping.proName,
+          symbol: mapping.symbol,
+          price: quote.price,
+          change: quote.change,
+          changePercent: quote.changePercent,
+          formattedPrice: formatTickerPrice(quote.price),
+          formattedChange: formatTickerChange(quote.change),
+          formattedChangePercent: formatTickerChangePercent(quote.changePercent),
+          isPositive: quote.change >= 0,
+        };
+      }
+    } catch {
+      // ignore
+    }
+
+    // Previous quote fallback
+    if (prevQuotes?.has(mapping.proName)) {
+      return prevQuotes.get(mapping.proName)!;
+    }
+
+    // Default static fallback
+    return {
+      proName: mapping.proName,
+      symbol: mapping.symbol,
+      price: mapping.defaultPrice,
+      change: mapping.defaultChange,
+      changePercent: mapping.defaultChangePercent,
+      formattedPrice: formatTickerPrice(mapping.defaultPrice),
+      formattedChange: formatTickerChange(mapping.defaultChange),
+      formattedChangePercent: formatTickerChangePercent(mapping.defaultChangePercent),
+      isPositive: mapping.defaultChange >= 0,
+    };
+  });
+
+  return Promise.all(promises);
 }
 
 function isAllowedOrigin(origin: string): boolean {
@@ -2212,6 +2404,58 @@ export default {
           });
         } catch (err) {
           console.error("API Error [snapshot]:", err);
+          return json({ error: "Internal server error" }, 500, request);
+        }
+      }
+
+      // ティッカーバー用リアルタイム実データ取得エンドポイント
+      if (url.pathname === "/api/ticker-prices" && request.method === "GET") {
+        try {
+          const ip = request.headers.get("cf-connecting-ip") || "unknown";
+          const allowed = await checkRateLimit(env, ip, "ticker-prices", RATE_LIMIT_MAX, false, ctx);
+          if (!allowed) {
+            return json({ error: "Rate limit exceeded. Please try again later." }, 429, request);
+          }
+
+          const memKey = "ticker:quotes";
+          const memCached = getMemoryCache<{ updatedAt: string; quotes: TickerPriceQuote[] }>(memKey);
+          if (memCached) {
+            const etag = await generateETag(JSON.stringify(memCached));
+            const ifNoneMatch = request.headers.get("if-none-match");
+            if (ifNoneMatch && (ifNoneMatch === etag || ifNoneMatch === `W/${etag}`)) {
+              return notModified(request, {
+                etag,
+                "cache-control": "public, max-age=30, s-maxage=60",
+              });
+            }
+            return json(memCached, 200, request, {
+              etag,
+              "cache-control": "public, max-age=30, s-maxage=60",
+            });
+          }
+
+          const quotes = await fetchAllTickerQuotes();
+          const responseData = {
+            updatedAt: new Date().toISOString(),
+            quotes,
+          };
+
+          setMemoryCache(memKey, responseData, 45);
+          const etag = await generateETag(JSON.stringify(responseData));
+          const ifNoneMatch = request.headers.get("if-none-match");
+          if (ifNoneMatch && (ifNoneMatch === etag || ifNoneMatch === `W/${etag}`)) {
+            return notModified(request, {
+              etag,
+              "cache-control": "public, max-age=30, s-maxage=60",
+            });
+          }
+
+          return json(responseData, 200, request, {
+            etag,
+            "cache-control": "public, max-age=30, s-maxage=60",
+          });
+        } catch (err) {
+          console.error("API Error [ticker-prices]:", err);
           return json({ error: "Internal server error" }, 500, request);
         }
       }

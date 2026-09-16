@@ -1,5 +1,12 @@
 import { beforeEach, describe, it, expect, vi } from "vitest";
-import worker, { toYahooSymbol, SYSTEM_INDICES, hashToken, clearAuthCache, resetPasswordTableEnsured } from "../../worker/index";
+import worker, {
+  toYahooSymbol,
+  SYSTEM_INDICES,
+  hashToken,
+  clearAuthCache,
+  resetPasswordTableEnsured,
+  setAllowMemoryCacheInTest,
+} from "../../worker/index";
 
 const TEST_ADMIN_PASSWORD = "test-admin-password";
 
@@ -1117,6 +1124,56 @@ describe("worker fetch handlers", () => {
       const data = await res.json();
       expect(data.ok).toBe(true);
       expect(deleted).toBe(true);
+    });
+
+    it("returns ticker prices for all 9 symbols via GET /api/ticker-prices", async () => {
+      setAllowMemoryCacheInTest(true);
+      try {
+        const env = createMockEnv();
+        const req = new Request("http://localhost/api/ticker-prices", {
+          method: "GET",
+        });
+
+        const res = await worker.fetch(req, env as any);
+        expect(res.status).toBe(200);
+        expect(res.headers.get("cache-control")).toContain("public");
+
+        const data = (await res.json()) as {
+          updatedAt: string;
+          quotes: {
+            proName: string;
+            symbol: string;
+            price: number;
+            formattedPrice: string;
+            formattedChange: string;
+            formattedChangePercent: string;
+            isPositive: boolean;
+          }[];
+        };
+
+        expect(typeof data.updatedAt).toBe("string");
+        expect(Array.isArray(data.quotes)).toBe(true);
+        expect(data.quotes.length).toBe(9);
+
+        const nikkei = data.quotes.find((q) => q.proName === "INDEX:NKY");
+        expect(nikkei).toBeDefined();
+        expect(typeof nikkei!.price).toBe("number");
+        expect(typeof nikkei!.formattedPrice).toBe("string");
+        expect(typeof nikkei!.formattedChange).toBe("string");
+
+        // ETag conditional check
+        const etag = res.headers.get("etag");
+        if (etag) {
+          const cachedReq = new Request("http://localhost/api/ticker-prices", {
+            method: "GET",
+            headers: { "if-none-match": etag },
+          });
+          const cachedRes = await worker.fetch(cachedReq, env as any);
+          expect(cachedRes.status).toBe(304);
+        }
+      } finally {
+        setAllowMemoryCacheInTest(false);
+      }
     });
   });
 });

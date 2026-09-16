@@ -108,48 +108,151 @@ export const TICKER_SYMBOLS: TickerSymbolItem[] = [
 
 const HOVER_TRIGGER_DELAY_MS = 1800; // ~1.8 seconds delay before popup triggers
 
+export interface LiveQuoteItem {
+  price: string;
+  change: string;
+  changePercent: string;
+  isPositive: boolean;
+}
+
 export function TradingViewTickerTape() {
   const [activePopupSymbol, setActivePopupSymbol] = useState<PopupSymbolInfo | null>(null);
   const [hoveredSymbol, setHoveredSymbol] = useState<string | null>(null);
+  const [liveQuotes, setLiveQuotes] = useState<Record<string, LiveQuoteItem>>({});
+  const [flashItems, setFlashItems] = useState<Record<string, "up" | "down">>({});
+  const [isLive, setIsLive] = useState(false);
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Clear timer on unmount
+  // Clear timers on unmount
   useEffect(() => {
     return () => {
       if (hoverTimerRef.current) {
         clearTimeout(hoverTimerRef.current);
       }
+      if (flashTimerRef.current) {
+        clearTimeout(flashTimerRef.current);
+      }
     };
   }, []);
 
-  const handleMouseEnter = useCallback((item: TickerSymbolItem) => {
-    setHoveredSymbol(item.proName);
+  // Fetch real-time market quotes from worker API
+  const fetchQuotes = useCallback(async () => {
+    try {
+      const res = await fetch("/api/ticker-prices");
+      if (!res.ok) return;
+      const data = (await res.json()) as {
+        updatedAt?: string;
+        quotes?: {
+          proName: string;
+          formattedPrice: string;
+          formattedChange: string;
+          formattedChangePercent: string;
+          isPositive: boolean;
+        }[];
+      };
 
-    if (hoverTimerRef.current) {
-      clearTimeout(hoverTimerRef.current);
+      if (Array.isArray(data.quotes) && data.quotes.length > 0) {
+        setLiveQuotes((prev) => {
+          const next = { ...prev };
+          const newFlashes: Record<string, "up" | "down"> = {};
+
+          for (const q of data.quotes!) {
+            if (q.proName && q.formattedPrice) {
+              const prevItem = prev[q.proName];
+              if (prevItem && prevItem.price !== q.formattedPrice) {
+                newFlashes[q.proName] = q.isPositive ? "up" : "down";
+              }
+              next[q.proName] = {
+                price: q.formattedPrice,
+                change: q.formattedChange,
+                changePercent: q.formattedChangePercent,
+                isPositive: q.isPositive,
+              };
+            }
+          }
+
+          if (Object.keys(newFlashes).length > 0) {
+            setFlashItems(newFlashes);
+            if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
+            flashTimerRef.current = setTimeout(() => {
+              setFlashItems({});
+            }, 800);
+          }
+
+          return next;
+        });
+        setIsLive(true);
+      }
+    } catch {
+      // Gracefully retain existing or default values when offline/error
     }
+  }, []);
 
-    hoverTimerRef.current = setTimeout(() => {
+  // Periodically fetch quotes when tab is active
+  useEffect(() => {
+    fetchQuotes();
+    const interval = setInterval(() => {
+      if (typeof document !== "undefined" && document.visibilityState === "visible") {
+        fetchQuotes();
+      }
+    }, 45000);
+
+    const handleVisibilityChange = () => {
+      if (typeof document !== "undefined" && document.visibilityState === "visible") {
+        fetchQuotes();
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [fetchQuotes]);
+
+  const openChartModal = useCallback(
+    (item: TickerSymbolItem) => {
+      const live = liveQuotes[item.proName];
       setActivePopupSymbol({
         proName: item.proName,
         title: item.title,
-        price: item.defaultPrice,
-        change: item.defaultChange,
-        changePercent: item.defaultChangePercent,
-        isPositive: item.isPositive,
+        price: live ? live.price : item.defaultPrice,
+        change: live ? live.change : item.defaultChange,
+        changePercent: live ? live.changePercent : item.defaultChangePercent,
+        isPositive: live ? live.isPositive : item.isPositive,
       });
-    }, HOVER_TRIGGER_DELAY_MS);
-  }, []);
+    },
+    [liveQuotes],
+  );
 
-  const handleMouseLeave = useCallback((item: TickerSymbolItem) => {
-    if (hoveredSymbol === item.proName) {
-      setHoveredSymbol(null);
-    }
-    if (hoverTimerRef.current) {
-      clearTimeout(hoverTimerRef.current);
-      hoverTimerRef.current = null;
-    }
-  }, [hoveredSymbol]);
+  const handleMouseEnter = useCallback(
+    (item: TickerSymbolItem) => {
+      setHoveredSymbol(item.proName);
+
+      if (hoverTimerRef.current) {
+        clearTimeout(hoverTimerRef.current);
+      }
+
+      hoverTimerRef.current = setTimeout(() => {
+        openChartModal(item);
+      }, HOVER_TRIGGER_DELAY_MS);
+    },
+    [openChartModal],
+  );
+
+  const handleMouseLeave = useCallback(
+    (item: TickerSymbolItem) => {
+      if (hoveredSymbol === item.proName) {
+        setHoveredSymbol(null);
+      }
+      if (hoverTimerRef.current) {
+        clearTimeout(hoverTimerRef.current);
+        hoverTimerRef.current = null;
+      }
+    },
+    [hoveredSymbol],
+  );
 
   const handleCloseModal = useCallback(() => {
     setActivePopupSymbol(null);
@@ -162,7 +265,7 @@ export function TradingViewTickerTape() {
     <>
       <div
         className="tradingview-ticker-bar"
-        aria-label="主要指数マーケットティッカー(参考値。ホバーでTradingViewチャートプレビュー)"
+        aria-label="主要指数マーケットティッカー(リアルタイム市場データ。ホバーまたはクリックでTradingViewチャートプレビュー)"
       >
         <div className="tv-interactive-ticker-wrapper">
           <div
@@ -173,23 +276,20 @@ export function TradingViewTickerTape() {
             {displayItems.map((item, index) => {
               const isItemHovered = hoveredSymbol === item.proName;
               const isDuplicate = index >= TICKER_SYMBOLS.length;
+              const live = liveQuotes[item.proName];
+              const displayPrice = live ? live.price : item.defaultPrice;
+              const displayChangePercent = live ? live.changePercent : item.defaultChangePercent;
+              const isPositive = live ? live.isPositive : item.isPositive;
+              const flashClass = flashItems[item.proName] ? `flash-${flashItems[item.proName]}` : "";
+
               return (
                 <div
                   key={`${item.proName}-${index}`}
-                  className={`tv-ticker-item ${isItemHovered ? "is-hovered" : ""}`}
+                  className={`tv-ticker-item ${isItemHovered ? "is-hovered" : ""} ${flashClass}`}
                   onMouseEnter={() => handleMouseEnter(item)}
                   onMouseLeave={() => handleMouseLeave(item)}
-                  onClick={() =>
-                    setActivePopupSymbol({
-                      proName: item.proName,
-                      title: item.title,
-                      price: item.defaultPrice,
-                      change: item.defaultChange,
-                      changePercent: item.defaultChangePercent,
-                      isPositive: item.isPositive,
-                    })
-                  }
-                  title={`${item.title} (${item.proName}) - 数秒ホバーまたはクリックでチャート表示`}
+                  onClick={() => openChartModal(item)}
+                  title={`${item.title} (${item.proName}) - ホバーまたはクリックでチャート表示`}
                   role={isDuplicate ? undefined : "button"}
                   tabIndex={isDuplicate ? -1 : 0}
                   aria-hidden={isDuplicate ? true : undefined}
@@ -197,14 +297,7 @@ export function TradingViewTickerTape() {
                     if (isDuplicate) return;
                     if (e.key === "Enter" || e.key === " ") {
                       e.preventDefault();
-                      setActivePopupSymbol({
-                        proName: item.proName,
-                        title: item.title,
-                        price: item.defaultPrice,
-                        change: item.defaultChange,
-                        changePercent: item.defaultChangePercent,
-                        isPositive: item.isPositive,
-                      });
+                      openChartModal(item);
                     }
                   }}
                 >
@@ -214,15 +307,15 @@ export function TradingViewTickerTape() {
                   <span className="tv-ticker-symbol-title">{item.title}</span>
                   <span
                     className="tv-ticker-price mono"
-                    title="参考値(固定表示)です。最新価格はTradingViewチャートで確認できます"
+                    title="市場価格(最新ディレイ含む)。クリックまたはホバーでチャート表示"
                   >
-                    {item.defaultPrice}
+                    {displayPrice}
                   </span>
                   <span
-                    className={`tv-ticker-change mono ${item.isPositive ? "positive" : "negative"}`}
+                    className={`tv-ticker-change mono ${isPositive ? "positive" : "negative"}`}
                   >
-                    {item.isPositive ? <TrendingUp size={10} /> : <TrendingDown size={10} />}
-                    {item.defaultChangePercent}
+                    {isPositive ? <TrendingUp size={10} /> : <TrendingDown size={10} />}
+                    {displayChangePercent}
                   </span>
 
                   {/* Subtle hover progress indicator countdown */}
@@ -238,21 +331,30 @@ export function TradingViewTickerTape() {
             })}
           </div>
 
-          {/* Right edge: Official TradingView indicator / credit */}
+          {/* Right edge: Official TradingView indicator / credit with Live Status */}
           <div
             style={{
               position: "absolute",
               right: 0,
               top: 0,
               bottom: 0,
-              background: "linear-gradient(90deg, transparent, rgba(10, 15, 25, 0.95) 40%)",
+              background: "linear-gradient(90deg, transparent, rgba(10, 15, 25, 0.95) 30%)",
               display: "flex",
               alignItems: "center",
+              gap: 8,
               padding: "0 12px 0 24px",
               zIndex: 2,
               pointerEvents: "none",
             }}
           >
+            <div
+              className="tv-live-badge"
+              title={isLive ? "市場実データ受信中 (約45秒間隔で自動更新)" : "実データ接続待機中"}
+            >
+              <span className="tv-live-dot" aria-hidden="true" />
+              <span>{isLive ? "LIVE" : "SYNC"}</span>
+            </div>
+
             <a
               href="https://jp.tradingview.com/"
               target="_blank"
