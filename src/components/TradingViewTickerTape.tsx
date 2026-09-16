@@ -421,21 +421,7 @@ export function TradingViewTickerTape() {
           </div>
 
           {/* Right edge: Official TradingView indicator / credit with Live Status */}
-          <div
-            style={{
-              position: "absolute",
-              right: 0,
-              top: 0,
-              bottom: 0,
-              background: "linear-gradient(90deg, transparent, rgba(10, 15, 25, 0.95) 30%)",
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-              padding: "0 12px 0 24px",
-              zIndex: 2,
-              pointerEvents: "none",
-            }}
-          >
+          <div className="tv-ticker-overlay-right">
             <div
               className="tv-live-badge"
               title={
@@ -454,19 +440,7 @@ export function TradingViewTickerTape() {
               href="https://jp.tradingview.com/"
               target="_blank"
               rel="noopener noreferrer"
-              style={{
-                pointerEvents: "auto",
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 4,
-                textDecoration: "none",
-                fontSize: 10,
-                color: "var(--text-secondary)",
-                padding: "2px 6px",
-                borderRadius: 4,
-                background: "rgba(255, 255, 255, 0.05)",
-                border: "1px solid var(--border-subtle)",
-              }}
+              className="tv-ticker-tv-link"
               title="TradingView Charts & Market Data"
             >
               <span style={{ fontWeight: 700, color: "var(--accent-text)", letterSpacing: 0.5 }}>

@@ -19,12 +19,18 @@ export function Badge({
   variant = "cyan",
   className = "",
   style = {},
+  title,
 }: PropsWithChildren<{
   variant?: "cyan" | "magenta" | "green" | "muted";
   className?: string;
   style?: React.CSSProperties;
+  title?: string;
 }>) {
-  return <span className={`badge badge-${variant} ${className}`} style={style}>{children}</span>;
+  return (
+    <span className={`badge badge-${variant} ${className}`} style={style} title={title}>
+      {children}
+    </span>
+  );
 }
 
 export function Tag({

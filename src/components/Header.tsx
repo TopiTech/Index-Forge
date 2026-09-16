@@ -126,7 +126,7 @@ export function Header({
         transition={{ duration: 0.35 }}
         className="top-header"
       >
-        <div className="row space-between flex-wrap" style={{ gap: 12, alignItems: "center" }}>
+        <div className="header-inner-row">
           <a
             className={`header-brand row ${onNavigateToHome ? "clickable" : ""}`}
             href="/"
@@ -136,6 +136,7 @@ export function Header({
               textDecoration: "none",
               color: "inherit",
               cursor: onNavigateToHome ? "pointer" : "default",
+              flexShrink: 0,
             }}
             onClick={(e) => {
               if (onNavigateToHome) {
@@ -157,12 +158,13 @@ export function Header({
                 alignItems: "center",
                 justifyContent: "center",
                 color: "var(--accent-text)",
+                flexShrink: 0,
               }}
               aria-hidden="true"
             >
               <TrendingUp size={16} strokeWidth={2.2} />
             </div>
-            <div>
+            <div className="header-brand-text">
               <h1 style={{ fontSize: "clamp(1.05rem, 2vw, 1.35rem)", margin: 0 }}>
                 IndexForge
               </h1>
@@ -173,8 +175,8 @@ export function Header({
           </a>
 
           <div className="header-meta">
-            {/* Status indicators group */}
-            <div className="header-meta-group header-meta-status">
+            {/* Status indicators group (Desktop only) */}
+            <div className="header-meta-group header-meta-status header-status-desktop">
               <DataFreshness
                 benchmarkUpdatedAt={benchmarkUpdatedAt}
                 calculationUpdatedAt={calculationUpdatedAt}
@@ -186,42 +188,53 @@ export function Header({
               <ThemeControls />
             </div>
 
+            {/* Mobile quick theme control */}
+            <div className="header-meta-group header-status-mobile">
+              <ThemeControls />
+            </div>
+
             <div className="header-meta-divider" aria-hidden="true" />
 
             {/* Actions group */}
             <div className="header-meta-group header-meta-actions">
-              {/* Auth status indicator */}
-              {isAuthenticated ? (
-                <div className="row header-auth-status" style={{ gap: 6, alignItems: "center" }}>
-                  <Badge variant={isAdmin ? "magenta" : "cyan"}>
-                    {isAdmin ? <ShieldCheck size={11} /> : <KeyRound size={11} />}
-                    {session?.name} {limitsText}
-                  </Badge>
+              {/* Auth status indicator (Desktop) */}
+              <div className="header-auth-desktop">
+                {isAuthenticated ? (
+                  <div className="row header-auth-status" style={{ gap: 6, alignItems: "center" }}>
+                    <Badge
+                      variant={isAdmin ? "magenta" : "cyan"}
+                      title={limitsText ? `${session?.name} ${limitsText}` : session?.name}
+                    >
+                      {isAdmin ? <ShieldCheck size={11} /> : <KeyRound size={11} />}
+                      <span className="header-user-name">{session?.name}</span>
+                      {limitsText && <span className="header-user-limits">{limitsText}</span>}
+                    </Badge>
+                    <button
+                      type="button"
+                      onClick={handleLogout}
+                      className="btn btn-sm btn-outline"
+                      style={{ padding: "4px 8px", fontSize: 11 }}
+                      aria-label="ログアウト"
+                    >
+                      ログアウト
+                    </button>
+                  </div>
+                ) : (
                   <button
                     type="button"
-                    onClick={handleLogout}
-                    className="btn btn-sm btn-outline"
-                    style={{ padding: "4px 8px", fontSize: 11 }}
-                    aria-label="ログアウト"
+                    className="btn btn-sm btn-outline header-login-btn"
+                    onClick={() => setIsAuthModalOpen(true)}
+                    title="パスワード認証でログイン"
+                    aria-label="パスワード認証でログイン"
                   >
-                    ログアウト
+                    <LogIn size={12} style={{ color: "var(--accent-text)" }} />
+                    <span>ログイン</span>
+                    <span className="mono tiny muted" style={{ fontSize: 10 }}>
+                      (閲覧中)
+                    </span>
                   </button>
-                </div>
-              ) : (
-                <button
-                  type="button"
-                  className="btn btn-sm btn-outline header-login-btn"
-                  onClick={() => setIsAuthModalOpen(true)}
-                  title="パスワード認証でログイン"
-                  aria-label="パスワード認証でログイン"
-                >
-                  <LogIn size={12} style={{ color: "var(--accent-text)" }} />
-                  <span>ログイン</span>
-                  <span className="mono tiny muted" style={{ fontSize: 10 }}>
-                    (閲覧中)
-                  </span>
-                </button>
-              )}
+                )}
+              </div>
 
               {/* Desktop Nav Items */}
               <div className="header-nav-desktop row" style={{ gap: 6, alignItems: "center" }}>
@@ -341,6 +354,55 @@ export function Header({
               id="header-mobile-nav"
               aria-label="モバイルナビゲーション"
             >
+              {/* Mobile Data Freshness Header */}
+              <div className="header-mobile-meta-section">
+                <DataFreshness
+                  benchmarkUpdatedAt={benchmarkUpdatedAt}
+                  calculationUpdatedAt={calculationUpdatedAt}
+                  loading={dataLoading}
+                  syncing={syncing}
+                  stale={benchmarkStale}
+                  hasSyncWarning={hasSyncWarning}
+                />
+              </div>
+
+              {/* Mobile Auth Bar */}
+              <div className="header-mobile-auth-section">
+                {isAuthenticated ? (
+                  <div className="row space-between" style={{ alignItems: "center", width: "100%" }}>
+                    <Badge variant={isAdmin ? "magenta" : "cyan"}>
+                      {isAdmin ? <ShieldCheck size={12} /> : <KeyRound size={12} />}
+                      <span>{session?.name}</span>
+                      {limitsText && <span style={{ opacity: 0.85, fontSize: 10 }}>{limitsText}</span>}
+                    </Badge>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleLogout();
+                        closeMobileMenu();
+                      }}
+                      className="btn btn-sm btn-outline"
+                      style={{ padding: "5px 10px", fontSize: 11 }}
+                    >
+                      ログアウト
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-outline"
+                    style={{ width: "100%", justifyContent: "center", gap: 6, padding: "8px 12px" }}
+                    onClick={() => {
+                      setIsAuthModalOpen(true);
+                      closeMobileMenu();
+                    }}
+                  >
+                    <LogIn size={14} style={{ color: "var(--accent-text)" }} />
+                    <span>パスワード認証でログイン</span>
+                  </button>
+                )}
+              </div>
+
               <div className="header-mobile-nav-links">
                 {onNavigateToHome && (
                   <button

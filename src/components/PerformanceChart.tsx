@@ -227,56 +227,60 @@ export function PerformanceChart({
           </div>
         </div>
 
-        <div className="chart-controls row flex-wrap" style={{ gap: 8 }}>
-          <ButtonGroup<Timeframe>
-            className="timeframe-group"
-            ariaLabel="チャートの表示期間"
-            items={[
-              { label: "1W", value: "1W" },
-              { label: "1M", value: "1M" },
-              { label: "3M", value: "3M" },
-              { label: "6M", value: "6M" },
-              { label: "YTD", value: "YTD" },
-              { label: "1Y (全期間)", value: "1Y" },
-            ]}
-            active={timeframe}
-            onChange={onTimeframeChange}
-          />
+        <div className="chart-controls">
+          <div className="chart-timeframe-row">
+            <ButtonGroup<Timeframe>
+              className="timeframe-group"
+              ariaLabel="チャートの表示期間"
+              items={[
+                { label: "1W", value: "1W" },
+                { label: "1M", value: "1M" },
+                { label: "3M", value: "3M" },
+                { label: "6M", value: "6M" },
+                { label: "YTD", value: "YTD" },
+                { label: "1Y (全期間)", value: "1Y" },
+              ]}
+              active={timeframe}
+              onChange={onTimeframeChange}
+            />
+          </div>
 
-          <ButtonGroup<ViewMode>
-            className="view-mode-group"
-            ariaLabel="チャートの表示形式"
-            items={[
-              { label: "指数値", value: "value" },
-              { label: "騰落率 (%)", value: "percent" },
-              { label: "超過リターン (α)", value: "spread" },
-            ]}
-            active={viewMode}
-            onChange={setViewMode}
-          />
+          <div className="chart-mode-row">
+            <ButtonGroup<ViewMode>
+              className="view-mode-group"
+              ariaLabel="チャートの表示形式"
+              items={[
+                { label: "指数値", value: "value" },
+                { label: "騰落率 (%)", value: "percent" },
+                { label: "超過リターン (α)", value: "spread" },
+              ]}
+              active={viewMode}
+              onChange={setViewMode}
+            />
 
-          {/* Technical overlays */}
-          <div className="btn-group technical-group" role="group" aria-label="テクニカル指標">
-            <button
-              type="button"
-              className={`btn-group-item ${showSMA5 ? "active" : ""}`}
-              aria-pressed={showSMA5}
-              onClick={() => setShowSMA5(!showSMA5)}
-              style={{ fontSize: 11, padding: "4px 8px" }}
-              title="5日単純移動平均線"
-            >
-              SMA5
-            </button>
-            <button
-              type="button"
-              className={`btn-group-item ${showSMA25 ? "active" : ""}`}
-              aria-pressed={showSMA25}
-              onClick={() => setShowSMA25(!showSMA25)}
-              style={{ fontSize: 11, padding: "4px 8px" }}
-              title="25日単純移動平均線"
-            >
-              SMA25
-            </button>
+            {/* Technical overlays */}
+            <div className="btn-group technical-group" role="group" aria-label="テクニカル指標">
+              <button
+                type="button"
+                className={`btn-group-item ${showSMA5 ? "active" : ""}`}
+                aria-pressed={showSMA5}
+                onClick={() => setShowSMA5(!showSMA5)}
+                style={{ fontSize: 11, padding: "4px 8px" }}
+                title="5日単純移動平均線"
+              >
+                SMA5
+              </button>
+              <button
+                type="button"
+                className={`btn-group-item ${showSMA25 ? "active" : ""}`}
+                aria-pressed={showSMA25}
+                onClick={() => setShowSMA25(!showSMA25)}
+                style={{ fontSize: 11, padding: "4px 8px" }}
+                title="25日単純移動平均線"
+              >
+                SMA25
+              </button>
+            </div>
           </div>
         </div>
       </div>
