@@ -386,30 +386,34 @@ export function IndexBuilderContent({
           )}
         </div>
 
-        <div className="row" style={{ gap: 8, alignItems: "center" }}>
-          {/* Mobile Tab Switcher */}
-          <div className="mobile-builder-tabs row" style={{ gap: 4 }}>
+        {/* Mobile Tab Switcher */}
+        <div className="mobile-builder-tabs-container">
+          <div className="mobile-builder-tabs-segmented" role="tablist" aria-label="ビルダーモード切替">
             <button
               type="button"
-              className={`btn btn-sm ${activeTab === "builder" ? "btn-default" : "btn-outline"}`}
-              style={{ fontSize: 11, padding: "2px 8px" }}
+              role="tab"
+              aria-selected={activeTab === "builder"}
+              className={`mobile-builder-tab-btn ${activeTab === "builder" ? "active" : ""}`}
               onClick={() => setActiveTab("builder")}
             >
-              <Sliders size={12} /> 構成設定
+              <Sliders size={13} />
+              <span>構成・ウェイト</span>
+              <span className="mobile-tab-count-badge mono">{basket.length}</span>
             </button>
             <button
               type="button"
-              className={`btn btn-sm ${activeTab === "simulation" ? "btn-default" : "btn-outline"}`}
-              style={{ fontSize: 11, padding: "2px 8px" }}
+              role="tab"
+              aria-selected={activeTab === "simulation"}
+              className={`mobile-builder-tab-btn ${activeTab === "simulation" ? "active" : ""}`}
               onClick={() => setActiveTab("simulation")}
             >
-              <Sparkles size={12} /> シミュレーション
+              <Sparkles size={13} />
+              <span>シミュレーション</span>
+              {simulation && (
+                <span className="mobile-tab-indicator-dot" title="計算完了" />
+              )}
             </button>
           </div>
-
-          <span className="mono tiny muted">
-            構成銘柄: {basket.length} {maxStocks ? `/ ${maxStocks}` : ""} 銘柄
-          </span>
         </div>
       </div>
 
@@ -756,19 +760,19 @@ export function IndexBuilderContent({
                     key={item.ticker}
                     className="builder-basket-row"
                   >
-                    <div style={{ minWidth: 110, flex: "1 1 auto" }}>
-                      <div className="row" style={{ gap: 4, alignItems: "center" }}>
-                        <span className="mono bold" style={{ fontSize: 11, color: "var(--accent-text)" }}>
+                    <div className="builder-basket-info">
+                      <div className="row" style={{ gap: 6, alignItems: "center" }}>
+                        <span className="mono bold builder-ticker-badge">
                           {item.ticker}
                         </span>
-                        <span style={{ fontSize: 11, fontWeight: 500 }}>{item.name}</span>
+                        <span className="builder-stock-name">{item.name}</span>
                       </div>
-                      <span className="tiny muted" style={{ fontSize: 9 }}>
+                      <span className="tiny muted builder-stock-theme">
                         {item.theme}
                       </span>
                     </div>
 
-                    <div className="row" style={{ flex: "2 1 200px", gap: 8, alignItems: "center", justifyContent: "flex-end" }}>
+                    <div className="builder-basket-controls">
                       <input
                         type="range"
                         min={1}
@@ -776,10 +780,10 @@ export function IndexBuilderContent({
                         step={1}
                         value={item.weight}
                         onChange={(e) => handleWeightChange(item.ticker, e.target.value)}
-                        style={{ flex: 1, minWidth: 60, accentColor: "var(--accent-color)", height: 4 }}
+                        className="builder-weight-slider"
                         aria-label={`${item.name}のウェイト比率スライダー`}
                       />
-                      <div className="row" style={{ alignItems: "center", gap: 2 }}>
+                      <div className="builder-weight-input-group row" style={{ alignItems: "center", gap: 2 }}>
                         <input
                           type="number"
                           min={0.1}
@@ -788,16 +792,7 @@ export function IndexBuilderContent({
                           value={Number(item.weight.toFixed(1))}
                           onChange={(e) => handleWeightChange(item.ticker, e.target.value)}
                           aria-label={`${item.name}のウェイト比率数値`}
-                          className="input-search"
-                          style={{
-                            width: 50,
-                            height: 24,
-                            padding: "2px 4px",
-                            textAlign: "right",
-                            fontSize: 11,
-                            fontFamily: "var(--mono-font)",
-                            fontWeight: 600,
-                          }}
+                          className="input-search builder-weight-number-input"
                         />
                         <span className="mono tiny bold" style={{ fontSize: 10, color: "var(--text-secondary)" }}>
                           %
@@ -808,16 +803,8 @@ export function IndexBuilderContent({
                     <button
                       type="button"
                       onClick={() => handleRemoveStock(item.ticker)}
-                      style={{
-                        background: "transparent",
-                        border: "none",
-                        color: "var(--neon-red)",
-                        cursor: "pointer",
-                        padding: 2,
-                        opacity: 0.8,
-                        flexShrink: 0,
-                      }}
-                      title="削除"
+                      className="builder-basket-remove-btn"
+                      title={`${item.name}を削除`}
                       aria-label={`${item.name}を削除`}
                     >
                       <Trash2 size={13} />

@@ -225,8 +225,8 @@ export function Header({
                       padding: "4px 9px",
                       fontSize: 11,
                     }}
-                    title="ポートフォリオ・保有銘柄確認"
-                    aria-label="ポートフォリオへ移動"
+                    title="開発者ポートフォリオ・自己紹介"
+                    aria-label="開発者ポートフォリオ・自己紹介へ移動"
                   >
                     <Briefcase size={12} />
                     <span>ポートフォリオ</span>

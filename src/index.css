@@ -402,8 +402,9 @@ h3 {
   flex-shrink: 0;
 }
 
-.header-mobile-menu-btn {
-  display: none;
+.header-mobile-menu-btn,
+.btn.header-mobile-menu-btn {
+  display: none !important;
 }
 
 .header-mobile-nav-panel {
@@ -419,8 +420,9 @@ h3 {
     display: none !important;
   }
 
-  .header-mobile-menu-btn {
-    display: inline-flex;
+  .header-mobile-menu-btn,
+  .btn.header-mobile-menu-btn {
+    display: inline-flex !important;
     align-items: center;
     gap: 4px;
   }
@@ -3751,15 +3753,402 @@ textarea:focus-visible {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 6px 10px;
+  padding: 8px 12px;
   background: var(--bg-card);
   border: 1px solid var(--border-subtle);
   border-radius: 6px;
-  gap: 8px;
-  transition: border-color var(--transition-fast, 0.15s ease);
+  gap: 10px;
+  transition: all var(--transition-fast, 0.15s ease);
 }
 
 .builder-basket-row:hover {
   border-color: var(--border-cyan);
+  background: var(--surface-neutral-subtle, rgba(6, 182, 212, 0.03));
 }
+
+.builder-basket-info {
+  min-width: 120px;
+  flex: 1 1 auto;
+}
+
+.builder-ticker-badge {
+  font-size: 11px;
+  color: var(--accent-text);
+  background: var(--accent-subtle);
+  padding: 1px 5px;
+  border-radius: 4px;
+  border: 1px solid var(--accent-border);
+}
+
+.builder-stock-name {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-heading);
+}
+
+.builder-stock-theme {
+  font-size: 10px;
+  display: block;
+  margin-top: 1px;
+}
+
+.builder-basket-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 2 1 200px;
+  justify-content: flex-end;
+}
+
+.builder-weight-slider {
+  flex: 1;
+  min-width: 70px;
+  accent-color: var(--accent-color);
+  height: 5px;
+  cursor: pointer;
+}
+
+.builder-weight-number-input {
+  width: 52px;
+  height: 26px;
+  padding: 2px 4px;
+  text-align: right;
+  font-size: 11px;
+  font-family: var(--mono-font);
+  font-weight: 600;
+}
+
+.builder-basket-remove-btn {
+  background: transparent;
+  border: none;
+  color: var(--neon-red);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  opacity: 0.75;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.builder-basket-remove-btn:hover {
+  opacity: 1;
+  background: rgba(255, 51, 102, 0.12);
+}
+
+/* Mobile Segmented Tab Controls */
+.mobile-builder-tabs-container {
+  display: none;
+  width: 100%;
+}
+
+.mobile-builder-tabs-segmented {
+  display: flex;
+  width: 100%;
+  background: var(--surface-inset, rgba(0, 0, 0, 0.3));
+  padding: 3px;
+  border-radius: 8px;
+  border: 1px solid var(--border-subtle);
+  gap: 3px;
+}
+
+.mobile-builder-tab-btn {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.mobile-builder-tab-btn.active {
+  background: var(--accent-subtle);
+  color: var(--accent-text);
+  border-color: var(--accent-border);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+}
+
+.mobile-tab-count-badge {
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 10px;
+  background: rgba(6, 182, 212, 0.2);
+  color: var(--accent-text);
+}
+
+.mobile-tab-indicator-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--neon-green);
+  box-shadow: 0 0 6px var(--neon-green);
+}
+
+/* Fullscreen Index Builder Page Mode */
+.index-builder-page {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 0 16px 40px;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.index-builder-page.is-fullscreen {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 10000 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  max-width: none !important;
+  margin: 0 !important;
+  padding: 12px 16px !important;
+  background: var(--bg-primary) !important;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.index-builder-page.is-fullscreen .section {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-radius: 8px;
+}
+
+.index-builder-page.is-fullscreen .builder-main-split {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.builder-fullscreen-btn {
+  transition: all 0.2s ease;
+}
+
+/* Mobile optimizations for Index Builder */
+@media (max-width: 768px) {
+  .mobile-builder-tabs-container {
+    display: block;
+    margin-top: 6px;
+  }
+
+  .index-builder-page {
+    padding: 0 8px 30px;
+  }
+
+  .index-builder-page.is-fullscreen {
+    padding: 8px !important;
+  }
+
+  .builder-basket-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    padding: 10px;
+  }
+
+  .builder-basket-info {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+  }
+
+  .builder-basket-controls {
+    width: 100%;
+    flex: 1 1 100%;
+    justify-content: space-between;
+  }
+
+  .builder-basket-remove-btn {
+    align-self: flex-end;
+  }
+}
+
+@media (max-width: 600px) {
+  .preset-card-btn {
+    padding: 8px !important;
+  }
+}
+
+/* ==========================================================================
+   TradingView Ticker Tape & Delayed Hover Chart Popover
+   ========================================================================== */
+.tradingview-ticker-bar {
+  width: 100%;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-subtle);
+  position: relative;
+  z-index: 900;
+  font-family: var(--display-font);
+}
+
+.tv-interactive-ticker-wrapper {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  background: rgba(10, 15, 25, 0.85);
+  backdrop-filter: blur(8px);
+}
+
+.tv-ticker-track {
+  display: flex;
+  align-items: center;
+  white-space: nowrap;
+  gap: 0;
+  animation: tvMarquee 45s linear infinite;
+  will-change: transform;
+}
+
+.tv-ticker-track.paused {
+  animation-play-state: paused;
+}
+
+@keyframes tvMarquee {
+  0% {
+    transform: translateX(0%);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+
+.tv-ticker-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-right: 1px solid var(--border-subtle);
+  cursor: pointer;
+  user-select: none;
+  position: relative;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.tv-ticker-item:hover,
+.tv-ticker-item.is-hovered {
+  background: rgba(6, 182, 212, 0.1);
+}
+
+.tv-ticker-symbol-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-heading);
+}
+
+.tv-ticker-price {
+  font-family: var(--mono-font);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.tv-ticker-change {
+  font-family: var(--mono-font);
+  font-size: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.tv-ticker-change.positive {
+  color: var(--neon-green);
+}
+
+.tv-ticker-change.negative {
+  color: var(--neon-red);
+}
+
+/* Hover progress countdown ring/line */
+.tv-ticker-hover-progress {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  background: var(--accent-color);
+  box-shadow: 0 0 6px var(--accent-color);
+  width: 0%;
+  transition: width 1.8s linear;
+}
+
+.tv-ticker-item.is-hovered .tv-ticker-hover-progress {
+  width: 100%;
+}
+
+/* TradingView Chart Popover */
+.tv-chart-popover-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10001;
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: fadeIn 0.2s ease-out;
+}
+
+.tv-chart-popover-card {
+  width: 440px;
+  max-width: 92vw;
+  background: var(--bg-card);
+  border: 1px solid var(--border-cyan);
+  border-radius: 12px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.8), 0 0 30px rgba(6, 182, 212, 0.25);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  z-index: 10002;
+  animation: popoverScale 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes popoverScale {
+  0% {
+    opacity: 0;
+    transform: scale(0.92) translateY(8px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.tv-chart-popover-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: linear-gradient(90deg, var(--accent-subtle), transparent);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.tv-chart-popover-body {
+  width: 100%;
+  height: 280px;
+  background: #131722;
+  position: relative;
+}
+
+.tv-chart-popover-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  background: var(--surface-footer);
+  border-top: 1px solid var(--border-subtle);
+  font-size: 10px;
+}
+
 

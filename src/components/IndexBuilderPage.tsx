@@ -1,6 +1,6 @@
-import React from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { motion } from "framer-motion";
-import { ArrowLeft, Sliders, Sparkles } from "lucide-react";
+import { ArrowLeft, Sliders, Sparkles, Maximize2, Minimize2 } from "lucide-react";
 import type { CustomIndex } from "../data/indices";
 import { IndexBuilderContent } from "./IndexBuilderContent";
 import { Card } from "./ui";
@@ -19,20 +19,59 @@ export function IndexBuilderPage({
   onSave,
   onPreviewInDashboard,
 }: IndexBuilderPageProps) {
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const pageContainerRef = useRef<HTMLDivElement>(null);
+
+  // Sync with native browser fullscreen changes (e.g. Esc key)
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      const isCurrentlyFullscreen = Boolean(
+        document.fullscreenElement &&
+        (document.fullscreenElement === pageContainerRef.current ||
+         pageContainerRef.current?.contains(document.fullscreenElement))
+      );
+      setIsFullscreen(isCurrentlyFullscreen);
+    };
+
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    return () => {
+      document.removeEventListener("fullscreenchange", handleFullscreenChange);
+    };
+  }, []);
+
+  const toggleFullscreen = useCallback(async () => {
+    try {
+      if (!isFullscreen) {
+        if (pageContainerRef.current?.requestFullscreen) {
+          await pageContainerRef.current.requestFullscreen();
+        } else {
+          // Fallback if browser Fullscreen API is unavailable or restricted
+          setIsFullscreen(true);
+        }
+      } else {
+        if (document.fullscreenElement && document.exitFullscreen) {
+          await document.exitFullscreen();
+        } else {
+          setIsFullscreen(false);
+        }
+      }
+    } catch {
+      // Toggle UI fullscreen class regardless of native permissions
+      setIsFullscreen((prev) => !prev);
+    }
+  }, [isFullscreen]);
+
   return (
     <motion.div
+      ref={pageContainerRef}
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -10 }}
       transition={{ duration: 0.3 }}
-      className="index-builder-page"
-      style={{ maxWidth: 1280, margin: "0 auto", padding: "0 16px 40px" }}
+      className={`index-builder-page ${isFullscreen ? "is-fullscreen" : ""}`}
     >
       {/* Top action / navigation bar */}
-      <div
-        className="row space-between"
-        style={{ marginBottom: 16, alignItems: "center", flexWrap: "wrap", gap: 10 }}
-      >
+      <div className="builder-top-action-bar row space-between flex-wrap">
         <button
           type="button"
           onClick={onBackToDashboard}
@@ -42,9 +81,9 @@ export function IndexBuilderPage({
           <ArrowLeft size={13} /> ダッシュボードへ戻る
         </button>
 
-        <div className="row" style={{ gap: 8, alignItems: "center" }}>
+        <div className="row" style={{ gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           <span
-            className="badge"
+            className="badge builder-badge-highlight"
             style={{
               background: "rgba(6, 182, 212, 0.15)",
               color: "var(--accent-text)",
@@ -56,6 +95,26 @@ export function IndexBuilderPage({
             <Sparkles size={11} style={{ marginRight: 4 }} />
             リアルタイム・バックテスト計算対応
           </span>
+
+          {/* Fullscreen Mode Toggle Button */}
+          <button
+            type="button"
+            onClick={toggleFullscreen}
+            className={`btn btn-sm ${isFullscreen ? "btn-default" : "btn-outline"} builder-fullscreen-btn`}
+            title={isFullscreen ? "全画面表示を解除 (Esc)" : "ビルダーを全画面表示に切り替え"}
+            aria-label={isFullscreen ? "全画面表示を解除" : "全画面表示に切り替え"}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 5,
+              fontSize: 11,
+              padding: "5px 10px",
+              cursor: "pointer",
+            }}
+          >
+            {isFullscreen ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+            <span>{isFullscreen ? "全画面解除" : "全画面表示"}</span>
+          </button>
         </div>
       </div>
 
