@@ -4129,8 +4129,8 @@ textarea:focus-visible {
 .tv-chart-popover-card {
   width: 880px;
   height: 560px;
-  min-width: 480px;
-  min-height: 380px;
+  min-width: min(480px, 94vw);
+  min-height: min(380px, 85vh);
   max-width: 96vw;
   max-height: 94vh;
   background: var(--bg-card);
@@ -4256,5 +4256,30 @@ textarea:focus-visible {
   transform: scale(1.15);
 }
 
+@media (max-width: 640px) {
+  .tv-chart-popover-card {
+    width: 95vw !important;
+    max-width: 95vw;
+    height: 82vh !important;
+    max-height: 88vh;
+    min-width: 0;
+    min-height: 0;
+    resize: none !important;
+    border-radius: 8px;
+  }
 
+  .tv-chart-popover-header {
+    padding: 8px 12px;
+    gap: 6px;
+  }
 
+  .tv-chart-popover-footer {
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 6px 10px;
+  }
+
+  .tv-resize-handle {
+    display: none !important;
+  }
+}

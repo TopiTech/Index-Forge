@@ -39,8 +39,12 @@ interface CardDimensions {
   height: number;
 }
 
-function getSavedDimensions(): CardDimensions {
+export function getSavedDimensions(): CardDimensions {
   if (typeof window === "undefined") return DEFAULT_SIZE;
+  const isMobile = window.innerWidth <= 640;
+  const minW = isMobile ? Math.min(320, Math.floor(window.innerWidth * 0.94)) : 480;
+  const minH = isMobile ? Math.min(300, Math.floor(window.innerHeight * 0.80)) : 360;
+
   try {
     const saved = localStorage.getItem(STORAGE_KEY_SIZE);
     if (saved) {
@@ -48,15 +52,15 @@ function getSavedDimensions(): CardDimensions {
       if (
         typeof parsed.width === "number" &&
         typeof parsed.height === "number" &&
-        parsed.width >= 480 &&
-        parsed.height >= 360
+        parsed.width >= minW &&
+        parsed.height >= minH
       ) {
         // Clamp to current viewport
-        const maxW = Math.max(480, window.innerWidth * 0.94);
-        const maxH = Math.max(360, window.innerHeight * 0.92);
+        const maxW = Math.max(minW, Math.floor(window.innerWidth * 0.94));
+        const maxH = Math.max(minH, Math.floor(window.innerHeight * 0.92));
         return {
-          width: Math.min(parsed.width, maxW),
-          height: Math.min(parsed.height, maxH),
+          width: Math.min(Math.round(parsed.width), maxW),
+          height: Math.min(Math.round(parsed.height), maxH),
         };
       }
     }
@@ -64,10 +68,11 @@ function getSavedDimensions(): CardDimensions {
     // Ignore storage parse errors
   }
   // Default based on screen width
-  const responsiveW = Math.min(DEFAULT_SIZE.width, window.innerWidth * 0.94);
-  const responsiveH = Math.min(DEFAULT_SIZE.height, window.innerHeight * 0.88);
-  return { width: Math.max(480, responsiveW), height: Math.max(380, responsiveH) };
+  const responsiveW = Math.min(DEFAULT_SIZE.width, Math.floor(window.innerWidth * 0.94));
+  const responsiveH = Math.min(DEFAULT_SIZE.height, Math.floor(window.innerHeight * 0.88));
+  return { width: Math.max(minW, responsiveW), height: Math.max(minH, responsiveH) };
 }
+
 
 export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModalProps) {
   const { theme } = useTheme();
@@ -152,13 +157,43 @@ export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModal
   // Reset to default size with smooth animation
   const handleResetSize = useCallback(() => {
     triggerAnimation();
+    const isMobile = typeof window !== "undefined" && window.innerWidth <= 640;
+    const minW = isMobile ? Math.min(320, Math.floor(window.innerWidth * 0.94)) : 480;
+    const minH = isMobile ? Math.min(300, Math.floor(window.innerHeight * 0.80)) : 380;
     const responsiveW = Math.min(DEFAULT_SIZE.width, window.innerWidth * 0.94);
     const responsiveH = Math.min(DEFAULT_SIZE.height, window.innerHeight * 0.88);
-    const newDims = { width: Math.max(480, responsiveW), height: Math.max(380, responsiveH) };
+    const newDims = { width: Math.max(minW, responsiveW), height: Math.max(minH, responsiveH) };
     setDimensions(newDims);
     setIsMaximized(false);
     saveDimensions(newDims);
   }, [saveDimensions, triggerAnimation]);
+
+  // Keep modal within viewport when browser window is resized or device rotated
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handleWindowResize = () => {
+      if (isMaximized) return;
+      setDimensions((current) => {
+        const maxW = Math.floor(window.innerWidth * 0.96);
+        const maxH = Math.floor(window.innerHeight * 0.94);
+        if (current.width > maxW || current.height > maxH) {
+          const isMobile = window.innerWidth <= 640;
+          const minW = isMobile ? Math.min(320, maxW) : Math.min(480, maxW);
+          const minH = isMobile ? Math.min(300, maxH) : Math.min(360, maxH);
+          const clamped = {
+            width: Math.max(minW, Math.min(current.width, maxW)),
+            height: Math.max(minH, Math.min(current.height, maxH)),
+          };
+          saveDimensions(clamped);
+          return clamped;
+        }
+        return current;
+      });
+    };
+
+    window.addEventListener("resize", handleWindowResize);
+    return () => window.removeEventListener("resize", handleWindowResize);
+  }, [isMaximized, saveDimensions]);
 
   // Corner pointer drag resize handlers (robust pointer capture to prevent backdrop clicks)
   const handleResizePointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
@@ -185,10 +220,13 @@ export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModal
     lastResizeTimeRef.current = Date.now();
     const dx = e.clientX - resizeStartRef.current.x;
     const dy = e.clientY - resizeStartRef.current.y;
-    const maxW = Math.max(480, Math.floor(window.innerWidth * 0.96));
-    const maxH = Math.max(380, Math.floor(window.innerHeight * 0.94));
-    const newW = Math.min(maxW, Math.max(480, Math.round(resizeStartRef.current.w + dx)));
-    const newH = Math.min(maxH, Math.max(380, Math.round(resizeStartRef.current.h + dy)));
+    const isMobile = typeof window !== "undefined" && window.innerWidth <= 640;
+    const minW = isMobile ? Math.min(320, Math.floor(window.innerWidth * 0.94)) : 480;
+    const minH = isMobile ? Math.min(300, Math.floor(window.innerHeight * 0.80)) : 380;
+    const maxW = Math.max(minW, Math.floor(window.innerWidth * 0.96));
+    const maxH = Math.max(minH, Math.floor(window.innerHeight * 0.94));
+    const newW = Math.min(maxW, Math.max(minW, Math.round(resizeStartRef.current.w + dx)));
+    const newH = Math.min(maxH, Math.max(minH, Math.round(resizeStartRef.current.h + dy)));
     setDimensions({ width: newW, height: newH });
   }, []);
 
@@ -459,6 +497,7 @@ export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModal
               stroke="currentColor"
               strokeWidth="1.5"
               strokeLinecap="round"
+              aria-hidden="true"
             >
               <line x1="10" y1="3" x2="3" y2="10" opacity="0.35" />
               <line x1="10" y1="6.5" x2="6.5" y2="10" opacity="0.65" />
