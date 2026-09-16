@@ -76,9 +76,25 @@ export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModal
 
   const [dimensions, setDimensions] = useState<CardDimensions>(getSavedDimensions);
   const [isMaximized, setIsMaximized] = useState(false);
+  const [isResizing, setIsResizing] = useState(false);
+  const [isAnimating, setIsAnimating] = useState(false);
+
   const preMaximizedSizeRef = useRef<CardDimensions>(getSavedDimensions());
+  const isBackdropMouseDownRef = useRef(false);
+  const lastResizeTimeRef = useRef(0);
+  const resizeStartRef = useRef<{ x: number; y: number; w: number; h: number } | null>(null);
+  const animTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useModalFocus(Boolean(symbol), cardRef, onClose);
+
+  // Trigger smooth transition animation only for button-based sizing (maximize / reset)
+  const triggerAnimation = useCallback(() => {
+    setIsAnimating(true);
+    if (animTimeoutRef.current) clearTimeout(animTimeoutRef.current);
+    animTimeoutRef.current = setTimeout(() => {
+      setIsAnimating(false);
+    }, 250);
+  }, []);
 
   // Save dimensions whenever they change (debounce to localStorage)
   const saveDimensions = useCallback((dims: CardDimensions) => {
@@ -89,7 +105,7 @@ export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModal
     }
   }, []);
 
-  // Track resize with ResizeObserver
+  // Track resize with ResizeObserver (native resize: both or external resize)
   useEffect(() => {
     const cardEl = cardRef.current;
     if (!cardEl) return;
@@ -99,6 +115,7 @@ export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModal
       for (const entry of entries) {
         const { width, height } = entry.contentRect;
         if (width >= 460 && height >= 340 && !isMaximized) {
+          lastResizeTimeRef.current = Date.now();
           if (resizeTimer) clearTimeout(resizeTimer);
           resizeTimer = setTimeout(() => {
             const newDims = { width: Math.round(width), height: Math.round(height) };
@@ -116,8 +133,9 @@ export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModal
     };
   }, [isMaximized, saveDimensions]);
 
-  // Toggle maximize
+  // Toggle maximize with smooth animation
   const handleToggleMaximize = useCallback(() => {
+    triggerAnimation();
     if (!isMaximized) {
       preMaximizedSizeRef.current = dimensions;
       const maxW = Math.floor(window.innerWidth * 0.95);
@@ -129,17 +147,85 @@ export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModal
       saveDimensions(preMaximizedSizeRef.current);
       setIsMaximized(false);
     }
-  }, [isMaximized, dimensions, saveDimensions]);
+  }, [isMaximized, dimensions, saveDimensions, triggerAnimation]);
 
-  // Reset to default size
+  // Reset to default size with smooth animation
   const handleResetSize = useCallback(() => {
+    triggerAnimation();
     const responsiveW = Math.min(DEFAULT_SIZE.width, window.innerWidth * 0.94);
     const responsiveH = Math.min(DEFAULT_SIZE.height, window.innerHeight * 0.88);
     const newDims = { width: Math.max(480, responsiveW), height: Math.max(380, responsiveH) };
     setDimensions(newDims);
     setIsMaximized(false);
     saveDimensions(newDims);
+  }, [saveDimensions, triggerAnimation]);
+
+  // Corner pointer drag resize handlers (robust pointer capture to prevent backdrop clicks)
+  const handleResizePointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (isMaximized) return;
+    e.preventDefault();
+    e.stopPropagation();
+    try {
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    } catch {
+      // ignore
+    }
+    setIsResizing(true);
+    lastResizeTimeRef.current = Date.now();
+    resizeStartRef.current = {
+      x: e.clientX,
+      y: e.clientY,
+      w: cardRef.current?.offsetWidth || dimensions.width,
+      h: cardRef.current?.offsetHeight || dimensions.height,
+    };
+  }, [dimensions, isMaximized]);
+
+  const handleResizePointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (!resizeStartRef.current) return;
+    lastResizeTimeRef.current = Date.now();
+    const dx = e.clientX - resizeStartRef.current.x;
+    const dy = e.clientY - resizeStartRef.current.y;
+    const maxW = Math.max(480, Math.floor(window.innerWidth * 0.96));
+    const maxH = Math.max(380, Math.floor(window.innerHeight * 0.94));
+    const newW = Math.min(maxW, Math.max(480, Math.round(resizeStartRef.current.w + dx)));
+    const newH = Math.min(maxH, Math.max(380, Math.round(resizeStartRef.current.h + dy)));
+    setDimensions({ width: newW, height: newH });
+  }, []);
+
+  const handleResizePointerUp = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (!resizeStartRef.current) return;
+    try {
+      (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+    } catch {
+      // ignore
+    }
+    resizeStartRef.current = null;
+    setIsResizing(false);
+    lastResizeTimeRef.current = Date.now();
+    setDimensions((current) => {
+      saveDimensions(current);
+      return current;
+    });
   }, [saveDimensions]);
+
+  // Safe backdrop click handlers
+  const handleBackdropMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    isBackdropMouseDownRef.current = e.target === e.currentTarget;
+  }, []);
+
+  const handleBackdropClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    // Suppress modal close if resize just finished within 400ms
+    const timeSinceLastResize = Date.now() - lastResizeTimeRef.current;
+    if (timeSinceLastResize < 400) {
+      isBackdropMouseDownRef.current = false;
+      return;
+    }
+    // Only close if mousedown was also initiated directly on the backdrop (not dragging from inside)
+    if (isBackdropMouseDownRef.current && e.target === e.currentTarget) {
+      onClose();
+    }
+    isBackdropMouseDownRef.current = false;
+  }, [onClose]);
 
 
 
@@ -207,7 +293,8 @@ export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModal
   return (
     <div
       className="tv-chart-popover-backdrop"
-      onClick={onClose}
+      onMouseDown={handleBackdropMouseDown}
+      onClick={handleBackdropClick}
       role="dialog"
       aria-modal="true"
       aria-label={`${symbol.title}のTradingViewチャートプレビュー`}
@@ -216,11 +303,12 @@ export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModal
         ref={cardRef}
         data-modal-dialog="true"
         tabIndex={-1}
-        className={`tv-chart-popover-card ${isMaximized ? "is-maximized" : ""}`}
+        className={`tv-chart-popover-card ${isMaximized ? "is-maximized" : ""} ${isResizing ? "is-resizing" : ""} ${isAnimating ? "is-animating" : ""}`}
         style={{
           width: `${dimensions.width}px`,
           height: `${dimensions.height}px`,
         }}
+        onMouseDown={(e) => e.stopPropagation()}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -344,12 +432,40 @@ export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModal
               color: "var(--accent-text)",
               textDecoration: "none",
               fontSize: 10,
+              marginRight: isMaximized ? 0 : 16,
             }}
           >
             <span>TradingViewで開く</span>
             <ExternalLink size={10} />
           </a>
         </div>
+
+        {/* Corner Resize Grip Handle */}
+        {!isMaximized && (
+          <div
+            className="tv-resize-handle"
+            onPointerDown={handleResizePointerDown}
+            onPointerMove={handleResizePointerMove}
+            onPointerUp={handleResizePointerUp}
+            onPointerCancel={handleResizePointerUp}
+            title="ドラッグして表示枠サイズを調整"
+            aria-label="枠のサイズを調整"
+          >
+            <svg
+              width="12"
+              height="12"
+              viewBox="0 0 12 12"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+            >
+              <line x1="10" y1="3" x2="3" y2="10" opacity="0.35" />
+              <line x1="10" y1="6.5" x2="6.5" y2="10" opacity="0.65" />
+              <line x1="10" y1="10" x2="10" y2="10" opacity="1" />
+            </svg>
+          </div>
+        )}
       </div>
     </div>
   );

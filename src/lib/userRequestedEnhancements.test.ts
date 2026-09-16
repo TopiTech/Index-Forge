@@ -99,5 +99,36 @@ describe("User Requested Enhancements: Portfolio Tooltip, Menu Button, Builder M
       expect(modalCode).toContain("handleToggleMaximize");
       expect(modalCode).toContain("handleResetSize");
     });
+
+    it("prevents accidental modal closure when releasing mouse after corner resize drag", () => {
+      const modalCode = readFileSync(
+        resolve(__dirname, "../components/TradingViewChartModal.tsx"),
+        "utf8",
+      );
+      const cssCode = readFileSync(
+        resolve(__dirname, "../index.css"),
+        "utf8",
+      );
+
+      // Verify safe backdrop mousedown & click separation
+      expect(modalCode).toContain("handleBackdropMouseDown");
+      expect(modalCode).toContain("handleBackdropClick");
+      expect(modalCode).toContain("isBackdropMouseDownRef");
+      expect(modalCode).toContain("lastResizeTimeRef");
+
+      // Verify card stops propagation on mousedown to prevent backdrop from capturing drag start
+      expect(modalCode).toMatch(/onMouseDown=\{\(e\)\s*=>\s*e\.stopPropagation\(\)\}/);
+
+      // Verify pointer capture corner resize handle is mounted
+      expect(modalCode).toContain("tv-resize-handle");
+      expect(modalCode).toContain("setPointerCapture");
+      expect(modalCode).toContain("releasePointerCapture");
+      expect(cssCode).toContain(".tv-resize-handle");
+
+      // Verify smooth manual dragging with transitions decoupled to .is-animating
+      expect(cssCode).toContain(".tv-chart-popover-card.is-animating");
+      expect(modalCode).toContain("is-animating");
+    });
   });
 });
+

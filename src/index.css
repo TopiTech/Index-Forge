@@ -4144,7 +4144,20 @@ textarea:focus-visible {
   resize: both;
   overflow: hidden;
   animation: popoverScale 0.22s cubic-bezier(0.16, 1, 0.3, 1);
-  transition: width 0.2s cubic-bezier(0.4, 0, 0.2, 1), height 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  /* Instant tracking during manual dragging; transitions are applied only during animated toggles */
+  transition: none;
+}
+
+.tv-chart-popover-card.is-animating {
+  transition: width 0.22s cubic-bezier(0.16, 1, 0.3, 1), height 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.tv-chart-popover-card.is-resizing {
+  user-select: none;
+}
+
+.tv-chart-popover-card.is-resizing .tv-chart-popover-body {
+  pointer-events: none;
 }
 
 .tv-chart-popover-card.is-maximized {
@@ -4218,5 +4231,30 @@ textarea:focus-visible {
   font-size: 10px;
   flex-shrink: 0;
 }
+
+.tv-resize-handle {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  padding: 0 2px 2px 0;
+  cursor: nwse-resize;
+  color: var(--text-muted);
+  user-select: none;
+  touch-action: none;
+  z-index: 10005;
+  transition: color 0.15s ease, transform 0.15s ease;
+}
+
+.tv-resize-handle:hover,
+.tv-resize-handle:active {
+  color: var(--accent-text);
+  transform: scale(1.15);
+}
+
 
 
