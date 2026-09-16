@@ -10,6 +10,8 @@ import type {
 import { calculateCustomIndex, normalizeWeights } from "../lib/indexEngine";
 import { calculateRiskMetrics } from "../lib/analytics";
 import { filterByTimeframe } from "../lib/timeframe";
+import { isPriceCacheFresh } from "../lib/marketCache";
+import { parseLocalSyncCache } from "./useCalculation";
 import { useBenchmark } from "./useBenchmark";
 
 export interface ConstituentPerformance {
@@ -48,6 +50,7 @@ export interface SimulationResult {
 }
 
 const API_BASE = "/api";
+const SYNC_STORAGE_KEY = "osi_stock_sync_cache";
 
 /**
  * Maximum tickers accepted per /api/sync-prices request. The Worker rejects
@@ -135,28 +138,61 @@ export function useSimulation(
       setUsingDemoData(false);
 
       try {
-        const tickersToSync = basket.map((b) => b.ticker.trim().toUpperCase());
+        const allTickers = basket.map((b) => b.ticker.trim().toUpperCase());
+        const localSyncCache = parseLocalSyncCache(
+          typeof localStorage === "undefined" ? null : localStorage.getItem(SYNC_STORAGE_KEY),
+        );
+        const nowSec = Math.floor(Date.now() / 1000);
 
-        // 1. Sync prices in background (if needed) - unauthenticated viewers can sync safely with force=false
-        try {
-          // The Worker rejects a single request carrying more than 30 tickers
-          // (it used to silently truncate the excess, which made callers believe
-          // every ticker had been refreshed). Batch so baskets larger than the
-          // limit sync completely instead of leaving the preview with missing
-          // prices and fabricated fallback data.
-          for (const batch of buildSyncBatches(tickersToSync)) {
-            await fetch(`${API_BASE}/sync-prices`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ tickers: batch, force: false }),
-              signal: controller.signal,
+        const tickersToSync = force
+          ? allTickers
+          : allTickers.filter((t) => {
+              const lastSynced = localSyncCache[t];
+              if (lastSynced && isPriceCacheFresh(nowSec, Math.floor(lastSynced / 1000))) {
+                return false;
+              }
+              return true;
             });
-            if (controller.signal.aborted) return;
-            // Ignore non-fatal sync issues and proceed to calculate:
-            // /api/calculate will use whatever is in DB or Yahoo fallback.
+
+        // 1. Sync prices in background (only for tickers that are missing or stale)
+        if (tickersToSync.length > 0) {
+          try {
+            for (const batch of buildSyncBatches(tickersToSync)) {
+              const syncRes = await fetch(`${API_BASE}/sync-prices`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ tickers: batch, force: false }),
+                signal: controller.signal,
+              });
+              if (controller.signal.aborted) return;
+              if (syncRes.ok) {
+                const syncData = (await syncRes.json().catch(() => ({}))) as {
+                  results?: Array<{ ticker?: string; status?: string; lastSynced?: number }>;
+                };
+                if (Array.isArray(syncData.results)) {
+                  const nowMs = Date.now();
+                  for (const r of syncData.results) {
+                    if (r.status === "synced" || r.status === "cached") {
+                      const nt = typeof r.ticker === "string" ? r.ticker.trim().toUpperCase() : "";
+                      if (nt) {
+                        localSyncCache[nt] =
+                          typeof r.lastSynced === "number" && r.lastSynced > 0
+                            ? r.lastSynced * 1000
+                            : nowMs;
+                      }
+                    }
+                  }
+                  try {
+                    localStorage.setItem(SYNC_STORAGE_KEY, JSON.stringify(localSyncCache));
+                  } catch {
+                    // ignore localStorage quota errors
+                  }
+                }
+              }
+            }
+          } catch {
+            // Ignore network errors in sync preflight
           }
-        } catch {
-          // Ignore network errors in sync preflight
         }
 
         if (controller.signal.aborted) return;

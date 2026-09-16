@@ -4,9 +4,14 @@ import worker, {
   setAllowMemoryCacheInTest,
   clearMemoryCache,
   clearAuthCache,
+  clearMemoryRateLimits,
   resetPasswordTableEnsured,
   authenticatePassword,
 } from "../../worker/index";
+import {
+  isTseMarketOpen,
+  getTickerPollingInterval,
+} from "../components/TradingViewTickerTape";
 
 const TEST_ADMIN_PASSWORD = "test-admin-password";
 
@@ -550,5 +555,174 @@ describe("Cloudflare Quota Savings: Auth and Password Table Caching", () => {
     const auth2 = await authenticatePassword(req, env);
     expect(auth2.authenticated).toBe(true);
     expect(prepareCalls.length).toBe(countAfterFirst);
+  });
+});
+
+describe("Cloudflare Quota Savings: In-Memory Rate Limiting for High-Frequency Endpoints", () => {
+  beforeEach(() => {
+    clearMemoryRateLimits();
+    clearMemoryCache();
+  });
+  afterEach(() => {
+    clearMemoryRateLimits();
+    clearMemoryCache();
+  });
+
+  it("never executes D1 INSERT/UPDATE rate_limits writes for /api/snapshot requests", async () => {
+    const env = createSavingsTestEnv();
+    const req = new Request("http://localhost/api/snapshot?symbol=%5EN225", {
+      headers: { "cf-connecting-ip": "1.2.3.4" },
+    });
+
+    const res = await worker.fetch(req, env as any);
+    expect(res.status).toBe(200);
+
+    const rateLimitWrites = env._prepareCalls.filter((q) =>
+      q.includes("rate_limits") && q.includes("INSERT"),
+    );
+    expect(rateLimitWrites.length).toBe(0);
+  });
+
+  it("never executes D1 INSERT/UPDATE rate_limits writes for /api/calculate requests", async () => {
+    const env = createSavingsTestEnv();
+    env._stockSeries.set("9984", {
+      ticker: "9984",
+      prices: JSON.stringify([{ date: "2026-09-01", close: 8000 }]),
+      updated_at: Math.floor(Date.now() / 1000),
+    });
+
+    const req = new Request("http://localhost/api/calculate", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "cf-connecting-ip": "1.2.3.4",
+      },
+      body: JSON.stringify({
+        basket: [{ ticker: "9984", name: "SoftBank", theme: "AI", weight: 100 }],
+        baseValue: 1000,
+      }),
+    });
+
+    const res = await worker.fetch(req, env as any);
+    expect(res.status).toBe(200);
+
+    const rateLimitWrites = env._prepareCalls.filter((q) =>
+      q.includes("rate_limits") && q.includes("INSERT"),
+    );
+    expect(rateLimitWrites.length).toBe(0);
+  });
+
+  it("enforces in-memory rate limit of 60 req/min for high-frequency endpoints without D1 writes", async () => {
+    const env = createSavingsTestEnv();
+    const makeReq = () =>
+      new Request("http://localhost/api/snapshot?symbol=%5EN225", {
+        headers: { "cf-connecting-ip": "5.6.7.8" },
+      });
+
+    // Send 60 requests: all admitted in memory
+    for (let i = 0; i < 60; i++) {
+      const res = await worker.fetch(makeReq(), env as any);
+      expect(res.status).toBe(200);
+    }
+
+    // 61st request: blocked by in-memory rate limit with 429
+    const res61 = await worker.fetch(makeReq(), env as any);
+    expect(res61.status).toBe(429);
+
+    // D1 rate_limits writes must STILL be exactly zero!
+    const rateLimitWrites = env._prepareCalls.filter((q) =>
+      q.includes("rate_limits") && q.includes("INSERT"),
+    );
+    expect(rateLimitWrites.length).toBe(0);
+  });
+});
+
+describe("Cloudflare Quota Savings: Market-Aware Snapshot TTL for TSE Hours", () => {
+  it("reuses cached snapshot data beyond 5 minutes when market is closed (weekend)", async () => {
+    const env = createSavingsTestEnv();
+    // Pre-populate snapshot_cache with a Saturday timestamp (2 hours ago)
+    // 2026-09-05 10:00 JST -> 01:00 UTC
+    const saturday10am = Math.floor(new Date("2026-09-05T01:00:00Z").getTime() / 1000);
+    const twoHoursLater = Math.floor(new Date("2026-09-05T03:00:00Z").getTime() / 1000);
+
+    env._prepareCalls = [];
+    const originalNow = Date.now;
+    try {
+      Date.now = () => twoHoursLater * 1000;
+
+      // Mock DB returning cache from 2 hours ago (7200s ago, well past former 300s TTL)
+      env.DB.prepare = vi.fn().mockImplementation((query: string) => {
+        env._prepareCalls.push(query);
+        if (query.includes("FROM snapshot_cache")) {
+          return {
+            bind: vi.fn().mockReturnThis(),
+            all: () =>
+              Promise.resolve({
+                results: [
+                  {
+                    data: JSON.stringify({
+                      snapshot: {
+                        symbol: "^N225",
+                        label: "日経225",
+                        current: 39000,
+                        change: 100,
+                        changePct: 0.26,
+                      },
+                      series: [{ date: "2026-09-04", close: 39000 }],
+                    }),
+                    cached_at: saturday10am,
+                  },
+                ],
+              }),
+            run: () => Promise.resolve({ success: true }),
+          };
+        }
+        return {
+          bind: vi.fn().mockReturnThis(),
+          all: () => Promise.resolve({ results: [] }),
+          run: () => Promise.resolve({ success: true }),
+        };
+      });
+
+      const res = await worker.fetch(
+        new Request("http://localhost/api/snapshot?symbol=%5EN225"),
+        env as any,
+      );
+
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.snapshot.current).toBe(39000);
+
+      // Must NOT have written to snapshot_cache because the weekend cache is still fresh!
+      const snapshotWrites = env._prepareCalls.filter(
+        (q) => q.includes("snapshot_cache") && q.includes("INSERT"),
+      );
+      expect(snapshotWrites.length).toBe(0);
+    } finally {
+      Date.now = originalNow;
+    }
+  });
+});
+
+describe("Cloudflare Quota Savings: Smart Ticker Polling Interval", () => {
+  it("detects TSE regular session (Wednesday 11:00 JST) as open with 60s interval", () => {
+    // 2026-09-02 (Wednesday) 11:00 JST -> 02:00 UTC
+    const wednesdayTrading = new Date("2026-09-02T02:00:00Z");
+    expect(isTseMarketOpen(wednesdayTrading)).toBe(true);
+    expect(getTickerPollingInterval(wednesdayTrading)).toBe(60_000);
+  });
+
+  it("detects TSE closed session (Wednesday 20:00 JST) as closed with 15m interval", () => {
+    // 2026-09-02 (Wednesday) 20:00 JST -> 11:00 UTC
+    const wednesdayNight = new Date("2026-09-02T11:00:00Z");
+    expect(isTseMarketOpen(wednesdayNight)).toBe(false);
+    expect(getTickerPollingInterval(wednesdayNight)).toBe(15 * 60_000);
+  });
+
+  it("detects weekend (Saturday 14:00 JST) as closed with 15m interval", () => {
+    // 2026-09-05 (Saturday) 14:00 JST -> 05:00 UTC
+    const saturday = new Date("2026-09-05T05:00:00Z");
+    expect(isTseMarketOpen(saturday)).toBe(false);
+    expect(getTickerPollingInterval(saturday)).toBe(15 * 60_000);
   });
 });

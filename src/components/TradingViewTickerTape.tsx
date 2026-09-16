@@ -108,6 +108,23 @@ export const TICKER_SYMBOLS: TickerSymbolItem[] = [
 
 const HOVER_TRIGGER_DELAY_MS = 1800; // ~1.8 seconds delay before popup triggers
 
+const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
+const TSE_OPEN_MINUTES = 9 * 60; // 09:00 JST
+const TSE_CLOSE_MINUTES = 15 * 60 + 30; // 15:30 JST
+
+export function isTseMarketOpen(now: Date = new Date()): boolean {
+  const jst = new Date(now.getTime() + JST_OFFSET_MS);
+  const day = jst.getUTCDay();
+  if (day === 0 || day === 6) return false; // Saturday / Sunday
+  const minutes = jst.getUTCHours() * 60 + jst.getUTCMinutes();
+  return minutes >= TSE_OPEN_MINUTES && minutes < TSE_CLOSE_MINUTES;
+}
+
+export function getTickerPollingInterval(now: Date = new Date()): number {
+  // During trading hours: 60 seconds. Outside trading hours (nights, weekends): 15 minutes to conserve quota.
+  return isTseMarketOpen(now) ? 60_000 : 15 * 60_000;
+}
+
 export interface LiveQuoteItem {
   price: string;
   change: string;
@@ -123,6 +140,7 @@ export function TradingViewTickerTape() {
   const [isLive, setIsLive] = useState(false);
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const etagRef = useRef<string | null>(null);
 
   // Clear timers on unmount
   useEffect(() => {
@@ -136,11 +154,25 @@ export function TradingViewTickerTape() {
     };
   }, []);
 
-  // Fetch real-time market quotes from worker API
+  // Fetch real-time market quotes from worker API (with ETag conditional request)
   const fetchQuotes = useCallback(async () => {
     try {
-      const res = await fetch("/api/ticker-prices");
+      const headers: Record<string, string> = {};
+      if (etagRef.current) {
+        headers["If-None-Match"] = etagRef.current;
+      }
+      const res = await fetch("/api/ticker-prices", { headers });
+      if (res.status === 304) {
+        // Data has not changed; retain current quotes and save client processing
+        return;
+      }
       if (!res.ok) return;
+
+      const newEtag = res.headers.get("etag");
+      if (newEtag) {
+        etagRef.current = newEtag;
+      }
+
       const data = (await res.json()) as {
         updatedAt?: string;
         quotes?: {
@@ -189,14 +221,26 @@ export function TradingViewTickerTape() {
     }
   }, []);
 
-  // Periodically fetch quotes when tab is active
+  // Smart polling: 60s during trading hours, 15m outside trading hours to conserve quota
   useEffect(() => {
     fetchQuotes();
-    const interval = setInterval(() => {
-      if (typeof document !== "undefined" && document.visibilityState === "visible") {
-        fetchQuotes();
-      }
-    }, 45000);
+
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let cancelled = false;
+
+    const scheduleNext = () => {
+      if (cancelled) return;
+      const intervalMs = getTickerPollingInterval();
+      timer = setTimeout(() => {
+        if (!cancelled && typeof document !== "undefined" && document.visibilityState === "visible") {
+          fetchQuotes().finally(() => scheduleNext());
+        } else {
+          scheduleNext();
+        }
+      }, intervalMs);
+    };
+
+    scheduleNext();
 
     const handleVisibilityChange = () => {
       if (typeof document !== "undefined" && document.visibilityState === "visible") {
@@ -206,7 +250,8 @@ export function TradingViewTickerTape() {
 
     document.addEventListener("visibilitychange", handleVisibilityChange);
     return () => {
-      clearInterval(interval);
+      cancelled = true;
+      if (timer) clearTimeout(timer);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [fetchQuotes]);

@@ -1275,6 +1275,52 @@ async function parseJsonBody(
 const RATE_LIMIT_WINDOW = 60; // seconds
 const RATE_LIMIT_MAX = 60; // max requests per window per endpoint
 
+// Endpoints that receive high read/compute traffic use in-memory rate limiting
+// to prevent exhausting Cloudflare D1's 100,000 rows/month write quota (approx 3,333 writes/day).
+const HIGH_FREQUENCY_RATE_LIMIT_ENDPOINTS = new Set([
+  "snapshot",
+  "ticker-prices",
+  "calculate",
+]);
+
+interface MemoryRateLimitRecord {
+  count: number;
+  windowStart: number;
+}
+const memoryRateLimits = new Map<string, MemoryRateLimitRecord>();
+const MAX_MEMORY_RATE_LIMIT_ENTRIES = 1000;
+
+export function clearMemoryRateLimits(): void {
+  memoryRateLimits.clear();
+}
+
+function checkMemoryRateLimit(
+  ip: string,
+  endpoint: string,
+  maxRequests: number,
+  windowSeconds = RATE_LIMIT_WINDOW,
+): boolean {
+  const now = Math.floor(Date.now() / 1000);
+  const key = `${ip}::${endpoint}`;
+  const record = memoryRateLimits.get(key);
+
+  if (!record || now - record.windowStart >= windowSeconds) {
+    if (memoryRateLimits.size >= MAX_MEMORY_RATE_LIMIT_ENTRIES) {
+      const oldestKey = memoryRateLimits.keys().next().value;
+      if (oldestKey) memoryRateLimits.delete(oldestKey);
+    }
+    memoryRateLimits.set(key, { count: 1, windowStart: now });
+    return true;
+  }
+
+  if (record.count >= maxRequests) {
+    return false;
+  }
+
+  record.count += 1;
+  return true;
+}
+
 function requestsFreshCalculation(request: Request): boolean {
   return (request.headers.get("cache-control") || "")
     .split(",")
@@ -1289,6 +1335,12 @@ async function checkRateLimit(
   failClosed = false,
   ctx?: ExecutionContext,
 ): Promise<boolean> {
+  // High-frequency read & compute endpoints use in-memory rate limiting to
+  // protect Cloudflare D1's strict 100,000 writes/month free-tier quota.
+  if (HIGH_FREQUENCY_RATE_LIMIT_ENDPOINTS.has(endpoint)) {
+    return checkMemoryRateLimit(ip, endpoint, maxRequests);
+  }
+
   const now = Math.floor(Date.now() / 1000);
   try {
     // Probabilistic cleanup of dead rate_limit rows (approx every 100 requests)
@@ -2251,7 +2303,12 @@ export default {
             }
           }
 
-          if (cacheRow && now - cacheRow.cached_at < SNAPSHOT_CACHE_TTL) {
+          const snapshotTtl =
+            symbol === "^N225" && cacheRow
+              ? getMarketAwareCacheDuration(new Date(cacheRow.cached_at * 1000))
+              : SNAPSHOT_CACHE_TTL;
+
+          if (cacheRow && now - cacheRow.cached_at < snapshotTtl) {
             try {
               const parsedData = parseSnapshotResponseData(
                 JSON.parse(cacheRow.data),
@@ -2259,18 +2316,19 @@ export default {
                 benchInfo,
               );
               if (!parsedData) throw new Error("Invalid snapshot cache payload");
-              setMemoryCache(memKey, parsedData, 60);
+              const memTtl = Math.max(60, Math.min(snapshotTtl, 300));
+              setMemoryCache(memKey, parsedData, memTtl);
               const etag = await generateETag(JSON.stringify(parsedData));
               const ifNoneMatch = request.headers.get("if-none-match");
               if (ifNoneMatch && (ifNoneMatch === etag || ifNoneMatch === `W/${etag}`)) {
                 return notModified(request, {
                   etag: etag,
-                  "cache-control": "public, max-age=60, s-maxage=300",
+                  "cache-control": `public, max-age=60, s-maxage=${Math.min(snapshotTtl, 1800)}`,
                 });
               }
               return json(parsedData, 200, request, {
                 etag: etag,
-                "cache-control": "public, max-age=60, s-maxage=300",
+                "cache-control": `public, max-age=60, s-maxage=${Math.min(snapshotTtl, 1800)}`,
               });
             } catch {
               // Malformed cache, proceed to fresh fetch
@@ -2389,18 +2447,26 @@ export default {
             }
           }
 
-          setMemoryCache(memKey, responseData, 60);
+          const freshMemTtl =
+            symbol === "^N225"
+              ? Math.max(60, Math.min(getMarketAwareCacheDuration(), 300))
+              : 60;
+          const freshSMaxAge =
+            symbol === "^N225"
+              ? Math.max(300, Math.min(getMarketAwareCacheDuration(), 1800))
+              : 300;
+          setMemoryCache(memKey, responseData, freshMemTtl);
           const freshEtag = await generateETag(JSON.stringify(responseData));
           const ifNoneMatch = request.headers.get("if-none-match");
           if (ifNoneMatch && (ifNoneMatch === freshEtag || ifNoneMatch === `W/${freshEtag}`)) {
             return notModified(request, {
               etag: freshEtag,
-              "cache-control": "public, max-age=60, s-maxage=300",
+              "cache-control": `public, max-age=60, s-maxage=${freshSMaxAge}`,
             });
           }
           return json(responseData, 200, request, {
             etag: freshEtag,
-            "cache-control": "public, max-age=60, s-maxage=300",
+            "cache-control": `public, max-age=60, s-maxage=${freshSMaxAge}`,
           });
         } catch (err) {
           console.error("API Error [snapshot]:", err);
