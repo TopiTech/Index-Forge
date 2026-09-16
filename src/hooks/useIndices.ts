@@ -106,6 +106,7 @@ export function useIndices() {
           const found = data.find((d) => d.id === prev.id);
           return found || data[0];
         });
+        return data;
       } else {
         // The server's empty list supersedes any prior local response. Keep
         // neither its body nor its ETag paired with a stale local body; a
@@ -122,6 +123,7 @@ export function useIndices() {
           const found = DEFAULT_INDICES.find((d) => d.id === prev.id);
           return found || DEFAULT_INDICES[0];
         });
+        return DEFAULT_INDICES;
       }
     } catch (err) {
       const message =
@@ -141,7 +143,9 @@ export function useIndices() {
           const found = DEFAULT_INDICES.find((d) => d.id === prev.id);
           return found || DEFAULT_INDICES[0];
         });
+        return DEFAULT_INDICES;
       }
+      return cached;
     } finally {
       setLoading(false);
     }
@@ -200,8 +204,9 @@ export function useIndices() {
           // Ignore storage failures; the in-memory state remains usable.
         }
 
-        await fetchIndices();
-        const savedIndex = { ...newIndex, id: savedId };
+        const refreshedList = await fetchIndices();
+        const found = refreshedList?.find((d) => d.id === savedId);
+        const savedIndex = found || { ...newIndex, id: savedId };
         setSelectedIndex(savedIndex);
         return { ok: true, ownerToken: finalToken || undefined, id: savedId };
       } catch (err) {
@@ -331,6 +336,10 @@ export function useIndices() {
     [fetchIndices],
   );
 
+  const refreshIndices = useCallback(async (): Promise<void> => {
+    await fetchIndices();
+  }, [fetchIndices]);
+
   return {
     indices,
     selectedIndex,
@@ -341,7 +350,7 @@ export function useIndices() {
     deleteCustomIndex,
     addStockToIndex,
     removeStockFromIndex,
-    refreshIndices: fetchIndices,
+    refreshIndices,
     isOwner: isIndexOwner,
   };
 }

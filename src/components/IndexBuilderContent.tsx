@@ -1,4 +1,4 @@
-import React, { useRef, useState, useMemo } from "react";
+import React, { useRef, useState, useMemo, useEffect } from "react";
 import {
   Plus,
   Trash2,
@@ -91,6 +91,64 @@ export interface IndexBuilderContentProps {
   onClose?: () => void;
   onPreviewInDashboard?: (index: CustomIndex) => void;
   isFullPage?: boolean;
+}
+
+function WeightNumberInput({
+  value,
+  onChange,
+  ariaLabel,
+}: {
+  value: number;
+  onChange: (newVal: number) => void;
+  ariaLabel: string;
+}) {
+  const [draft, setDraft] = useState(() => String(Number(value.toFixed(1))));
+  const [isFocused, setIsFocused] = useState(false);
+
+  useEffect(() => {
+    if (!isFocused) {
+      setDraft(String(Number(value.toFixed(1))));
+    }
+  }, [value, isFocused]);
+
+  const commit = () => {
+    setIsFocused(false);
+    const parsed = parseFloat(draft);
+    if (!Number.isFinite(parsed)) {
+      setDraft(String(Number(value.toFixed(1))));
+      return;
+    }
+    const clamped = Math.min(100, Math.max(0.1, Number(parsed.toFixed(1))));
+    setDraft(String(clamped));
+    onChange(clamped);
+  };
+
+  return (
+    <input
+      type="number"
+      min={0.1}
+      max={100}
+      step={0.5}
+      value={draft}
+      onFocus={() => setIsFocused(true)}
+      onChange={(e) => {
+        const next = e.target.value;
+        setDraft(next);
+        const parsed = parseFloat(next);
+        if (Number.isFinite(parsed) && parsed >= 0.1 && parsed <= 100) {
+          onChange(Number(parsed.toFixed(1)));
+        }
+      }}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          e.currentTarget.blur();
+        }
+      }}
+      aria-label={ariaLabel}
+      className="input-search builder-weight-number-input"
+    />
+  );
 }
 
 export function IndexBuilderContent({
@@ -794,15 +852,10 @@ export function IndexBuilderContent({
                         aria-label={`${item.name}のウェイト比率スライダー`}
                       />
                       <div className="builder-weight-input-group row" style={{ alignItems: "center", gap: 2 }}>
-                        <input
-                          type="number"
-                          min={0.1}
-                          max={100}
-                          step={0.5}
-                          value={Number(item.weight.toFixed(1))}
-                          onChange={(e) => handleWeightChange(item.ticker, e.target.value)}
-                          aria-label={`${item.name}のウェイト比率数値`}
-                          className="input-search builder-weight-number-input"
+                        <WeightNumberInput
+                          value={item.weight}
+                          onChange={(w) => handleWeightChange(item.ticker, String(w))}
+                          ariaLabel={`${item.name}のウェイト比率数値`}
                         />
                         <span className="mono tiny bold" style={{ fontSize: 10, color: "var(--text-secondary)" }}>
                           %

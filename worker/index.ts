@@ -125,7 +125,7 @@ function isMissingColumnError(error: unknown, column: string): boolean {
   const message = error instanceof Error ? error.message : String(error ?? "");
   return (
     message.toLowerCase().includes(column.toLowerCase()) &&
-    /no column|no such column|does not exist|sqlite_error/i.test(message)
+    /no column|no such column|does not exist/i.test(message)
   );
 }
 
@@ -1467,7 +1467,15 @@ export default {
             return json({ error: "マスター管理者パスワードは削除できません" }, 403, request);
           }
           await ensurePasswordTable(env);
-          await env.DB.prepare("DELETE FROM access_passwords WHERE id = ?").bind(id).run();
+          try {
+            await env.DB.batch([
+              env.DB.prepare("UPDATE indices SET creator_id = NULL WHERE creator_id = ?").bind(id),
+              env.DB.prepare("DELETE FROM access_passwords WHERE id = ?").bind(id),
+            ]);
+          } catch (deleteBatchErr: unknown) {
+            if (!isMissingColumnError(deleteBatchErr, "creator_id")) throw deleteBatchErr;
+            await env.DB.prepare("DELETE FROM access_passwords WHERE id = ?").bind(id).run();
+          }
           clearAuthCache();
           return json({ ok: true }, 200, request);
         } catch (err) {
@@ -2727,7 +2735,12 @@ export default {
           }
 
           const nowMs = Math.floor(Date.now() / 1000);
-          const creatorId = auth.authenticated && auth.id ? auth.id : null;
+          const creatorId =
+            isExisting && isAdmin && !existingCreatorId
+              ? null
+              : auth.authenticated && auth.id
+                ? auth.id
+                : null;
 
           const buildIndexStatements = (columns: IndexWriteColumns): D1PreparedStatement[] => {
             const quotaGuarded = userIndexLimit !== null && columns.creatorId;

@@ -8,6 +8,7 @@ import {
   Maximize2,
   Minimize2,
   RotateCcw,
+  AlertCircle,
 } from "lucide-react";
 import { useTheme } from "../lib/theme";
 import { useModalFocus } from "../hooks/useModalFocus";
@@ -83,6 +84,7 @@ export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModal
   const [isMaximized, setIsMaximized] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
   const [isAnimating, setIsAnimating] = useState(false);
+  const [scriptError, setScriptError] = useState(false);
 
   const preMaximizedSizeRef = useRef<CardDimensions>(getSavedDimensions());
   const isBackdropMouseDownRef = useRef(false);
@@ -273,6 +275,7 @@ export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModal
     const container = widgetContainerRef.current;
     if (!container) return;
 
+    setScriptError(false);
     container.innerHTML = "";
 
     const widgetInner = document.createElement("div");
@@ -285,6 +288,8 @@ export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModal
     script.src = "https://s3.tradingview.com/external-embedding/embed-widget-symbol-overview.js";
     script.type = "text/javascript";
     script.async = true;
+    script.onload = () => setScriptError(false);
+    script.onerror = () => setScriptError(true);
     script.innerHTML = JSON.stringify({
       symbols: [
         [symbol.title, `${symbol.proName}|1D`],
@@ -440,12 +445,42 @@ export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModal
         </div>
 
         {/* TradingView Chart Container */}
-        <div className="tv-chart-popover-body">
+        <div className="tv-chart-popover-body" style={{ position: "relative" }}>
           <div
             ref={widgetContainerRef}
-            style={{ width: "100%", height: "100%" }}
+            style={{ width: "100%", height: "100%", display: scriptError ? "none" : "block" }}
             className="tradingview-widget-container"
           />
+          {scriptError && (
+            <div
+              className="column"
+              style={{
+                width: "100%",
+                height: "100%",
+                alignItems: "center",
+                justifyContent: "center",
+                padding: 24,
+                textAlign: "center",
+                gap: 12,
+              }}
+            >
+              <AlertCircle size={32} style={{ color: "var(--neon-amber, #f59e0b)" }} />
+              <div style={{ fontSize: 13, fontWeight: 600 }}>チャートウィジェットを読み込めませんでした</div>
+              <p className="muted tiny" style={{ maxWidth: 360, margin: 0 }}>
+                コンテンツブロッカーやネットワーク環境の影響により、外部ウィジェットスクリプトがブロックされた可能性があります。
+              </p>
+              <a
+                href={tradingViewSymbolUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn btn-sm btn-default"
+                style={{ marginTop: 8 }}
+              >
+                <span>TradingView 公式サイトで開く</span>
+                <ExternalLink size={12} />
+              </a>
+            </div>
+          )}
         </div>
 
         {/* Footer */}

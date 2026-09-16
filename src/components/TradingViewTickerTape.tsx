@@ -172,6 +172,7 @@ export function TradingViewTickerTape() {
           >
             {displayItems.map((item, index) => {
               const isItemHovered = hoveredSymbol === item.proName;
+              const isDuplicate = index >= TICKER_SYMBOLS.length;
               return (
                 <div
                   key={`${item.proName}-${index}`}
@@ -189,9 +190,11 @@ export function TradingViewTickerTape() {
                     })
                   }
                   title={`${item.title} (${item.proName}) - 数秒ホバーまたはクリックでチャート表示`}
-                  role="button"
-                  tabIndex={0}
+                  role={isDuplicate ? undefined : "button"}
+                  tabIndex={isDuplicate ? -1 : 0}
+                  aria-hidden={isDuplicate ? true : undefined}
                   onKeyDown={(e) => {
+                    if (isDuplicate) return;
                     if (e.key === "Enter" || e.key === " ") {
                       e.preventDefault();
                       setActivePopupSymbol({

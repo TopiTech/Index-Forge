@@ -52,23 +52,51 @@ export function Header({
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const mobileMenuToggleRef = useRef<HTMLButtonElement>(null);
+  const mobileMenuRef = useRef<HTMLElement>(null);
 
-  // Close the mobile navigation drawer with Escape and restore focus to the
-  // toggle button, matching the sidebar drawer's keyboard behavior. The
-  // desktop layout hides the toggle, so focus restoration is skipped there.
+  // Close the mobile navigation drawer with Escape, trap focus inside while open,
+  // and restore focus to the toggle button on close.
   useEffect(() => {
     if (!isMobileMenuOpen) return;
+
+    const drawer = mobileMenuRef.current;
+    const focusableSelector = "button:not([disabled]), a[href]:not([disabled]), [tabindex]:not([tabindex='-1'])";
+    const getFocusable = () =>
+      drawer ? Array.from(drawer.querySelectorAll<HTMLElement>(focusableSelector)).filter((el) => el.getClientRects().length > 0) : [];
+
+    const frame = window.requestAnimationFrame(() => {
+      const items = getFocusable();
+      if (items.length > 0) items[0].focus();
+    });
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
         setIsMobileMenuOpen(false);
         mobileMenuToggleRef.current?.focus();
+        return;
+      }
+
+      if (event.key !== "Tab" || !drawer) return;
+      const items = getFocusable();
+      if (items.length === 0) return;
+
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (event.shiftKey && (document.activeElement === first || !drawer.contains(document.activeElement))) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && (document.activeElement === last || !drawer.contains(document.activeElement))) {
+        event.preventDefault();
+        first.focus();
       }
     };
 
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    window.addEventListener("keydown", handleKeyDown, true);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener("keydown", handleKeyDown, true);
+    };
   }, [isMobileMenuOpen]);
 
   const limitsText =
@@ -295,6 +323,7 @@ export function Header({
         <AnimatePresence>
           {isMobileMenuOpen && (
             <motion.nav
+              ref={mobileMenuRef}
               initial={{ height: 0, opacity: 0 }}
               animate={{ height: "auto", opacity: 1 }}
               exit={{ height: 0, opacity: 0 }}

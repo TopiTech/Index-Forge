@@ -185,7 +185,8 @@ export function useSimulation(
         }
 
         // If server failed or returned empty universe, use robust client fallback calculation
-        if (universe.length === 0 || series.length === 0) {
+        const isFallback = universe.length === 0 || series.length === 0;
+        if (isFallback) {
           universe = generateFallbackStockUniverse(basket);
           series = calculateCustomIndex(basket, universe, baseValue);
         }
@@ -197,7 +198,7 @@ export function useSimulation(
         // The simulated preview must never present generated demo prices as if
         // they were real market data: surface an explicit warning whenever the
         // displayed series did not come from the calculation API.
-        setUsingDemoData(true);
+        setUsingDemoData(isFallback);
       } catch (err: unknown) {
         if (
           controller.signal.aborted ||

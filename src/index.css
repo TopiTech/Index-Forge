@@ -4038,7 +4038,8 @@ textarea:focus-visible {
   will-change: transform;
 }
 
-.tv-ticker-track.paused {
+.tv-ticker-track.paused,
+.tv-interactive-ticker-wrapper:focus-within .tv-ticker-track {
   animation-play-state: paused;
 }
 
