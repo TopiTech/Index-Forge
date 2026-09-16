@@ -266,20 +266,38 @@ export function SimulationPreview({
       >
         <MiniStatCard
           label="期間リターン"
-          value={`${periodCustomReturnPct >= 0 ? "+" : ""}${periodCustomReturnPct}%`}
-          valueColor={periodCustomReturnPct >= 0 ? "var(--neon-green)" : "var(--neon-red)"}
-          sub={`vs ${currentBenchmarkLabel} (${periodBenchmarkReturnPct >= 0 ? "+" : ""}${periodBenchmarkReturnPct}%)`}
+          value={`${periodCustomReturnPct > 0 ? "+" : ""}${periodCustomReturnPct}%`}
+          valueColor={
+            periodCustomReturnPct > 0
+              ? "var(--neon-green)"
+              : periodCustomReturnPct < 0
+                ? "var(--neon-red)"
+                : "var(--text-primary)"
+          }
+          sub={`vs ${currentBenchmarkLabel} (${periodBenchmarkReturnPct > 0 ? "+" : ""}${periodBenchmarkReturnPct}%)`}
         />
         <MiniStatCard
           label="超過リターン (α)"
-          value={`${alphaPct >= 0 ? "+" : ""}${alphaPct}%`}
-          valueColor={alphaPct >= 0 ? "var(--neon-green)" : "var(--neon-red)"}
+          value={`${alphaPct > 0 ? "+" : ""}${alphaPct}%`}
+          valueColor={
+            alphaPct > 0
+              ? "var(--neon-green)"
+              : alphaPct < 0
+                ? "var(--neon-red)"
+                : "var(--text-primary)"
+          }
           sub={`vs ${currentBenchmarkLabel}${usingDemoBenchmark ? " (デモ比較)" : ""}`}
         />
         <MiniStatCard
           label="年率換算リターン"
-          value={`${metrics.annualReturn >= 0 ? "+" : ""}${metrics.annualReturn.toFixed(1)}%`}
-          valueColor={metrics.annualReturn >= 0 ? "var(--neon-green)" : "var(--neon-red)"}
+          value={`${metrics.annualReturn > 0 ? "+" : ""}${metrics.annualReturn.toFixed(1)}%`}
+          valueColor={
+            metrics.annualReturn > 0
+              ? "var(--neon-green)"
+              : metrics.annualReturn < 0
+                ? "var(--neon-red)"
+                : "var(--text-primary)"
+          }
           sub="CAGR 相当"
         />
         <MiniStatCard
@@ -409,7 +427,7 @@ export function SimulationPreview({
                           {indexName || "独自指数"}:
                         </span>
                         <span className="mono bold">
-                          {Number(custom?.value) >= 0 ? "+" : ""}
+                          {Number(custom?.value) > 0 ? "+" : ""}
                           {custom?.value}%
                         </span>
                       </div>
@@ -419,7 +437,7 @@ export function SimulationPreview({
                             {currentBenchmarkLabel}:
                           </span>
                           <span className="mono bold">
-                            {Number(bm.value) >= 0 ? "+" : ""}
+                            {Number(bm.value) > 0 ? "+" : ""}
                             {bm.value}%
                           </span>
                         </div>
@@ -508,11 +526,16 @@ export function SimulationPreview({
                       style={{
                         padding: "6px 8px",
                         textAlign: "right",
-                        color: item.periodReturnPct >= 0 ? "var(--neon-green)" : "var(--neon-red)",
+                        color:
+                          item.periodReturnPct > 0
+                            ? "var(--neon-green)"
+                            : item.periodReturnPct < 0
+                              ? "var(--neon-red)"
+                              : "var(--text-primary)",
                       }}
                       className="mono bold"
                     >
-                      {item.periodReturnPct >= 0 ? "+" : ""}
+                      {item.periodReturnPct > 0 ? "+" : ""}
                       {item.periodReturnPct}%
                     </td>
                     <td
@@ -520,11 +543,15 @@ export function SimulationPreview({
                         padding: "6px 8px",
                         textAlign: "right",
                         color:
-                          item.contributionPct >= 0 ? "var(--neon-green)" : "var(--neon-red)",
+                          item.contributionPct > 0
+                            ? "var(--neon-green)"
+                            : item.contributionPct < 0
+                              ? "var(--neon-red)"
+                              : "var(--text-primary)",
                       }}
                       className="mono bold"
                     >
-                      {item.contributionPct >= 0 ? "+" : ""}
+                      {item.contributionPct > 0 ? "+" : ""}
                       {item.contributionPct}%
                     </td>
                   </tr>

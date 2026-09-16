@@ -300,32 +300,7 @@ export function useSimulation(
 
   // Calculate period returns and alpha
   const { periodCustomReturnPct, periodBenchmarkReturnPct, alphaPct } = useMemo(() => {
-    let customReturn = 0;
-    if (filteredCustomSeries.length >= 2) {
-      const start = filteredCustomSeries[0].value ?? filteredCustomSeries[0].close;
-      const end =
-        filteredCustomSeries[filteredCustomSeries.length - 1].value ??
-        filteredCustomSeries[filteredCustomSeries.length - 1].close;
-      if (start > 0) {
-        customReturn = Number((((end - start) / start) * 100).toFixed(2));
-      }
-    }
-
-    let benchmarkReturn = 0;
-    if (filteredBenchmarkSeries.length >= 2) {
-      const start = filteredBenchmarkSeries[0].close;
-      const end = filteredBenchmarkSeries[filteredBenchmarkSeries.length - 1].close;
-      if (start > 0) {
-        benchmarkReturn = Number((((end - start) / start) * 100).toFixed(2));
-      }
-    }
-
-    const alpha = Number((customReturn - benchmarkReturn).toFixed(2));
-    return {
-      periodCustomReturnPct: customReturn,
-      periodBenchmarkReturnPct: benchmarkReturn,
-      alphaPct: alpha,
-    };
+    return calculatePeriodReturns(filteredCustomSeries, filteredBenchmarkSeries);
   }, [filteredCustomSeries, filteredBenchmarkSeries]);
 
   // Calculate constituent performance & contribution
@@ -355,6 +330,46 @@ export function useSimulation(
     selectedBenchmark,
     setSelectedBenchmark,
     runSimulation,
+  };
+}
+
+function sanitizeMetricPct(val: number): number {
+  return Math.abs(val) < 0.005 || Object.is(val, -0) ? 0 : Number(val.toFixed(2));
+}
+
+export function calculatePeriodReturns(
+  filteredCustomSeries: PricePoint[],
+  filteredBenchmarkSeries: PricePoint[],
+): {
+  periodCustomReturnPct: number;
+  periodBenchmarkReturnPct: number;
+  alphaPct: number;
+} {
+  let customReturn = 0;
+  if (filteredCustomSeries.length >= 2) {
+    const start = filteredCustomSeries[0].value ?? filteredCustomSeries[0].close;
+    const end =
+      filteredCustomSeries[filteredCustomSeries.length - 1].value ??
+      filteredCustomSeries[filteredCustomSeries.length - 1].close;
+    if (start > 0) {
+      customReturn = sanitizeMetricPct(((end - start) / start) * 100);
+    }
+  }
+
+  let benchmarkReturn = 0;
+  if (filteredBenchmarkSeries.length >= 2) {
+    const start = filteredBenchmarkSeries[0].close;
+    const end = filteredBenchmarkSeries[filteredBenchmarkSeries.length - 1].close;
+    if (start > 0) {
+      benchmarkReturn = sanitizeMetricPct(((end - start) / start) * 100);
+    }
+  }
+
+  const alpha = sanitizeMetricPct(customReturn - benchmarkReturn);
+  return {
+    periodCustomReturnPct: customReturn,
+    periodBenchmarkReturnPct: benchmarkReturn,
+    alphaPct: alpha,
   };
 }
 
@@ -393,7 +408,8 @@ export function calculateConstituentPerformance(
         : stock.series[stock.series.length - 1].close;
 
     const retPct = start > 0 ? ((latest - start) / start) * 100 : 0;
-    const contribution = Number(((item.weight / 100) * retPct).toFixed(2));
+    const safeRetPct = sanitizeMetricPct(retPct);
+    const contribution = sanitizeMetricPct((item.weight / 100) * safeRetPct);
 
     return {
       ticker: item.ticker,
@@ -402,7 +418,7 @@ export function calculateConstituentPerformance(
       weight: item.weight,
       startPrice: start,
       latestPrice: latest,
-      periodReturnPct: Number(retPct.toFixed(2)),
+      periodReturnPct: safeRetPct,
       contributionPct: contribution,
     };
   });

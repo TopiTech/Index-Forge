@@ -121,7 +121,7 @@ function parseSnapshotResponseData(
   };
 }
 
-function isMissingColumnError(error: unknown, column: string): boolean {
+export function isMissingColumnError(error: unknown, column: string): boolean {
   const message = error instanceof Error ? error.message : String(error ?? "");
   return (
     message.toLowerCase().includes(column.toLowerCase()) &&
@@ -129,11 +129,11 @@ function isMissingColumnError(error: unknown, column: string): boolean {
   );
 }
 
-function isMissingTableError(error: unknown, table: string): boolean {
+export function isMissingTableError(error: unknown, table: string): boolean {
   const message = error instanceof Error ? error.message : String(error ?? "");
   return (
     message.toLowerCase().includes(table.toLowerCase()) &&
-    /no such table|no table|does not exist|sqlite_error/i.test(message)
+    /no such table|no table|does not exist/i.test(message)
   );
 }
 

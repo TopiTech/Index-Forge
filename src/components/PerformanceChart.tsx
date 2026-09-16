@@ -448,18 +448,32 @@ export function PerformanceChart({
                           </div>
                         </>
                       )}
-                      {showSMA5 && sma5Item?.value !== undefined && viewMode !== "spread" && (
-                        <div className="tooltip-row">
-                          <span style={{ color: "var(--neon-yellow)" }}>SMA (5):</span>
-                          <span>{viewMode === "percent" ? `${pct.format(sma5Item.value as number)}%` : fmt.format(sma5Item.value as number)}</span>
-                        </div>
-                      )}
-                      {showSMA25 && sma25Item?.value !== undefined && viewMode !== "spread" && (
-                        <div className="tooltip-row">
-                          <span style={{ color: "var(--neon-magenta)" }}>SMA (25):</span>
-                          <span>{viewMode === "percent" ? `${pct.format(sma25Item.value as number)}%` : fmt.format(sma25Item.value as number)}</span>
-                        </div>
-                      )}
+                      {showSMA5 &&
+                        typeof sma5Item?.value === "number" &&
+                        Number.isFinite(sma5Item.value) &&
+                        viewMode !== "spread" && (
+                          <div className="tooltip-row">
+                            <span style={{ color: "var(--neon-yellow)" }}>SMA (5):</span>
+                            <span>
+                              {viewMode === "percent"
+                                ? `${pct.format(sma5Item.value)}%`
+                                : fmt.format(sma5Item.value)}
+                            </span>
+                          </div>
+                        )}
+                      {showSMA25 &&
+                        typeof sma25Item?.value === "number" &&
+                        Number.isFinite(sma25Item.value) &&
+                        viewMode !== "spread" && (
+                          <div className="tooltip-row">
+                            <span style={{ color: "var(--neon-magenta)" }}>SMA (25):</span>
+                            <span>
+                              {viewMode === "percent"
+                                ? `${pct.format(sma25Item.value)}%`
+                                : fmt.format(sma25Item.value)}
+                            </span>
+                          </div>
+                        )}
                       {spread !== null && viewMode !== "spread" && (
                         <div
                           className="tooltip-row"

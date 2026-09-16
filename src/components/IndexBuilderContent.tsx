@@ -840,9 +840,9 @@ export function IndexBuilderContent({
                     <div className="builder-basket-controls">
                       <input
                         type="range"
-                        min={1}
+                        min={0.1}
                         max={100}
-                        step={1}
+                        step={0.1}
                         value={item.weight}
                         onChange={(e) => handleWeightChange(item.ticker, e.target.value)}
                         className="builder-weight-slider"
