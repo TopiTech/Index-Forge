@@ -36,6 +36,8 @@ export interface SimulationResult {
   loading: boolean;
   benchmarkLoading: boolean;
   error: string | null;
+  /** True when the preview shows generated demo prices instead of API data. */
+  usingDemoData: boolean;
   timeframe: Timeframe;
   setTimeframe: (tf: Timeframe) => void;
   selectedBenchmark: BenchmarkSymbol;
@@ -73,6 +75,8 @@ export function useSimulation(
   const [customSeries, setCustomSeries] = useState<PricePoint[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** True when the displayed series comes from generated demo prices, not the API. */
+  const [usingDemoData, setUsingDemoData] = useState(false);
 
   const { benchmarkData, loading: benchmarkLoading } = useBenchmark(selectedBenchmark);
 
@@ -105,6 +109,7 @@ export function useSimulation(
         setCustomSeries([]);
         setStockUniverse([]);
         setError(null);
+        setUsingDemoData(false);
         setLoading(false);
         return;
       }
@@ -125,6 +130,7 @@ export function useSimulation(
 
       setLoading(true);
       setError(null);
+      setUsingDemoData(false);
 
       try {
         const tickersToSync = basket.map((b) => b.ticker.trim().toUpperCase());
@@ -188,6 +194,10 @@ export function useSimulation(
         setCustomSeries(series);
         knownTickersRef.current = currentTickersKey;
         setError(null);
+        // The simulated preview must never present generated demo prices as if
+        // they were real market data: surface an explicit warning whenever the
+        // displayed series did not come from the calculation API.
+        setUsingDemoData(true);
       } catch (err: unknown) {
         if (
           controller.signal.aborted ||
@@ -201,7 +211,11 @@ export function useSimulation(
         setStockUniverse(fallbackUniverse);
         setCustomSeries(fallbackSeries);
         knownTickersRef.current = currentTickersKey;
-        setError(null);
+        // A network/API failure silently swapped in pseudo-random demo prices
+        // before; keep the preview usable but flag it as demo data instead of
+        // hiding the failure behind setError(null).
+        setError("サーバーに接続できないため、デモデータで表示しています。数値は参考値です");
+        setUsingDemoData(true);
       } finally {
         if (!controller.signal.aborted) {
           setLoading(false);
@@ -318,6 +332,8 @@ export function useSimulation(
     loading,
     benchmarkLoading,
     error,
+    /** True when the preview shows generated demo prices instead of API data. */
+    usingDemoData,
     timeframe,
     setTimeframe,
     selectedBenchmark,

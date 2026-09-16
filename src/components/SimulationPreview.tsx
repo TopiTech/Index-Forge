@@ -51,6 +51,7 @@ export function SimulationPreview({
     constituentsPerformance,
     loading,
     error,
+    usingDemoData,
     timeframe,
     setTimeframe,
     selectedBenchmark,
@@ -232,6 +233,23 @@ export function SimulationPreview({
           }}
         >
           {error}
+        </div>
+      )}
+
+      {/* Demo data notice: generated prices must never read as real market data */}
+      {usingDemoData && !error && (
+        <div
+          role="status"
+          style={{
+            padding: "8px 12px",
+            background: "rgba(255, 171, 0, 0.12)",
+            border: "1px solid var(--neon-amber)",
+            borderRadius: 6,
+            color: "var(--neon-amber)",
+            fontSize: 11,
+          }}
+        >
+          ⚠️ 実データを取得できなかったため、デモデータで表示しています。数値は参考値です。
         </div>
       )}
 

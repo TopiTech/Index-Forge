@@ -162,7 +162,7 @@ export function TradingViewTickerTape() {
     <>
       <div
         className="tradingview-ticker-bar"
-        aria-label="主要指数マーケットティッカー（ホバーでTradingViewチャートプレビュー）"
+        aria-label="主要指数マーケットティッカー(参考値。ホバーでTradingViewチャートプレビュー)"
       >
         <div className="tv-interactive-ticker-wrapper">
           <div
@@ -209,7 +209,12 @@ export function TradingViewTickerTape() {
                     {item.emoji}
                   </span>
                   <span className="tv-ticker-symbol-title">{item.title}</span>
-                  <span className="tv-ticker-price mono">{item.defaultPrice}</span>
+                  <span
+                    className="tv-ticker-price mono"
+                    title="参考値(固定表示)です。最新価格はTradingViewチャートで確認できます"
+                  >
+                    {item.defaultPrice}
+                  </span>
                   <span
                     className={`tv-ticker-change mono ${item.isPositive ? "positive" : "negative"}`}
                   >
