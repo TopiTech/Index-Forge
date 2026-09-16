@@ -39,6 +39,25 @@ export function IndexBuilderPage({
     };
   }, []);
 
+  // Listen for Escape key to exit fullscreen (especially important for CSS fallback fullscreen)
+  useEffect(() => {
+    if (!isFullscreen) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        if (document.fullscreenElement && document.exitFullscreen) {
+          document.exitFullscreen().catch(() => {});
+        }
+        setIsFullscreen(false);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isFullscreen]);
+
   const toggleFullscreen = useCallback(async () => {
     try {
       if (!isFullscreen) {

@@ -193,6 +193,7 @@ export function TradingViewTickerTape() {
                   tabIndex={0}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
                       setActivePopupSymbol({
                         proName: item.proName,
                         title: item.title,

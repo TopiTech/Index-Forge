@@ -26,6 +26,7 @@ import { Card, Tag, Badge } from "./ui";
 import { EditPasswordModal } from "./EditPasswordModal";
 import { ConfirmModal } from "./ConfirmModal";
 import { useToast } from "./Toast";
+import { equalizeWeightsExact } from "../lib/indexEngine";
 
 interface AdminDashboardProps {
   indices: CustomIndex[];
@@ -411,8 +412,7 @@ export function AdminDashboard({
   // Equalize weights
   const handleEqualWeights = () => {
     if (editBasket.length === 0) return;
-    const eq = Number((100 / editBasket.length).toFixed(2));
-    setEditBasket(editBasket.map((b) => ({ ...b, weight: eq })));
+    setEditBasket(equalizeWeightsExact(editBasket));
   };
 
   // Number inputs fire onChange with an empty string while the user is

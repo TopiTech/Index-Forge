@@ -10,6 +10,7 @@ import {
   RotateCcw,
 } from "lucide-react";
 import { useTheme } from "../lib/theme";
+import { useModalFocus } from "../hooks/useModalFocus";
 
 export interface PopupSymbolInfo {
   proName: string;
@@ -77,6 +78,8 @@ export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModal
   const [isMaximized, setIsMaximized] = useState(false);
   const preMaximizedSizeRef = useRef<CardDimensions>(getSavedDimensions());
 
+  useModalFocus(Boolean(symbol), cardRef, onClose);
+
   // Save dimensions whenever they change (debounce to localStorage)
   const saveDimensions = useCallback((dims: CardDimensions) => {
     try {
@@ -138,16 +141,7 @@ export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModal
     saveDimensions(newDims);
   }, [saveDimensions]);
 
-  // Close on Escape key press
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        onClose();
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [onClose]);
+
 
   // Load TradingView Symbol Overview widget inside popup
   useEffect(() => {
@@ -220,6 +214,8 @@ export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModal
     >
       <div
         ref={cardRef}
+        data-modal-dialog="true"
+        tabIndex={-1}
         className={`tv-chart-popover-card ${isMaximized ? "is-maximized" : ""}`}
         style={{
           width: `${dimensions.width}px`,

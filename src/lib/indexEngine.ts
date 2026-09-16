@@ -17,6 +17,65 @@ export function normalizeWeights(items: BasketItem[]): BasketItem[] {
   }));
 }
 
+/**
+ * Equalizes weights so that their sum is strictly 100.00% without rounding drift.
+ * Uses integer remainder distribution across the first remainder items.
+ */
+export function equalizeWeightsExact<T extends { weight: number }>(items: T[], decimals = 2): T[] {
+  const n = items.length;
+  if (n === 0) return [];
+  const factor = 10 ** decimals;
+  const totalUnits = 100 * factor;
+  const baseUnits = Math.floor(totalUnits / n);
+  let remainder = totalUnits - baseUnits * n;
+
+  return items.map((item) => {
+    const extra = remainder > 0 ? 1 : 0;
+    if (remainder > 0) remainder--;
+    return {
+      ...item,
+      weight: Number(((baseUnits + extra) / factor).toFixed(decimals)),
+    };
+  });
+}
+
+/**
+ * Normalizes weights proportionally using the Largest Remainder Method (Hare-Niemeyer method)
+ * so that their sum strictly equals 100.00% without rounding drift.
+ */
+export function redistributeWeightsExact<T extends { weight: number }>(items: T[], decimals = 2): T[] {
+  if (items.length === 0) return [];
+  const factor = 10 ** decimals;
+  const totalUnits = 100 * factor;
+  const safeWeights = items.map((item) =>
+    typeof item.weight === "number" && Number.isFinite(item.weight) && item.weight > 0 ? item.weight : 0,
+  );
+  const currentTotal = safeWeights.reduce((sum, w) => sum + w, 0);
+  if (currentTotal <= 0) {
+    return equalizeWeightsExact(items, decimals);
+  }
+
+  const exactUnits = safeWeights.map((w) => (w / currentTotal) * totalUnits);
+  const floors = exactUnits.map((u) => Math.floor(u));
+  const currentFloorSum = floors.reduce((sum, f) => sum + f, 0);
+  const remainder = Math.max(0, totalUnits - currentFloorSum);
+
+  const order = exactUnits
+    .map((u, i) => ({ index: i, remainder: u - floors[i] }))
+    .sort((a, b) => b.remainder - a.remainder);
+
+  const allocated = [...floors];
+  for (let i = 0; i < remainder && i < order.length; i++) {
+    allocated[order[i].index] += 1;
+  }
+
+  return items.map((item, i) => ({
+    ...item,
+    weight: Number((allocated[i] / factor).toFixed(decimals)),
+  }));
+}
+
+
 export function calculateCustomIndex(
   basket: BasketItem[],
   stockUniverse: StockSeries[],

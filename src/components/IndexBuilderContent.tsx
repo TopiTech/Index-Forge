@@ -17,6 +17,7 @@ import type { CustomIndex } from "../data/indices";
 import { useAuth } from "../hooks/useAuth";
 import { AuthModal } from "./AuthModal";
 import { useToast } from "./Toast";
+import { equalizeWeightsExact, redistributeWeightsExact } from "../lib/indexEngine";
 import { searchPopularStocks, PRESET_STOCKS, type PopularStock } from "../data/popularStocks";
 import { toFiniteNumberOr } from "../lib/downloadFileName";
 import { useSimulation } from "../hooks/useSimulation";
@@ -99,7 +100,7 @@ export function IndexBuilderContent({
   isFullPage = false,
 }: IndexBuilderContentProps) {
   const { session, isAuthenticated, isUser, maxStocks } = useAuth();
-  const { success: toastSuccess, info: toastInfo } = useToast();
+  const { success: toastSuccess, info: toastInfo, error: toastError } = useToast();
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [pendingSaveAfterAuth, setPendingSaveAfterAuth] = useState(false);
 
@@ -215,20 +216,12 @@ export function IndexBuilderContent({
 
   const handleEqualWeight = () => {
     if (basket.length === 0) return;
-    const eqWeight = Number((100 / basket.length).toFixed(2));
-    setBasket(basket.map((b) => ({ ...b, weight: eqWeight })));
+    setBasket(equalizeWeightsExact(basket));
   };
 
   const handleNormalizeWeights = () => {
     if (basket.length === 0) return;
-    const currentTotal = basket.reduce((sum, b) => sum + b.weight, 0);
-    if (currentTotal <= 0) return;
-    setBasket(
-      basket.map((b) => ({
-        ...b,
-        weight: Number(((b.weight / currentTotal) * 100).toFixed(1)),
-      })),
-    );
+    setBasket(redistributeWeightsExact(basket));
   };
 
   const totalWeight = basket.reduce((sum, b) => sum + b.weight, 0);
@@ -298,15 +291,32 @@ export function IndexBuilderContent({
     await executeSave();
   };
 
-  const handleCopySettings = () => {
+  const handleCopySettings = async () => {
     const config = {
       name: name.trim() || "未命名独自指数",
       baseValue,
       description: description.trim(),
       basket,
     };
-    navigator.clipboard.writeText(JSON.stringify(config, null, 2));
-    toastSuccess("指数設定（JSON）をクリップボードにコピーしました");
+    const text = JSON.stringify(config, null, 2);
+    try {
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const textarea = document.createElement("textarea");
+        textarea.value = text;
+        textarea.style.position = "fixed";
+        textarea.style.opacity = "0";
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textarea);
+      }
+      toastSuccess("指数設定（JSON）をクリップボードにコピーしました");
+    } catch (err) {
+      console.warn("Failed to copy index settings:", err);
+      toastError("クリップボードへのコピーに失敗しました");
+    }
   };
 
   const handlePreviewInDashboardClick = () => {

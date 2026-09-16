@@ -53,7 +53,10 @@ export function StatsGrid({
   const hasPeriodMetrics =
     typeof periodCustomReturnPct === "number" && typeof periodBenchmarkReturnPct === "number";
   const hasAlpha = hasBenchmark && hasCustom && (hasPeriodMetrics || (periodCustomReturnPct === undefined && periodBenchmarkReturnPct === undefined));
-  const benchmarkDiff = hasAlpha ? periodAlphaPct ?? customReturnPct - benchmarkReturnPct : 0;
+  const rawBenchmarkDiff = hasAlpha ? periodAlphaPct ?? customReturnPct - benchmarkReturnPct : 0;
+  const benchmarkDiff = Math.abs(rawBenchmarkDiff) < 0.005 ? 0 : rawBenchmarkDiff;
+  const safeCustomReturnPct = Math.abs(customReturnPct) < 0.005 ? 0 : customReturnPct;
+  const safeBenchmarkReturnPct = Math.abs(benchmarkReturnPct) < 0.005 ? 0 : benchmarkReturnPct;
   const periodLabel = TIMEFRAME_LABELS[timeframe];
 
   // Distinct themes
@@ -66,8 +69,8 @@ export function StatsGrid({
       trend: !hasCustom
         ? undefined
         : {
-            text: `${customReturnPct >= 0 ? "+" : ""}${pct.format(customReturnPct)}%`,
-            type: (customReturnPct > 0 ? "positive" : customReturnPct < 0 ? "negative" : "neutral") as "positive" | "negative" | "neutral",
+            text: `${safeCustomReturnPct > 0 ? "+" : ""}${pct.format(safeCustomReturnPct)}%`,
+            type: (safeCustomReturnPct > 0 ? "positive" : safeCustomReturnPct < 0 ? "negative" : "neutral") as "positive" | "negative" | "neutral",
           },
       sub: selectedIndex ? `基準値 ${fmt.format(baseValue)}` : undefined,
       icon: <Activity size={16} />,
@@ -78,8 +81,8 @@ export function StatsGrid({
       value: benchmarkLoading ? "読込中..." : benchmarkData ? fmt.format(benchmarkData.snapshot.current) : "---",
       trend: hasBenchmark
         ? {
-            text: `${benchmarkReturnPct >= 0 ? "+" : ""}${pct.format(benchmarkReturnPct)}%`,
-            type: (benchmarkReturnPct > 0 ? "positive" : benchmarkReturnPct < 0 ? "negative" : "neutral") as "positive" | "negative" | "neutral",
+            text: `${safeBenchmarkReturnPct > 0 ? "+" : ""}${pct.format(safeBenchmarkReturnPct)}%`,
+            type: (safeBenchmarkReturnPct > 0 ? "positive" : safeBenchmarkReturnPct < 0 ? "negative" : "neutral") as "positive" | "negative" | "neutral",
           }
         : undefined,
       sub: benchmarkData ? `前日比 ${benchmarkData.snapshot.change >= 0 ? "+" : ""}${fmt.format(benchmarkData.snapshot.change)}` : undefined,

@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { normalizeWeights, calculateCustomIndex } from "../lib/indexEngine";
+import {
+  normalizeWeights,
+  equalizeWeightsExact,
+  redistributeWeightsExact,
+  calculateCustomIndex,
+} from "../lib/indexEngine";
 import type { BasketItem, StockSeries } from "../types";
 
 describe("normalizeWeights", () => {
@@ -41,6 +46,72 @@ describe("normalizeWeights", () => {
     expect(result[0].weight).toBe(100);
     expect(result[1].weight).toBe(0);
     expect(result[2].weight).toBe(0);
+  });
+});
+
+describe("equalizeWeightsExact", () => {
+  it("returns empty array for empty items", () => {
+    expect(equalizeWeightsExact([])).toEqual([]);
+  });
+
+  it("allocates exactly 100.00 to a single item", () => {
+    const items = [{ ticker: "7203", weight: 10 }];
+    const res = equalizeWeightsExact(items);
+    expect(res[0].weight).toBe(100);
+  });
+
+  it("distributes remainder so sum is strictly 100.00 for 3 items", () => {
+    const items = [
+      { ticker: "7203", weight: 10 },
+      { ticker: "6758", weight: 20 },
+      { ticker: "9984", weight: 30 },
+    ];
+    const res = equalizeWeightsExact(items);
+    const sum = Number(res.reduce((s, x) => s + x.weight, 0).toFixed(2));
+    expect(sum).toBe(100);
+    expect(res.map((x) => x.weight)).toEqual([33.34, 33.33, 33.33]);
+  });
+
+  it("distributes remainder so sum is strictly 100.00 for 6 and 7 items", () => {
+    const items6 = Array.from({ length: 6 }, (_, i) => ({ ticker: `T${i}`, weight: 1 }));
+    const res6 = equalizeWeightsExact(items6);
+    const sum6 = Number(res6.reduce((s, x) => s + x.weight, 0).toFixed(2));
+    expect(sum6).toBe(100);
+
+    const items7 = Array.from({ length: 7 }, (_, i) => ({ ticker: `T${i}`, weight: 1 }));
+    const res7 = equalizeWeightsExact(items7);
+    const sum7 = Number(res7.reduce((s, x) => s + x.weight, 0).toFixed(2));
+    expect(sum7).toBe(100);
+  });
+});
+
+describe("redistributeWeightsExact", () => {
+  it("returns empty array for empty items", () => {
+    expect(redistributeWeightsExact([])).toEqual([]);
+  });
+
+  it("normalizes proportionally with Largest Remainder Method ensuring exact sum 100.00", () => {
+    const items = [
+      { ticker: "A", weight: 15 },
+      { ticker: "B", weight: 25 },
+      { ticker: "C", weight: 35 },
+    ];
+    const res = redistributeWeightsExact(items);
+    const sum = Number(res.reduce((s, x) => s + x.weight, 0).toFixed(2));
+    expect(sum).toBe(100);
+    expect(res.map((x) => x.weight)).toEqual([20, 33.33, 46.67]);
+  });
+
+  it("falls back to equal distribution when total is 0", () => {
+    const items = [
+      { ticker: "A", weight: 0 },
+      { ticker: "B", weight: 0 },
+      { ticker: "C", weight: 0 },
+    ];
+    const res = redistributeWeightsExact(items);
+    const sum = Number(res.reduce((s, x) => s + x.weight, 0).toFixed(2));
+    expect(sum).toBe(100);
+    expect(res.map((x) => x.weight)).toEqual([33.34, 33.33, 33.33]);
   });
 });
 
