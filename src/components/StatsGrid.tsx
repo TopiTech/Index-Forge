@@ -38,25 +38,26 @@ export function StatsGrid({
 }: StatsGridProps) {
   const baseValue = selectedIndex?.baseValue ?? 1000;
   const hasCustom = !loading && typeof latestCustomValue === "number" && latestCustomValue > 0 && selectedIndex !== null;
-  const fallbackCustomReturnPct = hasCustom && baseValue > 0 ? ((latestCustomValue - baseValue) / baseValue) * 100 : 0;
-  const customReturnPct = periodCustomReturnPct ?? fallbackCustomReturnPct;
-
+  const hasPeriodMetrics =
+    typeof periodCustomReturnPct === "number" && typeof periodBenchmarkReturnPct === "number";
+  // Period metrics are undefined when the filtered range has <2 points (e.g.
+  // an early-January YTD). Show "---" with the period label instead of
+  // silently substituting a since-inception return under that label.
+  const customReturnPct = periodCustomReturnPct;
+  const benchmarkReturnPct = periodBenchmarkReturnPct;
   const hasBenchmark =
     typeof periodBenchmarkReturnPct === "number"
       ? !benchmarkLoading
       : typeof benchmarkNormalizedValue === "number" && benchmarkNormalizedValue > 0 && !loading;
-  const fallbackBenchmarkReturnPct =
-    hasBenchmark && typeof benchmarkNormalizedValue === "number" && baseValue > 0
-      ? ((benchmarkNormalizedValue - baseValue) / baseValue) * 100
-      : 0;
-  const benchmarkReturnPct = periodBenchmarkReturnPct ?? fallbackBenchmarkReturnPct;
-  const hasPeriodMetrics =
-    typeof periodCustomReturnPct === "number" && typeof periodBenchmarkReturnPct === "number";
-  const hasAlpha = hasBenchmark && hasCustom && (hasPeriodMetrics || (periodCustomReturnPct === undefined && periodBenchmarkReturnPct === undefined));
-  const rawBenchmarkDiff = hasAlpha ? periodAlphaPct ?? customReturnPct - benchmarkReturnPct : 0;
+  const hasAlpha = hasBenchmark && hasCustom && hasPeriodMetrics;
+  const rawBenchmarkDiff = hasAlpha ? (periodAlphaPct ?? customReturnPct! - benchmarkReturnPct!) : 0;
   const benchmarkDiff = Math.abs(rawBenchmarkDiff) < 0.005 ? 0 : rawBenchmarkDiff;
-  const safeCustomReturnPct = Math.abs(customReturnPct) < 0.005 ? 0 : customReturnPct;
-  const safeBenchmarkReturnPct = Math.abs(benchmarkReturnPct) < 0.005 ? 0 : benchmarkReturnPct;
+  const safeCustomReturnPct =
+    typeof customReturnPct === "number" && Math.abs(customReturnPct) >= 0.005 ? customReturnPct : 0;
+  const safeBenchmarkReturnPct =
+    typeof benchmarkReturnPct === "number" && Math.abs(benchmarkReturnPct) >= 0.005
+      ? benchmarkReturnPct
+      : 0;
   const periodLabel = TIMEFRAME_LABELS[timeframe];
 
   // Distinct themes
@@ -66,7 +67,7 @@ export function StatsGrid({
     {
       label: selectedIndex ? `${selectedIndex.name}（${periodLabel}）` : "選択中指数",
       value: loading ? "計算中..." : latestCustomValue > 0 ? fmt.format(latestCustomValue) : "---",
-      trend: !hasCustom
+      trend: !hasCustom || typeof customReturnPct !== "number"
         ? undefined
         : {
             text: `${safeCustomReturnPct > 0 ? "+" : ""}${pct.format(safeCustomReturnPct)}%`,
@@ -79,7 +80,7 @@ export function StatsGrid({
     {
       label: `${benchmarkLabel} ベンチマーク（${periodLabel}）`,
       value: benchmarkLoading ? "読込中..." : benchmarkData ? fmt.format(benchmarkData.snapshot.current) : "---",
-      trend: hasBenchmark
+      trend: hasBenchmark && typeof benchmarkReturnPct === "number"
         ? {
             text: `${safeBenchmarkReturnPct > 0 ? "+" : ""}${pct.format(safeBenchmarkReturnPct)}%`,
             type: (safeBenchmarkReturnPct > 0 ? "positive" : safeBenchmarkReturnPct < 0 ? "negative" : "neutral") as "positive" | "negative" | "neutral",

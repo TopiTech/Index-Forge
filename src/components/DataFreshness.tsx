@@ -16,6 +16,8 @@ interface DataFreshnessProps {
   loading?: boolean;
   syncing?: boolean;
   stale?: boolean;
+  /** True when the index calculation reported sync warnings (partial data). */
+  hasSyncWarning?: boolean;
 }
 
 export function DataFreshness({
@@ -24,6 +26,7 @@ export function DataFreshness({
   loading = false,
   syncing = false,
   stale = false,
+  hasSyncWarning = false,
 }: DataFreshnessProps) {
   const timestamps = [benchmarkUpdatedAt, calculationUpdatedAt].filter(
     (timestamp): timestamp is number => typeof timestamp === "number" && Number.isFinite(timestamp),
@@ -44,7 +47,7 @@ export function DataFreshness({
           : stale
             ? "最新データを取得できず、古いキャッシュを表示中"
             : latestUpdatedAt
-              ? `最終更新 ${dateFormatter.format(new Date(latestUpdatedAt))} JST`
+              ? `最終更新 ${dateFormatter.format(new Date(latestUpdatedAt))} JST${hasSyncWarning ? "(一部銘柄の取得に失敗)" : ""}`
               : "更新情報を取得中"}
       </span>
       <span className="data-freshness-type">日足終値</span>

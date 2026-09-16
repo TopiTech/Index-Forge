@@ -121,7 +121,12 @@ export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModal
     const observer = new ResizeObserver((entries) => {
       for (const entry of entries) {
         const { width, height } = entry.contentRect;
-        if (width >= 460 && height >= 340 && !isMaximized) {
+        // Persist against the same responsive floors getSavedDimensions()
+        // enforces (mobile 320x300) instead of the desktop 460x340 minimum,
+        // so resizes on small phones are not silently dropped.
+        const minW = window.innerWidth <= 640 ? 300 : 460;
+        const minH = window.innerWidth <= 640 ? 280 : 340;
+        if (width >= minW && height >= minH && !isMaximized) {
           lastResizeTimeRef.current = Date.now();
           if (resizeTimer) clearTimeout(resizeTimer);
           resizeTimer = setTimeout(() => {

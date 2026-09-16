@@ -4084,6 +4084,19 @@ textarea:focus-visible {
   transition: color 0.3s ease;
 }
 
+/* Static reference prices shown before/without live quotes: dim them and
+   append a visible "(参考)" marker so they never read as market data. */
+.tv-ticker-price.is-reference {
+  opacity: 0.75;
+}
+
+.tv-ticker-ref-suffix {
+  margin-left: 2px;
+  font-size: 9px;
+  font-weight: 400;
+  opacity: 0.8;
+}
+
 .tv-ticker-change {
   font-family: var(--mono-font);
   font-size: 10px;

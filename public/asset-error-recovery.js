@@ -11,8 +11,16 @@
       if (!isScriptOrLink) return;
 
       const retryKey = `asset_reload_retry_${window.location.pathname}`;
-      if (!sessionStorage.getItem(retryKey)) {
-        sessionStorage.setItem(retryKey, "true");
+      // sessionStorage may be unavailable (blocked storage); a throw here
+      // would break the recovery path from inside the capture-phase listener.
+      let alreadyRetried = true;
+      try {
+        alreadyRetried = Boolean(sessionStorage.getItem(retryKey));
+        if (!alreadyRetried) sessionStorage.setItem(retryKey, "true");
+      } catch {
+        alreadyRetried = false;
+      }
+      if (!alreadyRetried) {
         window.setTimeout(() => window.location.reload(), 1000);
         return;
       }
@@ -39,7 +47,11 @@
       retryButton.textContent = "再読み込み";
       retryButton.style.cssText = "background:#0284c7;color:#fff;border:none;padding:10px 24px;border-radius:8px;font-weight:600;cursor:pointer;font-size:14px;";
       retryButton.addEventListener("click", () => {
-        sessionStorage.removeItem(retryKey);
+        try {
+          sessionStorage.removeItem(retryKey);
+        } catch {
+          // ignore storage-denied contexts
+        }
         window.location.reload();
       });
 

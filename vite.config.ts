@@ -28,6 +28,9 @@ export default defineConfig({
     },
   },
   test: {
-    include: ["src/**/*.test.ts"],
+    // Include .tsx/.spec and worker tests as well: the toolchain
+    // (eslint + tsconfigs) already anticipates .tsx tests, and a .ts-only
+    // pattern would silently skip the first real DOM test.
+    include: ["src/**/*.{test,spec}.{ts,tsx}", "worker/**/*.{test,spec}.{ts,tsx}"],
   },
 });

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   TrendingUp,
@@ -32,6 +32,7 @@ interface HeaderProps {
   dataLoading?: boolean;
   syncing?: boolean;
   benchmarkStale?: boolean;
+  hasSyncWarning?: boolean;
 }
 
 export function Header({
@@ -46,6 +47,7 @@ export function Header({
   dataLoading = false,
   syncing = false,
   benchmarkStale = false,
+  hasSyncWarning = false,
 }: HeaderProps) {
   const { session, isAuthenticated, isAdmin, isUser, maxStocks, maxIndices, logout } = useAuth();
   const { success, info } = useToast();
@@ -109,7 +111,12 @@ export function Header({
     info("ログアウトしました（閲覧モード）");
   };
 
-  const closeMobileMenu = () => setIsMobileMenuOpen(false);
+  // Item activation closes the drawer and returns focus to the toggle so
+  // keyboard users do not lose their place (the Escape path already did).
+  const closeMobileMenu = useCallback(() => {
+    setIsMobileMenuOpen(false);
+    mobileMenuToggleRef.current?.focus();
+  }, []);
 
   return (
     <>
@@ -174,6 +181,7 @@ export function Header({
                 loading={dataLoading}
                 syncing={syncing}
                 stale={benchmarkStale}
+                hasSyncWarning={hasSyncWarning}
               />
               <ThemeControls />
             </div>
@@ -309,6 +317,7 @@ export function Header({
                 className="btn btn-sm btn-outline header-mobile-menu-btn"
                 onClick={() => setIsMobileMenuOpen((prev) => !prev)}
                 aria-expanded={isMobileMenuOpen}
+                aria-controls="header-mobile-nav"
                 aria-label={isMobileMenuOpen ? "メニューを閉じる" : "メニューを開く"}
                 style={{ padding: "5px 8px", fontSize: 12 }}
               >
@@ -329,6 +338,7 @@ export function Header({
               exit={{ height: 0, opacity: 0 }}
               transition={{ duration: 0.2 }}
               className="header-mobile-nav-panel"
+              id="header-mobile-nav"
               aria-label="モバイルナビゲーション"
             >
               <div className="header-mobile-nav-links">

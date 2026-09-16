@@ -93,8 +93,12 @@ describe("Comprehensive Goal Audit & Remediation Verification", () => {
         "utf8",
       );
       expect(statsCode).toContain("Math.abs(rawBenchmarkDiff) < 0.005 ? 0 : rawBenchmarkDiff");
-      expect(statsCode).toContain("Math.abs(customReturnPct) < 0.005 ? 0 : customReturnPct");
-      expect(statsCode).toContain("Math.abs(benchmarkReturnPct) < 0.005 ? 0 : benchmarkReturnPct");
+      // Period metrics are optional: when the filtered range has <2 points
+      // (e.g. early-January YTD) the grid shows "---" under the period label
+      // instead of a since-inception fallback. Near-zero normalization applies
+      // to defined values only.
+      expect(statsCode).toContain('typeof customReturnPct !== "number"');
+      expect(statsCode).toContain('typeof benchmarkReturnPct === "number"');
     });
 
     it("ensures -0.002% diff rounds to 0 and avoids underperform misclassification", () => {

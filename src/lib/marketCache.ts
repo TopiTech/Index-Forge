@@ -54,12 +54,17 @@ export function getMarketAwareCacheDuration(now: Date = new Date()): number {
   return Math.max(60, minutesUntilSettlement * 60);
 }
 
+/** Maximum tolerated clock skew between browser and Worker (5 minutes). */
+export const MAX_CACHE_CLOCK_SKEW_SECONDS = 5 * 60;
+
 /** Determines whether a cached stock-price synchronization is still fresh. */
 export function isPriceCacheFresh(nowSec: number, lastSyncedSec: number): boolean {
   if (!Number.isFinite(nowSec) || !Number.isFinite(lastSyncedSec) || nowSec <= 0 || lastSyncedSec <= 0) {
     return false;
   }
-  if (nowSec < lastSyncedSec) return true; // Clock-skew protection.
+  // Clock-skew protection, bounded: a far-future timestamp (corrupt storage)
+  // must not mark the cache fresh forever.
+  if (nowSec < lastSyncedSec) return lastSyncedSec - nowSec <= MAX_CACHE_CLOCK_SKEW_SECONDS;
 
   const syncDate = new Date(lastSyncedSec * 1000);
   if (nowSec - lastSyncedSec >= getMarketAwareCacheDuration(syncDate)) {

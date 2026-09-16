@@ -104,7 +104,13 @@ export default function App() {
       window.history.pushState({}, "", targetPath);
     }
     if (typeof window !== "undefined") {
-      window.scrollTo({ top: 0, behavior: "instant" });
+      // "instant" is valid in modern browsers but unknown to older TS DOM
+      // libs / engines; fall back to "auto" so the scroll still happens.
+      try {
+        window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
+      } catch {
+        window.scrollTo(0, 0);
+      }
     }
   }, []);
 
@@ -306,7 +312,11 @@ export default function App() {
           if (match) selectIndex(match);
         }
       }
-      window.scrollTo({ top: 0, behavior: "instant" });
+      try {
+        window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
+      } catch {
+        window.scrollTo(0, 0);
+      }
     };
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
@@ -410,6 +420,7 @@ export default function App() {
     calculationUpdatedAt,
     dataLoading: loadingBenchmark || loadingCalc,
     syncing,
+    hasSyncWarning: syncWarnings.length > 0,
   };
 
   // Static pages do not depend on the index list. Render them even while the

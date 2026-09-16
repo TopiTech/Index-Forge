@@ -188,21 +188,31 @@ export function TradingViewTickerTape() {
 
       const data = (await res.json()) as {
         updatedAt?: string;
+        allStale?: boolean;
         quotes?: {
           proName: string;
           formattedPrice: string;
           formattedChange: string;
           formattedChangePercent: string;
           isPositive: boolean;
+          stale?: boolean;
         }[];
       };
 
       if (Array.isArray(data.quotes) && data.quotes.length > 0) {
+        // Quotes flagged stale by the Worker are static/previous fallbacks.
+        // Keep them out of the live map so the tape stays in 参考値 mode and
+        // the badge never claims LIVE on fully-stale data.
+        const freshQuotes = data.quotes.filter((q) => q && !q.stale);
+        if (data.allStale || freshQuotes.length === 0) {
+          return;
+        }
+        const quotesToApply = freshQuotes;
         setLiveQuotes((prev) => {
           const next = { ...prev };
           const newFlashes: Record<string, "up" | "down"> = {};
 
-          for (const q of data.quotes!) {
+          for (const q of quotesToApply) {
             if (q.proName && q.formattedPrice) {
               const prevItem = prev[q.proName];
               if (prevItem && prevItem.price !== q.formattedPrice) {
@@ -327,7 +337,11 @@ export function TradingViewTickerTape() {
     <>
       <div
         className="tradingview-ticker-bar"
-        aria-label="主要指数マーケットティッカー(リアルタイム市場データ。ホバーまたはクリックでTradingViewチャートプレビュー)"
+        aria-label={
+          isLive
+            ? "主要指数マーケットティッカー(リアルタイム市場データ。ホバーまたはクリックでTradingViewチャートプレビュー)"
+            : "主要指数マーケットティッカー(参考値・固定表示。価格の取得待機中。ホバーまたはクリックでTradingViewチャートプレビュー)"
+        }
       >
         <div className="tv-interactive-ticker-wrapper">
           <div
@@ -339,6 +353,9 @@ export function TradingViewTickerTape() {
               const isItemHovered = hoveredSymbol === item.proName;
               const isDuplicate = index >= TICKER_SYMBOLS.length;
               const live = liveQuotes[item.proName];
+              // Offline/pre-fetch: fall back to the static reference value and
+              // disclose it as such — it must never read as live market data.
+              const isReference = !live;
               const displayPrice = live ? live.price : item.defaultPrice;
               const displayChangePercent = live ? live.changePercent : item.defaultChangePercent;
               const isPositive = live ? live.isPositive : item.isPositive;
@@ -368,10 +385,20 @@ export function TradingViewTickerTape() {
                   </span>
                   <span className="tv-ticker-symbol-title">{item.title}</span>
                   <span
-                    className="tv-ticker-price mono"
-                    title="市場価格(最新ディレイ含む)。クリックまたはホバーでチャート表示"
+                    className={`tv-ticker-price mono${isReference ? " is-reference" : ""}`}
+                    title={
+                      isReference
+                        ? "参考値(固定表示)です。最新価格はTradingViewチャートで確認できます。クリックまたはホバーでチャート表示"
+                        : "市場価格(最新ディレイ含む)。クリックまたはホバーでチャート表示"
+                    }
                   >
                     {displayPrice}
+                    {isReference && (
+                      <span className="tv-ticker-ref-suffix" aria-hidden="true">
+                        (参考)
+                      </span>
+                    )}
+                    <span className="sr-only">{isReference ? "(参考値・固定表示)" : ""}</span>
                   </span>
                   <span
                     className={`tv-ticker-change mono ${isPositive ? "positive" : "negative"}`}
@@ -416,11 +443,11 @@ export function TradingViewTickerTape() {
                   ? isTseMarketOpen()
                     ? "市場実データ受信中 (東証取引時間中: 60秒間隔で自動更新)"
                     : "市場実データ受信中 (取引時間外: 15分間隔で自動更新)"
-                  : "実データ接続待機中"
+                  : "実データ未受信のため参考値(固定表示)を表示中"
               }
             >
               <span className="tv-live-dot" aria-hidden="true" />
-              <span>{isLive ? "LIVE" : "SYNC"}</span>
+              <span>{isLive ? "LIVE" : "参考値"}</span>
             </div>
 
             <a

@@ -188,13 +188,12 @@ export function ThemeHeatmap({ stockDetails, selectedTheme, onSelectTheme }: The
 
         <div className="row" style={{ gap: 8 }}>
           {/* View Mode Switcher */}
-          <div className="btn-group" role="tablist" aria-label="ヒートマップ表示切替">
+          <div className="btn-group" role="group" aria-label="ヒートマップ表示切替">
             <button
               type="button"
               className={`btn-group-item ${viewMode === "grid" ? "active" : ""}`}
               onClick={() => setViewMode("grid")}
-              role="tab"
-              aria-selected={viewMode === "grid"}
+              aria-pressed={viewMode === "grid"}
               title="全銘柄グリッド表示"
             >
               <Grid
@@ -207,8 +206,7 @@ export function ThemeHeatmap({ stockDetails, selectedTheme, onSelectTheme }: The
               type="button"
               className={`btn-group-item ${viewMode === "themeGroups" ? "active" : ""}`}
               onClick={() => setViewMode("themeGroups")}
-              role="tab"
-              aria-selected={viewMode === "themeGroups"}
+              aria-pressed={viewMode === "themeGroups"}
               title="テーマ別グループ表示"
             >
               <Layers

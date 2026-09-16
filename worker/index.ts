@@ -317,6 +317,8 @@ export interface TickerPriceQuote {
   formattedChangePercent: string;
   isPositive: boolean;
   updatedAt?: string;
+  /** True when the quote is a static/previous fallback, not a fresh Yahoo fetch. */
+  stale?: boolean;
 }
 
 export interface TickerMappingItem {
@@ -1117,15 +1119,18 @@ export async function fetchAllTickerQuotes(
           formattedChange: formatTickerChange(quote.change),
           formattedChangePercent: formatTickerChangePercent(quote.changePercent),
           isPositive: quote.change >= 0,
+          stale: false,
         };
       }
     } catch {
       // ignore
     }
 
-    // Previous quote fallback
-    if (prevQuotes?.has(mapping.proName)) {
-      return prevQuotes.get(mapping.proName)!;
+    // Previous quote fallback: still usable, but must be flagged so the
+    // client never badges a fully-stale tape as LIVE market data.
+    const prev = prevQuotes?.get(mapping.proName);
+    if (prev) {
+      return { ...prev, stale: true };
     }
 
     // Default static fallback
@@ -1139,6 +1144,7 @@ export async function fetchAllTickerQuotes(
       formattedChange: formatTickerChange(mapping.defaultChange),
       formattedChangePercent: formatTickerChangePercent(mapping.defaultChangePercent),
       isPositive: mapping.defaultChange >= 0,
+      stale: true,
     };
   });
 
@@ -1605,8 +1611,13 @@ export default {
           let maxIndicesRequiresMigration = false;
 
           if (typeof name === "string" && name.trim()) {
+            // Reject overlong names symmetrically with the create endpoint
+            // (which 400s above 100 chars) instead of silently truncating.
+            if (name.trim().length > 100) {
+              return json({ error: "ユーザー名/ラベルは1〜100文字で入力してください" }, 400, request);
+            }
             updates.push("name = ?");
-            params.push(name.trim().slice(0, 100));
+            params.push(name.trim());
           }
           if (typeof password === "string" && password.trim().length > 0) {
             if (password.trim().length < 8 || password.trim().length > 100) {
@@ -2501,12 +2512,17 @@ export default {
           }
 
           const quotes = await fetchAllTickerQuotes();
+          // A payload where every quote is a static/previous fallback must
+          // never be cached as fresh market data: shorten its TTL and flag it
+          // so the client keeps the 参考値 disclosure instead of badging LIVE.
+          const allStale = quotes.length > 0 && quotes.every((q) => q.stale === true);
           const responseData = {
             updatedAt: new Date().toISOString(),
             quotes,
+            ...(allStale ? { allStale: true as const } : {}),
           };
 
-          setMemoryCache(memKey, responseData, 45);
+          setMemoryCache(memKey, responseData, allStale ? 10 : 45);
           const etag = await generateETag(JSON.stringify(responseData));
           const ifNoneMatch = request.headers.get("if-none-match");
           if (ifNoneMatch && (ifNoneMatch === etag || ifNoneMatch === `W/${etag}`)) {
@@ -2551,8 +2567,8 @@ export default {
           const { results } = await env.DB.prepare(
             `
           SELECT
-            i.id, i.name, i.description, i.base_value, i.sort_order,
-            b.ticker, b.name as stock_name, b.weight, b.theme
+            i.id, i.name, i.description, i.base_value, COALESCE(i.sort_order, 99) AS sort_order,
+            b.ticker, b.name as stock_name, COALESCE(b.weight, 0) AS weight, b.theme
           FROM indices i
           LEFT JOIN basket_items b ON i.id = b.index_id
           ORDER BY
@@ -2592,13 +2608,16 @@ export default {
             if (row.ticker) {
               const ticker = String(row.ticker).trim().toUpperCase();
               if (!ticker) continue;
+              // Legacy rows may carry NULL weights; coerce defensively so the
+              // API never emits NaN into the basket payload.
+              const rawWeight = Number(row.weight);
               indicesMap.get(id)!.basket.push({
                 ticker,
                 name:
                   row.stock_name != null && String(row.stock_name).trim()
                     ? String(row.stock_name).trim()
                     : ticker,
-                weight: Number(row.weight),
+                weight: Number.isFinite(rawWeight) ? rawWeight : 0,
                 theme: row.theme ? String(row.theme) : "",
               });
             }
