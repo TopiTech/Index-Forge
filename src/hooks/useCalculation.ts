@@ -7,7 +7,7 @@ import { isPriceCacheFresh } from "../lib/marketCache";
 import { useAuth } from "./useAuth";
 
 const API_BASE = "/api";
-const SYNC_STORAGE_KEY = "osi_stock_sync_cache";
+export const SYNC_STORAGE_KEY = "osi_stock_sync_cache";
 
 /** Parse browser sync metadata without allowing malformed storage to mark a ticker fresh forever. */
 export function parseLocalSyncCache(raw: string | null): Record<string, number> {
@@ -45,13 +45,30 @@ function getLocalSyncCache(): Record<string, number> {
   }
 }
 
-function updateLocalSyncCache(tickers: string[]): void {
+export interface SyncCacheUpdateEntry {
+  ticker: string;
+  lastSynced?: number;
+}
+
+export function updateLocalSyncCache(
+  entries: (string | SyncCacheUpdateEntry)[],
+): void {
   try {
     const cache = getLocalSyncCache();
     const now = Date.now();
-    for (const t of tickers) {
-      const normalizedTicker = t.trim().toUpperCase();
-      if (normalizedTicker) cache[normalizedTicker] = now;
+    for (const item of entries) {
+      if (typeof item === "string") {
+        const normalizedTicker = item.trim().toUpperCase();
+        if (normalizedTicker) cache[normalizedTicker] = now;
+      } else if (item && typeof item.ticker === "string") {
+        const normalizedTicker = item.ticker.trim().toUpperCase();
+        if (normalizedTicker) {
+          cache[normalizedTicker] =
+            typeof item.lastSynced === "number" && item.lastSynced > 0
+              ? item.lastSynced
+              : now;
+        }
+      }
     }
     // Clean entries older than 7 days
     for (const [k, v] of Object.entries(cache)) {
@@ -247,7 +264,7 @@ export function useCalculation(selectedIndex: CustomIndex | null, enabled = true
             setSyncing(true);
             const BATCH_SIZE = 30;
             const warnings: string[] = [];
-            const newlySynced: string[] = [];
+            const newlySynced: SyncCacheUpdateEntry[] = [];
 
             for (let i = 0; i < tickersToSync.length; i += BATCH_SIZE) {
               if (controller.signal.aborted) return;
@@ -281,7 +298,10 @@ export function useCalculation(selectedIndex: CustomIndex | null, enabled = true
                               ? r.lastSynced * 1000
                               : Date.now();
                           syncedTickersRef.current.set(normalizedTicker, syncTimestamp);
-                          newlySynced.push(normalizedTicker);
+                          newlySynced.push({
+                            ticker: normalizedTicker,
+                            lastSynced: syncTimestamp,
+                          });
                         }
                       }
                     }

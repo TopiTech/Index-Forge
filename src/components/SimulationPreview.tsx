@@ -250,9 +250,11 @@ export function SimulationPreview({
             fontSize: 11,
           }}
         >
-          {usingDemoData
-            ? "⚠️ 実データを取得できなかったため、デモデータで表示しています。数値は参考値です。"
-            : `⚠️ ${currentBenchmarkLabel}の実データを取得できなかったため、比較線・超過リターン (α) はデモデータに基づいています。`}
+          {usingDemoData && usingDemoBenchmark
+            ? `⚠️ 指数および${currentBenchmarkLabel}の実データを取得できなかったため、デモデータで表示しています。数値・比較線・超過リターン (α) は参考値です。`
+            : usingDemoData
+              ? "⚠️ 実データを取得できなかったため、デモデータで表示しています。数値は参考値です。"
+              : `⚠️ ${currentBenchmarkLabel}の実データを取得できなかったため、比較線・超過リターン (α) はデモデータに基づいています。`}
         </div>
       )}
 

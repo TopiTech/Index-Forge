@@ -1288,13 +1288,13 @@ interface MemoryRateLimitRecord {
   windowStart: number;
 }
 const memoryRateLimits = new Map<string, MemoryRateLimitRecord>();
-const MAX_MEMORY_RATE_LIMIT_ENTRIES = 1000;
+export const MAX_MEMORY_RATE_LIMIT_ENTRIES = 1000;
 
 export function clearMemoryRateLimits(): void {
   memoryRateLimits.clear();
 }
 
-function checkMemoryRateLimit(
+export function checkMemoryRateLimit(
   ip: string,
   endpoint: string,
   maxRequests: number,
@@ -1305,7 +1305,7 @@ function checkMemoryRateLimit(
   const record = memoryRateLimits.get(key);
 
   if (!record || now - record.windowStart >= windowSeconds) {
-    if (memoryRateLimits.size >= MAX_MEMORY_RATE_LIMIT_ENTRIES) {
+    if (!record && memoryRateLimits.size >= MAX_MEMORY_RATE_LIMIT_ENTRIES) {
       const oldestKey = memoryRateLimits.keys().next().value;
       if (oldestKey) memoryRateLimits.delete(oldestKey);
     }
@@ -3441,7 +3441,7 @@ export default {
                     } catch (logErr: unknown) {
                       if (!isMissingTableError(logErr, "sync_logs")) throw logErr;
                     }
-                    return { ticker, status: "cached", count: series.length };
+                    return { ticker, status: "cached", count: series.length, lastSynced: now };
                   }
 
                   // High-efficiency single-row storage in stock_series:
@@ -3507,7 +3507,7 @@ export default {
                       }
                     }
                     clearMemoryCache("calc:");
-                    return { ticker, status: "synced", count: series.length };
+                    return { ticker, status: "synced", count: series.length, lastSynced: now };
                   }
 
                   // Fallback for an unmigrated database: use legacy chunked stock_prices.
@@ -3545,7 +3545,7 @@ export default {
                     }
                   }
                   clearMemoryCache("calc:");
-                  return { ticker, status: "synced", count: series.length };
+                  return { ticker, status: "synced", count: series.length, lastSynced: now };
                 }
                 // Record a short-lived negative cache marker. Using a positive
                 // "last synced" timestamp here would falsely declare stale or

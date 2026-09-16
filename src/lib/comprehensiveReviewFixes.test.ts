@@ -412,7 +412,7 @@ describe("Comprehensive Review Fixes", () => {
               results: [
                 {
                   data: JSON.stringify(cachedSnapshotData),
-                  cached_at: Math.floor(Date.now() / 1000) - 7200, // 2 hours old (stale)
+                  cached_at: Math.floor(Date.now() / 1000) - 7 * 86400, // 7 days old (reliably stale across all trading and non-trading hours)
                 },
               ],
             };
@@ -497,7 +497,7 @@ describe("Comprehensive Review Fixes", () => {
                     snapshot: { symbol: "^N225", current: 39000, change: 100, changePct: 0.25 },
                     series: [],
                   }),
-                  cached_at: Math.floor(Date.now() / 1000) - 7200,
+                  cached_at: Math.floor(Date.now() / 1000) - 7 * 86400,
                 },
               ],
             };

@@ -132,6 +132,19 @@ export interface LiveQuoteItem {
   isPositive: boolean;
 }
 
+export function determineTickFlashDirection(
+  prevFormattedPrice: string,
+  newFormattedPrice: string,
+  isPositiveFallback: boolean,
+): "up" | "down" {
+  const prevNum = parseFloat(prevFormattedPrice.replace(/,/g, ""));
+  const newNum = parseFloat(newFormattedPrice.replace(/,/g, ""));
+  if (Number.isFinite(prevNum) && Number.isFinite(newNum) && prevNum !== newNum) {
+    return newNum > prevNum ? "up" : "down";
+  }
+  return isPositiveFallback ? "up" : "down";
+}
+
 export function TradingViewTickerTape() {
   const [activePopupSymbol, setActivePopupSymbol] = useState<PopupSymbolInfo | null>(null);
   const [hoveredSymbol, setHoveredSymbol] = useState<string | null>(null);
@@ -193,7 +206,11 @@ export function TradingViewTickerTape() {
             if (q.proName && q.formattedPrice) {
               const prevItem = prev[q.proName];
               if (prevItem && prevItem.price !== q.formattedPrice) {
-                newFlashes[q.proName] = q.isPositive ? "up" : "down";
+                newFlashes[q.proName] = determineTickFlashDirection(
+                  prevItem.price,
+                  q.formattedPrice,
+                  q.isPositive,
+                );
               }
               next[q.proName] = {
                 price: q.formattedPrice,
@@ -394,7 +411,13 @@ export function TradingViewTickerTape() {
           >
             <div
               className="tv-live-badge"
-              title={isLive ? "市場実データ受信中 (約45秒間隔で自動更新)" : "実データ接続待機中"}
+              title={
+                isLive
+                  ? isTseMarketOpen()
+                    ? "市場実データ受信中 (東証取引時間中: 60秒間隔で自動更新)"
+                    : "市場実データ受信中 (取引時間外: 15分間隔で自動更新)"
+                  : "実データ接続待機中"
+              }
             >
               <span className="tv-live-dot" aria-hidden="true" />
               <span>{isLive ? "LIVE" : "SYNC"}</span>

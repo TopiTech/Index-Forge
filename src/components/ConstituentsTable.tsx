@@ -560,6 +560,8 @@ export function ConstituentsTable({
                 tabIndex={0}
                 onClick={() => toggleSort("ticker")}
                 onKeyDown={(e) => handleHeaderKeyDown(e, "ticker")}
+                title="コードで並べ替え (クリックまたはEnter)"
+                aria-label="コードで並べ替え"
                 style={{ minWidth: 85, width: "10%" }}
               >
                 <span className="row" style={{ gap: 2 }}>
@@ -574,6 +576,8 @@ export function ConstituentsTable({
                 tabIndex={0}
                 onClick={() => toggleSort("name")}
                 onKeyDown={(e) => handleHeaderKeyDown(e, "name")}
+                title="銘柄名で並べ替え (クリックまたはEnter)"
+                aria-label="銘柄名で並べ替え"
                 style={{ minWidth: 140, width: "20%" }}
               >
                 <span className="row" style={{ gap: 2 }}>
@@ -592,6 +596,8 @@ export function ConstituentsTable({
                 tabIndex={0}
                 onClick={() => toggleSort("theme")}
                 onKeyDown={(e) => handleHeaderKeyDown(e, "theme")}
+                title="テーマで並べ替え (クリックまたはEnter)"
+                aria-label="テーマで並べ替え"
                 style={{ minWidth: 100, width: "14%" }}
               >
                 <span className="row" style={{ gap: 2 }}>
@@ -610,6 +616,8 @@ export function ConstituentsTable({
                 tabIndex={0}
                 onClick={() => toggleSort("currentPrice")}
                 onKeyDown={(e) => handleHeaderKeyDown(e, "currentPrice")}
+                title="株価で並べ替え (クリックまたはEnter)"
+                aria-label="株価で並べ替え"
                 style={{ minWidth: 90, width: "11%", textAlign: "right" }}
               >
                 <span className="row" style={{ gap: 2, justifyContent: "flex-end" }}>
@@ -628,6 +636,8 @@ export function ConstituentsTable({
                 tabIndex={0}
                 onClick={() => toggleSort("changePct")}
                 onKeyDown={(e) => handleHeaderKeyDown(e, "changePct")}
+                title="前日比で並べ替え (クリックまたはEnter)"
+                aria-label="前日比で並べ替え"
                 style={{ minWidth: 95, width: "11%", textAlign: "right" }}
               >
                 <span className="row" style={{ gap: 2, justifyContent: "flex-end" }}>
@@ -647,6 +657,8 @@ export function ConstituentsTable({
                 tabIndex={0}
                 onClick={() => toggleSort("contributionPt")}
                 onKeyDown={(e) => handleHeaderKeyDown(e, "contributionPt")}
+                title="寄与度で並べ替え (クリックまたはEnter)"
+                aria-label="寄与度で並べ替え"
                 style={{ minWidth: 90, width: "10%", textAlign: "right" }}
               >
                 <span className="row" style={{ gap: 2, justifyContent: "flex-end" }}>
@@ -665,6 +677,8 @@ export function ConstituentsTable({
                 tabIndex={0}
                 onClick={() => toggleSort("weight")}
                 onKeyDown={(e) => handleHeaderKeyDown(e, "weight")}
+                title="比率で並べ替え (クリックまたはEnter)"
+                aria-label="比率で並べ替え"
                 style={{ minWidth: 110, width: "10%", textAlign: "right" }}
               >
                 <span className="row" style={{ gap: 2, justifyContent: "flex-end" }}>
