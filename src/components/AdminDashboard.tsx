@@ -121,21 +121,24 @@ export function AdminDashboard({
         signal: controller.signal,
       });
       if (res.ok) {
-        const data = await res.json();
-        setPasswords(Array.isArray(data) ? data : []);
+        if (!controller.signal.aborted) {
+          const data = await res.json();
+          setPasswords(Array.isArray(data) ? data : []);
+        }
       } else {
         const data = await res.json().catch(() => ({}));
-        const errText = data.error || `エラー (${res.status})`;
+        const errText = typeof data.error === "string" ? data.error : `エラー (${res.status})`;
         console.error("Failed to fetch passwords:", errText);
-        setPasswordFetchError(errText);
+        if (!controller.signal.aborted) setPasswordFetchError(errText);
       }
     } catch (err: unknown) {
       if (err instanceof Error && err.name === "AbortError") return;
+      if (controller.signal.aborted) return;
       const msg = err instanceof Error ? err.message : "パスワード一覧の取得に失敗しました";
       console.error("Failed to fetch passwords:", err);
-      setPasswordFetchError(msg);
+      if (!controller.signal.aborted) setPasswordFetchError(msg);
     } finally {
-      setLoadingPasswords(false);
+      if (!controller.signal.aborted) setLoadingPasswords(false);
       isFetchingPasswordsRef.current = false;
     }
   }, [isAdmin, getHeaders]);

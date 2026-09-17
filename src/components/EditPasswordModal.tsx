@@ -33,6 +33,7 @@ export function EditPasswordModal({
 
   const dialogRef = useRef<HTMLDivElement>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
+  const isBackdropMouseDownRef = useRef(false);
   const handleClose = () => {
     if (!loading) onClose();
   };
@@ -122,12 +123,20 @@ export function EditPasswordModal({
     }
   };
 
+  const handleBackdropMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    isBackdropMouseDownRef.current = e.target === e.currentTarget;
+  };
+
+  const handleBackdropClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (isBackdropMouseDownRef.current && e.target === e.currentTarget) handleClose();
+    isBackdropMouseDownRef.current = false;
+  };
+
   return (
     <div
       className="modal-overlay"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) handleClose();
-      }}
+      onMouseDown={handleBackdropMouseDown}
+      onClick={handleBackdropClick}
       style={{
         position: "fixed",
         inset: 0,
@@ -147,6 +156,7 @@ export function EditPasswordModal({
         aria-labelledby="edit-password-modal-title"
         data-modal-dialog
         ref={dialogRef}
+        onMouseDown={(e) => e.stopPropagation()}
         initial={{ opacity: 0, scale: 0.95, y: 15 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.95 }}
