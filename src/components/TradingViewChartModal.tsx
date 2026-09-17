@@ -9,6 +9,7 @@ import {
   Minimize2,
   RotateCcw,
   AlertCircle,
+  RefreshCw,
 } from "lucide-react";
 import { useTheme } from "../lib/theme";
 import { useModalFocus } from "../hooks/useModalFocus";
@@ -78,7 +79,6 @@ export function getSavedDimensions(): CardDimensions {
   return { width: Math.max(minW, responsiveW), height: Math.max(minH, responsiveH) };
 }
 
-
 export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModalProps) {
   const { theme } = useTheme();
   const widgetContainerRef = useRef<HTMLDivElement>(null);
@@ -88,15 +88,27 @@ export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModal
   const [isMaximized, setIsMaximized] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
   const [isAnimating, setIsAnimating] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [scriptError, setScriptError] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
 
   const preMaximizedSizeRef = useRef<CardDimensions>(getSavedDimensions());
   const isBackdropMouseDownRef = useRef(false);
   const lastResizeTimeRef = useRef(0);
+  const isResizingRef = useRef(false);
   const resizeStartRef = useRef<{ x: number; y: number; w: number; h: number } | null>(null);
   const animTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const rafIdRef = useRef<number | null>(null);
+  const pendingDimensionsRef = useRef<CardDimensions | null>(null);
 
   useModalFocus(Boolean(symbol), cardRef, onClose);
+
+  // Dispatch a global resize event to inform TradingView widget to adapt its internal canvas
+  const notifyTradingViewResize = useCallback(() => {
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new Event("resize"));
+    }
+  }, []);
 
   // Trigger smooth transition animation only for button-based sizing (maximize / reset)
   const triggerAnimation = useCallback(() => {
@@ -116,18 +128,19 @@ export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModal
     }
   }, []);
 
-  // Track resize with ResizeObserver (native resize: both or external resize)
+  // Track external resize with ResizeObserver (guarded against active pointer resizing)
   useEffect(() => {
     const cardEl = cardRef.current;
     if (!cardEl) return;
 
     let resizeTimer: ReturnType<typeof setTimeout> | null = null;
     const observer = new ResizeObserver((entries) => {
+      // Skip updates when the user is actively dragging the corner handle
+      if (isResizingRef.current) return;
+
       for (const entry of entries) {
         const { width, height } = entry.contentRect;
-        // Persist against the same responsive floors getSavedDimensions()
-        // enforces (mobile 320x300) instead of the desktop 460x340 minimum,
-        // so resizes on small phones are not silently dropped.
+        // Persist against responsive floors (mobile 300x280, desktop 460x340)
         const minW = window.innerWidth <= 640 ? 300 : 460;
         const minH = window.innerWidth <= 640 ? 280 : 340;
         if (width >= minW && height >= minH && !isMaximized) {
@@ -137,6 +150,7 @@ export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModal
             const newDims = { width: Math.round(width), height: Math.round(height) };
             setDimensions(newDims);
             saveDimensions(newDims);
+            notifyTradingViewResize();
           }, 300);
         }
       }
@@ -147,23 +161,36 @@ export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModal
       observer.disconnect();
       if (resizeTimer) clearTimeout(resizeTimer);
     };
-  }, [isMaximized, saveDimensions]);
+  }, [isMaximized, saveDimensions, notifyTradingViewResize]);
 
-  // Toggle maximize with smooth animation
+  // Toggle maximize with smooth animation and auto canvas recalculation
   const handleToggleMaximize = useCallback(() => {
     triggerAnimation();
     if (!isMaximized) {
       preMaximizedSizeRef.current = dimensions;
-      const maxW = Math.floor(window.innerWidth * 0.95);
-      const maxH = Math.floor(window.innerHeight * 0.92);
+      const maxW = Math.floor(window.innerWidth * 0.96);
+      const maxH = Math.floor(window.innerHeight * 0.94);
       setDimensions({ width: maxW, height: maxH });
       setIsMaximized(true);
+      setTimeout(notifyTradingViewResize, 60);
+      setTimeout(notifyTradingViewResize, 260);
     } else {
-      setDimensions(preMaximizedSizeRef.current);
-      saveDimensions(preMaximizedSizeRef.current);
+      const isMobile = window.innerWidth <= 640;
+      const minW = isMobile ? 300 : 480;
+      const minH = isMobile ? 280 : 380;
+      const maxW = Math.max(minW, Math.floor(window.innerWidth * 0.96));
+      const maxH = Math.max(minH, Math.floor(window.innerHeight * 0.94));
+      const clamped = {
+        width: Math.min(maxW, Math.max(minW, preMaximizedSizeRef.current.width)),
+        height: Math.min(maxH, Math.max(minH, preMaximizedSizeRef.current.height)),
+      };
+      setDimensions(clamped);
+      saveDimensions(clamped);
       setIsMaximized(false);
+      setTimeout(notifyTradingViewResize, 60);
+      setTimeout(notifyTradingViewResize, 260);
     }
-  }, [isMaximized, dimensions, saveDimensions, triggerAnimation]);
+  }, [isMaximized, dimensions, saveDimensions, triggerAnimation, notifyTradingViewResize]);
 
   // Reset to default size with smooth animation
   const handleResetSize = useCallback(() => {
@@ -177,13 +204,18 @@ export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModal
     setDimensions(newDims);
     setIsMaximized(false);
     saveDimensions(newDims);
-  }, [saveDimensions, triggerAnimation]);
+    setTimeout(notifyTradingViewResize, 60);
+    setTimeout(notifyTradingViewResize, 260);
+  }, [saveDimensions, triggerAnimation, notifyTradingViewResize]);
 
   // Keep modal within viewport when browser window is resized or device rotated
   useEffect(() => {
     if (typeof window === "undefined") return;
     const handleWindowResize = () => {
-      if (isMaximized) return;
+      if (isMaximized) {
+        notifyTradingViewResize();
+        return;
+      }
       setDimensions((current) => {
         const maxW = Math.floor(window.innerWidth * 0.96);
         const maxH = Math.floor(window.innerHeight * 0.94);
@@ -196,6 +228,7 @@ export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModal
             height: Math.max(minH, Math.min(current.height, maxH)),
           };
           saveDimensions(clamped);
+          notifyTradingViewResize();
           return clamped;
         }
         return current;
@@ -204,9 +237,9 @@ export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModal
 
     window.addEventListener("resize", handleWindowResize);
     return () => window.removeEventListener("resize", handleWindowResize);
-  }, [isMaximized, saveDimensions]);
+  }, [isMaximized, saveDimensions, notifyTradingViewResize]);
 
-  // Corner pointer drag resize handlers (robust pointer capture to prevent backdrop clicks)
+  // Corner pointer drag resize handlers with requestAnimationFrame throttling and pointer capture
   const handleResizePointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     if (isMaximized) return;
     e.preventDefault();
@@ -217,6 +250,7 @@ export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModal
       // ignore
     }
     setIsResizing(true);
+    isResizingRef.current = true;
     lastResizeTimeRef.current = Date.now();
     resizeStartRef.current = {
       x: e.clientX,
@@ -242,7 +276,23 @@ export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModal
     const maxH = Math.max(minH, Math.floor(window.innerHeight * 0.94));
     const newW = Math.min(maxW, Math.max(minW, Math.round(resizeStartRef.current.w + dx)));
     const newH = Math.min(maxH, Math.max(minH, Math.round(resizeStartRef.current.h + dy)));
-    setDimensions({ width: newW, height: newH });
+
+    pendingDimensionsRef.current = { width: newW, height: newH };
+
+    // Direct DOM manipulation during drag for zero-latency 60fps tracking
+    if (cardRef.current) {
+      cardRef.current.style.width = `${newW}px`;
+      cardRef.current.style.height = `${newH}px`;
+    }
+
+    if (rafIdRef.current === null) {
+      rafIdRef.current = requestAnimationFrame(() => {
+        rafIdRef.current = null;
+        if (pendingDimensionsRef.current) {
+          setDimensions(pendingDimensionsRef.current);
+        }
+      });
+    }
   }, []);
 
   const handleResizePointerUp = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
@@ -252,14 +302,24 @@ export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModal
     } catch {
       // ignore
     }
+    if (rafIdRef.current !== null) {
+      cancelAnimationFrame(rafIdRef.current);
+      rafIdRef.current = null;
+    }
+
+    const finalDims = pendingDimensionsRef.current || dimensions;
     resizeStartRef.current = null;
+    pendingDimensionsRef.current = null;
     setIsResizing(false);
+    isResizingRef.current = false;
     lastResizeTimeRef.current = Date.now();
-    setDimensions((current) => {
-      saveDimensions(current);
-      return current;
-    });
-  }, [saveDimensions]);
+
+    setDimensions(finalDims);
+    saveDimensions(finalDims);
+
+    // Notify TradingView widget to recalibrate canvas dimensions
+    notifyTradingViewResize();
+  }, [dimensions, saveDimensions, notifyTradingViewResize]);
 
   // Safe backdrop click handlers
   const handleBackdropMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
@@ -280,7 +340,9 @@ export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModal
     isBackdropMouseDownRef.current = false;
   }, [onClose]);
 
-
+  const handleRetry = useCallback(() => {
+    setReloadKey((prev) => prev + 1);
+  }, []);
 
   // Load TradingView Symbol Overview widget inside popup
   useEffect(() => {
@@ -288,6 +350,8 @@ export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModal
     const container = widgetContainerRef.current;
     if (!container) return;
 
+    let isCancelled = false;
+    setIsLoading(true);
     setScriptError(false);
     container.innerHTML = "";
 
@@ -301,8 +365,19 @@ export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModal
     script.src = "https://s3.tradingview.com/external-embedding/embed-widget-symbol-overview.js";
     script.type = "text/javascript";
     script.async = true;
-    script.onload = () => setScriptError(false);
-    script.onerror = () => setScriptError(true);
+    script.onload = () => {
+      if (!isCancelled) {
+        setIsLoading(false);
+        setScriptError(false);
+        setTimeout(notifyTradingViewResize, 100);
+      }
+    };
+    script.onerror = () => {
+      if (!isCancelled) {
+        setIsLoading(false);
+        setScriptError(true);
+      }
+    };
     script.innerHTML = JSON.stringify({
       symbols: [
         [symbol.title, `${symbol.proName}|1D`],
@@ -338,9 +413,10 @@ export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModal
     container.appendChild(script);
 
     return () => {
+      isCancelled = true;
       container.innerHTML = "";
     };
-  }, [symbol, theme]);
+  }, [symbol, theme, reloadKey, notifyTradingViewResize]);
 
   if (!symbol) return null;
 
@@ -361,8 +437,8 @@ export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModal
         tabIndex={-1}
         className={`tv-chart-popover-card ${isMaximized ? "is-maximized" : ""} ${isResizing ? "is-resizing" : ""} ${isAnimating ? "is-animating" : ""}`}
         style={{
-          width: `${dimensions.width}px`,
-          height: `${dimensions.height}px`,
+          width: isMaximized ? undefined : `${dimensions.width}px`,
+          height: isMaximized ? undefined : `${dimensions.height}px`,
         }}
         onMouseDown={(e) => e.stopPropagation()}
         onClick={(e) => e.stopPropagation()}
@@ -459,11 +535,28 @@ export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModal
 
         {/* TradingView Chart Container */}
         <div className="tv-chart-popover-body" style={{ position: "relative" }}>
+          {/* Loading state indicator */}
+          {isLoading && !scriptError && (
+            <div className="tv-chart-loading-overlay">
+              <div className="tv-chart-loading-spinner" />
+              <span className="mono tiny muted" style={{ fontSize: 11 }}>
+                TradingView チャート読み込み中...
+              </span>
+            </div>
+          )}
+
           <div
             ref={widgetContainerRef}
-            style={{ width: "100%", height: "100%", display: scriptError ? "none" : "block" }}
+            style={{
+              width: "100%",
+              height: "100%",
+              display: scriptError ? "none" : "block",
+              opacity: isLoading ? 0.3 : 1,
+              transition: "opacity 0.2s ease",
+            }}
             className="tradingview-widget-container"
           />
+
           {scriptError && (
             <div
               className="column"
@@ -482,16 +575,27 @@ export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModal
               <p className="muted tiny" style={{ maxWidth: 360, margin: 0 }}>
                 コンテンツブロッカーやネットワーク環境の影響により、外部ウィジェットスクリプトがブロックされた可能性があります。
               </p>
-              <a
-                href={tradingViewSymbolUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="btn btn-sm btn-default"
-                style={{ marginTop: 8 }}
-              >
-                <span>TradingView 公式サイトで開く</span>
-                <ExternalLink size={12} />
-              </a>
+              <div className="row" style={{ gap: 8, marginTop: 8 }}>
+                <button
+                  type="button"
+                  onClick={handleRetry}
+                  className="btn btn-sm btn-outline"
+                  style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+                >
+                  <RefreshCw size={12} />
+                  <span>再読み込み</span>
+                </button>
+                <a
+                  href={tradingViewSymbolUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn btn-sm btn-default"
+                  style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+                >
+                  <span>公式サイトで開く</span>
+                  <ExternalLink size={12} />
+                </a>
+              </div>
             </div>
           )}
         </div>

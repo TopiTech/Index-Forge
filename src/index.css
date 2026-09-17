@@ -3542,7 +3542,7 @@ textarea:focus-visible {
 
 .social-cards-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   gap: 16px;
   margin-top: 8px;
 }
@@ -3695,7 +3695,7 @@ textarea:focus-visible {
 
 .project-features-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 16px;
   margin-bottom: 24px;
 }
@@ -3743,7 +3743,7 @@ textarea:focus-visible {
 /* Skills Grid */
 .skills-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
   gap: 16px;
 }
 
@@ -3777,6 +3777,160 @@ textarea:focus-visible {
   border-radius: 12px;
   padding: 24px 28px;
   box-shadow: 0 4px 16px var(--accent-glow);
+}
+
+/* ==========================================================================
+   Portfolio Page Responsive Optimizations
+   ========================================================================== */
+@media (max-width: 768px) {
+  .portfolio-page-wrapper {
+    padding: 16px 16px 48px;
+  }
+
+  .portfolio-container {
+    gap: 24px;
+  }
+
+  .project-features-grid {
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 12px;
+  }
+
+  .skills-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+}
+
+@media (max-width: 640px) {
+  .portfolio-page-wrapper {
+    padding: 12px 12px 36px;
+  }
+
+  .subpage-nav-bar {
+    flex-wrap: wrap;
+    gap: 8px;
+    padding-bottom: 12px;
+    margin-bottom: 18px;
+  }
+
+  .profile-hero-card {
+    padding: 20px 16px;
+  }
+
+  .profile-header-content {
+    flex-direction: column;
+    gap: 14px;
+    margin-bottom: 20px;
+  }
+
+  .profile-avatar {
+    width: 60px;
+    height: 60px;
+  }
+
+  .profile-avatar-text {
+    font-size: 26px;
+  }
+
+  .profile-name {
+    font-size: 1.4rem;
+  }
+
+  .profile-bio {
+    font-size: 13px;
+    line-height: 1.6;
+  }
+
+  .social-cards-grid {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .social-card {
+    padding: 14px;
+    gap: 12px;
+  }
+
+  .project-feature-card {
+    padding: 18px 14px;
+  }
+
+  .project-title {
+    font-size: 1.12rem;
+    line-height: 1.4;
+    margin-bottom: 8px;
+  }
+
+  .project-desc {
+    font-size: 12.5px;
+    line-height: 1.6;
+    margin-bottom: 16px;
+  }
+
+  .project-features-grid {
+    grid-template-columns: 1fr;
+    gap: 10px;
+    margin-bottom: 18px;
+  }
+
+  .feature-item {
+    padding: 12px 14px;
+  }
+
+  .feature-item-header {
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .feature-item-desc {
+    font-size: 12px;
+    line-height: 1.5;
+  }
+
+  .skill-card {
+    padding: 16px 14px;
+  }
+
+  .portfolio-cta-box {
+    padding: 20px 16px;
+  }
+
+  .portfolio-cta-content {
+    flex-direction: column;
+    align-items: stretch !important;
+    gap: 14px !important;
+  }
+
+  .portfolio-cta-buttons {
+    display: flex;
+    flex-direction: column;
+    gap: 8px !important;
+    width: 100%;
+  }
+
+  .portfolio-cta-buttons .btn {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+@media (max-width: 480px) {
+  .social-card {
+    flex-wrap: wrap;
+  }
+
+  .social-card-action {
+    width: 100%;
+    display: flex;
+    justify-content: flex-end;
+  }
+
+  .social-btn-label {
+    width: 100%;
+    text-align: center;
+    padding: 6px 12px;
+  }
 }
 
 /* ==========================================================================
@@ -4552,7 +4706,6 @@ textarea:focus-visible {
   flex-direction: column;
   position: relative;
   z-index: 10002;
-  resize: both;
   overflow: hidden;
   animation: popoverScale 0.22s cubic-bezier(0.16, 1, 0.3, 1);
   /* Instant tracking during manual dragging; transitions are applied only during animated toggles */
@@ -4572,6 +4725,8 @@ textarea:focus-visible {
 }
 
 .tv-chart-popover-card.is-maximized {
+  width: min(96vw, 1600px) !important;
+  height: 94vh !important;
   resize: none !important;
   border-radius: 8px;
 }
@@ -4632,6 +4787,39 @@ textarea:focus-visible {
   overflow: hidden;
 }
 
+/* TradingView Chart Loading Overlay */
+.tv-chart-loading-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: #131722;
+  gap: 12px;
+  z-index: 5;
+  transition: opacity 0.25s ease;
+  pointer-events: none;
+}
+
+[data-theme="light"] .tv-chart-loading-overlay {
+  background: #ffffff;
+}
+
+.tv-chart-loading-spinner {
+  width: 28px;
+  height: 28px;
+  border: 2.5px solid rgba(6, 182, 212, 0.2);
+  border-top-color: var(--accent-color, #06b6d4);
+  border-radius: 50%;
+  animation: tvSpin 0.75s linear infinite;
+}
+
+@keyframes tvSpin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
 .tv-chart-popover-footer {
   display: flex;
   align-items: center;
@@ -4645,14 +4833,14 @@ textarea:focus-visible {
 
 .tv-resize-handle {
   position: absolute;
-  right: 2px;
-  bottom: 2px;
-  width: 18px;
-  height: 18px;
+  right: 1px;
+  bottom: 1px;
+  width: 22px;
+  height: 22px;
   display: flex;
   align-items: flex-end;
   justify-content: flex-end;
-  padding: 0 2px 2px 0;
+  padding: 0 3px 3px 0;
   cursor: nwse-resize;
   color: var(--text-muted);
   user-select: none;

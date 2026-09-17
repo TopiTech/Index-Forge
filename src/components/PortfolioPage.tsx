@@ -231,14 +231,14 @@ export function PortfolioPage({ onNavigate }: PortfolioPageProps) {
 
         {/* Contact / Connect CTA */}
         <section className="portfolio-cta-box">
-          <div className="row space-between flex-wrap" style={{ gap: 16, alignItems: "center" }}>
+          <div className="row space-between flex-wrap portfolio-cta-content" style={{ gap: 16, alignItems: "center" }}>
             <div>
               <h3 style={{ margin: "0 0 6px", fontSize: "1.1rem" }}>フィードバックやメッセージ</h3>
               <p className="muted tiny" style={{ margin: 0, maxWidth: 540 }}>
                 本サービスへの機能リクエスト・不具合報告、または開発に関するメッセージは、X（旧Twitter）のDMやリプライ等でお気軽にお寄せください。
               </p>
             </div>
-            <div className="row" style={{ gap: 10 }}>
+            <div className="row portfolio-cta-buttons" style={{ gap: 10 }}>
               <a
                 href="https://x.com/TopiSan_1"
                 target="_blank"
