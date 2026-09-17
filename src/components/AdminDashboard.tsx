@@ -198,6 +198,14 @@ export function AdminDashboard({
       setCreateError("ユーザー名とパスワードは必須です");
       return;
     }
+    if (newUserName.trim().length > 100) {
+      setCreateError("ユーザー名は100文字以内で入力してください");
+      return;
+    }
+    if (newUserPassword.trim().length > 100) {
+      setCreateError("パスワードは100文字以内で入力してください");
+      return;
+    }
     setCreatingPassword(true);
     setCreateError(null);
     setCreateSuccess(null);
@@ -348,6 +356,14 @@ export function AdminDashboard({
   const handleSaveIndexFullEdit = async () => {
     if (!editName.trim()) {
       setIndexEditMessage({ type: "error", text: "指数名は必須です" });
+      return;
+    }
+    if (editName.trim().length > 100) {
+      setIndexEditMessage({ type: "error", text: "指数名は100文字以内で入力してください" });
+      return;
+    }
+    if (editDescription.trim().length > 500) {
+      setIndexEditMessage({ type: "error", text: "指数説明は500文字以内で入力してください" });
       return;
     }
     if (isNaN(editBaseValue) || editBaseValue <= 0 || editBaseValue > 1000000) {

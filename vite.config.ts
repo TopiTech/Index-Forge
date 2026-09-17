@@ -9,6 +9,7 @@ export default defineConfig({
       output: {
         manualChunks(id) {
           if (id.includes("node_modules")) {
+            if (id.includes("three")) return "three";
             if (id.includes("recharts")) return "recharts";
             if (id.includes("framer-motion")) return "motion";
             if (id.includes("lucide-react")) return "lucide";
@@ -16,6 +17,7 @@ export default defineConfig({
         },
       },
     },
+    chunkSizeWarningLimit: 600,
   },
   server: {
     host: true,

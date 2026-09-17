@@ -68,6 +68,16 @@ export function AddStockModal({
       return;
     }
 
+    if (cleanName.length > 100) {
+      setError("銘柄名は100文字以内で入力してください");
+      return;
+    }
+
+    if (theme.trim().length > 100) {
+      setError("テーマ・業種は100文字以内で入力してください");
+      return;
+    }
+
     setLoading(true);
     setError(null);
     const res = await onAddStock({

@@ -685,13 +685,14 @@ export async function authenticatePassword(
   ctx?: ExecutionContext,
 ): Promise<AuthResult> {
   const pwd =
-    (explicitPassword && typeof explicitPassword === "string" ? explicitPassword.trim() : null) ||
-    request.headers.get("x-auth-password")?.trim() ||
-    request.headers.get("x-admin-key")?.trim() ||
-    (request.headers.get("authorization")?.startsWith("Bearer ")
-      ? request.headers.get("authorization")!.slice(7).trim()
-      : null) ||
-    "";
+    (explicitPassword !== undefined && explicitPassword !== null)
+      ? (typeof explicitPassword === "string" ? explicitPassword.trim() : "")
+      : (request.headers.get("x-auth-password")?.trim() ||
+         request.headers.get("x-admin-key")?.trim() ||
+         (request.headers.get("authorization")?.startsWith("Bearer ")
+           ? request.headers.get("authorization")!.slice(7).trim()
+           : null) ||
+         "");
 
   if (!pwd) {
     return { authenticated: false, error: "パスワードが指定されていません" };

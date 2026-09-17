@@ -12,7 +12,7 @@ import { calculateRiskMetrics } from "../lib/analytics";
 import { filterByTimeframe } from "../lib/timeframe";
 import { isPriceCacheFresh } from "../lib/marketCache";
 import { parseLocalSyncCache } from "./useCalculation";
-import { useBenchmark } from "./useBenchmark";
+import { useBenchmark, isBenchmarkDataForSymbol } from "./useBenchmark";
 
 export interface ConstituentPerformance {
   ticker: string;
@@ -294,16 +294,20 @@ export function useSimulation(
     return filterByTimeframe(customSeries, timeframe);
   }, [customSeries, timeframe]);
 
+  const activeBenchmarkData = isBenchmarkDataForSymbol(benchmarkData, selectedBenchmark)
+    ? benchmarkData
+    : null;
+
   const filteredBenchmarkSeries = useMemo(() => {
-    if (benchmarkData && benchmarkData.series.length > 0) {
-      return filterByTimeframe(benchmarkData.series, timeframe);
+    if (activeBenchmarkData && activeBenchmarkData.series.length > 0) {
+      return filterByTimeframe(activeBenchmarkData.series, timeframe);
     }
     if (filteredCustomSeries.length > 0) {
       const dates = filteredCustomSeries.map((p) => p.date);
       return generateFallbackBenchmarkSeries(selectedBenchmark, dates);
     }
     return [];
-  }, [benchmarkData, filteredCustomSeries, selectedBenchmark, timeframe]);
+  }, [activeBenchmarkData, filteredCustomSeries, selectedBenchmark, timeframe]);
 
   // The benchmark line and the alpha metric must never read as real market
   // data when the snapshot API is unavailable: disclose the generated fallback
@@ -311,9 +315,9 @@ export function useSimulation(
   const usingDemoBenchmark = useMemo(
     () =>
       !benchmarkLoading &&
-      !(benchmarkData && benchmarkData.series.length > 0) &&
+      !(activeBenchmarkData && activeBenchmarkData.series.length > 0) &&
       filteredBenchmarkSeries.length > 0,
-    [benchmarkLoading, benchmarkData, filteredBenchmarkSeries],
+    [benchmarkLoading, activeBenchmarkData, filteredBenchmarkSeries],
   );
 
 

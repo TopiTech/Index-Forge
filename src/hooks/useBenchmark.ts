@@ -34,6 +34,12 @@ export function isBenchmarkDataForSymbol(
 
 export function useBenchmark(initialSymbol: BenchmarkSymbol = "^N225", enabled = true) {
   const [selectedBenchmark, setSelectedBenchmark] = useState<BenchmarkSymbol>(initialSymbol);
+  const [prevInitialSymbol, setPrevInitialSymbol] = useState<BenchmarkSymbol>(initialSymbol);
+
+  if (initialSymbol !== prevInitialSymbol) {
+    setPrevInitialSymbol(initialSymbol);
+    setSelectedBenchmark(initialSymbol);
+  }
   const [benchmarkData, setBenchmarkData] = useState<BenchmarkData | null>(() => {
     const cached = benchmarkSessionCache.get(initialSymbol);
     return cached && Date.now() - cached.timestamp < BENCHMARK_CACHE_TTL ? cached.data : null;

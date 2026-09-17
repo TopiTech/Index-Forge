@@ -205,6 +205,7 @@ export function TradingViewTickerTape() {
         // the badge never claims LIVE on fully-stale data.
         const freshQuotes = data.quotes.filter((q) => q && !q.stale);
         if (data.allStale || freshQuotes.length === 0) {
+          setIsLive(false);
           return;
         }
         const quotesToApply = freshQuotes;

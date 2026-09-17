@@ -71,6 +71,10 @@ export function EditPasswordModal({
       setError("名前を入力してください");
       return;
     }
+    if (name.trim().length > 100) {
+      setError("名前は100文字以内で入力してください");
+      return;
+    }
     if (newPassword.trim() && (newPassword.trim().length < 8 || newPassword.trim().length > 100)) {
       setError("再設定するパスワードは8〜100文字で入力してください");
       return;
