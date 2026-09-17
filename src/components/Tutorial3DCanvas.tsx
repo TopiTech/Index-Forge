@@ -26,7 +26,6 @@ export const Tutorial3DCanvas = forwardRef<Tutorial3DCanvasHandle, Tutorial3DCan
     const sceneRef = useRef<Tutorial3DScene | null>(null);
 
     const [hasWebGL, setHasWebGL] = useState<boolean>(true);
-    const [isSceneReady, setIsSceneReady] = useState<boolean>(false);
 
     // Pointer drag tracking
     const isDraggingRef = useRef(false);
@@ -76,7 +75,6 @@ export const Tutorial3DCanvas = forwardRef<Tutorial3DCanvasHandle, Tutorial3DCan
         });
         sceneInstance.isAutoRotatePaused = isAutoRotatePaused;
         sceneRef.current = sceneInstance;
-        setIsSceneReady(true);
       } catch (err) {
         console.warn("Failed to initialize Three.js WebGL scene:", err);
         setHasWebGL(false);
@@ -101,6 +99,7 @@ export const Tutorial3DCanvas = forwardRef<Tutorial3DCanvasHandle, Tutorial3DCan
           sceneRef.current = null;
         }
       };
+      // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     // Sync currentStep
@@ -202,11 +201,12 @@ export const Tutorial3DCanvas = forwardRef<Tutorial3DCanvasHandle, Tutorial3DCan
           e.preventDefault();
           sceneRef.current.resetCamera();
           break;
-        case " ":
+        case " ": {
           e.preventDefault();
           const nextPaused = sceneRef.current.toggleAutoRotate();
           onToggleAutoRotate?.(nextPaused);
           break;
+        }
       }
     };
 
