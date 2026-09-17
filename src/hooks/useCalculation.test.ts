@@ -1,5 +1,24 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { determineSyncForce, getMissingPriceDataTickers, parseLocalSyncCache } from "./useCalculation";
+import { SYNC_STORAGE_KEY, determineSyncForce, getMissingPriceDataTickers, parseLocalSyncCache } from "./useCalculation";
+
+describe("SYNC_STORAGE_KEY shared contract", () => {
+  it("exports a non-empty localStorage key", () => {
+    expect(typeof SYNC_STORAGE_KEY).toBe("string");
+    expect(SYNC_STORAGE_KEY.length).toBeGreaterThan(0);
+  });
+
+  it("is the single source of truth: useSimulation must import it instead of duplicating the literal", () => {
+    // Regression guard: useSimulation previously declared its own copy of the
+    // "osi_stock_sync_cache" literal. If one copy were renamed while the other
+    // kept the old key, the two hooks would read/write disjoint sync caches
+    // and prices would appear stale on one screen but fresh on the other.
+    const source = readFileSync(resolve(__dirname, "./useSimulation.ts"), "utf8");
+    expect(source).toContain('SYNC_STORAGE_KEY, parseLocalSyncCache } from "./useCalculation"');
+    expect(source).not.toMatch(/const\s+SYNC_STORAGE_KEY\s*=/);
+  });
+});
 
 describe("parseLocalSyncCache", () => {
   it("ignores malformed and non-positive timestamps from browser storage", () => {

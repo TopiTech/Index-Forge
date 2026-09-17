@@ -11,7 +11,7 @@ import { calculateCustomIndex, normalizeWeights } from "../lib/indexEngine";
 import { calculateRiskMetrics } from "../lib/analytics";
 import { filterByTimeframe } from "../lib/timeframe";
 import { isPriceCacheFresh } from "../lib/marketCache";
-import { parseLocalSyncCache } from "./useCalculation";
+import { SYNC_STORAGE_KEY, parseLocalSyncCache } from "./useCalculation";
 import { useBenchmark, isBenchmarkDataForSymbol } from "./useBenchmark";
 
 export interface ConstituentPerformance {
@@ -50,7 +50,9 @@ export interface SimulationResult {
 }
 
 const API_BASE = "/api";
-const SYNC_STORAGE_KEY = "osi_stock_sync_cache";
+// SYNC_STORAGE_KEY is imported from ./useCalculation so both hooks read and
+// write the same localStorage sync cache. Duplicating the literal here risked
+// one copy being renamed while the other kept writing the old key.
 
 /**
  * Maximum tickers accepted per /api/sync-prices request. The Worker rejects
