@@ -149,12 +149,14 @@ export const Tutorial3DCanvas = forwardRef<Tutorial3DCanvasHandle, Tutorial3DCan
       }
     };
 
-    // Wheel event for zoom
+    // Wheel event for zoom (only when Ctrl/Cmd is pressed to prevent page scroll hijacking)
     const handleWheel = (e: React.WheelEvent) => {
-      e.preventDefault();
-      if (!sceneRef.current) return;
-      const zoomSpeed = 0.015;
-      sceneRef.current.zoomCamera(e.deltaY * zoomSpeed);
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        if (!sceneRef.current) return;
+        const zoomSpeed = 0.015;
+        sceneRef.current.zoomCamera(e.deltaY * zoomSpeed);
+      }
     };
 
     // Keyboard support on the canvas element itself
@@ -223,7 +225,7 @@ export const Tutorial3DCanvas = forwardRef<Tutorial3DCanvasHandle, Tutorial3DCan
         tabIndex={0}
         role="region"
         aria-roledescription="3D インタラクティブビジュアライザー"
-        aria-label={`IndexForge 3Dチュートリアルビジュアル。矢印キーで視点回転、+/-でズーム可能。${sceneDescription || ""}`}
+        aria-label={`IndexForge 3Dチュートリアルビジュアル。矢印キーで視点回転、+/-またはCtrl+スクロールでズーム可能。${sceneDescription || ""}`}
       >
         {hasWebGL ? (
           <canvas
@@ -246,7 +248,7 @@ export const Tutorial3DCanvas = forwardRef<Tutorial3DCanvasHandle, Tutorial3DCan
 
         {/* Visual prompt for interactive canvas */}
         <div className="tutorial-3d-hint" aria-hidden="true">
-          <span>ドラッグまたは矢印キーで3D視点操作</span>
+          <span>ドラッグまたは矢印キーで3D視点操作 (Ctrl+スクロールでズーム)</span>
         </div>
       </div>
     );

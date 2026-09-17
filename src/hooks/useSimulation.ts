@@ -290,6 +290,15 @@ export function useSimulation(
     return () => clearTimeout(timer);
   }, [currentTickersKey, basket, baseValue, hasAllStockData, stockUniverse, runSimulation]);
 
+  // Cancel inflight simulation requests when component unmounts
+  useEffect(() => {
+    return () => {
+      if (abortRef.current) {
+        abortRef.current.abort();
+      }
+    };
+  }, []);
+
   // Filter series according to timeframe
   const filteredCustomSeries = useMemo(() => {
     if (customSeries.length === 0) return [];
