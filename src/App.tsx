@@ -26,6 +26,8 @@ import { filterByTimeframe } from "./lib/timeframe";
 import { Footer } from "./components/Footer";
 import { PortfolioPage } from "./components/PortfolioPage";
 import { DisclaimerPage } from "./components/DisclaimerPage";
+import { TutorialPage } from "./components/TutorialPage";
+import { shouldShowTutorialOnLaunch } from "./lib/tutorialStorage";
 import {
   parseViewFromLocation,
   getViewPath,
@@ -76,6 +78,7 @@ function getInitialMobileLayout() {
 
 function getInitialView(): PageView {
   if (typeof window === "undefined") return "dashboard";
+  if (shouldShowTutorialOnLaunch()) return "tutorial";
   return parseViewFromLocation(window.location.pathname, window.location.search);
 }
 
@@ -419,6 +422,7 @@ export default function App({
     onNavigateToBuilder: () => navigateTo("builder"),
     onNavigateToPortfolio: () => navigateTo("portfolio"),
     onNavigateToDisclaimer: () => navigateTo("disclaimer"),
+    onNavigateToTutorial: () => navigateTo("tutorial"),
     currentView,
     benchmarkUpdatedAt,
     calculationUpdatedAt,
@@ -426,6 +430,15 @@ export default function App({
     syncing,
     hasSyncWarning: syncWarnings.length > 0,
   };
+
+  if (currentView === "tutorial") {
+    return (
+      <TutorialPage
+        onComplete={() => navigateTo("dashboard")}
+        onSkip={() => navigateTo("dashboard")}
+      />
+    );
+  }
 
   // Static pages do not depend on the index list. Render them even while the
   // optional dashboard data request is slow or unavailable.

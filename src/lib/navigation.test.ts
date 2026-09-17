@@ -39,6 +39,11 @@ describe("Navigation & View Routing Logic", () => {
       expect(parseViewFromLocation("/", "?page=simulator")).toBe("builder");
     });
 
+    it("parses tutorial path and search parameter", () => {
+      expect(parseViewFromLocation("/tutorial")).toBe("tutorial");
+      expect(parseViewFromLocation("/", "?page=tutorial")).toBe("tutorial");
+    });
+
     it("falls back to dashboard for unknown paths", () => {
       expect(parseViewFromLocation("/unknown-page")).toBe("dashboard");
       expect(parseViewFromLocation("/", "?page=other")).toBe("dashboard");
@@ -52,6 +57,7 @@ describe("Navigation & View Routing Logic", () => {
       expect(getViewPath("portfolio")).toBe("/portfolio");
       expect(getViewPath("disclaimer")).toBe("/disclaimer");
       expect(getViewPath("builder")).toBe("/builder");
+      expect(getViewPath("tutorial")).toBe("/tutorial");
     });
   });
 

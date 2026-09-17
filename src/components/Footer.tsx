@@ -1,4 +1,4 @@
-import { ExternalLink, ShieldAlert, User, Home, Shield, Code2, Sliders } from "lucide-react";
+import { ExternalLink, ShieldAlert, User, Home, Shield, Code2, Sliders, Compass } from "lucide-react";
 import { getViewPath, type PageView } from "../lib/navigation";
 import { useAuth } from "../hooks/useAuth";
 
@@ -125,6 +125,15 @@ export function Footer({ onNavigate, currentView = "dashboard" }: FooterProps) {
                   onNavigate={onNavigate}
                   icon={<ShieldAlert size={14} />}
                   label="免責事項"
+                />
+              </li>
+              <li>
+                <FooterNavLink
+                  view="tutorial"
+                  currentView={currentView}
+                  onNavigate={onNavigate}
+                  icon={<Compass size={14} />}
+                  label="操作チュートリアル (3D)"
                 />
               </li>
               {isAdmin && (

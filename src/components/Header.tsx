@@ -13,6 +13,7 @@ import {
   X,
   Home,
   ChevronDown,
+  Compass,
 } from "lucide-react";
 import { Badge } from "./ui";
 import { useAuth } from "../hooks/useAuth";
@@ -27,6 +28,7 @@ interface HeaderProps {
   onNavigateToBuilder?: () => void;
   onNavigateToPortfolio?: () => void;
   onNavigateToDisclaimer?: () => void;
+  onNavigateToTutorial?: () => void;
   currentView?: string;
   benchmarkUpdatedAt?: number | null;
   calculationUpdatedAt?: number | null;
@@ -42,6 +44,7 @@ export function Header({
   onNavigateToBuilder,
   onNavigateToPortfolio,
   onNavigateToDisclaimer,
+  onNavigateToTutorial,
   currentView,
   benchmarkUpdatedAt,
   calculationUpdatedAt,
@@ -367,6 +370,22 @@ export function Header({
                           <span>免責事項</span>
                         </button>
                       )}
+                      {onNavigateToTutorial && (
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className={`header-desktop-dropdown-item ${currentView === "tutorial" ? "active" : ""}`}
+                          onClick={() => {
+                            onNavigateToTutorial();
+                            closeDesktopMenu();
+                          }}
+                          title="3D操作チュートリアルガイド"
+                          aria-label="3D操作チュートリアルへ移動"
+                        >
+                          <Compass size={15} />
+                          <span>操作チュートリアル (3D)</span>
+                        </button>
+                      )}
                       {isAdmin && onNavigateToAdmin && (
                         <button
                           type="button"
@@ -544,6 +563,21 @@ export function Header({
                   >
                     <FileText size={16} />
                     <span>免責事項</span>
+                  </button>
+                )}
+                {onNavigateToTutorial && (
+                  <button
+                    type="button"
+                    className={`header-mobile-nav-item ${currentView === "tutorial" ? "active" : ""}`}
+                    onClick={() => {
+                      onNavigateToTutorial();
+                      closeMobileMenu();
+                    }}
+                    title="3D操作チュートリアルガイド"
+                    aria-label="3D操作チュートリアルへ移動"
+                  >
+                    <Compass size={16} />
+                    <span>操作チュートリアル (3D)</span>
                   </button>
                 )}
                 {isAdmin && onNavigateToAdmin && (

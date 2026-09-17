@@ -1,4 +1,4 @@
-export type PageView = "dashboard" | "admin" | "portfolio" | "disclaimer" | "builder";
+export type PageView = "dashboard" | "admin" | "portfolio" | "disclaimer" | "builder" | "tutorial";
 
 /**
  * Parses pathname and search parameters to determine the current view.
@@ -26,6 +26,7 @@ export function parseViewFromLocation(pathname: string, search: string = ""): Pa
   ) {
     return "builder";
   }
+  if (pathname === "/tutorial" || pageParam === "tutorial") return "tutorial";
   return "dashboard";
 }
 
@@ -79,6 +80,8 @@ export function getViewPath(view: PageView): string {
       return "/disclaimer";
     case "builder":
       return "/builder";
+    case "tutorial":
+      return "/tutorial";
     case "dashboard":
     default:
       return "/";
