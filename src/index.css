@@ -2450,6 +2450,16 @@ h3 {
   }
 }
 
+html.is-reload-suppressed,
+html.is-reload-suppressed *,
+html.is-reload-suppressed *::before,
+html.is-reload-suppressed *::after {
+  scroll-behavior: auto !important;
+  transition-duration: 0.01ms !important;
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+}
+
 /* ========================================================================
    UI QUALITY PASS
    ======================================================================== */

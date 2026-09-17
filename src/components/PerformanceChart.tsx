@@ -92,6 +92,7 @@ interface PerformanceChartProps {
   emptyDescription?: string;
   emptyActionLabel?: string;
   onEmptyAction?: () => void;
+  isReloadSuppressed?: boolean;
 }
 
 type ViewMode = "value" | "percent" | "spread";
@@ -112,6 +113,7 @@ export function PerformanceChart({
   emptyDescription = "表示できるデータがまだありません。時間をおいて再取得してください。",
   emptyActionLabel,
   onEmptyAction,
+  isReloadSuppressed = false,
 }: PerformanceChartProps) {
   const [viewMode, setViewMode] = useState<ViewMode>("value");
   const [showSMA5, setShowSMA5] = useState(false);
@@ -548,6 +550,7 @@ export function PerformanceChart({
                 dot={false}
                 strokeDasharray="4 4"
                 name="nikkei"
+                isAnimationActive={!isReloadSuppressed}
               />
 
               {/* SMA 5 Line */}
@@ -559,6 +562,7 @@ export function PerformanceChart({
                   strokeWidth={1.5}
                   dot={false}
                   name="sma5"
+                  isAnimationActive={!isReloadSuppressed}
                 />
               )}
 
@@ -571,6 +575,7 @@ export function PerformanceChart({
                   strokeWidth={1.5}
                   dot={false}
                   name="sma25"
+                  isAnimationActive={!isReloadSuppressed}
                 />
               )}
 
@@ -590,6 +595,7 @@ export function PerformanceChart({
                   strokeWidth: 2,
                 }}
                 name="value"
+                isAnimationActive={!isReloadSuppressed}
               />
             </ComposedChart>
           </ResponsiveContainer>

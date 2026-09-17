@@ -79,7 +79,11 @@ function getInitialView(): PageView {
   return parseViewFromLocation(window.location.pathname, window.location.search);
 }
 
-export default function App() {
+export default function App({
+  isReloadSuppressed = false,
+}: {
+  isReloadSuppressed?: boolean;
+} = {}) {
   const initialDashboardParamsRef = useRef(
     typeof window !== "undefined" ? parseDashboardParams(window.location.search) : {},
   );
@@ -638,6 +642,7 @@ export default function App() {
                 baseValue={selectedIndex?.baseValue}
                 benchmarkLabel={currentBenchmarkOption.shortLabel}
                 timeframe={timeframe}
+                isReloadSuppressed={isReloadSuppressed}
                 onTimeframeChange={setTimeframe}
                 error={unifiedError}
                 onRetry={handleRetry}
