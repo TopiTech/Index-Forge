@@ -101,13 +101,7 @@ export function RiskMetricsCard({
         </Tag>
       </div>
 
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-          gap: 12,
-        }}
-      >
+      <div className="risk-metrics-grid">
         {items.map((item, idx) => (
           <motion.div
             key={item.label}

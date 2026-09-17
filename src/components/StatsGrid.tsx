@@ -78,7 +78,7 @@ export function StatsGrid({
       active: true,
     },
     {
-      label: `${benchmarkLabel} ベンチマーク（${periodLabel}）`,
+      label: `${benchmarkLabel}（${periodLabel}）`,
       value: benchmarkLoading ? "読込中..." : benchmarkData ? fmt.format(benchmarkData.snapshot.current) : "---",
       trend: hasBenchmark && typeof benchmarkReturnPct === "number"
         ? {
@@ -90,7 +90,7 @@ export function StatsGrid({
       icon: <Gauge size={16} />,
     },
     {
-      label: `対${benchmarkLabel} アルファ（${periodLabel}）`,
+      label: `対${benchmarkLabel} α（${periodLabel}）`,
       value: loading
         ? "計算中..."
         : benchmarkLoading
@@ -106,10 +106,10 @@ export function StatsGrid({
         : undefined,
       sub: hasAlpha
         ? benchmarkDiff > 0
-          ? `${periodLabel}で${benchmarkLabel}を上回る推移`
+          ? `${benchmarkLabel}をアウトパフォーム`
           : benchmarkDiff < 0
-            ? `${periodLabel}で${benchmarkLabel}を下回る推移`
-            : `${periodLabel}で${benchmarkLabel}と同等の推移`
+            ? `${benchmarkLabel}をアンダーパフォーム`
+            : `${benchmarkLabel}と同等`
         : undefined,
       icon: <TrendingUp size={16} />,
     },

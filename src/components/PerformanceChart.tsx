@@ -240,7 +240,7 @@ export function PerformanceChart({
                 { label: "3M", value: "3M" },
                 { label: "6M", value: "6M" },
                 { label: "YTD", value: "YTD" },
-                { label: "1Y (全期間)", value: "1Y" },
+                { label: "1Y", value: "1Y" },
               ]}
               active={timeframe}
               onChange={onTimeframeChange}
@@ -253,8 +253,8 @@ export function PerformanceChart({
               ariaLabel="チャートの表示形式"
               items={[
                 { label: "指数値", value: "value" },
-                { label: "騰落率 (%)", value: "percent" },
-                { label: "超過リターン (α)", value: "spread" },
+                { label: "騰落率", value: "percent" },
+                { label: "超過リターン", value: "spread" },
               ]}
               active={viewMode}
               onChange={setViewMode}

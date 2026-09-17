@@ -128,7 +128,7 @@ export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModal
     }
   }, []);
 
-  // Track external resize with ResizeObserver (guarded against active pointer resizing)
+  // Track external resize with ResizeObserver (guarded against active pointer resizing, animation, and jitter loops)
   useEffect(() => {
     const cardEl = cardRef.current;
     if (!cardEl) return;
@@ -137,17 +137,27 @@ export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModal
     const observer = new ResizeObserver((entries) => {
       // Skip updates when the user is actively dragging the corner handle
       if (isResizingRef.current) return;
+      // Skip updates during maximize transitions or while maximized
+      if (isAnimating || isMaximized) return;
 
       for (const entry of entries) {
-        const { width, height } = entry.contentRect;
+        // Use borderBoxSize or offsetWidth to prevent content-box border recursive shrinkage
+        const borderBoxW = entry.borderBoxSize?.[0]?.inlineSize ?? cardEl.offsetWidth;
+        const borderBoxH = entry.borderBoxSize?.[0]?.blockSize ?? cardEl.offsetHeight;
+
         // Persist against responsive floors (mobile 300x280, desktop 460x340)
         const minW = window.innerWidth <= 640 ? 300 : 460;
         const minH = window.innerWidth <= 640 ? 280 : 340;
-        if (width >= minW && height >= minH && !isMaximized) {
+        if (
+          borderBoxW >= minW &&
+          borderBoxH >= minH &&
+          !isMaximized &&
+          (Math.abs(borderBoxW - dimensions.width) > 4 || Math.abs(borderBoxH - dimensions.height) > 4)
+        ) {
           lastResizeTimeRef.current = Date.now();
           if (resizeTimer) clearTimeout(resizeTimer);
           resizeTimer = setTimeout(() => {
-            const newDims = { width: Math.round(width), height: Math.round(height) };
+            const newDims = { width: Math.round(borderBoxW), height: Math.round(borderBoxH) };
             setDimensions(newDims);
             saveDimensions(newDims);
             notifyTradingViewResize();
@@ -161,7 +171,7 @@ export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModal
       observer.disconnect();
       if (resizeTimer) clearTimeout(resizeTimer);
     };
-  }, [isMaximized, saveDimensions, notifyTradingViewResize]);
+  }, [isMaximized, isAnimating, dimensions.width, dimensions.height, saveDimensions, notifyTradingViewResize]);
 
   // Toggle maximize with smooth animation and auto canvas recalculation
   const handleToggleMaximize = useCallback(() => {

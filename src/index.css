@@ -1226,10 +1226,29 @@ h3 {
   gap: 12px;
 }
 
+@media (max-width: 640px) {
+  .chart-stats-summary {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 8px !important;
+    padding: 10px !important;
+  }
+}
+
 .chart-stat-item {
   display: flex;
   flex-direction: column;
   gap: 2px;
+}
+
+@media (max-width: 640px) {
+  .chart-stat-item {
+    background: var(--surface-inset);
+    border: 1px solid var(--border-subtle);
+    border-radius: 6px;
+    padding: 8px 10px;
+    min-width: 0;
+  }
 }
 
 .chart-stat-title {
@@ -1237,7 +1256,10 @@ h3 {
   color: var(--text-muted);
   font-family: var(--mono-font);
   text-transform: uppercase;
-  letter-spacing: 1px;
+  letter-spacing: 0.8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .chart-stat-val {
@@ -1812,7 +1834,7 @@ h3 {
 
 @media (max-width: 480px) {
   .app {
-    padding: 8px 8px 28px;
+    padding: 8px 10px 28px;
   }
 
   .stats-grid {
@@ -1822,19 +1844,66 @@ h3 {
 
   .stat-card {
     padding: 10px 10px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    min-width: 0;
+    gap: 4px;
+    border-radius: 10px;
   }
 
-  .stat-value-main {
-    font-size: 16px;
+  .stat-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 4px;
+    min-width: 0;
   }
 
   .stat-label {
-    font-size: 10px;
+    font-size: 10.5px;
+    line-height: 1.25;
+    color: var(--text-muted);
+    word-break: break-word;
+    overflow-wrap: anywhere;
+  }
+
+  .stat-value-main {
+    font-size: 16.5px;
+    font-weight: 700;
+    line-height: 1.2;
+    margin: 2px 0;
+    word-break: break-all;
+  }
+
+  .stat-sub-row {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 3px;
+    min-width: 0;
+  }
+
+  .stat-sub-row .badge-trend {
+    font-size: 9px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    white-space: nowrap;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .stat-sub-row .muted.tiny {
+    font-size: 9.5px;
+    line-height: 1.25;
+    word-break: break-word;
+    overflow-wrap: anywhere;
   }
 
   .stat-icon-wrapper {
-    width: 26px;
-    height: 26px;
+    width: 24px;
+    height: 24px;
+    flex-shrink: 0;
   }
 
   .theme-toggle-label {
@@ -1844,6 +1913,31 @@ h3 {
   .btn {
     padding: 6px 10px;
     font-size: 11px;
+  }
+}
+
+@media (max-width: 350px) {
+  .stats-grid {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+.risk-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+@media (max-width: 640px) {
+  .risk-metrics-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+}
+
+@media (max-width: 350px) {
+  .risk-metrics-grid {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -2349,7 +2443,7 @@ h3 {
   .chart-controls {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 8px;
     width: 100%;
   }
 
@@ -2365,37 +2459,48 @@ h3 {
   }
 
   .chart-timeframe-row .btn-group-item {
-    padding: 6px 2px !important;
+    padding: 6px 1px !important;
     font-size: 11px !important;
     text-align: center;
     white-space: nowrap;
+    min-height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
 
   .chart-mode-row {
     display: flex;
+    align-items: center;
     gap: 6px;
     width: 100%;
+    flex-wrap: wrap;
   }
 
   .chart-mode-row .view-mode-group {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
-    flex: 1 1 auto;
+    flex: 1 1 200px;
     gap: 2px;
   }
 
   .chart-mode-row .view-mode-group .btn-group-item {
     padding: 6px 2px !important;
-    font-size: 10.5px !important;
+    font-size: 11px !important;
     text-align: center;
     white-space: nowrap;
+    min-height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
 
   .chart-mode-row .technical-group {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-    flex: 0 0 92px;
+    flex: 0 0 88px;
     gap: 2px;
+    margin-left: auto;
   }
 
   .chart-mode-row .technical-group .btn-group-item {
@@ -2403,6 +2508,10 @@ h3 {
     font-size: 11px !important;
     text-align: center;
     white-space: nowrap;
+    min-height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
 
   .chart-legend-footer {
@@ -4668,13 +4777,13 @@ textarea:focus-visible {
 
 @media (max-width: 640px) {
   .tv-ticker-overlay-right {
-    padding: 0 8px 0 16px;
+    padding: 0 6px 0 10px;
     gap: 4px;
-    background: linear-gradient(90deg, transparent, rgba(10, 15, 25, 0.92) 20%);
+    background: linear-gradient(90deg, transparent, rgba(10, 15, 25, 0.95) 15%);
   }
 
   [data-theme="light"] .tv-ticker-overlay-right {
-    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.94) 20%);
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.96) 15%);
   }
 
   .tv-live-badge {
@@ -4683,8 +4792,8 @@ textarea:focus-visible {
   }
 
   .tv-ticker-tv-link {
-    padding: 1px 4px;
-    font-size: 9px;
+    padding: 1px 5px;
+    font-size: 8.5px;
   }
 }
 
