@@ -229,7 +229,12 @@ export function useIndices() {
           headers["x-owner-token"] = token;
         }
 
-        const res = await fetch(`${API_BASE}/indices?id=${encodeURIComponent(id)}`, {
+        const queryParams = new URLSearchParams({ id });
+        if (token) {
+          queryParams.set("ownerToken", token);
+        }
+
+        const res = await fetch(`${API_BASE}/indices?${queryParams.toString()}`, {
           method: "DELETE",
           headers,
         });
@@ -316,6 +321,9 @@ export function useIndices() {
           headers["x-owner-token"] = token;
         }
         const params = new URLSearchParams({ indexId, ticker });
+        if (token) {
+          params.set("ownerToken", token);
+        }
         const res = await fetch(`${API_BASE}/indices/stock?${params.toString()}`, {
           method: "DELETE",
           headers,

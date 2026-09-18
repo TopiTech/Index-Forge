@@ -983,6 +983,20 @@ h3 {
   box-shadow: 0 0 16px var(--accent-glow);
 }
 
+.btn-accent {
+  background: var(--accent-color);
+  border-color: var(--accent-color);
+  color: #090d16;
+  font-weight: 700;
+}
+
+.btn-accent:hover {
+  background: var(--accent-text);
+  border-color: var(--accent-text);
+  box-shadow: 0 0 16px var(--accent-glow);
+  color: #090d16;
+}
+
 .btn-outline {
   border-color: var(--border-magenta);
   color: var(--neon-magenta);

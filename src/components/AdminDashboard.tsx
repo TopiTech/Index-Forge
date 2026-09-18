@@ -138,7 +138,7 @@ export function AdminDashboard({
       console.error("Failed to fetch passwords:", err);
       if (!controller.signal.aborted) setPasswordFetchError(msg);
     } finally {
-      if (!controller.signal.aborted) setLoadingPasswords(false);
+      setLoadingPasswords(false);
       isFetchingPasswordsRef.current = false;
     }
   }, [isAdmin, getHeaders]);

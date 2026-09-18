@@ -437,12 +437,12 @@ export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModal
       className="tv-chart-popover-backdrop"
       onMouseDown={handleBackdropMouseDown}
       onClick={handleBackdropClick}
-      role="dialog"
-      aria-modal="true"
-      aria-label={`${symbol.title}のTradingViewチャートプレビュー`}
     >
       <div
         ref={cardRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={`${symbol.title}のTradingViewチャートプレビュー`}
         data-modal-dialog="true"
         tabIndex={-1}
         className={`tv-chart-popover-card ${isMaximized ? "is-maximized" : ""} ${isResizing ? "is-resizing" : ""} ${isAnimating ? "is-animating" : ""}`}

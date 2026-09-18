@@ -78,13 +78,19 @@ export function AddStockModal({
       return;
     }
 
+    const numericWeight = Number(weight);
+    if (!Number.isFinite(numericWeight) || numericWeight <= 0 || numericWeight > 100) {
+      setError("構成比率は0.1%から100%の間で入力してください");
+      return;
+    }
+
     setLoading(true);
     setError(null);
     const res = await onAddStock({
       ticker: cleanTicker,
       name: cleanName,
       theme: theme.trim() || "カスタム",
-      weight: Math.max(0.1, Number(weight) || 10),
+      weight: numericWeight,
     });
     setLoading(false);
 

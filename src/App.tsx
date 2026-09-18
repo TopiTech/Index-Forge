@@ -470,15 +470,6 @@ export default function App({
     );
   }
 
-  if (indicesError && indices.length === 0) {
-    return <ErrorFallback error={indicesError} onRetry={() => window.location.reload()} />;
-  }
-
-
-  if (loadingIndices) {
-    return <LoadingScreen />;
-  }
-
   if (currentView === "admin") {
     return (
       <AdminDashboard
@@ -489,6 +480,14 @@ export default function App({
         deleteCustomIndex={deleteCustomIndex}
       />
     );
+  }
+
+  if (indicesError && indices.length === 0) {
+    return <ErrorFallback error={indicesError} onRetry={() => window.location.reload()} />;
+  }
+
+  if (loadingIndices) {
+    return <LoadingScreen />;
   }
 
   return (

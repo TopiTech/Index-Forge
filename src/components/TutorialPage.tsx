@@ -405,9 +405,10 @@ export function TutorialPage({ onComplete, onSkip }: TutorialPageProps) {
         icon={<Keyboard size={18} />}
         maxWidth={520}
         ariaLabel="キーボードショートカット一覧"
+        ariaDescribedBy="tutorial-shortcuts-desc"
       >
         <div className="tutorial-shortcuts-dialog">
-          <p className="tiny muted" style={{ marginBottom: 14 }}>
+          <p id="tutorial-shortcuts-desc" className="tiny muted" style={{ marginBottom: 14 }}>
             マウス操作を行わなくても、キーボードのみで全てのチュートリアルおよび視点操作を実行できます。
           </p>
 
