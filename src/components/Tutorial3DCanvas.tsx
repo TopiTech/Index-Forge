@@ -224,8 +224,8 @@ export const Tutorial3DCanvas = forwardRef<Tutorial3DCanvasHandle, Tutorial3DCan
         onKeyDown={handleKeyDown}
         tabIndex={0}
         role="region"
-        aria-roledescription="3D インタラクティブビジュアライザー"
-        aria-label={`IndexForge 3Dチュートリアルビジュアル。矢印キーで視点回転、+/-またはCtrl+スクロールでズーム可能。${sceneDescription || ""}`}
+        aria-roledescription="インタラクティブビジュアライザー"
+        aria-label={`IndexForge チュートリアルビジュアル。矢印キーで視点回転、+/-またはCtrl+スクロールでズーム可能。${sceneDescription || ""}`}
       >
         {hasWebGL ? (
           <canvas
@@ -234,7 +234,7 @@ export const Tutorial3DCanvas = forwardRef<Tutorial3DCanvasHandle, Tutorial3DCan
             aria-hidden="true"
           />
         ) : (
-          <div className="tutorial-3d-fallback" role="img" aria-label="3Dグラフィックス代替プレビュー">
+          <div className="tutorial-3d-fallback" role="img" aria-label="グラフィックス代替プレビュー">
             <div className="fallback-glow-orb" />
             <div className="fallback-grid" />
             <div className="fallback-content">
@@ -248,7 +248,7 @@ export const Tutorial3DCanvas = forwardRef<Tutorial3DCanvasHandle, Tutorial3DCan
 
         {/* Visual prompt for interactive canvas */}
         <div className="tutorial-3d-hint" aria-hidden="true">
-          <span>ドラッグまたは矢印キーで3D視点操作 (Ctrl+スクロールでズーム)</span>
+          <span>ドラッグまたは矢印キーで視点操作 (Ctrl+スクロールでズーム)</span>
         </div>
       </div>
     );

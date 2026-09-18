@@ -970,6 +970,19 @@ h3 {
   background: var(--accent-subtle);
 }
 
+.btn-primary {
+  background: linear-gradient(135deg, rgba(6, 182, 212, 0.25) 0%, rgba(6, 182, 212, 0.12) 100%);
+  border-color: var(--accent-color);
+  color: var(--accent-text);
+}
+
+.btn-primary:hover {
+  background: var(--accent-color);
+  color: #090d16;
+  border-color: var(--accent-color);
+  box-shadow: 0 0 16px var(--accent-glow);
+}
+
 .btn-outline {
   border-color: var(--border-magenta);
   color: var(--neon-magenta);
@@ -979,6 +992,19 @@ h3 {
   background: rgba(224, 64, 251, 0.12);
   border-color: var(--neon-magenta);
   box-shadow: var(--glow-magenta);
+}
+
+.btn-ghost {
+  border-color: transparent !important;
+  background: transparent !important;
+  color: var(--text-secondary);
+}
+
+.btn-ghost:hover {
+  border-color: transparent !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+  color: var(--text-primary);
+  box-shadow: none !important;
 }
 
 .btn-sm {
@@ -5411,16 +5437,42 @@ textarea:focus-visible {
   align-items: center;
   gap: 6px;
   font-weight: 600;
+  margin-left: auto;
+}
+
+.tutorial-next-btn {
+  background: linear-gradient(135deg, rgba(6, 182, 212, 0.25) 0%, rgba(6, 182, 212, 0.12) 100%);
+  border-color: var(--accent-color);
+  color: var(--accent-text);
+  box-shadow: 0 0 10px var(--accent-glow);
+}
+
+.tutorial-next-btn:hover {
+  background: var(--accent-color);
+  color: #090d16;
+  border-color: var(--accent-color);
+  box-shadow: 0 0 16px var(--accent-glow);
 }
 
 .tutorial-finish-btn {
   background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-  border-color: #10b981;
+  border: 1px solid #34d399;
+  color: #ffffff !important;
+  box-shadow: 0 2px 10px rgba(16, 185, 129, 0.35);
+  letter-spacing: 0.5px;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
 }
 
 .tutorial-finish-btn:hover {
   background: linear-gradient(135deg, #059669 0%, #047857 100%);
-  box-shadow: 0 0 14px rgba(16, 185, 129, 0.4);
+  border-color: #6ee7b7;
+  color: #ffffff !important;
+  box-shadow: 0 0 18px rgba(16, 185, 129, 0.6);
+  transform: translateY(-1px);
+}
+
+.tutorial-finish-btn:active {
+  transform: translateY(0);
 }
 
 /* Shortcuts Dialog Table */

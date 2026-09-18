@@ -379,11 +379,11 @@ export function Header({
                             onNavigateToTutorial();
                             closeDesktopMenu();
                           }}
-                          title="3D操作チュートリアルガイド"
-                          aria-label="3D操作チュートリアルへ移動"
+                          title="操作チュートリアルガイド"
+                          aria-label="操作チュートリアルへ移動"
                         >
                           <Compass size={15} />
-                          <span>操作チュートリアル (3D)</span>
+                          <span>操作チュートリアル</span>
                         </button>
                       )}
                       {isAdmin && onNavigateToAdmin && (
@@ -573,11 +573,11 @@ export function Header({
                       onNavigateToTutorial();
                       closeMobileMenu();
                     }}
-                    title="3D操作チュートリアルガイド"
-                    aria-label="3D操作チュートリアルへ移動"
+                    title="操作チュートリアルガイド"
+                    aria-label="操作チュートリアルへ移動"
                   >
                     <Compass size={16} />
-                    <span>操作チュートリアル (3D)</span>
+                    <span>操作チュートリアル</span>
                   </button>
                 )}
                 {isAdmin && onNavigateToAdmin && (

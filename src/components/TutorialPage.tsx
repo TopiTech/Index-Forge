@@ -113,7 +113,7 @@ export function TutorialPage({ onComplete, onSkip }: TutorialPageProps) {
           }
           break;
         case "ArrowLeft":
-          if (!target || target.tagName !== "BUTTON") {
+          if (!isFirstStep && (!target || target.tagName !== "BUTTON")) {
             e.preventDefault();
             goToPrevStep();
           }
@@ -147,7 +147,7 @@ export function TutorialPage({ onComplete, onSkip }: TutorialPageProps) {
   }, [goToNextStep, goToPrevStep, handleSkip, isShortcutsModalOpen]);
 
   return (
-    <div className="tutorial-page-wrapper" role="main" aria-label="IndexForge 3D操作チュートリアル">
+    <div className="tutorial-page-wrapper" role="main" aria-label="IndexForge 操作チュートリアル">
       {/* Visually hidden screen reader announcements */}
       <div
         className="sr-only"
@@ -165,7 +165,7 @@ export function TutorialPage({ onComplete, onSkip }: TutorialPageProps) {
             <Sparkles size={18} />
           </div>
           <div>
-            <h1 className="tutorial-brand-title">IndexForge 3D Quick Start</h1>
+            <h1 className="tutorial-brand-title">IndexForge Quick Start</h1>
             <span className="muted tiny">初回操作チュートリアルガイド</span>
           </div>
         </div>
@@ -177,8 +177,8 @@ export function TutorialPage({ onComplete, onSkip }: TutorialPageProps) {
             className={`btn btn-sm ${isReducedMotion ? "btn-primary" : "btn-outline"} tutorial-control-btn`}
             onClick={() => setIsReducedMotion((prev) => !prev)}
             aria-pressed={isReducedMotion}
-            title={isReducedMotion ? "3Dアニメーションを有効化" : "3Dアニメーションを軽減・静止"}
-            aria-label={isReducedMotion ? "3Dアニメーションを有効化" : "3Dアニメーションを軽減・静止"}
+            title={isReducedMotion ? "アニメーションを有効化" : "アニメーションを軽減・静止"}
+            aria-label={isReducedMotion ? "アニメーションを有効化" : "アニメーションを軽減・静止"}
           >
             {isReducedMotion ? <EyeOff size={14} /> : <Eye size={14} />}
             <span className="tutorial-btn-label">
@@ -225,11 +225,11 @@ export function TutorialPage({ onComplete, onSkip }: TutorialPageProps) {
             sceneDescription={currentStep.sceneDescription}
           />
 
-          {/* Floating 3D Camera Controls Toolbar */}
+          {/* Floating Camera Controls Toolbar */}
           <div
             className="tutorial-camera-toolbar"
             role="toolbar"
-            aria-label="3Dカメラ視点操作ツールバー"
+            aria-label="カメラ視点操作ツールバー"
           >
             <button
               type="button"
@@ -360,16 +360,17 @@ export function TutorialPage({ onComplete, onSkip }: TutorialPageProps) {
 
           {/* Navigation Controls Footer */}
           <div className="tutorial-nav-footer">
-            <button
-              type="button"
-              className="btn btn-outline"
-              onClick={goToPrevStep}
-              disabled={isFirstStep}
-              aria-label="前のステップに戻る"
-            >
-              <ChevronLeft size={16} />
-              <span>前へ</span>
-            </button>
+            {!isFirstStep && (
+              <button
+                type="button"
+                className="btn btn-outline"
+                onClick={goToPrevStep}
+                aria-label="前のステップに戻る"
+              >
+                <ChevronLeft size={16} />
+                <span>前へ</span>
+              </button>
+            )}
 
             {isLastStep ? (
               <button
@@ -407,7 +408,7 @@ export function TutorialPage({ onComplete, onSkip }: TutorialPageProps) {
       >
         <div className="tutorial-shortcuts-dialog">
           <p className="tiny muted" style={{ marginBottom: 14 }}>
-            マウス操作を行わなくても、キーボードのみで全てのチュートリアルおよび3D視点操作を実行できます。
+            マウス操作を行わなくても、キーボードのみで全てのチュートリアルおよび視点操作を実行できます。
           </p>
 
           <div className="shortcuts-table-container">

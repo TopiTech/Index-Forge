@@ -133,7 +133,7 @@ export function Footer({ onNavigate, currentView = "dashboard" }: FooterProps) {
                   currentView={currentView}
                   onNavigate={onNavigate}
                   icon={<Compass size={14} />}
-                  label="操作チュートリアル (3D)"
+                  label="操作チュートリアル"
                 />
               </li>
               {isAdmin && (
