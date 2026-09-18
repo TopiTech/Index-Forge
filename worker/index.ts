@@ -1192,12 +1192,16 @@ function json(
     }
 
     const pathname = new URL(request.url).pathname;
+    const isMutation =
+      request.method !== "GET" && request.method !== "HEAD" && request.method !== "OPTIONS";
     if (
       pathname.startsWith("/api/auth/") ||
       pathname.startsWith("/api/admin/") ||
-      (pathname === "/api/indices" && request.method === "POST")
+      isMutation
     ) {
-      headers["cache-control"] = "no-store";
+      if (!headers["cache-control"]) {
+        headers["cache-control"] = "no-store";
+      }
     }
   }
 
@@ -2132,7 +2136,10 @@ export default {
           }
           const indexId = rawIndexId.trim();
           const ticker = rawTicker.trim().toUpperCase();
-          const providedToken = request.headers.get("x-owner-token")?.trim() || "";
+          const providedToken =
+            url.searchParams.get("ownerToken")?.trim() ||
+            request.headers.get("x-owner-token")?.trim() ||
+            "";
           if (providedToken.length > 256) {
             return json({ error: "作成者トークンは256文字以内で指定してください" }, 400, request);
           }
@@ -2173,8 +2180,6 @@ export default {
 
           if (auth.role !== "admin") {
             if (existingHash) {
-              const providedToken = request.headers.get("x-owner-token")?.trim() || "";
-
               if (!providedToken) {
                 return json(
                   {
@@ -3238,7 +3243,10 @@ export default {
             return json({ error: "Invalid or missing index id parameter" }, 400, request);
           }
           const id = rawId.trim();
-          const providedToken = request.headers.get("x-owner-token")?.trim() || "";
+          const providedToken =
+            url.searchParams.get("ownerToken")?.trim() ||
+            request.headers.get("x-owner-token")?.trim() ||
+            "";
           if (providedToken.length > 256) {
             return json(
               { error: "Invalid ownerToken: must be a string up to 256 characters" },

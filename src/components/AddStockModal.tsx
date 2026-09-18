@@ -132,6 +132,7 @@ export function AddStockModal({
       onClose={handleClose}
       title="構成銘柄の追加"
       subtitle={<span id="add-stock-modal-description">対象指数: {indexName}</span>}
+      ariaDescribedBy="add-stock-modal-description"
       icon={<Plus size={18} style={{ color: "var(--accent-text)" }} />}
       maxWidth={620}
       initialFocusRef={tickerInputRef}

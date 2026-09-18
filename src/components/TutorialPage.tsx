@@ -144,7 +144,7 @@ export function TutorialPage({ onComplete, onSkip }: TutorialPageProps) {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [goToNextStep, goToPrevStep, handleSkip, isShortcutsModalOpen]);
+  }, [goToNextStep, goToPrevStep, handleSkip, isShortcutsModalOpen, isFirstStep]);
 
   return (
     <div className="tutorial-page-wrapper" role="main" aria-label="IndexForge 操作チュートリアル">
