@@ -1,6 +1,6 @@
 import type { BasketItem, PricePoint, StockSeries } from "../types";
 
-function normalizeTicker(ticker: string): string {
+export function normalizeTicker(ticker: string): string {
   return ticker.trim().toUpperCase();
 }
 

@@ -5,7 +5,7 @@ describe("escapeCsvCell", () => {
   // "-10" is intentionally absent: it is a plain numeric string and cannot
   // execute as a formula, so it must export as a numeric cell (see the
   // regression test below) rather than as apostrophe-prefixed text.
-  it.each(["=SUM(A1:A2)", "+CMD()", "@SUM(A1:A2)", " =1+1", "\t=1+1", "\uFEFF=1+1"])(
+  it.each(["=SUM(A1:A2)", "+CMD()", "@SUM(A1:A2)", " =1+1", "\t=1+1", "\uFEFF=1+1", "|' /C calc'!A0"])(
     "prevents spreadsheet formula evaluation for %s",
     (value) => {
       expect(escapeCsvCell(value)).toBe(`"'${value}"`);

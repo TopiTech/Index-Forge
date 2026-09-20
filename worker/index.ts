@@ -1500,7 +1500,13 @@ export default {
             return json({ error: "パスワードは8〜100文字で入力してください" }, 400, request);
           }
           let maxStockLimit: number | null = null;
-          if (maxStocks !== undefined && maxStocks !== null && maxStocks !== "") {
+          if (
+            maxStocks !== undefined &&
+            maxStocks !== null &&
+            maxStocks !== "" &&
+            maxStocks !== 0 &&
+            maxStocks !== "0"
+          ) {
             const num = Number(maxStocks);
             if (!Number.isFinite(num) || num < 1 || num > 500) {
               return json({ error: "銘柄数上限は1〜500の数値を指定してください" }, 400, request);
@@ -1508,7 +1514,13 @@ export default {
             maxStockLimit = Math.floor(num);
           }
           let maxIndexLimit: number | null = null;
-          if (maxIndices !== undefined && maxIndices !== null && maxIndices !== "") {
+          if (
+            maxIndices !== undefined &&
+            maxIndices !== null &&
+            maxIndices !== "" &&
+            maxIndices !== 0 &&
+            maxIndices !== "0"
+          ) {
             const num = Number(maxIndices);
             if (!Number.isFinite(num) || num < 1 || num > 100) {
               return json({ error: "指数上限は1〜100の数値を指定してください" }, 400, request);
@@ -1636,7 +1648,7 @@ export default {
             params.push(hash);
           }
           if (maxStocks !== undefined) {
-            if (maxStocks === null || maxStocks === 0 || maxStocks === "") {
+            if (maxStocks === null || maxStocks === 0 || maxStocks === "" || maxStocks === "0") {
               updates.push("max_stocks = NULL");
             } else {
               const num = Number(maxStocks);
@@ -1648,7 +1660,7 @@ export default {
             }
           }
           if (maxIndices !== undefined) {
-            if (maxIndices === null || maxIndices === 0 || maxIndices === "") {
+            if (maxIndices === null || maxIndices === 0 || maxIndices === "" || maxIndices === "0") {
               updates.push("max_indices = NULL");
             } else {
               const num = Number(maxIndices);
@@ -3353,7 +3365,7 @@ export default {
               typeof t !== "string" ||
               t.trim().length === 0 ||
               t.trim().length > 20 ||
-              !/^[A-Za-z0-9.-]+$/.test(t.trim())
+              !/^[A-Za-z0-9.^=-]+$/.test(t.trim())
             ) {
               return json({ error: "Invalid ticker value" }, 400, request);
             }

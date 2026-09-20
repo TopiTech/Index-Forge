@@ -155,9 +155,13 @@ export function TradingViewTickerTape() {
   const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const etagRef = useRef<string | null>(null);
 
+  const isMountedRef = useRef(true);
+
   // Clear timers on unmount
   useEffect(() => {
+    isMountedRef.current = true;
     return () => {
+      isMountedRef.current = false;
       if (hoverTimerRef.current) {
         clearTimeout(hoverTimerRef.current);
       }
@@ -175,6 +179,7 @@ export function TradingViewTickerTape() {
         headers["If-None-Match"] = etagRef.current;
       }
       const res = await fetch("/api/ticker-prices", { headers });
+      if (!isMountedRef.current) return;
       if (res.status === 304) {
         // Data has not changed; retain current quotes and save client processing
         return;
@@ -199,16 +204,19 @@ export function TradingViewTickerTape() {
         }[];
       };
 
+      if (!isMountedRef.current) return;
+
       if (Array.isArray(data.quotes) && data.quotes.length > 0) {
         // Quotes flagged stale by the Worker are static/previous fallbacks.
         // Keep them out of the live map so the tape stays in 参考値 mode and
         // the badge never claims LIVE on fully-stale data.
         const freshQuotes = data.quotes.filter((q) => q && !q.stale);
         if (data.allStale || freshQuotes.length === 0) {
-          setIsLive(false);
+          if (isMountedRef.current) setIsLive(false);
           return;
         }
         const quotesToApply = freshQuotes;
+        if (!isMountedRef.current) return;
         setLiveQuotes((prev) => {
           const next = { ...prev };
           const newFlashes: Record<string, "up" | "down"> = {};
@@ -236,13 +244,17 @@ export function TradingViewTickerTape() {
             setFlashItems(newFlashes);
             if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
             flashTimerRef.current = setTimeout(() => {
-              setFlashItems({});
+              if (isMountedRef.current) {
+                setFlashItems({});
+              }
             }, 800);
           }
 
           return next;
         });
-        setIsLive(true);
+        if (isMountedRef.current) {
+          setIsLive(true);
+        }
       }
     } catch {
       // Gracefully retain existing or default values when offline/error
@@ -261,7 +273,9 @@ export function TradingViewTickerTape() {
       const intervalMs = getTickerPollingInterval();
       timer = setTimeout(() => {
         if (!cancelled && typeof document !== "undefined" && document.visibilityState === "visible") {
-          fetchQuotes().finally(() => scheduleNext());
+          fetchQuotes().finally(() => {
+            if (!cancelled) scheduleNext();
+          });
         } else {
           scheduleNext();
         }

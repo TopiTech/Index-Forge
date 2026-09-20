@@ -430,20 +430,32 @@ export default function App({
   }, [chartData]);
 
   // Shared page layout props for Header
-  const pageLayoutHeaderProps = {
-    onNavigateToHome: () => navigateTo("dashboard"),
-    onNavigateToAdmin: () => navigateTo("admin"),
-    onNavigateToBuilder: () => navigateTo("builder"),
-    onNavigateToPortfolio: () => navigateTo("portfolio"),
-    onNavigateToDisclaimer: () => navigateTo("disclaimer"),
-    onNavigateToTutorial: () => navigateTo("tutorial"),
-    currentView,
-    benchmarkUpdatedAt,
-    calculationUpdatedAt,
-    dataLoading: loadingBenchmark || loadingCalc,
-    syncing,
-    hasSyncWarning: syncWarnings.length > 0,
-  };
+  const pageLayoutHeaderProps = useMemo(
+    () => ({
+      onNavigateToHome: () => navigateTo("dashboard"),
+      onNavigateToAdmin: () => navigateTo("admin"),
+      onNavigateToBuilder: () => navigateTo("builder"),
+      onNavigateToPortfolio: () => navigateTo("portfolio"),
+      onNavigateToDisclaimer: () => navigateTo("disclaimer"),
+      onNavigateToTutorial: () => navigateTo("tutorial"),
+      currentView,
+      benchmarkUpdatedAt,
+      calculationUpdatedAt,
+      dataLoading: loadingBenchmark || loadingCalc,
+      syncing,
+      hasSyncWarning: syncWarnings.length > 0,
+    }),
+    [
+      navigateTo,
+      currentView,
+      benchmarkUpdatedAt,
+      calculationUpdatedAt,
+      loadingBenchmark,
+      loadingCalc,
+      syncing,
+      syncWarnings.length,
+    ],
+  );
 
   if (currentView === "tutorial") {
     return (

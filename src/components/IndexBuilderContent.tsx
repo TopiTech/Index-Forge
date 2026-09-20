@@ -520,6 +520,7 @@ export function IndexBuilderContent({
                   type="button"
                   onClick={() => handleApplyPreset(preset)}
                   className="preset-card-btn"
+                  aria-label={`戦略プリセット「${preset.name}」を適用 (${preset.description})`}
                   style={{
                     textAlign: "left",
                     padding: "8px 10px",

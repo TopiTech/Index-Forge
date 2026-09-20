@@ -16,6 +16,6 @@ export function escapeCsvCell(value: unknown): string {
   const raw = String(value ?? "");
   const isPlainNumber = raw.trim() !== "" && Number.isFinite(Number(raw));
   const formulaSafe =
-    !isPlainNumber && /^[\s\uFEFF]*[=+\-@]/u.test(raw) ? `'${raw}` : raw;
+    !isPlainNumber && /^[\s\uFEFF]*[=+\-@|]/u.test(raw) ? `'${raw}` : raw;
   return `"${formulaSafe.replace(/"/g, '""')}"`;
 }

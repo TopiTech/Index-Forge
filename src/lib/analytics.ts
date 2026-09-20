@@ -218,8 +218,11 @@ export function calculateRiskMetrics(
         bVar += Math.pow(p.bench - bMean, 2);
       }
 
-      if (bVar > 0) {
-        beta = Number((cov / bVar).toFixed(2));
+      if (bVar > 1e-12) {
+        const rawBeta = cov / bVar;
+        if (Number.isFinite(rawBeta)) {
+          beta = Number(rawBeta.toFixed(2));
+        }
       }
     }
   }

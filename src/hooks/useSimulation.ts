@@ -7,7 +7,7 @@ import type {
   RiskMetrics,
   Timeframe,
 } from "../types";
-import { calculateCustomIndex, normalizeWeights } from "../lib/indexEngine";
+import { calculateCustomIndex, normalizeWeights, normalizeTicker } from "../lib/indexEngine";
 import { calculateRiskMetrics } from "../lib/analytics";
 import { filterByTimeframe } from "../lib/timeframe";
 import { isPriceCacheFresh } from "../lib/marketCache";
@@ -93,7 +93,7 @@ export function useSimulation(
   // Check if all tickers in current basket are already present in stockUniverse
   const currentTickersKey = useMemo(() => {
     return basket
-      .map((b) => b.ticker.trim().toUpperCase())
+      .map((b) => normalizeTicker(b.ticker))
       .sort()
       .join(",");
   }, [basket]);
@@ -104,9 +104,9 @@ export function useSimulation(
     const universeTickers = new Set(
       stockUniverse
         .filter((s) => Array.isArray(s.series) && s.series.length > 0)
-        .map((s) => s.ticker.trim().toUpperCase()),
+        .map((s) => normalizeTicker(s.ticker)),
     );
-    return basket.every((b) => universeTickers.has(b.ticker.trim().toUpperCase()));
+    return basket.every((b) => universeTickers.has(normalizeTicker(b.ticker)));
   }, [basket, stockUniverse]);
 
   // Run simulation / fetch stock data
@@ -140,7 +140,7 @@ export function useSimulation(
       setUsingDemoData(false);
 
       try {
-        const allTickers = basket.map((b) => b.ticker.trim().toUpperCase());
+        const allTickers = basket.map((b) => normalizeTicker(b.ticker));
         const localSyncCache = parseLocalSyncCache(
           typeof localStorage === "undefined" ? null : localStorage.getItem(SYNC_STORAGE_KEY),
         );
@@ -175,7 +175,7 @@ export function useSimulation(
                   const nowMs = Date.now();
                   for (const r of syncData.results) {
                     if (r.status === "synced" || r.status === "cached") {
-                      const nt = typeof r.ticker === "string" ? r.ticker.trim().toUpperCase() : "";
+                      const nt = typeof r.ticker === "string" ? normalizeTicker(r.ticker) : "";
                       if (nt) {
                         localSyncCache[nt] =
                           typeof r.lastSynced === "number" && r.lastSynced > 0
@@ -432,13 +432,14 @@ export function calculateConstituentPerformance(
   if (basket.length === 0 || stockUniverse.length === 0) return [];
 
   const normBasket = normalizeWeights(basket);
-  const universeMap = new Map(stockUniverse.map((s) => [s.ticker.trim().toUpperCase(), s]));
+  const universeMap = new Map(stockUniverse.map((s) => [normalizeTicker(s.ticker), s]));
 
   return normBasket.map((item) => {
-    const stock = universeMap.get(item.ticker.trim().toUpperCase());
+    const normItemTicker = normalizeTicker(item.ticker);
+    const stock = universeMap.get(normItemTicker);
     if (!stock || !Array.isArray(stock.series) || stock.series.length === 0) {
       return {
-        ticker: item.ticker,
+        ticker: normItemTicker,
         name: item.name,
         theme: item.theme,
         weight: item.weight,
@@ -463,7 +464,7 @@ export function calculateConstituentPerformance(
     const contribution = sanitizeMetricPct((item.weight / 100) * safeRetPct);
 
     return {
-      ticker: item.ticker,
+      ticker: normItemTicker,
       name: item.name,
       theme: item.theme,
       weight: item.weight,
@@ -492,7 +493,7 @@ export function getTickerBasePrice(ticker: string): number {
     "5803": 5420,
     "6920": 21500,
   };
-  const cleanTicker = ticker.trim().toUpperCase().replace(/\.T$/, "");
+  const cleanTicker = normalizeTicker(ticker).replace(/\.T$/, "");
   if (KNOWN_PRICES[cleanTicker]) return KNOWN_PRICES[cleanTicker];
   let hash = 0;
   for (let i = 0; i < cleanTicker.length; i++) hash = (hash * 31 + cleanTicker.charCodeAt(i)) & 0xffff;
@@ -511,7 +512,7 @@ export function generateFallbackStockUniverse(basket: BasketItem[], days = 180):
   }
 
   return basket.map((item) => {
-    const normTicker = item.ticker.trim().toUpperCase();
+    const normTicker = normalizeTicker(item.ticker);
     const base = getTickerBasePrice(normTicker);
     let current = base;
     let seed = 0;
