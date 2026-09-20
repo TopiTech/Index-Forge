@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useEffect, useRef } from "react";
+import { useState, useCallback, useMemo, useEffect, useRef, Suspense, lazy } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { ChevronRight, Menu, X } from "lucide-react";
 import { useIndices } from "./hooks/useIndices";
@@ -16,17 +16,31 @@ import { ThemeBreakdown } from "./components/ThemeBreakdown";
 import { RiskMetricsCard } from "./components/RiskMetricsCard";
 import { ConstituentsTable } from "./components/ConstituentsTable";
 import { IndexBuilderModal } from "./components/IndexBuilderModal";
-import { IndexBuilderPage } from "./components/IndexBuilderPage";
-import { AdminDashboard } from "./components/AdminDashboard";
+// Route-level pages are lazy-loaded so the initial bundle (dashboard) does
+// not pay for three.js (tutorial 3D scene), recharts-heavy admin tooling,
+// or rarely-visited static pages. The three-*.js output chunk is then
+// fetched only when the tutorial route is opened.
+const IndexBuilderPage = lazy(() =>
+  import("./components/IndexBuilderPage").then((m) => ({ default: m.IndexBuilderPage })),
+);
+const AdminDashboard = lazy(() =>
+  import("./components/AdminDashboard").then((m) => ({ default: m.AdminDashboard })),
+);
 
 import { ErrorFallback } from "./components/ErrorFallback";
 import { LoadingScreen } from "./components/LoadingScreen";
 import { buildChartData } from "./lib/chartData";
 import { filterByTimeframe } from "./lib/timeframe";
 import { Footer } from "./components/Footer";
-import { PortfolioPage } from "./components/PortfolioPage";
-import { DisclaimerPage } from "./components/DisclaimerPage";
-import { TutorialPage } from "./components/TutorialPage";
+const PortfolioPage = lazy(() =>
+  import("./components/PortfolioPage").then((m) => ({ default: m.PortfolioPage })),
+);
+const DisclaimerPage = lazy(() =>
+  import("./components/DisclaimerPage").then((m) => ({ default: m.DisclaimerPage })),
+);
+const TutorialPage = lazy(() =>
+  import("./components/TutorialPage").then((m) => ({ default: m.TutorialPage })),
+);
 import { shouldShowTutorialOnLaunch } from "./lib/tutorialStorage";
 import {
   parseViewFromLocation,
@@ -433,10 +447,12 @@ export default function App({
 
   if (currentView === "tutorial") {
     return (
-      <TutorialPage
-        onComplete={() => navigateTo("dashboard")}
-        onSkip={() => navigateTo("dashboard")}
-      />
+      <Suspense fallback={<LoadingScreen />}>
+        <TutorialPage
+          onComplete={() => navigateTo("dashboard")}
+          onSkip={() => navigateTo("dashboard")}
+        />
+      </Suspense>
     );
   }
 
@@ -445,11 +461,13 @@ export default function App({
   if (currentView === "builder") {
     return (
       <PageLayout headerProps={{ ...pageLayoutHeaderProps, benchmarkStale: false }} currentView={currentView} navigateTo={navigateTo}>
-        <IndexBuilderPage
-          onBackToDashboard={() => navigateTo("dashboard")}
-          onSave={saveCustomIndex}
-          onPreviewInDashboard={handlePreviewInDashboard}
-        />
+        <Suspense fallback={<LoadingScreen />}>
+          <IndexBuilderPage
+            onBackToDashboard={() => navigateTo("dashboard")}
+            onSave={saveCustomIndex}
+            onPreviewInDashboard={handlePreviewInDashboard}
+          />
+        </Suspense>
       </PageLayout>
     );
   }
@@ -457,7 +475,9 @@ export default function App({
   if (currentView === "portfolio") {
     return (
       <PageLayout headerProps={{ ...pageLayoutHeaderProps, benchmarkStale: false }} currentView={currentView} navigateTo={navigateTo}>
-        <PortfolioPage onNavigate={navigateTo} />
+        <Suspense fallback={<LoadingScreen />}>
+          <PortfolioPage onNavigate={navigateTo} />
+        </Suspense>
       </PageLayout>
     );
   }
@@ -465,20 +485,24 @@ export default function App({
   if (currentView === "disclaimer") {
     return (
       <PageLayout headerProps={{ ...pageLayoutHeaderProps, benchmarkStale: false }} currentView={currentView} navigateTo={navigateTo}>
-        <DisclaimerPage onNavigate={navigateTo} />
+        <Suspense fallback={<LoadingScreen />}>
+          <DisclaimerPage onNavigate={navigateTo} />
+        </Suspense>
       </PageLayout>
     );
   }
 
   if (currentView === "admin") {
     return (
-      <AdminDashboard
-        indices={indices}
-        onBackToApp={() => navigateTo("dashboard")}
-        onRefreshIndices={refreshIndices}
-        saveCustomIndex={saveCustomIndex}
-        deleteCustomIndex={deleteCustomIndex}
-      />
+      <Suspense fallback={<LoadingScreen />}>
+        <AdminDashboard
+          indices={indices}
+          onBackToApp={() => navigateTo("dashboard")}
+          onRefreshIndices={refreshIndices}
+          saveCustomIndex={saveCustomIndex}
+          deleteCustomIndex={deleteCustomIndex}
+        />
+      </Suspense>
     );
   }
 

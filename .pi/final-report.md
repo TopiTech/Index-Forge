@@ -1,63 +1,61 @@
-# IndexForge コードレビュー最終報告(2026-09-16)
+# IndexForge コードレビュー最終報告(2026-09-20・goal mu8gslck-b7vqlq)
 
 ## 1. 調査範囲
 
-- **バックエンド**: `worker/index.ts`(3,531行・全APIエンドポイント: 認証/管理/指数CRUD/銘柄同期/計算/スナップショット/レート制限/静的配信とセキュリティヘッダー)
-- **計算ロジック**: `src/lib/indexEngine.ts`(ウェイト正規化・指数計算・欠落データ補完)、`src/lib/analytics.ts`(リスク指標・SMA・銘柄詳細)、`src/lib/marketCache.ts`(東証開場時間ベースのキャッシュ)、`src/lib/treemap.ts`、`src/lib/csv.ts`、`src/lib/navigation.ts`、`src/lib/auth.ts`、`src/lib/ownership.ts`、`src/lib/downloadFileName.ts`、`src/lib/yahooSymbol.ts`
-- **フロントエンド**: `src/App.tsx`、全hooks(useAuth/useIndices/useCalculation/useSimulation/useBenchmark)、主要コンポーネント全般(Header/AdminDashboard 1,685行/ConstituentsTable 972行/IndexBuilderContent 935行/PerformanceChart 770行/TradingViewChartModal・TickerTape/SimulationPreview/ThemeHeatmap/モーダル群/IndexSelector/Portfolio/Disclaimer/Footer/ui)
-- **DB/設定**: `schema.sql`/`schema.migration.sql`/`schema.dev.sql`/`seed.sql`、`wrangler.jsonc`、`vite.config.ts`、`tsconfig.*`、`index.html`、`public/asset-error-recovery.js`
-- **検証手段**: 上記の手動精読に加え、Workerの書き込みSQL(クォータガード付きINSERT ... SELECT/INSERT OR REPLACE+COALESCE/WITH incoming+EXISTS ガード/rowid+COUNT DELETE/レート制限のアトミックUPSERT)について node:sqlite で実SQLを実行して動作を検証。
+- **バックエンド**: `worker/index.ts`(全API経路: `/api/health`, `/api/auth/verify`, `/api/admin/passwords`(GET/POST/PUT/DELETE), `/api/admin/admin-password`, `/api/indices`(GET/POST/DELETE), `/api/indices/stock`(POST/DELETE), `/api/snapshot`, `/api/ticker-prices`, `/api/sync-prices`, `/api/calculate`、静的配信+CSP/HSTS/X-Frame-Options 等セキュリティヘッダー)
+- **計算ロジック**: `src/lib/indexEngine.ts`(ウェイト正規化・指数計算・欠落データ補完)、`src/lib/analytics.ts`(リスク指標・SMA・銘柄詳細)、`src/lib/marketCache.ts`(東証開場時間ベースのキャッシュ)、`src/lib/yahooSymbol.ts`、`src/lib/auth.ts`、`src/lib/ownership.ts`、`src/lib/navigation.ts`、`src/lib/timeframe.ts`、`src/lib/csv.ts`、`src/lib/downloadFileName.ts`
+- **フロントエンド**: `src/App.tsx`(ルーティング・遅延読込)、全hooks(`useAuth`/`useIndices`/`useCalculation`/`useSimulation`/`useBenchmark`)、主要コンポーネント(Header/AdminDashboard/ConstituentsTable/IndexBuilderContent・Modal・Page/PerformanceChart/TradingViewChartModal・TickerTape/SimulationPreview/ThemeHeatmap/モーダル群/IndexSelector/Portfolio/Disclaimer/Footer/ui/Tutorial)
+- **DB/設定**: `schema.sql`/`schema.migration.sql`/`schema.dev.sql`/`seed.sql`、`wrangler.jsonc`/`wrangler.local.jsonc`、`vite.config.ts`、`tsconfig.app.json`/`tsconfig.worker.json`、`index.html`、`public/asset-error-recovery.js`、CI(`.github/workflows`)
+- **検証手段**: 手動精読 + `npm run build`(tsc app + tsc worker + vite)・`npm run lint`・`npm test`(vitest)の全実行。Workerのクォータガード付き書き込みSQLはコード精読で確認(前回goalで node:sqlite 実SQLプローブ済みのため本roundは再掲のみ)。
 
 ## 2. 発見した問題と重要度
 
-| ID | 重要度 | 問題 | 修正 |
+| ID | 重要度 | 問題 | 対応 |
 |----|--------|------|------|
-| F1 | 中 | `useSimulation` がAPI障害時・空レスポンス時に疑似デモ株価へ無音切替し `setError(null)` で隠蔽 → 実データと見分けがつかない偽のバックテスト数値を提示 | **修正済み** |
-| F2 | 中 | `TradingViewTickerTape` がハードコードの固定価格を実行情報風に常時表示 | **修正済み** |
-| F3 | 低 | 同期失敗マーカー(負のタイムスタンプ)がブラウザキャッシュに伝播しない | 修正不要(Workerが`status:"failed"`を返し失敗銘柄はキャッシュされないため実害限定的。観察記録) |
-| F4 | 低 | `/api/indices` のisolate内メモリキャッシュ(15秒)がワーカー間で不整合になり得る | 修正不要(書込後にclear+クライアント強制再取得+CDNキャッシュ無効化で緩和済み。分散キャッシュ無し構成で設計上許容) |
-| F5 | 低 | 管理画面の発行パスワード入力が `type="text"` | 修正不要(管理者がコピーする意図的仕様。autoComplete="new-password"済み) |
-| F6 | 低 | 構成銘柄テーブルのソートthがbuttonでなくクリック可能要素 | 修正不要(aria-sort + tabIndex + keydown実装済みで実用上問題なし) |
-| F7 | 低 | recharts gradient定義IDの重複可能性 | 修正不要(2チャートは同時マウントされないため実害なし) |
+| R1 | P1 High | `useIndices.saveCustomIndex` がサーバ未確認のcaller-token(`ownerToken ? token : null`)を保存し、管理者が他者指数を編集すると当該ブラウザが「自分の指数」と誤表示する | **修正済み** |
+| R2 | P2 Med | `deleteCustomIndex`/`removeStockFromIndex` が ownerToken をURLクエリ(`ownerToken=`)に重複送信し、サーバログ・ブラウザ履歴・分析基盤へ秘密漏洩する | **修正済み**(ヘッダーのみ) |
+| R3 | P2 Med | `SYSTEM_INDICES` が `worker/index.ts` と `src/data/indices.ts` で二重定義され、将来の乖離リスクがある | **修正済み**(一元化) |
+| R4 | P2 Med | `three.js`(約563KB)・`recharts`・管理画面等を初回バンドルで全量読込し、初回表示が重い | **修正済み**(ルート遅延読込) |
+| R5 | P3 Low | `TradingViewChartModal` がウィジェット設定JSONを `script.innerHTML` に代入(可読性・一貫性の問題; 同一ファイル内のコンテナクリア `container.innerHTML=""` は空文字のみで実害なし) | **修正済み**(`textContent` 化) |
 
-重大(クリティカル)/高の問題は発見されませんでした。
+重大(クリティカル)の認証突破・計算破綻・CSP破綻は発見されませんでした(PBKDF2+timingSafeEqual、CSP/HSTS/X-Frame-Options は実在確認済み)。
 
 ## 3. 変更内容と判断理由
 
-### F1: デモデータの無音提示を解消
-- `src/hooks/useSimulation.ts`: `usingDemoData` 状態を新設し、(a) APIが空universeを返した場合、(b) fetch失敗時のフォールバック生成時にフラグを立てる。ネットワークエラー時は「サーバーに接続できないため、デモデータで表示しています。数値は参考値です」をerrorとして通知。
-- `src/components/SimulationPreview.tsx`: `usingDemoData && !error` のとき「⚠️ 実データを取得できなかったため、デモデータで表示しています。数値は参考値です」の role="status" バナーを追加。
-- 判断理由: 投資判断に関わる数値を偽の実データとして提示するリスクを、ゲストのオフライン試用体験を維持したまま解消。エラー時とデモデータ時で通知を分け、二重表示を回避。
-
-### F2: 参考値であることの明示
-- `src/components/TradingViewTickerTape.tsx`: 価格表示に title(「参考値(固定表示)です。最新価格はTradingViewチャートで確認できます」)を付与、バー全体のaria-labelにも「参考値」を追記。
-- `src/index.css`: `.tv-ticker-price` を低調化(opacity 0.75)し、`::after` で「(参考)」サフィックス表示。
-- 判断理由: リアルタイム化はAPI追加を要するため本件スコープ外と判断し、誤解を招かない表示に最小変更。
+- `src/hooks/useIndices.ts`: 純粋ヘルパー `withOwnerTokenHeader` / `buildDeleteIndexRequest` / `buildDeleteStockRequest` / `buildSaveIndexRequest` / `resolvePersistedOwnerToken` を新設し、save/delete 全経路を配線。`resolvePersistedOwnerToken` は引数にcaller-tokenを持たず、サーバエコー(`data.ownerToken`)または既存保存値のみ返す構造とし、未確認トークンの保存を型レベルで不可能にした。DELETE系のURLから `ownerToken` を除去し `x-owner-token` ヘッダーのみに統一。判断理由: 秘密のURL漏洩排除と所有権誤表示の根本解消。リファクタは問題の解決に必要な最小範囲。
+- `worker/index.ts`: `SYSTEM_INDICES` のリテラル定義を削除し `src/data/indices` の共有定義を `SHARED_SYSTEM_INDICES` として再エクスポート。判断理由: 二重定義の乖離防止。公開API・挙動不変。
+- `src/components/TradingViewChartModal.tsx`: `script.innerHTML = JSON.stringify(...)` → `script.textContent = ...`。判断理由: スクリプト要素へのテキスト注入の正規形に統一。
+- `src/App.tsx`: `TutorialPage`/`AdminDashboard`/`IndexBuilderPage`/`PortfolioPage`/`DisclaimerPage` を `React.lazy` + `Suspense(<LoadingScreen/>)` 化。判断理由: R4の対応。build出力で `three-*.js` が初回チャンクから分離されることを確認(`TutorialPage-*.js` 等の別チャンク化)。
+- テスト: `codeReviewGoalResolution.test.ts` の旧「URLにownerTokenを含める」肯定テストを、実ビルダー関数を行使するヘッダー限定テストに書換え(矛盾の解消)。`reviewRegression.test.ts` の旧文字列assertion(`const responseToken =`)を `resolvePersistedOwnerToken(data, storedToken)` 配線の検証に更新。新規 `comprehensiveReviewCurrentRound.test.ts`(8件)はビルダー関数の実行時振る舞い(URLにトークンが含まれないこと・ヘッダー送信・保存解決・SYSTEM_INDICES一致・textContent)を直接検証。
 
 ## 4. 互換性への影響
 
 - 公開API・データ形式・DBスキーマの変更は **なし**。
-- `SimulationResult` 型に `usingDemoData?: boolean` 相当のプロパティを追加(追加のみで既存フィールド不変)。既存の呼び出し元(IndexBuilderContent)は分割代入で影響なし。
-- CSSは新規ルール追加のみで既存セレクタの破壊的変更なし。
+- Workerは旧来のクエリ(`?ownerToken=`)・ボディ(`ownerToken`)受付を維持しているため、旧クライアント・外部スクリプトは引き続き動作する(サーバ側の互換維持。クライアントは今後ヘッダーのみを送信)。
+- `SYSTEM_INDICES` の再エクスポートにより `worker/index` からの既存importは不変。
+- 遅延読込は内部分割のみでルーティング・UI文言・操作フロー不変。`Suspense` フォールバックは既存 `LoadingScreen` を再利用。
 - 保存済み指数・所有トークン・認証フロー・D1データへの影響なし。移行措置は不要。
 
 ## 5. テスト結果
 
 | 検証 | 結果 |
 |------|------|
-| `npm run build`(tsc app + tsc worker --noEmit + vite build) | ✅ 成功・警告0 |
+| `npm run build`(tsc app + tsc worker --noEmit + vite build) | ✅ 成功・警告0(別チャンク `TutorialPage`/`AdminDashboard`/`IndexBuilderPage`/`PortfolioPage`/`DisclaimerPage` を確認) |
 | `npm run lint`(eslint .) | ✅ 違反0 |
-| `npm test`(vitest run) | ✅ 45ファイル / 416テスト全成功(修正前 43/411 → +2ファイル/+5テスト) |
+| `npm test`(vitest run) | ✅ 66ファイル / 617テスト全成功 |
 
-追加テスト(再発防止):
-- `src/hooks/useSimulation.demoData.test.ts`: フォールバックuniverseが全銘柄の系列を生成すること、同一ティッカーで決定的であること、デモフラグ型契約の回帰センチネル。
-- `src/components/tradingViewTickerReference.test.ts`: ティッカーの静的参考値の存在(開示が必要な理由の固定化)と符号フラグ整合。
+再発防止テスト: `comprehensiveReviewCurrentRound.test.ts`(8件・行動検証)、`codeReviewGoalResolution.test.ts`(ヘッダー限定・実ビルダー行使)、`reviewRegression.test.ts`(配線回帰)。変更起因の警告・エラーなし。
 
 ## 6. 未解決・未検証事項
 
-1. **実ブラウザでの視覚確認未実施**: レスポンシブ表示・操作はコード精読(1080/768/640/480pxブレークポイント、フォーカストラップ、inert、aria属性)で確認したが、実デバイスでのスクリーンショット検証は行っていない。
-2. **TradingView ティッカーのライブデータ化**: 固定値からの置き換えにはリアルタイム行情報ソース(TradingView APIまたはWorker経由の取得)が必要。スコープ外として報告のみ。
-3. **実機D1/本番デプロイでの動作**: `wrangler dev` / 本番デプロイでの結合検証は未実施(Cloudflare認証情報が必要なため)。Workerロジックはユニットテスト(411+)とnode:sqliteプローブで検証済み。
-4. **Yahoo Finance API の仕様変更リスク**: 非公式v8 chart APIを使用している。現在の実装(タイムアウト・エラーハンドリング・フォールバック)は堅牢だが、公式提供ではないため将来の仕様変更リスクは残存。
+1. **実ブラウザでの視覚確認未実施**: レスポンシブ・フォーカストラップ・遅延ページのフォールバック表示はコード精読で確認したが、実デバイスのスクリーンショット検証は行っていない。
+2. **実機D1/本番デプロイ未実施**: `wrangler dev`/本番デプロイ・本番DB操作は行っていない(Cloudflare認証情報が必要なため)。本goalの変更はスキーマ・API不変であり、本番DB/デプロイは不要と判断。フル対応方針のもとでも実施すべき本番操作は発生しなかった。
+3. **Yahoo Finance APIの仕様変更リスク**: 非公式v8 chart APIを使用。タイムアウト・異常系・フォールバックは実装済みだが、将来の仕様変更リスクは残存。
+4. **依存ライブラリの脆弱性通知**: `npm audit` で dev経由(sharp ← miniflare ← wrangler)の moderate/high 5件を観測。本番バンドルに同梱されない開発専用経路であり、今回の監査では対応不要と判断(記録のみ)。
 
-詳細な所見: `.pi/review-findings.md`
+## 7. 前回監査却下(4点)への対応
+
+1. **最終報告の不備** → 本ファイル(現goal専用)を `.pi/final-report.md` として更新し、詳細所見を `.pi/review-findings.md` に更新。ledger要約のみに依存しない検査可能な報告とした。
+2. **矛盾の残置** → `codeReviewGoalResolution.test.ts` の旧URL肯定テストを実ビルダー行使のヘッダー限定テストに書換え。`reviewRegression.test.ts` も新配線のassertionに更新。
+3. **弱い検証** → 新規8件を行動検証化(`resolvePersistedOwnerToken` の保存解決、`buildDeleteIndexRequest` 等のURL/ヘッダー実実行、`SYSTEM_INDICES` の実値一致)。文字列検索は配線センチネルのみに限定。
+4. **範囲の不可視性** → R4に `React.lazy` 対応を実施しbuildチャンクで実証。依存(`npm audit`結果)・仕様整合(Worker互換維持)・UI/アクセシビリティ(既存のフォーカストラップ/inert/aria維持、視覚未検証を明示)・本番DB/デプロイ判断根拠(スキーマ/API不変のため不要)を本報告に記録。

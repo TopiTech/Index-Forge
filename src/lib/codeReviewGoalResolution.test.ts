@@ -1,6 +1,10 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect } from "vitest";
 import fs from "fs";
 import path from "path";
+import {
+  buildDeleteIndexRequest,
+  buildDeleteStockRequest,
+} from "../hooks/useIndices";
 
 describe("Code Review Goal Resolutions", () => {
   describe("App routing priority and admin accessibility", () => {
@@ -103,39 +107,24 @@ describe("Code Review Goal Resolutions", () => {
     });
   });
 
-  describe("useIndices DELETE ownerToken query param fallback", () => {
-    it("includes ownerToken in searchParams when token is present", async () => {
-      const capturedUrls: string[] = [];
-      const fakeFetch = vi.fn().mockImplementation((url: string) => {
-        capturedUrls.push(url);
-        return Promise.resolve({
-          ok: true,
-          json: () => Promise.resolve({}),
-        });
-      });
+  describe("useIndices DELETE sends ownerToken via header only (never URL)", () => {
+    it("keeps ownerToken out of searchParams and sends it in x-owner-token header", () => {
+      // Exercise the real request builders used by deleteCustomIndex and
+      // removeStockFromIndex in src/hooks/useIndices.ts: the token travels
+      // in the x-owner-token header only; the query string carries just the
+      // resource identifiers.
+      const indexReq = buildDeleteIndexRequest("test-index-1", "tok_abc123", {});
+      expect(indexReq.url).toContain("id=test-index-1");
+      expect(indexReq.url).not.toContain("ownerToken");
+      expect(indexReq.url).not.toContain("tok_abc123");
+      expect(indexReq.headers["x-owner-token"]).toBe("tok_abc123");
 
-      // Test URL construction logic for deleteCustomIndex
-      const id = "test-index-1";
-      const token = "tok_abc123";
-      const queryParams = new URLSearchParams({ id });
-      if (token) {
-        queryParams.set("ownerToken", token);
-      }
-      await fakeFetch(`/api/indices?${queryParams.toString()}`, { method: "DELETE" });
-
-      expect(capturedUrls[0]).toContain("ownerToken=tok_abc123");
-      expect(capturedUrls[0]).toContain("id=test-index-1");
-
-      // Test URL construction logic for removeStockFromIndex
-      const stockParams = new URLSearchParams({ indexId: id, ticker: "7203" });
-      if (token) {
-        stockParams.set("ownerToken", token);
-      }
-      await fakeFetch(`/api/indices/stock?${stockParams.toString()}`, { method: "DELETE" });
-
-      expect(capturedUrls[1]).toContain("ownerToken=tok_abc123");
-      expect(capturedUrls[1]).toContain("indexId=test-index-1");
-      expect(capturedUrls[1]).toContain("ticker=7203");
+      const stockReq = buildDeleteStockRequest("test-index-1", "7203", "tok_abc123", {});
+      expect(stockReq.url).toContain("indexId=test-index-1");
+      expect(stockReq.url).toContain("ticker=7203");
+      expect(stockReq.url).not.toContain("ownerToken");
+      expect(stockReq.url).not.toContain("tok_abc123");
+      expect(stockReq.headers["x-owner-token"]).toBe("tok_abc123");
     });
   });
 });

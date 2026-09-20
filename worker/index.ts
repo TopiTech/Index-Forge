@@ -1,4 +1,5 @@
 import { calculateCustomIndex } from "../src/lib/indexEngine";
+import { SYSTEM_INDICES as SHARED_SYSTEM_INDICES } from "../src/data/indices";
 import {
   getMarketAwareCacheDuration as getMarketAwareCacheDurationShared,
   isPriceCacheFresh as isPriceCacheFreshShared,
@@ -290,14 +291,10 @@ function prepareBasketItemWrites(
   return statements;
 }
 
-// Built-in system index IDs that cannot be deleted
-export const SYSTEM_INDICES = new Set([
-  "nikkei-175",
-  "eroge-index",
-  "ai-semi",
-  "infra-tech",
-  "jp-core",
-]);
+// Built-in system index IDs live in src/data/indices (single source of truth).
+// Re-exported here so existing worker consumers and tests keep importing from
+// the worker without drifting into a duplicate definition.
+export const SYSTEM_INDICES = SHARED_SYSTEM_INDICES;
 
 const BENCHMARK_MAP: Record<string, { label: string; desc: string }> = {
   "^N225": { label: "日経225", desc: "日経平均株価 (日足)" },

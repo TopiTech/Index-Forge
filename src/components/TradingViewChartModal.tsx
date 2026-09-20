@@ -388,7 +388,7 @@ export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModal
         setScriptError(true);
       }
     };
-    script.innerHTML = JSON.stringify({
+    script.textContent = JSON.stringify({
       symbols: [
         [symbol.title, `${symbol.proName}|1D`],
       ],

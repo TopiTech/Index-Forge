@@ -43,6 +43,86 @@ export function getIndicesRequestHeaders(
   }
 }
 
+/**
+ * Owner tokens are secrets. They travel in the `x-owner-token` header only —
+ * never in the URL (which would leak them into server access logs, browser
+ * history, and analytics). The Worker accepts the header on every
+ * owner-protected endpoint. These pure builders encode that policy so it can
+ * be unit-tested without React or the network.
+ */
+export function withOwnerTokenHeader(
+  authHeaders: Record<string, string>,
+  ownerToken: string | null,
+): Record<string, string> {
+  if (!ownerToken) return { ...authHeaders };
+  return { ...authHeaders, "x-owner-token": ownerToken };
+}
+
+export function buildDeleteIndexRequest(
+  id: string,
+  ownerToken: string | null,
+  authHeaders: Record<string, string> = {},
+): { url: string; headers: Record<string, string> } {
+  const queryParams = new URLSearchParams({ id });
+  return {
+    url: `${API_BASE}/indices?${queryParams.toString()}`,
+    headers: withOwnerTokenHeader(authHeaders, ownerToken),
+  };
+}
+
+export function buildDeleteStockRequest(
+  indexId: string,
+  ticker: string,
+  ownerToken: string | null,
+  authHeaders: Record<string, string> = {},
+): { url: string; headers: Record<string, string> } {
+  const params = new URLSearchParams({ indexId, ticker });
+  return {
+    url: `${API_BASE}/indices/stock?${params.toString()}`,
+    headers: withOwnerTokenHeader(authHeaders, ownerToken),
+  };
+}
+
+export function buildSaveIndexRequest(
+  newIndex: CustomIndex,
+  ownerToken: string,
+  authHeaders: Record<string, string> = {},
+): { headers: Record<string, string>; body: string } {
+  return {
+    headers: {
+      "Content-Type": "application/json",
+      ...withOwnerTokenHeader(authHeaders, ownerToken),
+    },
+    body: JSON.stringify({ ...newIndex, ownerToken }),
+  };
+}
+
+/**
+ * Decide which owner token (if any) this browser persists after a save.
+ * Only a server-confirmed token (the Worker echoes `ownerToken` back when
+ * the write actually persisted its hash, i.e. new index creation) or the
+ * already-stored token for this id may be saved. A caller-supplied token
+ * that the server did not echo back must never be persisted: that happens
+ * when an administrator edits another user's index, or when the write went
+ * to a legacy schema without the owner column, and saving it would falsely
+ * label the index as "My index". The signature deliberately has no
+ * caller-token parameter so the unsafe value cannot flow in by accident.
+ */
+export function resolvePersistedOwnerToken(
+  responseData: unknown,
+  storedToken: string | null,
+): string | null {
+  const ownerToken =
+    responseData !== null &&
+    typeof responseData === "object" &&
+    !Array.isArray(responseData) &&
+    typeof (responseData as Record<string, unknown>).ownerToken === "string" &&
+    ((responseData as Record<string, unknown>).ownerToken as string).length > 0
+      ? ((responseData as Record<string, unknown>).ownerToken as string)
+      : null;
+  return ownerToken || storedToken;
+}
+
 export function useIndices() {
   const [indices, setIndices] = useState<CustomIndex[]>(() => {
     const cached = getLocalIndicesCache();
@@ -167,34 +247,23 @@ export function useIndices() {
       try {
         const storedToken = getIndexOwnerToken(newIndex.id);
         const token = ownerToken || storedToken || crypto.randomUUID();
-        const authHeaders = getAuthHeaders();
+        const { headers, body } = buildSaveIndexRequest(newIndex, token, getAuthHeaders());
         const res = await fetch(`${API_BASE}/indices`, {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-owner-token": token,
-            ...authHeaders,
-          },
-          body: JSON.stringify({
-            ...newIndex,
-            ownerToken: token,
-          }),
+          headers,
+          body,
         });
         if (!res.ok) {
           const errData = await res.json().catch(() => ({}));
           throw new Error(errData.error || "指数の保存に失敗しました");
         }
         const data = await res.json().catch(() => ({}));
-        const responseToken =
-          typeof data.ownerToken === "string" && data.ownerToken.length > 0
-            ? data.ownerToken
-            : null;
         const savedId = (typeof data?.id === "string" && data.id.trim()) || newIndex.id;
-        // An administrator editing another user's index is intentionally not
-        // given that index's owner token. Do not persist the random request
-        // token in that case, or this browser would falsely label the index as
-        // "My index" even though the token cannot authorize a later edit.
-        const finalToken = responseToken || storedToken || (ownerToken ? token : null);
+        // resolvePersistedOwnerToken accepts only the server echo and the
+        // stored value — the caller-supplied `token` cannot flow into
+        // storage, so an admin editing another user's index (or a legacy
+        // schema write) never falsely labels the index as "My index".
+        const finalToken = resolvePersistedOwnerToken(data, storedToken);
         if (finalToken && savedId) {
           saveIndexOwnerToken(savedId, finalToken);
         }
@@ -220,21 +289,13 @@ export function useIndices() {
   const deleteCustomIndex = useCallback(
     async (id: string): Promise<{ ok: boolean; error?: string }> => {
       try {
-        const token = getIndexOwnerToken(id);
-        const authHeaders = getAuthHeaders();
-        const headers: Record<string, string> = {
-          ...authHeaders,
-        };
-        if (token) {
-          headers["x-owner-token"] = token;
-        }
+        const { url, headers } = buildDeleteIndexRequest(
+          id,
+          getIndexOwnerToken(id),
+          getAuthHeaders(),
+        );
 
-        const queryParams = new URLSearchParams({ id });
-        if (token) {
-          queryParams.set("ownerToken", token);
-        }
-
-        const res = await fetch(`${API_BASE}/indices?${queryParams.toString()}`, {
+        const res = await fetch(url, {
           method: "DELETE",
           headers,
         });
@@ -309,7 +370,6 @@ export function useIndices() {
       password?: string,
     ): Promise<{ ok: boolean; error?: string }> => {
       try {
-        const token = getIndexOwnerToken(indexId);
         const authHeaders = getAuthHeaders();
         const headers: Record<string, string> = {
           ...authHeaders,
@@ -317,16 +377,15 @@ export function useIndices() {
         if (password) {
           headers["x-auth-password"] = password;
         }
-        if (token) {
-          headers["x-owner-token"] = token;
-        }
-        const params = new URLSearchParams({ indexId, ticker });
-        if (token) {
-          params.set("ownerToken", token);
-        }
-        const res = await fetch(`${API_BASE}/indices/stock?${params.toString()}`, {
-          method: "DELETE",
+        const { url, headers: deleteHeaders } = buildDeleteStockRequest(
+          indexId,
+          ticker,
+          getIndexOwnerToken(indexId),
           headers,
+        );
+        const res = await fetch(url, {
+          method: "DELETE",
+          headers: deleteHeaders,
         });
         if (!res.ok) {
           const errData = await res.json().catch(() => ({}));

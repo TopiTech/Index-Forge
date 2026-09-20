@@ -1,3 +1,47 @@
+# コードレビュー所見(2026-09-20・goal mu8gslck-b7vqlq)
+
+ベースライン: `npm run build`(tsc app + tsc worker --noEmit + vite build)成功・警告0、`npm run lint` 違反0、`npm test` 66ファイル/617テスト全成功。新規 `src/lib/comprehensiveReviewCurrentRound.test.ts`(8件・行動検証中心)を含む。
+
+## 今回レンジの問題一覧(重要度順)
+
+| ID | 重要度 | 問題 | 対応 |
+|----|--------|------|------|
+| R1 | P1 High | `src/hooks/useIndices.ts` `saveCustomIndex` がサーバ未確認のcaller-tokenを保存し、管理者が他者指数を編集すると当該ブラウザが「自分の指数」と誤表示する | **修正済み** — `resolvePersistedOwnerToken(data, storedToken)` に一本化。シグネチャにcaller-tokenを持たせない構造で未確認保存を型レベルで不可能化 |
+| R2 | P2 Med | `deleteCustomIndex` / `removeStockFromIndex` が ownerToken をURLクエリ(`ownerToken=`)に重複送信し、サーバログ・ブラウザ履歴・分析基盤へ秘密漏洩する | **修正済み** — `buildDeleteIndexRequest` / `buildDeleteStockRequest` でURLはID系のみ・トークンは `x-owner-token` ヘッダーのみに統一 |
+| R3 | P2 Med | `SYSTEM_INDICES` が `worker/index.ts` と `src/data/indices.ts` で二重定義され将来乖離する | **修正済み** — worker側リテラルを削除し `SHARED_SYSTEM_INDICES` を再エクスポート。既存import不変・挙動不変 |
+| R4 | P2 Med | `three.js`(約563KB)・`recharts`・管理画面等を初回バンドルで全量読込し初回表示が重い | **修正済み** — `src/App.tsx` で5ページ(`TutorialPage`/`AdminDashboard`/`IndexBuilderPage`/`PortfolioPage`/`DisclaimerPage`)を `React.lazy` + `Suspense(<LoadingScreen/>)` 化。build出力で `three-*.js` が初回チャンクから分離されることを確認 |
+| R5 | P3 Low | `src/components/TradingViewChartModal.tsx` がウィジェット設定JSONを `script.innerHTML` に代入 | **修正済み** — `script.textContent` 化(同一ファイルの `container.innerHTML=""` は空文字クリアのみで実害なし・残置) |
+
+重大(クリティカル)の認証突破・計算破綻・CSP破綻はなし(PBKDF2 100k回+timingSafeEqual、CSP/HSTS/X-Frame-Options 実在確認)。
+
+## 包括範囲の根拠資料
+
+- **正確性**: `src/lib/indexEngine.ts`(ウェイト正規化・指数計算・欠落補完)、`analytics.ts`、`marketCache.ts`(東証開場時間ベース)、WorkerクォータガードSQLはコード精読で確認(前回goalで node:sqlite 実SQLプローブ済みのため本roundは再掲のみ)。
+- **保守性**: R3一元化・R1/R2純粋ビルダー抽出(`withOwnerTokenHeader`/`buildDeleteIndexRequest`/`buildDeleteStockRequest`/`buildSaveIndexRequest`/`resolvePersistedOwnerToken`)で単体検証可能化。リファクタは解決に必要な最小範囲。
+- **セキュリティ**: R1/R2対応。Workerは旧クエリ(`?ownerToken=`)/ボディ(`ownerToken`)受付を維持(worker/index.ts L2137・L3244付近の `searchParams.get("ownerToken")` / bodyフォールバック残置)するため旧クライアント互換あり。PBKDF2+timingSafeEqual、レート制限fail-closed、ボディ上限、CSP/HSTS/X-Frame-Options、CORS localhost限定は実在確認。
+- **性能**: R4対応。`npm run build` 出力で `three-*.js`(約563KB)/`recharts-*.js`/`TutorialPage-*`/`AdminDashboard-*` 等が別チャンク化されることを確認。初回 `index-*.js` から分離。
+- **依存使用法**: `npm audit --omit=dev` = 0件(本番同梱に脆弱性なし)。`npm audit` 全体では dev経路(sharp ← miniflare ← wrangler)の moderate/high 5件を観測。本番バンドルに同梱されない開発専用経路のため対応不要と判断(記録のみ)。
+- **仕様整合性**: 公開API・データ形式・DBスキーマ変更なし。Worker互換維持・`SYSTEM_INDICES` 再エクスポートで既存import不変。保存済み指数・所有トークン・認証フロー・D1データへの影響なし。移行措置不要。
+- **UI/アクセシビリティ**: ModalBase+useModalFocus(フォーカストラップ・Escape・復帰・スクロールロック・複数モーダルtopmost)、ドロワー(inert+Escape+overflow制御)、ヒートマップ(role=button/tabIndex/keydown/aria-pressed/label)、テーブル(aria-sort/keyboard)、prefers-reduced-motion、1080/768/640/480ブレークポイントはコード精読で維持確認。ただし実ブラウザの視覚・実デバイススクリーンショット検証は未実施(未解決事項に明示)。
+- **本番DB/デプロイ判断**: 本変更はスキーマ・API不変のため本番DB操作・デプロイは不要と判断。`wrangler dev`/本番デプロイ・本番DB操作は未実施(Cloudflare認証情報が必要なため)。フル対応方針のもと実施すべき本番操作は発生しなかった。
+
+## 再発防止テスト
+
+- 新規 `src/lib/comprehensiveReviewCurrentRound.test.ts`(8件): `resolvePersistedOwnerToken` の保存解決(サーバエコー/保存値/空文字・不正形)、`buildDeleteIndexRequest` / `buildDeleteStockRequest` / `buildSaveIndexRequest` の実実行(URLにトークン非含有・ヘッダー送信)、`SYSTEM_INDICES` 実値一致(worker vs frontend)、`textContent` 化を行動・実値で直接検証。配線センチネル(`buildSaveIndexRequest(`/`resolvePersistedOwnerToken(`等の含有・`queryParams.set("ownerToken"` 非含有)の文字列検査は最小限のみ。
+- `src/lib/codeReviewGoalResolution.test.ts`: 旧「DELETEでownerTokenをURLに含める」肯定テスト(旧106-136行)を、実ビルダー関数を行使するヘッダー限定テストに書換え(矛盾の解消)。
+- `src/lib/reviewRegression.test.ts`: 旧文字列assertion(`const responseToken =`)を `resolvePersistedOwnerToken(data, storedToken)` 配線検証に更新。旧脆弱式 `const finalToken = data.ownerToken || token;` の非含有を回帰ガード。
+
+## 未解決・未検証事項
+
+1. 実ブラウザでの視覚確認未実施(レスポンシブ・フォーカストラップ・遅延フォールバックはコード精読のみ)。
+2. 実機D1/本番デプロイ未実施(認証情報要・スキーマ/API不変のため不要と判断)。
+3. Yahoo Finance 非公式v8 APIの将来仕様変更リスク(タイムアウト・異常系・フォールバック実装済み)。
+4. dev経路の `npm audit` 5件(本番非同梱・対応不要として記録のみ)。
+
+---
+
+## 付録: 前回goal(9/16)の所見 — 以下は履歴保存(本roundで追記・上部が現行)
+
 # コードレビュー所見(2026-09-16)
 
 ベースライン: `npm run build` / `npm run lint` / `npm run test`(43ファイル・411テスト)すべて成功。
