@@ -1,4 +1,5 @@
 :root {
+  --surface-hover: rgba(255, 255, 255, 0.06);
   --primary-font:
     "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --display-font: "Inter", "Outfit", sans-serif;
@@ -246,6 +247,7 @@
 }
 
 :root[data-theme="light"] {
+  --surface-hover: rgba(15, 23, 42, 0.06);
   --neon-magenta: #a21caf;
   --neon-yellow: #a16207;
   --neon-red: #be123c;

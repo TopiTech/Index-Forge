@@ -1,6 +1,8 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
+import worker, { timingSafeEqual } from "../../worker/index";
+import { calculateRiskMetrics } from "./analytics";
 
 const workerSrc = readFileSync(resolve("worker/index.ts"), "utf-8");
 
@@ -87,12 +89,44 @@ describe("regression: worker API contract", () => {
       expect(wranglerLocalSrc).toContain('"run_worker_first": true');
     }
   });
+
+  it("R9: --surface-hover is defined so mobile nav hover never loses its background", () => {
+    const cssSrc = readFileSync(resolve("src/index.css"), "utf-8");
+    expect(cssSrc).toMatch(/--surface-hover\s*:/);
+  });
+
+  it("R10: /api/calculate requires theme on every basket item (no silent default)", async () => {
+    // A theme-less basket item is malformed: the frontend always supplies a
+    // theme, and silently defaulting would hide a broken client contract.
+    const env = {
+      ASSETS: { fetch: vi.fn() },
+      DB: {
+        prepare: vi.fn().mockReturnValue({
+          bind: vi.fn().mockReturnValue({
+            all: vi.fn().mockResolvedValue({ results: [] }),
+            run: vi.fn().mockResolvedValue({ success: true }),
+          }),
+          all: vi.fn().mockResolvedValue({ results: [] }),
+          run: vi.fn().mockResolvedValue({ success: true }),
+        }),
+        batch: vi.fn().mockResolvedValue([]),
+      },
+    };
+    const res = await worker.fetch(
+      new Request("http://localhost/api/calculate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ basket: [{ ticker: "7203", name: "Toyota", weight: 100 }] }),
+      }),
+      env as never,
+    );
+    expect(res.status).toBe(400);
+    const data = (await res.json()) as { error?: string };
+    expect(data.error).toContain("theme");
+  });
 });
 
 // ── Fix-specific regression tests ──
-
-import { timingSafeEqual } from "../../worker/index";
-import { calculateRiskMetrics } from "./analytics";
 
 describe("regression: timingSafeEqual timing-safe behavior", () => {
   it("returns true for identical strings", () => {

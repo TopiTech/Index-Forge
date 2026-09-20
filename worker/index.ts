@@ -3657,7 +3657,12 @@ export default {
             );
           }
 
-          // Strict basket validation: fail on any invalid entry
+          // Strict basket validation: fail on any invalid entry. Every
+          // field is mandatory: the frontend always sends a theme
+          // (defaulting to "カスタム"), so a missing theme is a malformed
+          // request, not an implicit default. The stock endpoints differ
+          // deliberately: their single-item form predates the contract and
+          // defaults an absent theme for compatibility.
           const seenCalcTickers = new Set<string>();
           for (const item of basket) {
             if (!item || typeof item !== "object") {
