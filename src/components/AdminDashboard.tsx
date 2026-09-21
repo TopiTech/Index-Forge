@@ -1439,15 +1439,15 @@ export function AdminDashboard({
               <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8, color: "var(--neon-cyan)" }}>
                 + 銘柄を追加（制限なし）
               </div>
-              <div className="row flex-wrap" style={{ gap: 10 }}>
+              <div className="admin-quick-add-stock-row">
                 <input
                   type="text"
                   aria-label="銘柄コード"
                   placeholder="コード (例: 6758)"
+                  className="admin-add-ticker-input"
                   value={addTicker}
                   onChange={(e) => setAddTicker(e.target.value.toUpperCase())}
                   style={{
-                    width: 120,
                     padding: "6px 8px",
                     background: "var(--bg-input)",
                     border: "1px solid var(--border-subtle)",
@@ -1460,11 +1460,10 @@ export function AdminDashboard({
                   type="text"
                   aria-label="銘柄名"
                   placeholder="銘柄名 (例: ソニーグループ)"
+                  className="admin-add-name-input"
                   value={addName}
                   onChange={(e) => setAddName(e.target.value)}
                   style={{
-                    flex: 1,
-                    minWidth: 160,
                     padding: "6px 8px",
                     background: "var(--bg-input)",
                     border: "1px solid var(--border-subtle)",
@@ -1477,10 +1476,10 @@ export function AdminDashboard({
                   type="text"
                   aria-label="テーマ"
                   placeholder="テーマ"
+                  className="admin-add-theme-input"
                   value={addTheme}
                   onChange={(e) => setAddTheme(e.target.value)}
                   style={{
-                    width: 130,
                     padding: "6px 8px",
                     background: "var(--bg-input)",
                     border: "1px solid var(--border-subtle)",
@@ -1493,10 +1492,10 @@ export function AdminDashboard({
                   type="number"
                   aria-label="比率"
                   placeholder="比率"
+                  className="admin-add-weight-input"
                   value={addWeight}
                   onChange={(e) => setAddWeight(toFiniteNumberOr(e.target.value, 10))}
                   style={{
-                    width: 70,
                     padding: "6px 8px",
                     background: "var(--bg-input)",
                     border: "1px solid var(--border-subtle)",
@@ -1507,7 +1506,7 @@ export function AdminDashboard({
                 />
                 <button
                   type="submit"
-                  className="btn btn-sm btn-default"
+                  className="btn btn-sm btn-default admin-add-submit-btn"
                   disabled={!addTicker.trim() || !addName.trim()}
                 >
                   追加
@@ -1516,7 +1515,7 @@ export function AdminDashboard({
             </form>
 
             {/* Action Bar */}
-            <div className="row space-between" style={{ borderTop: "1px solid var(--border-subtle)", paddingTop: 16 }}>
+            <div className="row space-between flex-wrap admin-index-edit-actions" style={{ borderTop: "1px solid var(--border-subtle)", paddingTop: 16, gap: 12 }}>
               <div>
                 {!SYSTEM_INDICES.has(selectedEditIndexId) && (
                   <button

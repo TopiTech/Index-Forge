@@ -892,7 +892,7 @@ export function IndexBuilderContent({
 
       {/* Footer Controls */}
       <div
-        className="row space-between flex-wrap"
+        className="row space-between flex-wrap builder-footer-actions"
         style={{
           padding: "12px 20px",
           borderTop: "1px solid var(--border-subtle)",
@@ -901,12 +901,12 @@ export function IndexBuilderContent({
           alignItems: "center",
         }}
       >
-        <div className="row" style={{ gap: 8, alignItems: "center" }}>
+        <div className="row builder-footer-group" style={{ gap: 8, alignItems: "center" }}>
           {onPreviewInDashboard && (
             <button
               type="button"
               onClick={handlePreviewInDashboardClick}
-              className="btn btn-outline"
+              className="btn btn-outline builder-preview-btn"
               style={{ fontSize: 12, padding: "6px 12px" }}
               title="保存せずにダッシュボードでフル分析を体験"
             >
@@ -925,7 +925,7 @@ export function IndexBuilderContent({
           </button>
         </div>
 
-        <div className="row" style={{ gap: 10 }}>
+        <div className="row builder-footer-group" style={{ gap: 10 }}>
           {onClose && (
             <button
               type="button"
@@ -940,7 +940,7 @@ export function IndexBuilderContent({
 
           <button
             type="button"
-            className="btn btn-default"
+            className="btn btn-default builder-save-btn"
             onClick={handleSubmit}
             disabled={saving || basket.length === 0}
             style={{ fontSize: 12, padding: "6px 16px" }}

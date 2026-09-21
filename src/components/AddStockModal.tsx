@@ -225,7 +225,7 @@ export function AddStockModal({
 
         {/* Custom Input Form */}
         <form onSubmit={handleSubmit} id="add-stock-form">
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 12, marginBottom: 12 }}>
+          <div className="add-stock-form-grid" style={{ marginBottom: 12 }}>
             <div>
               <label htmlFor="add-stock-ticker" style={{ display: "block", fontSize: 12, color: "var(--text-secondary)", marginBottom: 4 }}>
                 銘柄コード <span style={{ color: "var(--neon-red)" }}>*</span>
@@ -310,7 +310,7 @@ export function AddStockModal({
             </div>
           )}
 
-          <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 12 }}>
+          <div className="add-stock-form-grid add-stock-form-grid-secondary">
             <div>
               <label htmlFor="add-stock-theme" style={{ display: "block", fontSize: 12, color: "var(--text-secondary)", marginBottom: 4 }}>
                 テーマ / セクター

@@ -433,7 +433,7 @@ export function Header({
                 aria-expanded={isMobileMenuOpen}
                 aria-controls="header-mobile-nav"
                 aria-label={isMobileMenuOpen ? "メニューを閉じる" : "メニューを開く"}
-                style={{ padding: "5px 8px", fontSize: 12 }}
+                style={{ fontSize: 12 }}
               >
                 {isMobileMenuOpen ? <X size={15} /> : <Menu size={15} />}
                 <span className="header-mobile-menu-label">メニュー</span>

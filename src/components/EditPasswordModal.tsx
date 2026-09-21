@@ -141,17 +141,6 @@ export function EditPasswordModal({
       className="modal-overlay"
       onMouseDown={handleBackdropMouseDown}
       onClick={handleBackdropClick}
-      style={{
-        position: "fixed",
-        inset: 0,
-        zIndex: "var(--z-modal-overlay)" as unknown as number,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        backgroundColor: "var(--surface-overlay)",
-        backdropFilter: "blur(8px)",
-        padding: 16,
-      }}
     >
       <motion.div
         className="modal-dialog"
@@ -421,7 +410,7 @@ export function EditPasswordModal({
           </div>
 
           {/* Actions */}
-          <div className="row" style={{ gap: 10, justifyContent: "flex-end" }}>
+          <div className="row modal-footer-actions" style={{ gap: 10, justifyContent: "flex-end" }}>
             <button
               type="button"
               onClick={handleClose}

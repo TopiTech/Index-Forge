@@ -180,7 +180,7 @@ export function SimulationPreview({
 
           {/* Timeframe buttons */}
           <div
-            className="row"
+            className="row simulation-timeframe-group"
             style={{
               background: "var(--surface-control)",
               borderRadius: 6,
@@ -193,7 +193,7 @@ export function SimulationPreview({
                 key={tf.value}
                 type="button"
                 onClick={() => setTimeframe(tf.value)}
-                className={`btn btn-sm ${timeframe === tf.value ? "btn-default" : "btn-outline"}`}
+                className={`btn btn-sm simulation-tf-btn ${timeframe === tf.value ? "btn-default" : "btn-outline"}`}
                 style={{
                   padding: "2px 7px",
                   fontSize: 11,

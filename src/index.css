@@ -5584,3 +5584,375 @@ textarea:focus-visible {
     transition: none !important;
   }
 }
+
+/* ==========================================================================
+   COMPREHENSIVE MOBILE OPTIMIZATION SUITE (Phase 1 to Phase 7)
+   ========================================================================== */
+
+/* 1. Global Touch Target Standards & Safe Area Utilities */
+.header-mobile-menu-btn {
+  min-height: 42px;
+  min-width: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  touch-action: manipulation;
+}
+
+.sidebar-close-button,
+.modal-close-btn {
+  min-width: 40px;
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  touch-action: manipulation;
+}
+
+/* 2. Responsive Modal & Dialog Form Grids */
+.add-stock-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 2fr;
+  gap: 12px;
+}
+
+.add-stock-form-grid.add-stock-form-grid-secondary {
+  grid-template-columns: 2fr 1fr;
+}
+
+@media (max-width: 520px) {
+  .add-stock-form-grid,
+  .add-stock-form-grid.add-stock-form-grid-secondary {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+}
+
+.modal-dialog {
+  max-height: calc(100dvh - 32px);
+  display: flex;
+  flex-direction: column;
+}
+
+.modal-body {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+
+@media (max-width: 480px) {
+  .modal-overlay {
+    padding: max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
+  }
+
+  .modal-dialog {
+    width: 100% !important;
+    max-width: 100% !important;
+    border-radius: 12px;
+    margin: auto 0;
+  }
+
+  .modal-header {
+    padding: 12px 14px;
+  }
+
+  .modal-body {
+    padding: 14px;
+  }
+
+  .modal-footer {
+    padding: 12px 14px;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+}
+
+/* 3. Admin Dashboard Quick Add Stock & Action Bar Responsive */
+.admin-quick-add-stock-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.admin-add-ticker-input {
+  width: 120px;
+  flex: 0 0 120px;
+}
+
+.admin-add-name-input {
+  flex: 1 1 160px;
+  min-width: 140px;
+}
+
+.admin-add-theme-input {
+  width: 130px;
+  flex: 0 0 130px;
+}
+
+.admin-add-weight-input {
+  width: 70px;
+  flex: 0 0 70px;
+}
+
+.admin-add-submit-btn {
+  padding: 6px 16px;
+  flex-shrink: 0;
+}
+
+@media (max-width: 640px) {
+  .admin-quick-add-stock-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  .admin-add-ticker-input,
+  .admin-add-weight-input {
+    width: 100% !important;
+    flex: none;
+  }
+
+  .admin-add-name-input,
+  .admin-add-theme-input,
+  .admin-add-submit-btn {
+    grid-column: 1 / -1;
+    width: 100% !important;
+    flex: none;
+  }
+
+  .admin-add-submit-btn {
+    min-height: 38px;
+    margin-top: 4px;
+  }
+
+  .admin-index-edit-actions {
+    flex-direction: column-reverse;
+    align-items: stretch !important;
+    gap: 10px;
+  }
+
+  .admin-index-edit-actions .btn {
+    width: 100%;
+    justify-content: center;
+    min-height: 40px;
+  }
+}
+
+/* 4. Simulation Preview Responsive Enhancements */
+.simulation-timeframe-group {
+  max-width: 100%;
+}
+
+@media (max-width: 640px) {
+  .simulation-timeframe-group {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    max-width: 100%;
+    padding: 3px 2px !important;
+    scrollbar-width: none;
+  }
+
+  .simulation-timeframe-group::-webkit-scrollbar {
+    display: none;
+  }
+
+  .simulation-tf-btn {
+    white-space: nowrap;
+    flex-shrink: 0;
+    padding: 3px 8px !important;
+    font-size: 10.5px !important;
+    min-height: 28px;
+  }
+}
+
+/* 5. StatsGrid Touch & Small Viewport Polish */
+@media (max-width: 480px) {
+  .stats-grid {
+    gap: 8px;
+  }
+
+  .stat-card {
+    padding: 10px 10px !important;
+    border-radius: 8px;
+    min-width: 0;
+  }
+
+  .stat-value-main {
+    font-size: clamp(15px, 4.5vw, 18px) !important;
+    letter-spacing: -0.3px;
+  }
+
+  .stat-label {
+    font-size: 10px !important;
+    line-height: 1.2;
+  }
+
+  .stat-sub-row .muted.tiny {
+    font-size: 9px !important;
+  }
+}
+
+/* 6. Performance Chart Dynamic Heights & Controls */
+@media (max-width: 640px) {
+  .chart-container {
+    height: clamp(260px, 44vh, 340px) !important;
+    padding: 12px 6px 6px 0 !important;
+  }
+
+  .chart-heading h2 {
+    font-size: 15px !important;
+  }
+
+  .chart-mode-row {
+    gap: 6px;
+  }
+
+  .chart-mode-row .view-mode-group .btn-group-item,
+  .chart-mode-row .technical-group .btn-group-item {
+    min-height: 34px !important;
+  }
+}
+
+/* 7. Theme Heatmap Mobile Polish */
+@media (max-width: 640px) {
+  .theme-heatmap-grid {
+    min-height: 260px !important;
+  }
+
+  .heatmap-tile {
+    min-width: 36px;
+    min-height: 32px;
+    padding: 2px 4px !important;
+  }
+
+  .heatmap-tile-code {
+    font-size: clamp(9px, 2.6vw, 11px) !important;
+    font-weight: 700;
+  }
+
+  .heatmap-tile-weight {
+    font-size: clamp(8px, 2.2vw, 10px) !important;
+  }
+}
+
+/* 8. Constituents Mobile List Touch Targets */
+@media (max-width: 768px) {
+  .constituent-mobile-card {
+    padding: 12px !important;
+    gap: 10px !important;
+    border-radius: 8px;
+  }
+
+  .mobile-sort-controls {
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .mobile-sort-select {
+    min-height: 36px;
+    padding: 4px 8px;
+    font-size: 12px;
+    border-radius: 6px;
+  }
+
+  .mobile-sort-dir-btn {
+    min-height: 36px;
+    padding: 4px 10px;
+    font-size: 12px;
+    border-radius: 6px;
+  }
+
+  .constituent-mobile-card .icon-button.danger {
+    min-width: 36px;
+    min-height: 36px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+}
+
+/* 9. Index Builder Content Mobile Actions */
+@media (max-width: 768px) {
+  .builder-content-root {
+    max-height: none !important;
+  }
+
+  .builder-main-split {
+    padding: 12px 10px !important;
+  }
+
+  .builder-basket-row {
+    padding: 8px !important;
+  }
+
+  .builder-weight-slider {
+    min-height: 32px;
+    cursor: pointer;
+  }
+
+  .builder-basket-remove-btn {
+    min-width: 36px;
+    min-height: 36px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .builder-footer-actions {
+    flex-direction: column;
+    align-items: stretch !important;
+    gap: 10px;
+    padding: 10px 12px !important;
+  }
+
+  .builder-footer-group {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .builder-footer-group .btn {
+    flex: 1;
+    min-height: 38px;
+    justify-content: center;
+  }
+}
+
+/* 10. Tutorial Page Mobile Balance */
+@media (max-width: 640px) {
+  .tutorial-camera-toolbar {
+    bottom: 10px;
+    gap: 6px;
+    padding: 4px 8px;
+  }
+
+  .toolbar-icon-btn {
+    width: 36px;
+    height: 36px;
+  }
+
+  .tutorial-stage {
+    padding: 10px !important;
+    gap: 12px !important;
+  }
+
+  .tutorial-narrative-card {
+    padding: 14px !important;
+  }
+}
+
+/* 11. Modal Footer Actions Mobile Optimization */
+@media (max-width: 480px) {
+  .modal-footer-actions {
+    width: 100%;
+    flex-direction: column-reverse;
+    gap: 8px !important;
+  }
+
+  .modal-footer-actions .btn {
+    width: 100%;
+    min-height: 40px;
+    justify-content: center;
+  }
+}
+
