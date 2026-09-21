@@ -17,7 +17,7 @@ import type { CustomIndex } from "../data/indices";
 import { useAuth } from "../hooks/useAuth";
 import { AuthModal } from "./AuthModal";
 import { useToast } from "./Toast";
-import { equalizeWeightsExact, redistributeWeightsExact } from "../lib/indexEngine";
+import { equalizeWeightsExact, redistributeWeightsExact, normalizeTicker } from "../lib/indexEngine";
 import { searchPopularStocks, PRESET_STOCKS, type PopularStock } from "../data/popularStocks";
 import { toFiniteNumberOr } from "../lib/downloadFileName";
 import { useSimulation } from "../hooks/useSimulation";
@@ -184,7 +184,9 @@ export function IndexBuilderContent({
   const popularSuggestions = useMemo(() => {
     const query = customTicker || customName;
     if (!query.trim() || query.trim().length < 1) return [];
-    return searchPopularStocks(query, 5).filter((s) => !basket.some((b) => b.ticker === s.ticker));
+    return searchPopularStocks(query, 5).filter(
+      (s) => !basket.some((b) => normalizeTicker(b.ticker) === normalizeTicker(s.ticker)),
+    );
   }, [customTicker, customName, basket]);
 
   const isLimitReached =
@@ -212,13 +214,14 @@ export function IndexBuilderContent({
       );
       return;
     }
-    if (basket.some((b) => b.ticker === stock.ticker)) {
-      setError(`銘柄コード ${stock.ticker} は既に追加されています`);
+    const cleanTicker = normalizeTicker(stock.ticker);
+    if (basket.some((b) => normalizeTicker(b.ticker) === cleanTicker)) {
+      setError(`銘柄コード ${cleanTicker} は既に追加されています`);
       return;
     }
     setError(null);
     const newWeight = Math.max(5, Math.floor(100 / (basket.length + 1)));
-    setBasket([...basket, { ...stock, weight: newWeight }]);
+    setBasket([...basket, { ...stock, ticker: cleanTicker, weight: newWeight }]);
   };
 
   const handleAddCustom = (e: React.FormEvent) => {
@@ -233,14 +236,14 @@ export function IndexBuilderContent({
       setError("銘柄コードと銘柄名は必須です");
       return;
     }
-    const cleanTicker = customTicker.trim().toUpperCase();
+    const cleanTicker = normalizeTicker(customTicker);
     if (!/^[A-Za-z0-9.-]+$/.test(cleanTicker) || cleanTicker.length > 20) {
       setError(
         "銘柄コードは半角英数字、ハイフン、ピリオド（最大20文字）のみ使用可能です (例: 7203, AAPL)",
       );
       return;
     }
-    if (basket.some((b) => b.ticker === cleanTicker)) {
+    if (basket.some((b) => normalizeTicker(b.ticker) === cleanTicker)) {
       setError(`銘柄コード ${cleanTicker} は既に追加されています`);
       return;
     }
@@ -260,13 +263,15 @@ export function IndexBuilderContent({
   };
 
   const handleRemoveStock = (ticker: string) => {
-    setBasket(basket.filter((b) => b.ticker !== ticker));
+    const cleanTicker = normalizeTicker(ticker);
+    setBasket(basket.filter((b) => normalizeTicker(b.ticker) !== cleanTicker));
   };
 
   const handleWeightChange = (ticker: string, raw: string) => {
+    const cleanTicker = normalizeTicker(ticker);
     const weight = Math.min(100, Math.max(0.1, toFiniteNumberOr(raw, 1)));
     setBasket(
-      basket.map((b) => (b.ticker === ticker ? { ...b, weight } : b)),
+      basket.map((b) => (normalizeTicker(b.ticker) === cleanTicker ? { ...b, weight } : b)),
     );
   };
 
@@ -622,7 +627,7 @@ export function IndexBuilderContent({
             </div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
               {PRESET_STOCKS.map((s: PopularStock) => {
-                const isAdded = basket.some((b) => b.ticker === s.ticker);
+                const isAdded = basket.some((b) => normalizeTicker(b.ticker) === normalizeTicker(s.ticker));
                 const isDisabled = isAdded || isLimitReached;
                 return (
                   <button

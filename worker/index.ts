@@ -668,6 +668,80 @@ async function upgradeLegacyPasswordHash(
   }
 }
 
+export interface PasswordCollisionCheckResult {
+  hasCollision: boolean;
+  isMasterAdminCollision?: boolean;
+  collidingId?: string;
+  collidingName?: string;
+}
+
+export async function findPasswordCollision(
+  env: Env,
+  candidatePassword: string,
+  excludeId?: string | null,
+): Promise<PasswordCollisionCheckResult> {
+  // 1. Check against admin-master if excludeId is not admin-master
+  if (excludeId !== "admin-master") {
+    let masterRow: { id: string; name: string; password_hash: string } | undefined;
+    try {
+      const adminMasterRows = await env.DB.prepare(
+        "SELECT id, name, password_hash FROM access_passwords WHERE id = 'admin-master'",
+      ).all();
+      masterRow = (adminMasterRows.results || []).find((r: D1Row) => r.id === "admin-master") as
+        | { id: string; name: string; password_hash: string }
+        | undefined;
+    } catch {
+      // Table may not exist or query error; fallback to env check below
+    }
+
+    if (masterRow && masterRow.password_hash) {
+      if (await verifyPasswordHash(candidatePassword, masterRow.password_hash)) {
+        return {
+          hasCollision: true,
+          isMasterAdminCollision: true,
+          collidingId: "admin-master",
+          collidingName: masterRow.name || "マスター管理者",
+        };
+      }
+    } else if (env.ADMIN_PASSWORD) {
+      const trimmedEnvAdmin = env.ADMIN_PASSWORD.trim();
+      if (trimmedEnvAdmin && timingSafeEqual(await hashToken(trimmedEnvAdmin), await hashToken(candidatePassword))) {
+        return {
+          hasCollision: true,
+          isMasterAdminCollision: true,
+          collidingId: "admin-master",
+          collidingName: "管理者",
+        };
+      }
+    }
+  }
+
+  // 2. Check against other accounts in access_passwords
+  try {
+    const query = excludeId
+      ? "SELECT id, name, password_hash FROM access_passwords WHERE id != ? AND id != 'admin-master'"
+      : "SELECT id, name, password_hash FROM access_passwords WHERE id != 'admin-master'";
+    const stmt = excludeId ? env.DB.prepare(query).bind(excludeId) : env.DB.prepare(query);
+    const { results } = await stmt.all();
+
+    for (const row of results || []) {
+      const r = row as { id: string; name: string; password_hash: string };
+      if (r.password_hash && (await verifyPasswordHash(candidatePassword, r.password_hash))) {
+        return {
+          hasCollision: true,
+          isMasterAdminCollision: false,
+          collidingId: r.id,
+          collidingName: r.name,
+        };
+      }
+    }
+  } catch (err) {
+    console.error("findPasswordCollision DB error:", err);
+  }
+
+  return { hasCollision: false };
+}
+
 // Maximum password length accepted at authentication. This bounds the CPU
 // cost of SHA-256 hashing and PBKDF2 verification per request, preventing a
 // single attacker from forcing the Worker to hash multi-megabyte payloads.
@@ -1530,10 +1604,14 @@ export default {
           const assignedRole = role === "admin" ? "admin" : "user";
           const id = `pwd-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
           const initialPassword = password.trim();
+          await ensurePasswordTable(env);
+          const collision = await findPasswordCollision(env, initialPassword);
+          if (collision.hasCollision && collision.isMasterAdminCollision) {
+            return json({ error: "管理者アカウントと同一のパスワードは設定できません" }, 400, request);
+          }
           const hash = await hashPassword(initialPassword);
           const now = Math.floor(Date.now() / 1000);
 
-          await ensurePasswordTable(env);
           try {
             await env.DB.prepare(
               "INSERT INTO access_passwords (id, name, password_hash, role, max_stocks, max_indices, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)",
@@ -1642,6 +1720,10 @@ export default {
           if (typeof password === "string" && password.trim().length > 0) {
             if (password.trim().length < 8 || password.trim().length > 100) {
               return json({ error: "パスワードは8〜100文字で入力してください" }, 400, request);
+            }
+            const collision = await findPasswordCollision(env, password.trim(), id);
+            if (collision.hasCollision && collision.isMasterAdminCollision) {
+              return json({ error: "管理者アカウントと同一のパスワードは設定できません" }, 400, request);
             }
             const hash = await hashPassword(password.trim());
             updates.push("password_hash = ?");
@@ -1774,6 +1856,14 @@ export default {
             return json({ error: "管理者パスワードは8〜100文字で入力してください" }, 400, request);
           }
           await ensurePasswordTable(env);
+          const collision = await findPasswordCollision(env, newPassword, "admin-master");
+          if (collision.hasCollision) {
+            return json(
+              { error: "既存のユーザーアカウントで使用されているパスワードは管理者に設定できません" },
+              400,
+              request,
+            );
+          }
           const hash = await hashPassword(newPassword);
           const now = Math.floor(Date.now() / 1000);
           await env.DB.prepare(

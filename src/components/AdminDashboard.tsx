@@ -26,7 +26,7 @@ import { Card, Tag, Badge } from "./ui";
 import { EditPasswordModal } from "./EditPasswordModal";
 import { ConfirmModal } from "./ConfirmModal";
 import { useToast } from "./Toast";
-import { equalizeWeightsExact } from "../lib/indexEngine";
+import { equalizeWeightsExact, normalizeTicker } from "../lib/indexEngine";
 
 interface AdminDashboardProps {
   indices: CustomIndex[];
@@ -328,12 +328,12 @@ export function AdminDashboard({
   const handleAddStockToBasket = (e: React.FormEvent) => {
     e.preventDefault();
     if (!addTicker.trim() || !addName.trim()) return;
-    const cleanTicker = addTicker.trim().toUpperCase();
+    const cleanTicker = normalizeTicker(addTicker);
     if (!/^[A-Za-z0-9.-]+$/.test(cleanTicker) || cleanTicker.length > 20) {
       setIndexEditMessage({ type: "error", text: "有効な銘柄コードを入力してください（英数字・ドット・ハイフンのみ、20文字以内）" });
       return;
     }
-    if (editBasket.some((b) => b.ticker === cleanTicker)) {
+    if (editBasket.some((b) => normalizeTicker(b.ticker) === cleanTicker)) {
       setIndexEditMessage({ type: "error", text: `銘柄コード ${cleanTicker} は既に追加されています` });
       return;
     }
@@ -438,9 +438,10 @@ export function AdminDashboard({
   // clearing the field; Number("") is 0 and Number("12.") is NaN. A NaN weight
   // would poison the saved basket and later index calculations.
   const handleEditWeightChange = (ticker: string, raw: string) => {
+    const cleanTicker = normalizeTicker(ticker);
     const next = toFiniteNumberOr(raw, 0.1);
     const safeWeight = Math.min(100, Math.max(0.1, next));
-    setEditBasket(editBasket.map((item) => (item.ticker === ticker ? { ...item, weight: safeWeight } : item)));
+    setEditBasket(editBasket.map((item) => (normalizeTicker(item.ticker) === cleanTicker ? { ...item, weight: safeWeight } : item)));
   };
 
   // Change Master Admin Password
@@ -1405,7 +1406,7 @@ export function AdminDashboard({
                          <td style={{ textAlign: "center" }}>
                           <button
                             type="button"
-                            onClick={() => setEditBasket(editBasket.filter((item) => item.ticker !== b.ticker))}
+                            onClick={() => setEditBasket(editBasket.filter((item) => normalizeTicker(item.ticker) !== normalizeTicker(b.ticker)))}
                             aria-label={`${b.name} (${b.ticker}) を削除`}
                             style={{
                               background: "transparent",
