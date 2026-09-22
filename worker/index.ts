@@ -149,6 +149,7 @@ interface IndexWriteColumns {
   ownerTokenHash: boolean;
   creatorId: boolean;
   createdAt: boolean;
+  sortOrder?: boolean;
 }
 
 interface IndexWriteValues {
@@ -204,9 +205,11 @@ function prepareIndexUpsert(
     params.push(values.id, values.createdAt);
   }
 
-  columnNames.push("sort_order");
-  valueExpressions.push("COALESCE(?, (SELECT sort_order FROM indices WHERE id = ?), 50)");
-  params.push(values.sortOrder, values.id);
+  if (columns.sortOrder !== false) {
+    columnNames.push("sort_order");
+    valueExpressions.push("COALESCE(?, (SELECT sort_order FROM indices WHERE id = ?), 50)");
+    params.push(values.sortOrder, values.id);
+  }
 
   const insertPrefix = values.useReplace ? "INSERT OR REPLACE" : "INSERT";
   const insertSource =
@@ -529,6 +532,11 @@ export async function ensurePasswordTable(env: Env): Promise<void> {
     }
     try {
       await runStatement(env, "ALTER TABLE indices ADD COLUMN creator_id TEXT");
+    } catch {
+      // The column may already exist on an upgraded database.
+    }
+    try {
+      await runStatement(env, "ALTER TABLE indices ADD COLUMN sort_order INTEGER DEFAULT 99");
     } catch {
       // The column may already exist on an upgraded database.
     }
@@ -2675,19 +2683,38 @@ export default {
             });
           }
 
-          const { results } = await env.DB.prepare(
-            `
-          SELECT
-            i.id, i.name, i.description, i.base_value, COALESCE(i.sort_order, 99) AS sort_order,
-            b.ticker, b.name as stock_name, COALESCE(b.weight, 0) AS weight, b.theme
-          FROM indices i
-          LEFT JOIN basket_items b ON i.id = b.index_id
-          ORDER BY
-            COALESCE(i.sort_order, 99),
-            i.name,
-            b.ticker
-        `,
-          ).all();
+          let results: D1Row[] | undefined;
+          try {
+            const dbRes = await env.DB.prepare(
+              `
+            SELECT
+              i.id, i.name, i.description, i.base_value, COALESCE(i.sort_order, 99) AS sort_order,
+              b.ticker, b.name as stock_name, COALESCE(b.weight, 0) AS weight, b.theme
+            FROM indices i
+            LEFT JOIN basket_items b ON i.id = b.index_id
+            ORDER BY
+              COALESCE(i.sort_order, 99),
+              i.name,
+              b.ticker
+          `,
+            ).all();
+            results = dbRes.results;
+          } catch (lookupErr: unknown) {
+            if (!isMissingColumnError(lookupErr, "sort_order")) throw lookupErr;
+            const dbRes = await env.DB.prepare(
+              `
+            SELECT
+              i.id, i.name, i.description, i.base_value, 50 AS sort_order,
+              b.ticker, b.name as stock_name, COALESCE(b.weight, 0) AS weight, b.theme
+            FROM indices i
+            LEFT JOIN basket_items b ON i.id = b.index_id
+            ORDER BY
+              i.name,
+              b.ticker
+          `,
+            ).all();
+            results = dbRes.results;
+          }
 
           const indicesMap = new Map<
             string,
@@ -3225,6 +3252,7 @@ export default {
             ownerTokenHash: hasOwnerTokenHashColumn,
             creatorId: hasOwnerTokenHashColumn,
             createdAt: hasOwnerTokenHashColumn,
+            sortOrder: true,
           };
           for (;;) {
             try {
@@ -3251,7 +3279,8 @@ export default {
               const mentionsMissingColumn =
                 isMissingColumnError(batchErr, "owner_token_hash") ||
                 isMissingColumnError(batchErr, "created_at") ||
-                isMissingColumnError(batchErr, "creator_id");
+                isMissingColumnError(batchErr, "creator_id") ||
+                isMissingColumnError(batchErr, "sort_order");
               if (!hasOwnerTokenHashColumn || !mentionsMissingColumn) {
                 throw batchErr;
               }
@@ -3276,6 +3305,9 @@ export default {
                   indexWriteColumns.creatorId && !isMissingColumnError(batchErr, "creator_id"),
                 createdAt:
                   indexWriteColumns.createdAt && !isMissingColumnError(batchErr, "created_at"),
+                sortOrder:
+                  (indexWriteColumns.sortOrder ?? true) &&
+                  !isMissingColumnError(batchErr, "sort_order"),
               };
               if (
                 nextColumns.ownerTokenHash !== indexWriteColumns.ownerTokenHash &&
@@ -3287,7 +3319,8 @@ export default {
               if (
                 nextColumns.ownerTokenHash === indexWriteColumns.ownerTokenHash &&
                 nextColumns.creatorId === indexWriteColumns.creatorId &&
-                nextColumns.createdAt === indexWriteColumns.createdAt
+                nextColumns.createdAt === indexWriteColumns.createdAt &&
+                nextColumns.sortOrder === indexWriteColumns.sortOrder
               ) {
                 throw batchErr;
               }

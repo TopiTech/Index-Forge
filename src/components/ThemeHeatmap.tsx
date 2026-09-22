@@ -5,6 +5,7 @@ import { Card, Tag } from "./ui";
 import { LayoutGrid, TrendingUp, TrendingDown, Layers, Grid } from "lucide-react";
 import type { StockDetail } from "../types";
 import { createTreemapLayout, type TreemapLayout } from "../lib/treemap";
+import { formatStockPrice, formatStockChange } from "../lib/currency";
 
 interface ThemeHeatmapProps {
   stockDetails: StockDetail[];
@@ -151,7 +152,7 @@ export function ThemeHeatmap({ stockDetails, selectedTheme, onSelectTheme }: The
         <div className="row space-between" style={{ marginTop: "auto" }}>
           {!compact && !isManyStocks && (
             <span className="mono tiny" style={{ fontSize: 10, opacity: 0.85 }}>
-              ¥{stock.currentPrice > 0 ? stock.currentPrice.toLocaleString() : "---"}
+              {formatStockPrice(stock.currentPrice, stock.ticker)}
             </span>
           )}
           <span
@@ -346,10 +347,7 @@ export function ThemeHeatmap({ stockDetails, selectedTheme, onSelectTheme }: The
                     株価
                   </span>
                   <strong style={{ fontSize: 12 }}>
-                    ¥
-                    {hoveredStock.stock.currentPrice > 0
-                      ? hoveredStock.stock.currentPrice.toLocaleString()
-                      : "---"}
+                    {formatStockPrice(hoveredStock.stock.currentPrice, hoveredStock.stock.ticker)}
                   </strong>
                 </div>
 
@@ -372,8 +370,7 @@ export function ThemeHeatmap({ stockDetails, selectedTheme, onSelectTheme }: The
                     {hoveredStock.stock.changePct.toFixed(2)}%
                     {hoveredStock.stock.change !== 0 && (
                       <span style={{ fontSize: 10, marginLeft: 4, opacity: 0.8 }}>
-                        ({hoveredStock.stock.change >= 0 ? "+" : ""}¥
-                        {hoveredStock.stock.change.toLocaleString()})
+                        ({formatStockChange(hoveredStock.stock.change, hoveredStock.stock.ticker)})
                       </span>
                     )}
                   </strong>

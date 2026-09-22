@@ -18,6 +18,7 @@
 -- SQLite does not support IF NOT EXISTS in ALTER TABLE ADD COLUMN.
 ALTER TABLE indices ADD COLUMN owner_token_hash TEXT;
 ALTER TABLE indices ADD COLUMN created_at INTEGER;
+ALTER TABLE indices ADD COLUMN sort_order INTEGER DEFAULT 99;
 
 -- Migration: Add max_indices to access_passwords and creator_id to indices table
 ALTER TABLE access_passwords ADD COLUMN max_indices INTEGER DEFAULT NULL;

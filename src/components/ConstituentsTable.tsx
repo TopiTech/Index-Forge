@@ -27,6 +27,7 @@ import { useToast } from "./Toast";
 import { toYahooSymbol } from "../lib/yahooSymbol";
 import { escapeCsvCell } from "../lib/csv";
 import { toSafeDownloadFileName } from "../lib/downloadFileName";
+import { formatStockPrice } from "../lib/currency";
 
 interface ConstituentsTableProps {
   basket: BasketItem[];
@@ -280,7 +281,7 @@ export function ConstituentsTable({
       "銘柄名",
       "テーマ",
       "構成比率(%)",
-      "最新株価(円)",
+      "最新株価",
       "前日比(%)",
       "指数寄与度(pt)",
     ];
@@ -726,7 +727,7 @@ export function ConstituentsTable({
                       </td>
                       <td style={{ textAlign: "right" }}>
                         <span className="mono bold" style={{ fontSize: 12 }}>
-                          {item.currentPrice > 0 ? `¥${item.currentPrice.toLocaleString()}` : "---"}
+                          {formatStockPrice(item.currentPrice, item.ticker)}
                         </span>
                       </td>
                       <td style={{ textAlign: "right" }}>
@@ -903,7 +904,7 @@ export function ConstituentsTable({
                   <div>
                     <span>株価</span>
                     <strong>
-                      {item.currentPrice > 0 ? `¥${item.currentPrice.toLocaleString()}` : "---"}
+                      {formatStockPrice(item.currentPrice, item.ticker)}
                     </strong>
                   </div>
                 </div>
