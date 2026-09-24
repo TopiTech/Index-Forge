@@ -3,8 +3,8 @@
  * Japanese Tokyo exchange tickers (start with a digit) use "¥".
  * US/global tickers (e.g. AAPL, NVDA) use "$".
  */
-export function getStockCurrency(ticker: string): string {
-  const trimmed = ticker.trim();
+export function getStockCurrency(ticker?: string | null): string {
+  const trimmed = typeof ticker === "string" ? ticker.trim() : "";
   if (/^\d/.test(trimmed)) {
     return "¥";
   }
@@ -16,8 +16,8 @@ export function getStockCurrency(ticker: string): string {
  * Japanese stocks: rounded to integer unless it has fractional part, e.g. "¥2,850".
  * US/global stocks: 2 decimals, e.g. "$182.50".
  */
-export function formatStockPrice(price: number, ticker: string): string {
-  if (!Number.isFinite(price) || price <= 0) return "---";
+export function formatStockPrice(price?: number | null, ticker?: string | null): string {
+  if (typeof price !== "number" || !Number.isFinite(price) || price <= 0) return "---";
   const currency = getStockCurrency(ticker);
   if (currency === "¥") {
     return `¥${price.toLocaleString("ja-JP", { maximumFractionDigits: 2 })}`;
@@ -30,8 +30,8 @@ export function formatStockPrice(price: number, ticker: string): string {
  * Japanese stocks: e.g. "+¥25", "-¥10".
  * US/global stocks: e.g. "+$1.50", "-$0.75".
  */
-export function formatStockChange(change: number, ticker: string): string {
-  if (!Number.isFinite(change)) return "---";
+export function formatStockChange(change?: number | null, ticker?: string | null): string {
+  if (typeof change !== "number" || !Number.isFinite(change)) return "---";
   const currency = getStockCurrency(ticker);
   const sign = change >= 0 ? "+" : "-";
   const abs = Math.abs(change);
