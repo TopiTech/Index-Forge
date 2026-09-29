@@ -101,6 +101,11 @@ function createSecurityTestEnv() {
             const matches = Array.from(passwords.values()).filter((p) => p.id !== "admin-master");
             return { results: matches.map(({ plain_password: _plainPassword, ...row }) => row) };
           }
+          if (query.includes("FROM access_passwords WHERE id = ?")) {
+            const targetId = params[0] as string;
+            const p = passwords.get(targetId);
+            return { results: p ? [p] : [] };
+          }
           if (query.includes("COUNT(*) as count FROM indices WHERE creator_id = ?")) {
             const creatorId = params[0] as string;
             const count = Array.from(indices.values()).filter(

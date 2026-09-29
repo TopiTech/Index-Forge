@@ -955,7 +955,12 @@ export function setAllowMemoryCacheInTest(allow: boolean): void {
   allowMemoryCacheInTest = allow;
 }
 
-export function getMemoryCache<T>(key: string): T | null {
+export interface MemoryCacheLookup<T> {
+  data: T;
+  remainingSeconds: number;
+}
+
+export function getMemoryCacheEntry<T>(key: string): MemoryCacheLookup<T> | null {
   if (
     typeof process !== "undefined" &&
     process.env?.NODE_ENV === "test" &&
@@ -966,11 +971,20 @@ export function getMemoryCache<T>(key: string): T | null {
   const targetMap = key.startsWith("calc:") ? calcMemoryCache : memoryCache;
   const entry = targetMap.get(key);
   if (!entry) return null;
-  if (Date.now() > entry.expiresAt) {
+  const remainingMs = entry.expiresAt - Date.now();
+  if (remainingMs <= 0) {
     targetMap.delete(key);
     return null;
   }
-  return entry.data as T;
+  return {
+    data: entry.data as T,
+    remainingSeconds: Math.max(1, Math.floor(remainingMs / 1000)),
+  };
+}
+
+export function getMemoryCache<T>(key: string): T | null {
+  const entry = getMemoryCacheEntry<T>(key);
+  return entry ? entry.data : null;
 }
 
 export function setMemoryCache(key: string, data: unknown, ttlSeconds: number): void {
@@ -1748,7 +1762,22 @@ export default {
               return json({ error: "パスワードは8〜100文字で入力してください" }, 400, request);
             }
             const collision = await findPasswordCollision(env, password.trim(), id);
-            const isTargetAdmin = role === "admin";
+            let isTargetAdmin = role === "admin";
+            if (role !== "admin" && role !== "user") {
+              try {
+                const { results: existingRows } = await env.DB.prepare(
+                  "SELECT role FROM access_passwords WHERE id = ?",
+                )
+                  .bind(id)
+                  .all();
+                const existingRow = existingRows?.[0] as { role?: string } | undefined;
+                if (existingRow?.role === "admin") {
+                  isTargetAdmin = true;
+                }
+              } catch {
+                // If query fails or column is missing, fall back to role value
+              }
+            }
             if (collision.isAdminCollision || (isTargetAdmin && collision.hasCollision)) {
               const errorMsg = isTargetAdmin
                 ? "既存のユーザーアカウントで使用されているパスワードは管理者に設定できません"
@@ -2409,19 +2438,22 @@ export default {
           }
 
           const memKey = `snapshot:${symbol}`;
-          const memCached = getMemoryCache<unknown>(memKey);
-          if (memCached) {
+          const memCachedEntry = getMemoryCacheEntry<unknown>(memKey);
+          if (memCachedEntry) {
+            const memCached = memCachedEntry.data;
+            const remainingTtl = Math.max(10, memCachedEntry.remainingSeconds);
+            const cacheControl = `public, max-age=${Math.min(60, remainingTtl)}, s-maxage=${Math.min(remainingTtl, 1800)}`;
             const etag = await generateETag(JSON.stringify(memCached));
             const ifNoneMatch = request.headers.get("if-none-match");
             if (ifNoneMatch && (ifNoneMatch === etag || ifNoneMatch === `W/${etag}`)) {
               return notModified(request, {
                 etag: etag,
-                "cache-control": "public, max-age=60, s-maxage=300",
+                "cache-control": cacheControl,
               });
             }
             return json(memCached, 200, request, {
               etag: etag,
-              "cache-control": "public, max-age=60, s-maxage=300",
+              "cache-control": cacheControl,
             });
           }
 
@@ -2637,19 +2669,29 @@ export default {
           }
 
           const memKey = "ticker:quotes";
-          const memCached = getMemoryCache<{ updatedAt: string; quotes: TickerPriceQuote[] }>(memKey);
-          if (memCached) {
+          const memCachedEntry = getMemoryCacheEntry<{
+            updatedAt: string;
+            quotes: TickerPriceQuote[];
+            allStale?: boolean;
+          }>(memKey);
+          if (memCachedEntry) {
+            const memCached = memCachedEntry.data;
+            const remainingTtl = memCachedEntry.remainingSeconds;
+            const isStale = Boolean(memCached.allStale);
+            const edgeTtl = isStale ? Math.min(10, remainingTtl) : Math.min(60, remainingTtl);
+            const browserTtl = isStale ? Math.min(5, remainingTtl) : Math.min(30, remainingTtl);
+            const cacheControl = `public, max-age=${browserTtl}, s-maxage=${edgeTtl}`;
             const etag = await generateETag(JSON.stringify(memCached));
             const ifNoneMatch = request.headers.get("if-none-match");
             if (ifNoneMatch && (ifNoneMatch === etag || ifNoneMatch === `W/${etag}`)) {
               return notModified(request, {
                 etag,
-                "cache-control": "public, max-age=30, s-maxage=60",
+                "cache-control": cacheControl,
               });
             }
             return json(memCached, 200, request, {
               etag,
-              "cache-control": "public, max-age=30, s-maxage=60",
+              "cache-control": cacheControl,
             });
           }
 
@@ -2670,18 +2712,21 @@ export default {
           };
 
           setMemoryCache(memKey, responseData, allStale ? 10 : 45);
+          const edgeTtl = allStale ? 10 : 60;
+          const browserTtl = allStale ? 5 : 30;
+          const cacheControl = `public, max-age=${browserTtl}, s-maxage=${edgeTtl}`;
           const etag = await generateETag(JSON.stringify(responseData));
           const ifNoneMatch = request.headers.get("if-none-match");
           if (ifNoneMatch && (ifNoneMatch === etag || ifNoneMatch === `W/${etag}`)) {
             return notModified(request, {
               etag,
-              "cache-control": "public, max-age=30, s-maxage=60",
+              "cache-control": cacheControl,
             });
           }
 
           return json(responseData, 200, request, {
             etag,
-            "cache-control": "public, max-age=30, s-maxage=60",
+            "cache-control": cacheControl,
           });
         } catch (err) {
           console.error("API Error [ticker-prices]:", err);

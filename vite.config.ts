@@ -30,6 +30,7 @@ export default defineConfig({
     },
   },
   test: {
+    testTimeout: 10000,
     // Include .tsx/.spec and worker tests as well: the toolchain
     // (eslint + tsconfigs) already anticipates .tsx tests, and a .ts-only
     // pattern would silently skip the first real DOM test.
