@@ -408,7 +408,42 @@ export function calculatePeriodReturns(
   }
 
   let benchmarkReturn = 0;
-  if (filteredBenchmarkSeries.length >= 2) {
+  if (filteredBenchmarkSeries.length >= 1 && filteredCustomSeries.length >= 2) {
+    const customStartDate = filteredCustomSeries[0].date;
+    const customEndDate = filteredCustomSeries[filteredCustomSeries.length - 1].date;
+
+    // Find the benchmark baseline price corresponding to custom start date.
+    let startPoint: PricePoint | undefined;
+    for (const p of filteredBenchmarkSeries) {
+      if (p.date <= customStartDate && p.close > 0) {
+        startPoint = p;
+      } else if (p.date > customStartDate) {
+        break;
+      }
+    }
+    if (!startPoint && filteredBenchmarkSeries.length > 0) {
+      startPoint = filteredBenchmarkSeries.find((p) => p.close > 0);
+    }
+
+    // Find the benchmark ending price corresponding to custom end date.
+    let endPoint: PricePoint | undefined;
+    for (const p of filteredBenchmarkSeries) {
+      if (p.date <= customEndDate && p.close > 0) {
+        endPoint = p;
+      } else if (p.date > customEndDate) {
+        break;
+      }
+    }
+    if (!endPoint && filteredBenchmarkSeries.length > 0) {
+      endPoint = filteredBenchmarkSeries[filteredBenchmarkSeries.length - 1];
+    }
+
+    if (startPoint && endPoint && startPoint.close > 0 && endPoint.close > 0 && startPoint !== endPoint) {
+      benchmarkReturn = sanitizeMetricPct(((endPoint.close - startPoint.close) / startPoint.close) * 100);
+    } else if (startPoint && endPoint && startPoint.close > 0 && endPoint.close > 0 && startPoint === endPoint) {
+      benchmarkReturn = 0;
+    }
+  } else if (filteredBenchmarkSeries.length >= 2) {
     const start = filteredBenchmarkSeries[0].close;
     const end = filteredBenchmarkSeries[filteredBenchmarkSeries.length - 1].close;
     if (start > 0) {

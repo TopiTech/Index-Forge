@@ -69,15 +69,33 @@ export function SimulationPreview({
 
     // Create a benchmark lookup map by date
     const benchmarkMap = new Map(filteredBenchmarkSeries.map((b) => [b.date, b.close]));
-    const benchmarkBase =
-      filteredBenchmarkSeries.length > 0 ? filteredBenchmarkSeries[0].close : 0;
+
+    // Find the benchmark baseline price corresponding to custom start date.
+    const customStartDate = filteredCustomSeries[0].date;
+    let benchmarkBase = 0;
+    for (const b of filteredBenchmarkSeries) {
+      if (b.date <= customStartDate && b.close > 0) {
+        benchmarkBase = b.close;
+      } else if (b.date > customStartDate) {
+        break;
+      }
+    }
+    if (benchmarkBase <= 0 && filteredBenchmarkSeries.length > 0) {
+      benchmarkBase = filteredBenchmarkSeries.find((b) => b.close > 0)?.close || 0;
+    }
+
+    let lastKnownBmVal = benchmarkBase;
 
     return filteredCustomSeries.map((point) => {
       const customVal = point.value ?? point.close;
       const customReturnPct =
         customBase > 0 ? ((customVal - customBase) / customBase) * 100 : 0;
 
-      const bmVal = benchmarkMap.get(point.date);
+      const rawBmVal = benchmarkMap.get(point.date);
+      if (rawBmVal !== undefined && rawBmVal > 0) {
+        lastKnownBmVal = rawBmVal;
+      }
+      const bmVal = rawBmVal ?? (lastKnownBmVal > 0 ? lastKnownBmVal : undefined);
       const benchmarkReturnPct =
         bmVal !== undefined && benchmarkBase > 0
           ? ((bmVal - benchmarkBase) / benchmarkBase) * 100

@@ -679,8 +679,10 @@ async function upgradeLegacyPasswordHash(
 export interface PasswordCollisionCheckResult {
   hasCollision: boolean;
   isMasterAdminCollision?: boolean;
+  isAdminCollision?: boolean;
   collidingId?: string;
   collidingName?: string;
+  collidingRole?: "admin" | "user";
 }
 
 export async function findPasswordCollision(
@@ -707,8 +709,10 @@ export async function findPasswordCollision(
         return {
           hasCollision: true,
           isMasterAdminCollision: true,
+          isAdminCollision: true,
           collidingId: "admin-master",
           collidingName: masterRow.name || "マスター管理者",
+          collidingRole: "admin",
         };
       }
     } else if (env.ADMIN_PASSWORD) {
@@ -717,8 +721,10 @@ export async function findPasswordCollision(
         return {
           hasCollision: true,
           isMasterAdminCollision: true,
+          isAdminCollision: true,
           collidingId: "admin-master",
           collidingName: "管理者",
+          collidingRole: "admin",
         };
       }
     }
@@ -727,19 +733,22 @@ export async function findPasswordCollision(
   // 2. Check against other accounts in access_passwords
   try {
     const query = excludeId
-      ? "SELECT id, name, password_hash FROM access_passwords WHERE id != ? AND id != 'admin-master'"
-      : "SELECT id, name, password_hash FROM access_passwords WHERE id != 'admin-master'";
+      ? "SELECT id, name, role, password_hash FROM access_passwords WHERE id != ? AND id != 'admin-master'"
+      : "SELECT id, name, role, password_hash FROM access_passwords WHERE id != 'admin-master'";
     const stmt = excludeId ? env.DB.prepare(query).bind(excludeId) : env.DB.prepare(query);
     const { results } = await stmt.all();
 
     for (const row of results || []) {
-      const r = row as { id: string; name: string; password_hash: string };
+      const r = row as { id: string; name: string; role?: "admin" | "user"; password_hash: string };
       if (r.password_hash && (await verifyPasswordHash(candidatePassword, r.password_hash))) {
+        const isAdmin = r.role === "admin";
         return {
           hasCollision: true,
           isMasterAdminCollision: false,
+          isAdminCollision: isAdmin,
           collidingId: r.id,
           collidingName: r.name,
+          collidingRole: r.role || "user",
         };
       }
     }
@@ -1231,6 +1240,11 @@ export async function fetchAllTickerQuotes(
   return Promise.all(promises);
 }
 
+const lastKnownTickerQuotes = new Map<string, TickerPriceQuote>();
+export function resetLastKnownTickerQuotes(): void {
+  lastKnownTickerQuotes.clear();
+}
+
 function isAllowedOrigin(origin: string): boolean {
   try {
     const url = new URL(origin);
@@ -1614,8 +1628,12 @@ export default {
           const initialPassword = password.trim();
           await ensurePasswordTable(env);
           const collision = await findPasswordCollision(env, initialPassword);
-          if (collision.hasCollision && collision.isMasterAdminCollision) {
-            return json({ error: "管理者アカウントと同一のパスワードは設定できません" }, 400, request);
+          const isTargetAdmin = assignedRole === "admin";
+          if (collision.isAdminCollision || (isTargetAdmin && collision.hasCollision)) {
+            const errorMsg = isTargetAdmin
+              ? "既存のユーザーアカウントで使用されているパスワードは管理者に設定できません"
+              : "管理者アカウントと同一のパスワードは設定できません";
+            return json({ error: errorMsg }, 400, request);
           }
           const hash = await hashPassword(initialPassword);
           const now = Math.floor(Date.now() / 1000);
@@ -1730,8 +1748,12 @@ export default {
               return json({ error: "パスワードは8〜100文字で入力してください" }, 400, request);
             }
             const collision = await findPasswordCollision(env, password.trim(), id);
-            if (collision.hasCollision && collision.isMasterAdminCollision) {
-              return json({ error: "管理者アカウントと同一のパスワードは設定できません" }, 400, request);
+            const isTargetAdmin = role === "admin";
+            if (collision.isAdminCollision || (isTargetAdmin && collision.hasCollision)) {
+              const errorMsg = isTargetAdmin
+                ? "既存のユーザーアカウントで使用されているパスワードは管理者に設定できません"
+                : "管理者アカウントと同一のパスワードは設定できません";
+              return json({ error: errorMsg }, 400, request);
             }
             const hash = await hashPassword(password.trim());
             updates.push("password_hash = ?");
@@ -2446,19 +2468,20 @@ export default {
                 benchInfo,
               );
               if (!parsedData) throw new Error("Invalid snapshot cache payload");
-              const memTtl = Math.max(60, Math.min(snapshotTtl, 300));
+              const remainingTtl = Math.max(10, snapshotTtl - (now - cacheRow.cached_at));
+              const memTtl = Math.max(10, Math.min(remainingTtl, 300));
               setMemoryCache(memKey, parsedData, memTtl);
               const etag = await generateETag(JSON.stringify(parsedData));
               const ifNoneMatch = request.headers.get("if-none-match");
               if (ifNoneMatch && (ifNoneMatch === etag || ifNoneMatch === `W/${etag}`)) {
                 return notModified(request, {
                   etag: etag,
-                  "cache-control": `public, max-age=60, s-maxage=${Math.min(snapshotTtl, 1800)}`,
+                  "cache-control": `public, max-age=${Math.min(60, remainingTtl)}, s-maxage=${Math.min(remainingTtl, 1800)}`,
                 });
               }
               return json(parsedData, 200, request, {
                 etag: etag,
-                "cache-control": `public, max-age=60, s-maxage=${Math.min(snapshotTtl, 1800)}`,
+                "cache-control": `public, max-age=${Math.min(60, remainingTtl)}, s-maxage=${Math.min(remainingTtl, 1800)}`,
               });
             } catch {
               // Malformed cache, proceed to fresh fetch
@@ -2630,7 +2653,12 @@ export default {
             });
           }
 
-          const quotes = await fetchAllTickerQuotes();
+          const quotes = await fetchAllTickerQuotes(lastKnownTickerQuotes);
+          for (const q of quotes) {
+            if (!q.stale) {
+              lastKnownTickerQuotes.set(q.proName, q);
+            }
+          }
           // A payload where every quote is a static/previous fallback must
           // never be cached as fresh market data: shorten its TTL and flag it
           // so the client keeps the 参考値 disclosure instead of badging LIVE.
