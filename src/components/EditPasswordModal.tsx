@@ -379,7 +379,11 @@ export function EditPasswordModal({
               type="text"
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
-              placeholder="新しいパスワード（8文字以上）"
+              placeholder={
+                item.role !== "admin" && role === "admin"
+                  ? "新しい管理者パスワード（重複防止のため設定推奨）"
+                  : "新しいパスワード（8文字以上）"
+              }
               style={{
                 width: "100%",
                 padding: "8px 12px",
@@ -392,6 +396,18 @@ export function EditPasswordModal({
                 fontFamily: "monospace",
               }}
             />
+            {item.role !== "admin" && role === "admin" && (
+              <div
+                style={{
+                  fontSize: 11,
+                  color: "var(--accent-text)",
+                  marginTop: 4,
+                  lineHeight: 1.4,
+                }}
+              >
+                ※ 一般ユーザーから管理者への昇格時は、他ユーザーとの重複防止のため新しいパスワードの設定を推奨します
+              </div>
+            )}
           </div>
 
           {/* Active Status */}

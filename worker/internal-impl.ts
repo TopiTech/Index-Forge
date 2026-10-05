@@ -1772,6 +1772,74 @@ export default {
             updates.push("name = ?");
             params.push(name.trim());
           }
+          // Collision prevention when promoting or maintaining admin role
+          if (role === "admin" && (!password || typeof password !== "string" || password.trim().length === 0)) {
+            try {
+              const { results: existingRows } = await env.DB.prepare(
+                "SELECT role, password_hash FROM access_passwords WHERE id = ?",
+              )
+                .bind(id)
+                .all();
+              const existingRow = existingRows?.[0] as { role?: string; password_hash?: string } | undefined;
+              if (existingRow && existingRow.role !== "admin" && existingRow.password_hash) {
+                // Check if existing password_hash collides with master admin
+                let masterHash: string | undefined;
+                try {
+                  const masterRes = await env.DB.prepare(
+                    "SELECT password_hash FROM access_passwords WHERE id = 'admin-master'",
+                  ).all();
+                  masterHash = (masterRes.results?.[0] as { password_hash?: string } | undefined)?.password_hash;
+                } catch {
+                  // ignore
+                }
+                if (masterHash && existingRow.password_hash === masterHash) {
+                  return json(
+                    { error: "管理者アカウントと同一のパスワードは設定できません" },
+                    400,
+                    request,
+                  );
+                }
+                if (env.ADMIN_PASSWORD) {
+                  const trimmed = env.ADMIN_PASSWORD.trim();
+                  if (trimmed && existingRow.password_hash === (await hashToken(trimmed))) {
+                    return json(
+                      { error: "管理者アカウントと同一のパスワードは設定できません" },
+                      400,
+                      request,
+                    );
+                  }
+                }
+
+                // Check if existing password_hash collides with any other account in access_passwords
+                const otherRowsRes = await env.DB.prepare(
+                  "SELECT id, role, password_hash FROM access_passwords WHERE id != 'admin-master'",
+                ).all();
+                const otherRows = (
+                  (otherRowsRes.results || []) as Array<{
+                    id: string;
+                    role?: string;
+                    password_hash?: string;
+                  }>
+                ).filter((r) => r.id !== id);
+                const hasDuplicate = otherRows.some(
+                  (r) => r.password_hash === existingRow.password_hash,
+                );
+                if (hasDuplicate) {
+                  return json(
+                    {
+                      error:
+                        "既存のアカウントと同一のパスワードが設定されているため管理者に昇格できません。新しいパスワードを指定してください",
+                    },
+                    400,
+                    request,
+                  );
+                }
+              }
+            } catch {
+              // Backward-compatible fallback
+            }
+          }
+
           if (typeof password === "string" && password.trim().length > 0) {
             if (password.trim().length < 8 || password.trim().length > 100) {
               return json({ error: "パスワードは8〜100文字で入力してください" }, 400, request);
