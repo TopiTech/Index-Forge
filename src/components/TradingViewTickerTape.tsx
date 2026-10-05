@@ -352,6 +352,7 @@ export function TradingViewTickerTape() {
     <>
       <div
         className="tradingview-ticker-bar"
+        role="region"
         aria-label={
           isLive
             ? "主要指数マーケットティッカー(リアルタイム市場データ。ホバーまたはクリックでTradingViewチャートプレビュー)"
@@ -361,7 +362,6 @@ export function TradingViewTickerTape() {
         <div className="tv-interactive-ticker-wrapper">
           <div
             className={`tv-ticker-track ${hoveredSymbol ? "paused" : ""}`}
-            role="region"
             aria-live="off"
           >
             {displayItems.map((item, index) => {

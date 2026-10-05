@@ -9,7 +9,7 @@ import {
   resolvePersistedOwnerToken,
 } from "../hooks/useIndices";
 import { SYSTEM_INDICES as SRC_SYSTEM_INDICES } from "../data/indices";
-import { SYSTEM_INDICES as WORKER_SYSTEM_INDICES } from "../../worker/index";
+import { SYSTEM_INDICES as WORKER_SYSTEM_INDICES } from "../../worker/internal";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const readSrc = (rel: string) => readFileSync(resolve(here, rel), "utf8");
@@ -81,7 +81,7 @@ describe("current review round: TradingView widget script injection", () => {
 
 describe("current review round: SYSTEM_INDICES single source of truth", () => {
   it("worker re-exports the shared set instead of a duplicate literal", () => {
-    const workerSrc = readSrc("../../worker/index.ts");
+    const workerSrc = readSrc("../../worker/internal-impl.ts");
     expect(workerSrc).toContain('from "../src/data/indices"');
     expect(workerSrc).toContain("export const SYSTEM_INDICES = SHARED_SYSTEM_INDICES;");
   });

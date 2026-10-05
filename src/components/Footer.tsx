@@ -89,7 +89,7 @@ export function Footer({ onNavigate, currentView = "dashboard" }: FooterProps) {
 
           {/* Site Navigation */}
           <div className="footer-col">
-            <h4 className="footer-heading">ページ</h4>
+            <h2 className="footer-heading">ページ</h2>
             <ul className="footer-nav-list">
               <li>
                 <FooterNavLink
@@ -152,7 +152,7 @@ export function Footer({ onNavigate, currentView = "dashboard" }: FooterProps) {
 
           {/* Social Links */}
           <div className="footer-col">
-            <h4 className="footer-heading">SNS & 開発者リンク</h4>
+            <h2 className="footer-heading">SNS & 開発者リンク</h2>
             <ul className="footer-social-list">
               <li>
                 <a

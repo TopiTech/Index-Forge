@@ -1,11 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import worker, {
+import worker from "../../worker/index";
+import {
   setAllowMemoryCacheInTest,
   setMemoryCache,
   clearMemoryCache,
   getMemoryCacheEntry,
   hashPassword,
-} from "../../worker/index";
+} from "../../worker/internal";
 
 function createTestDb(passwords: Map<string, any>) {
   const executeQuery = (query: string, params: unknown[] = []) => ({

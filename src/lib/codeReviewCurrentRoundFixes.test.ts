@@ -1,10 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import worker, {
+import worker from "../../worker/index";
+import {
   hashPassword,
   clearAuthCache,
   resetPasswordTableEnsured,
   resetLastKnownTickerQuotes,
-} from "../../worker/index";
+} from "../../worker/internal";
 import { calculatePeriodReturns } from "../hooks/useSimulation";
 import type { PricePoint } from "../types";
 

@@ -1,12 +1,13 @@
 import { beforeEach, describe, it, expect, vi } from "vitest";
-import worker, {
+import worker from "../../worker/index";
+import {
   toYahooSymbol,
   SYSTEM_INDICES,
   hashToken,
   clearAuthCache,
   resetPasswordTableEnsured,
   setAllowMemoryCacheInTest,
-} from "../../worker/index";
+} from "../../worker/internal";
 
 const TEST_ADMIN_PASSWORD = "test-admin-password";
 

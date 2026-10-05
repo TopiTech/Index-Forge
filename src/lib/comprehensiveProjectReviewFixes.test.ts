@@ -94,7 +94,8 @@ describe("Comprehensive Project Review & Fixes Verification", () => {
 
   describe("8. Worker DELETE Endpoints Support ownerToken via SearchParams", () => {
     it("authorizes DELETE /api/indices/stock with ownerToken in query params", async () => {
-      const { default: workerInstance, hashToken, hashPassword, clearAuthCache } = await import("../../worker/index");
+      const { default: workerInstance } = await import("../../worker/index");
+      const { hashToken, hashPassword, clearAuthCache } = await import("../../worker/internal");
       clearAuthCache();
       const secretToken = "my-secret-token-123";
       const hashed = await hashToken(secretToken);
@@ -151,7 +152,8 @@ describe("Comprehensive Project Review & Fixes Verification", () => {
     });
 
     it("authorizes DELETE /api/indices with ownerToken in query params", async () => {
-      const { default: workerInstance, hashToken, clearAuthCache } = await import("../../worker/index");
+      const { default: workerInstance } = await import("../../worker/index");
+      const { hashToken, clearAuthCache } = await import("../../worker/internal");
       clearAuthCache();
       const secretToken = "my-secret-token-123";
       const hashed = await hashToken(secretToken);
@@ -189,7 +191,8 @@ describe("Comprehensive Project Review & Fixes Verification", () => {
     });
 
     it("rejects DELETE /api/indices/stock when ownerToken in query params is mismatched", async () => {
-      const { default: workerInstance, hashToken, hashPassword, clearAuthCache } = await import("../../worker/index");
+      const { default: workerInstance } = await import("../../worker/index");
+      const { hashToken, hashPassword, clearAuthCache } = await import("../../worker/internal");
       clearAuthCache();
       const secretToken = "correct-secret-token";
       const hashed = await hashToken(secretToken);
@@ -241,7 +244,8 @@ describe("Comprehensive Project Review & Fixes Verification", () => {
     });
 
     it("rejects DELETE /api/indices when ownerToken in query params is mismatched", async () => {
-      const { default: workerInstance, hashToken, clearAuthCache } = await import("../../worker/index");
+      const { default: workerInstance } = await import("../../worker/index");
+      const { hashToken, clearAuthCache } = await import("../../worker/internal");
       clearAuthCache();
       const secretToken = "correct-secret-token";
       const hashed = await hashToken(secretToken);

@@ -354,7 +354,7 @@ export function PerformanceChart({
               </div>
             </div>
             {onRetry && (
-              <button className="btn btn-default btn-sm" onClick={onRetry} style={{ marginTop: 4 }}>
+              <button type="button" className="btn btn-default btn-sm" onClick={onRetry} style={{ marginTop: 4 }}>
                 <RefreshCw size={12} />
                 再試行
               </button>

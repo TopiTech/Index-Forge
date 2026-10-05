@@ -5,7 +5,7 @@ import {
   formatTickerPrice,
   formatTickerChange,
   formatTickerChangePercent,
-} from "../../worker/index";
+} from "../../worker/internal";
 
 /**
  * Tests for TradingViewTickerTape real-time quotes and fallback consistency.

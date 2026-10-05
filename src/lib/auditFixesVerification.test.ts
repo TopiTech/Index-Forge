@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import worker, {
+import worker from "../../worker/index";
+import {
   isPriceCacheFresh,
   clearMemoryCache,
   getMemoryCache,
@@ -7,7 +8,7 @@ import worker, {
   clearAuthCache,
   resetPasswordTableEnsured,
   hashPassword,
-} from "../../worker/index";
+} from "../../worker/internal";
 
 describe("Audit Fixes Verification: Market-Aware Stock Price Freshness", () => {
   it("keeps Friday closing prices fresh throughout the entire weekend and Monday pre-open", () => {

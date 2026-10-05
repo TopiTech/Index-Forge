@@ -8,18 +8,26 @@ export function ThemeControls() {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const radioRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const toggleRef = useRef<HTMLButtonElement>(null);
 
   // Close palette on click outside or Escape key
   useEffect(() => {
     if (!isOpen) return;
+    // The popover unmounts while focus is inside it, which would drop focus to
+    // <body> and restart tabbing at the top of the document. Hand focus back to
+    // the toggle whenever the popover closes this way.
+    const close = () => {
+      setIsOpen(false);
+      toggleRef.current?.focus();
+    };
     const handleClickOutside = (e: MouseEvent) => {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setIsOpen(false);
+        close();
       }
     };
     const handleKeyDownGlobal = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        setIsOpen(false);
+        close();
       }
     };
     document.addEventListener("mousedown", handleClickOutside);
@@ -82,6 +90,7 @@ export function ThemeControls() {
       {/* Accent Color Palette Collapsed by Default */}
       <div ref={containerRef} style={{ position: "relative" }}>
         <button
+          ref={toggleRef}
           type="button"
           onClick={() => setIsOpen((prev) => !prev)}
           className="btn btn-sm btn-outline theme-palette-toggle-btn"

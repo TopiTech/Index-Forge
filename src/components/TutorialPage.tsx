@@ -98,6 +98,17 @@ export function TutorialPage({ onComplete, onSkip }: TutorialPageProps) {
           target.tagName === "TEXTAREA" ||
           target.isContentEditable);
       if (isInputFocused) return;
+      // The 3D canvas handles the same keys for camera control and only calls
+      // preventDefault() (which does not stop propagation). Without these guards
+      // a single ArrowRight both rotated the camera and advanced the tutorial,
+      // and on the last step it completed the tutorial outright.
+      if (e.defaultPrevented) return;
+      if (
+        target instanceof Element &&
+        target.closest(".tutorial-3d-container") !== null
+      ) {
+        return;
+      }
 
       switch (e.key) {
         case "Escape":
@@ -159,7 +170,10 @@ export function TutorialPage({ onComplete, onSkip }: TutorialPageProps) {
       </div>
 
       {/* Top Header Bar */}
-      <header className="tutorial-top-bar">
+      {/* Not a <header>: this page's wrapper is role="main", and a banner
+          landmark nested inside main is a landmark-structure violation. A plain
+          div keeps the visual bar without creating a nested landmark. */}
+      <div className="tutorial-top-bar">
         <div className="tutorial-brand">
           <div className="tutorial-brand-icon" aria-hidden="true">
             <Sparkles size={18} />
@@ -210,7 +224,7 @@ export function TutorialPage({ onComplete, onSkip }: TutorialPageProps) {
             <X size={15} aria-hidden="true" />
           </button>
         </div>
-      </header>
+      </div>
 
       {/* Main Interactive Stage */}
       <div className="tutorial-stage">
@@ -285,15 +299,11 @@ export function TutorialPage({ onComplete, onSkip }: TutorialPageProps) {
         {/* Narrative & Guidance Sidebar Card */}
         <aside className="tutorial-narrative-card">
           {/* Progress Indicators */}
-          <div
-            className="tutorial-progress-bar-container"
-            role="progressbar"
-            aria-valuenow={currentStepIndex + 1}
-            aria-valuemin={1}
-            aria-valuemax={TUTORIAL_STEPS.length}
-            aria-label={`ステップ ${currentStepIndex + 1} / ${TUTORIAL_STEPS.length}`}
-          >
-            <div className="tutorial-step-tabs">
+          {/* The container holds focusable step buttons, so it cannot itself be
+              role="progressbar" (axe: nested-interactive). The progressbar role
+              moves to the non-interactive counter text. */}
+          <div className="tutorial-progress-bar-container">
+            <div className="tutorial-step-tabs" role="group" aria-label="チュートリアルステップ">
               {TUTORIAL_STEPS.map((step, idx) => {
                 const isCurrent = idx === currentStepIndex;
                 const isPassed = idx < currentStepIndex;
@@ -312,7 +322,14 @@ export function TutorialPage({ onComplete, onSkip }: TutorialPageProps) {
                 );
               })}
             </div>
-            <div className="tutorial-step-counter mono tiny muted">
+            <div
+              className="tutorial-step-counter mono tiny muted"
+              role="progressbar"
+              aria-valuenow={currentStepIndex + 1}
+              aria-valuemin={1}
+              aria-valuemax={TUTORIAL_STEPS.length}
+              aria-label={`ステップ ${currentStepIndex + 1} / ${TUTORIAL_STEPS.length}`}
+            >
               STEP {currentStepIndex + 1} OF {TUTORIAL_STEPS.length}
             </div>
           </div>

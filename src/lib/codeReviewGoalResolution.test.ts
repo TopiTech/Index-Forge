@@ -42,15 +42,30 @@ describe("Code Review Goal Resolutions", () => {
   });
 
   describe("AdminDashboard tab abortion and loading state", () => {
-    it("resets loading state unconditionally in finally block", () => {
+    it("does not release the loading state or in-flight guard for an aborted request", () => {
       const adminTsx = fs.readFileSync(
         path.resolve(process.cwd(), "src/components/AdminDashboard.tsx"),
         "utf-8"
       );
 
-      // The finally block should unconditionally call setLoadingPasswords(false)
+      // Regression: the finally block used to clear the loading flag and the
+      // in-flight guard unconditionally. When the effect cleanup aborted an
+      // in-flight request and immediately re-ran fetchPasswords, the new
+      // invocation was rejected by the still-set guard, so the table stayed on
+      // an empty list that read as "no passwords issued yet".
       expect(adminTsx).toMatch(
-        /finally\s*\{\s*setLoadingPasswords\(false\);\s*isFetchingPasswordsRef\.current\s*=\s*false;/
+        /finally\s*\{\s*\/\/[\s\S]*?if \(!controller\.signal\.aborted\) \{\s*setLoadingPasswords\(false\);\s*isFetchingPasswordsRef\.current\s*=\s*false;/
+      );
+    });
+
+    it("releases the in-flight guard when the effect aborts a request", () => {
+      const adminTsx = fs.readFileSync(
+        path.resolve(process.cwd(), "src/components/AdminDashboard.tsx"),
+        "utf-8"
+      );
+
+      expect(adminTsx).toMatch(
+        /abortControllerRef\.current\.abort\(\);\s*\/\/[\s\S]*?isFetchingPasswordsRef\.current\s*=\s*false;/
       );
     });
   });

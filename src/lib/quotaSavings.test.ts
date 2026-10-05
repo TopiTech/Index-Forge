@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import worker, {
+import worker from "../../worker/index";
+import {
   getMarketAwareCacheDuration,
   setAllowMemoryCacheInTest,
   clearMemoryCache,
@@ -7,7 +8,7 @@ import worker, {
   clearMemoryRateLimits,
   resetPasswordTableEnsured,
   authenticatePassword,
-} from "../../worker/index";
+} from "../../worker/internal";
 import {
   isTseMarketOpen,
   getTickerPollingInterval,

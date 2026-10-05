@@ -5821,9 +5821,13 @@ textarea:focus-visible {
   }
 
   .heatmap-tile {
-    min-width: 36px;
-    min-height: 32px;
-    padding: 2px 4px !important;
+    /* Tile geometry is a percentage-based treemap. A min-width here overrides
+       the computed width, so on narrow viewports small tiles were forced to
+       36px, overlapped their neighbours and were clipped by the container's
+       overflow:hidden — making the right half of the portfolio unreachable. */
+    min-width: 0;
+    min-height: 0;
+    padding: 1px 2px !important;
   }
 
   .heatmap-tile-code {

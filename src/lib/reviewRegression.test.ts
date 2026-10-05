@@ -1,11 +1,12 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import worker, {
+import worker from "../../worker/index";
+import {
   clearAuthCache,
   hashToken,
   resetPasswordTableEnsured,
-} from "../../worker/index";
+} from "../../worker/internal";
 
 beforeEach(() => {
   clearAuthCache();

@@ -9,7 +9,7 @@ import {
   checkMemoryRateLimit,
   clearMemoryRateLimits,
   MAX_MEMORY_RATE_LIMIT_ENTRIES,
-} from "../../worker/index";
+} from "../../worker/internal";
 
 describe("Comprehensive Quality Audit - Regression and Unit Tests", () => {
   describe("determineTickFlashDirection", () => {

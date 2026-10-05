@@ -6,9 +6,26 @@ export function Card({
   className = "",
   style = {},
   role,
-}: PropsWithChildren<{ className?: string; style?: React.CSSProperties; role?: React.AriaRole }>) {
+  ariaLabel,
+  ariaDescribedBy,
+}: PropsWithChildren<{
+  className?: string;
+  style?: React.CSSProperties;
+  role?: React.AriaRole;
+  ariaLabel?: string;
+  ariaDescribedBy?: string;
+}>) {
+  // aria-label must be forwarded explicitly: a role="region" without an
+  // accessible name is ignored, and callers using this wrapper previously had
+  // their label silently dropped.
   return (
-    <div className={`card ${className}`} style={style} role={role}>
+    <div
+      className={`card ${className}`}
+      style={style}
+      role={role}
+      aria-label={ariaLabel}
+      aria-describedby={ariaDescribedBy}
+    >
       {children}
     </div>
   );

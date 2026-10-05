@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import worker, {
+import worker from "../../worker/index";
+import {
   clearAuthCache,
   resetPasswordTableEnsured,
-} from "../../worker/index";
+} from "../../worker/internal";
 import { escapeCsvCell } from "./csv";
 import { calculateRiskMetrics } from "./analytics";
 import { normalizeTicker } from "./indexEngine";

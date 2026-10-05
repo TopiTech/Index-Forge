@@ -138,8 +138,15 @@ export function AdminDashboard({
       console.error("Failed to fetch passwords:", err);
       if (!controller.signal.aborted) setPasswordFetchError(msg);
     } finally {
-      setLoadingPasswords(false);
-      isFetchingPasswordsRef.current = false;
+      // An aborted request must not clear the loading state or release the
+      // in-flight guard: the effect cleanup aborts and immediately re-runs
+      // fetchPasswords, and the new invocation would otherwise be rejected by
+      // the guard, leaving the table stuck on an empty list that looks like
+      // "no passwords issued yet".
+      if (!controller.signal.aborted) {
+        setLoadingPasswords(false);
+        isFetchingPasswordsRef.current = false;
+      }
     }
   }, [isAdmin, getHeaders]);
 
@@ -150,6 +157,8 @@ export function AdminDashboard({
     return () => {
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
+        // Release the guard synchronously so the next invocation can start.
+        isFetchingPasswordsRef.current = false;
       }
     };
   }, [isAdmin, activeTab, fetchPasswords]);
@@ -895,12 +904,13 @@ export function AdminDashboard({
                 <div style={{ display: "block", fontSize: 12, color: "var(--text-secondary)", marginBottom: 6 }}>
                   追加可能銘柄数（制限）
                 </div>
-                <div className="row flex-wrap" style={{ gap: 6, marginBottom: 8 }}>
+                <div className="row flex-wrap" style={{ gap: 6, marginBottom: 8 }} role="group" aria-label="追加可能銘柄数（制限）のプリセット">
                   {[3, 5, 10, 20].map((preset) => (
                     <button
                       key={preset}
                       type="button"
                       onClick={() => setNewUserMaxStocks(preset)}
+                      aria-pressed={newUserMaxStocks === preset}
                       className={`btn btn-sm ${newUserMaxStocks === preset ? "btn-default" : "btn-outline"}`}
                       style={{ padding: "4px 10px", fontSize: 11 }}
                     >
@@ -910,6 +920,7 @@ export function AdminDashboard({
                   <button
                     type="button"
                     onClick={() => setNewUserMaxStocks(null)}
+                    aria-pressed={newUserMaxStocks === null}
                     className={`btn btn-sm ${newUserMaxStocks === null ? "btn-default" : "btn-outline"}`}
                     style={{ padding: "4px 10px", fontSize: 11 }}
                   >
@@ -951,12 +962,13 @@ export function AdminDashboard({
                 <div style={{ display: "block", fontSize: 12, color: "var(--text-secondary)", marginBottom: 6 }}>
                   追加可能指数数（制限）
                 </div>
-                <div className="row flex-wrap" style={{ gap: 6, marginBottom: 8 }}>
+                <div className="row flex-wrap" style={{ gap: 6, marginBottom: 8 }} role="group" aria-label="追加可能指数数（制限）のプリセット">
                   {[1, 3, 5, 10].map((preset) => (
                     <button
                       key={preset}
                       type="button"
                       onClick={() => setNewUserMaxIndices(preset)}
+                      aria-pressed={newUserMaxIndices === preset}
                       className={`btn btn-sm ${newUserMaxIndices === preset ? "btn-default" : "btn-outline"}`}
                       style={{ padding: "4px 10px", fontSize: 11 }}
                     >
@@ -966,6 +978,7 @@ export function AdminDashboard({
                   <button
                     type="button"
                     onClick={() => setNewUserMaxIndices(null)}
+                    aria-pressed={newUserMaxIndices === null}
                     className={`btn btn-sm ${newUserMaxIndices === null ? "btn-default" : "btn-outline"}`}
                     style={{ padding: "4px 10px", fontSize: 11 }}
                   >

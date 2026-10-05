@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { toYahooSymbol as toYahooSymbolLib } from "./yahooSymbol";
 import { toYahooSymbol as toYahooSymbolLegacy } from "./yahooSymbolLegacy";
-import { toYahooSymbol as toYahooSymbolWorker } from "../../worker/index";
+import { toYahooSymbol as toYahooSymbolWorker } from "../../worker/internal";
 
 describe("toYahooSymbol", () => {
   it("converts Japanese numeric tickers to Tokyo exchange (.T) suffix", () => {

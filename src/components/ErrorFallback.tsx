@@ -53,12 +53,12 @@ export function ErrorFallback({ error, onRetry }: ErrorFallbackProps) {
           </p>
           <div className="row" style={{ justifyContent: "center", gap: 12 }}>
             {onRetry && (
-              <button className="btn btn-default" onClick={onRetry}>
+              <button type="button" className="btn btn-default" onClick={onRetry}>
                 <RefreshCw size={14} style={{ marginRight: 6 }} />
                 再試行
               </button>
             )}
-            <button className="btn btn-outline" onClick={() => window.location.reload()}>
+            <button type="button" className="btn btn-outline" onClick={() => window.location.reload()}>
               ページを更新
             </button>
           </div>

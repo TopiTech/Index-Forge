@@ -103,10 +103,20 @@ export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModal
 
   useModalFocus(Boolean(symbol), cardRef, onClose);
 
-  // Dispatch a global resize event to inform TradingView widget to adapt its internal canvas
+  // Dispatch a global resize event to inform TradingView widget to adapt its internal canvas.
+  // The window "resize" listener below re-enters this function when the card is
+  // maximized, so the re-entrancy guard is mandatory: without it a single
+  // maximize dispatch becomes unbounded synchronous recursion and the tab dies
+  // with "Maximum call stack size exceeded".
+  const isNotifyingResizeRef = useRef(false);
   const notifyTradingViewResize = useCallback(() => {
-    if (typeof window !== "undefined") {
+    if (typeof window === "undefined") return;
+    if (isNotifyingResizeRef.current) return;
+    isNotifyingResizeRef.current = true;
+    try {
       window.dispatchEvent(new Event("resize"));
+    } finally {
+      isNotifyingResizeRef.current = false;
     }
   }, []);
 
@@ -226,28 +236,28 @@ export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModal
         notifyTradingViewResize();
         return;
       }
-      setDimensions((current) => {
-        const maxW = Math.floor(window.innerWidth * 0.96);
-        const maxH = Math.floor(window.innerHeight * 0.94);
-        if (current.width > maxW || current.height > maxH) {
-          const isMobile = window.innerWidth <= 640;
-          const minW = isMobile ? Math.min(320, maxW) : Math.min(480, maxW);
-          const minH = isMobile ? Math.min(300, maxH) : Math.min(360, maxH);
-          const clamped = {
-            width: Math.max(minW, Math.min(current.width, maxW)),
-            height: Math.max(minH, Math.min(current.height, maxH)),
-          };
-          saveDimensions(clamped);
-          notifyTradingViewResize();
-          return clamped;
-        }
-        return current;
-      });
+      // State updaters must stay pure: writing localStorage and dispatching a
+      // global event from inside the reducer re-entered this listener while the
+      // update queue was still being built.
+      const maxW = Math.floor(window.innerWidth * 0.96);
+      const maxH = Math.floor(window.innerHeight * 0.94);
+      if (dimensions.width > maxW || dimensions.height > maxH) {
+        const isMobile = window.innerWidth <= 640;
+        const minW = isMobile ? Math.min(320, maxW) : Math.min(480, maxW);
+        const minH = isMobile ? Math.min(300, maxH) : Math.min(360, maxH);
+        const clamped = {
+          width: Math.max(minW, Math.min(dimensions.width, maxW)),
+          height: Math.max(minH, Math.min(dimensions.height, maxH)),
+        };
+        setDimensions(clamped);
+        saveDimensions(clamped);
+        notifyTradingViewResize();
+      }
     };
 
     window.addEventListener("resize", handleWindowResize);
     return () => window.removeEventListener("resize", handleWindowResize);
-  }, [isMaximized, saveDimensions, notifyTradingViewResize]);
+  }, [isMaximized, dimensions.width, dimensions.height, saveDimensions, notifyTradingViewResize]);
 
   // Corner pointer drag resize handlers with requestAnimationFrame throttling and pointer capture
   const handleResizePointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {

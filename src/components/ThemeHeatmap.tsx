@@ -237,7 +237,7 @@ export function ThemeHeatmap({ stockDetails, selectedTheme, onSelectTheme }: The
         </div>
       </div>
 
-      <div className="heatmap-legend" aria-label="ヒートマップの凡例">
+      <div className="heatmap-legend" role="group" aria-label="ヒートマップの凡例">
         <span className="heatmap-legend-item">
           <span className="heatmap-swatch heatmap-swatch-positive" aria-hidden="true" />
           上昇

@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import worker, {
+import worker from "../../worker/index";
+import {
   hashPassword,
   clearAuthCache,
   resetPasswordTableEnsured,
-} from "../../worker/index";
+} from "../../worker/internal";
 import { TICKER_SYMBOLS } from "../components/TradingViewTickerTape";
 
 const TEST_ADMIN_PASSWORD = "AdminPassword123!";

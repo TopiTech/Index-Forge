@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import worker, { clearAuthCache, resetPasswordTableEnsured } from "../../worker/index";
+import worker from "../../worker/index";
+import { clearAuthCache, resetPasswordTableEnsured } from "../../worker/internal";
 
 const TEST_ADMIN_PASSWORD = "test-admin-password";
 

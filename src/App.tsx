@@ -173,7 +173,14 @@ export default function App({
     if (!isSidebarOpen) {
       if (sidebarWasOpenRef.current) {
         sidebarWasOpenRef.current = false;
-        sidebarToggleRef.current?.focus();
+        // Opening the Index Builder closes the drawer and opens a modal in the
+        // same commit. Child effects run before parent effects, so useModalFocus
+        // has already moved focus into the dialog by the time this runs;
+        // re-focusing the toolbar toggle would pull it back out of the modal and
+        // leave it stranded on <body> when the modal closes.
+        if (!document.querySelector("[data-modal-dialog]")) {
+          sidebarToggleRef.current?.focus();
+        }
       }
       return;
     }
@@ -556,28 +563,6 @@ export default function App({
         </button>
       </div>
 
-      <motion.div
-        initial={{ opacity: 0, y: 15 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4, delay: 0.1 }}
-      >
-        <StatsGrid
-          benchmarkData={activeBenchmarkData}
-          benchmarkLoading={loadingBenchmark}
-          selectedIndex={selectedIndex}
-          latestCustomValue={
-            customSeries[customSeries.length - 1]?.value ?? selectedIndex?.baseValue ?? 0
-          }
-          loading={loadingCalc}
-          benchmarkNormalizedValue={latestBenchmarkNormalized}
-          benchmarkLabel={currentBenchmarkOption.shortLabel}
-          timeframe={timeframe}
-          periodCustomReturnPct={periodMetrics.customReturnPct}
-          periodBenchmarkReturnPct={periodMetrics.benchmarkReturnPct}
-          periodAlphaPct={periodMetrics.alphaPct}
-        />
-      </motion.div>
-
       <div
         className={`layout ${!isMobileLayout && !isDesktopSidebarOpen ? "sidebar-collapsed" : ""}`}
       >
@@ -642,6 +627,30 @@ export default function App({
         </aside>
 
         <main className="dashboard-main grid" style={{ gap: 20 }}>
+          {/* StatsGrid lives inside <main>: as a sibling it was page content
+              outside every landmark, which broke landmark navigation. */}
+          <motion.div
+            initial={{ opacity: 0, y: 15 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4, delay: 0.1 }}
+          >
+            <StatsGrid
+              benchmarkData={activeBenchmarkData}
+              benchmarkLoading={loadingBenchmark}
+              selectedIndex={selectedIndex}
+              latestCustomValue={
+                customSeries[customSeries.length - 1]?.value ?? selectedIndex?.baseValue ?? 0
+              }
+              loading={loadingCalc}
+              benchmarkNormalizedValue={latestBenchmarkNormalized}
+              benchmarkLabel={currentBenchmarkOption.shortLabel}
+              timeframe={timeframe}
+              periodCustomReturnPct={periodMetrics.customReturnPct}
+              periodBenchmarkReturnPct={periodMetrics.benchmarkReturnPct}
+              periodAlphaPct={periodMetrics.alphaPct}
+            />
+          </motion.div>
+
           {/* Benchmark Selector Bar with Sidebar Toggle */}
           <div
             className="benchmark-toolbar row space-between flex-wrap"

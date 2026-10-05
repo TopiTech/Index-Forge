@@ -1,10 +1,11 @@
 import { describe, it, expect, vi } from "vitest";
 import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
-import worker, { timingSafeEqual } from "../../worker/index";
+import worker from "../../worker/index";
+import { timingSafeEqual } from "../../worker/internal";
 import { calculateRiskMetrics } from "./analytics";
 
-const workerSrc = readFileSync(resolve("worker/index.ts"), "utf-8");
+const workerSrc = readFileSync(resolve("worker/internal-impl.ts"), "utf-8");
 
 describe("regression: worker API contract", () => {
   it("R1: /api/snapshot response includes required Snapshot fields (no misleading OHLC)", () => {

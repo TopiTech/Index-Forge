@@ -1,9 +1,10 @@
 import { beforeEach, describe, it, expect, vi } from "vitest";
-import worker, {
+import worker from "../../worker/index";
+import {
   SYSTEM_INDICES,
   clearAuthCache,
   resetPasswordTableEnsured,
-} from "../../worker/index";
+} from "../../worker/internal";
 import { SYSTEM_INDEX_IDS } from "../data/indices";
 
 const TEST_ADMIN_PASSWORD = "test-admin-secret";

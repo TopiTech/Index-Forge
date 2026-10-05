@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import worker, {
+import worker from "../../worker/index";
+import {
   clearAuthCache,
   clearMemoryCache,
   getMemoryCache,
@@ -7,7 +8,7 @@ import worker, {
   resetPasswordTableEnsured,
   setAllowMemoryCacheInTest,
   setMemoryCache,
-} from "../../worker/index";
+} from "../../worker/internal";
 import { calculateRiskMetrics } from "./analytics";
 import { getMarketAwareCacheDuration } from "./marketCache";
 import { filterByTimeframe } from "./timeframe";

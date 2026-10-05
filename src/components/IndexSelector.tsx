@@ -118,7 +118,7 @@ export function IndexSelector({
               />
             </div>
 
-            <div className="index-list" aria-label="指数一覧">
+            <div className="index-list" role="group" aria-label="指数一覧">
         {filteredIndices.map((idx) => {
           const isSelected = selectedIndex?.id === idx.id;
           const isSystem = SYSTEM_INDEX_IDS.has(idx.id);

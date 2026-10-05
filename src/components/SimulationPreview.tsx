@@ -199,6 +199,8 @@ export function SimulationPreview({
           {/* Timeframe buttons */}
           <div
             className="row simulation-timeframe-group"
+            role="group"
+            aria-label="シミュレーションの表示期間"
             style={{
               background: "var(--surface-control)",
               borderRadius: 6,
@@ -211,6 +213,7 @@ export function SimulationPreview({
                 key={tf.value}
                 type="button"
                 onClick={() => setTimeframe(tf.value)}
+                aria-pressed={timeframe === tf.value}
                 className={`btn btn-sm simulation-tf-btn ${timeframe === tf.value ? "btn-default" : "btn-outline"}`}
                 style={{
                   padding: "2px 7px",

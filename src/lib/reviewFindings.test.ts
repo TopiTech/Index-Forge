@@ -1,11 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import worker, {
+import worker from "../../worker/index";
+import {
   clearAuthCache,
   clearMemoryCache,
   hashToken,
   resetPasswordTableEnsured,
   setAllowMemoryCacheInTest,
-} from "../../worker/index";
+} from "../../worker/internal";
 
 function statementMock(
   query: string,

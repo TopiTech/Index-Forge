@@ -4,7 +4,7 @@ import {
   verifyPasswordHash,
   clearAuthCache,
   resetPasswordTableEnsured,
-} from "../../worker/index";
+} from "../../worker/internal";
 
 beforeEach(() => {
   clearAuthCache();

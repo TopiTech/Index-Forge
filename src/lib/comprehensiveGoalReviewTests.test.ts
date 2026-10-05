@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import worker, { hashPassword, clearAuthCache, resetPasswordTableEnsured } from "../../worker/index";
+import worker from "../../worker/index";
+import { hashPassword, clearAuthCache, resetPasswordTableEnsured } from "../../worker/internal";
 import { calculateCustomIndex } from "./indexEngine";
 import type { BasketItem, StockSeries } from "../types";
 

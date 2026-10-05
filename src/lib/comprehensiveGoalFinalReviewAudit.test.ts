@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import worker, {
+import worker from "../../worker/index";
+import {
   hashPassword,
   clearAuthCache,
   resetPasswordTableEnsured,
-} from "../../worker/index";
+} from "../../worker/internal";
 import { getStockCurrency, formatStockPrice, formatStockChange } from "./currency";
 import { normalizeTicker } from "./indexEngine";
 

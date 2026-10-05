@@ -39,9 +39,9 @@ describe("Comprehensive Audit Fixes: generateSecurePassword", () => {
   });
 });
 
-describe("Comprehensive Audit Fixes: worker/index.ts password ID generation", () => {
+describe("Comprehensive Audit Fixes: worker/internal-impl.ts password ID generation", () => {
   it("uses crypto.randomUUID for password IDs instead of Math.random", () => {
-    const workerFilePath = path.resolve(__dirname, "../../worker/index.ts");
+    const workerFilePath = path.resolve(__dirname, "../../worker/internal-impl.ts");
     const workerContent = fs.readFileSync(workerFilePath, "utf-8");
 
     // Password ID generation line should use crypto.randomUUID

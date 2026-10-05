@@ -201,7 +201,7 @@ export function PortfolioPage({ onNavigate }: PortfolioPageProps) {
               <div className="skill-card-icon">
                 <Globe size={20} style={{ color: "var(--accent-text)" }} />
               </div>
-              <h4 className="skill-card-title">Frontend Engineering</h4>
+              <h3 className="skill-card-title">Frontend Engineering</h3>
               <p className="skill-card-desc tiny muted">
                 React / TypeScriptによる型安全な開発、レスポンシブUI、Framer Motionを活用した滑らかなマイクロインタラクション、アクセシビリティに配慮した設計。
               </p>
@@ -211,7 +211,7 @@ export function PortfolioPage({ onNavigate }: PortfolioPageProps) {
               <div className="skill-card-icon">
                 <Cpu size={20} style={{ color: "#a855f7" }} />
               </div>
-              <h4 className="skill-card-title">Serverless & Edge</h4>
+              <h3 className="skill-card-title">Serverless & Edge</h3>
               <p className="skill-card-desc tiny muted">
                 Cloudflare Workers, D1 Database, Edge Caching、堅牢なレート制限設計、セキュアな認証ロジック、分散エッジ環境における高可用性アーキテクチャ。
               </p>
@@ -221,7 +221,7 @@ export function PortfolioPage({ onNavigate }: PortfolioPageProps) {
               <div className="skill-card-icon">
                 <TrendingUp size={20} style={{ color: "#10b981" }} />
               </div>
-              <h4 className="skill-card-title">Financial & Analytics</h4>
+              <h3 className="skill-card-title">Financial & Analytics</h3>
               <p className="skill-card-desc tiny muted">
                 株価・インデックス時系列データモデリング、統計的リスクリターン計算、ベンチマーク比較分析、データの整合性検証アルゴリズム。
               </p>

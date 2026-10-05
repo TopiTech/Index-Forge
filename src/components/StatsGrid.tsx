@@ -128,7 +128,11 @@ export function StatsGrid({
   ];
 
   return (
-    <div className="grid grid-4 stats-grid">
+    <div
+      className="grid grid-4 stats-grid"
+      role="group"
+      aria-label="指数サマリー統計"
+    >
       {items.map((item, i) => (
         <motion.div
           key={item.label}

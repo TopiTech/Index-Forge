@@ -1,4 +1,4 @@
-import { useRef, type ReactNode } from "react";
+import { useId, useRef, type ReactNode } from "react";
 import { motion } from "framer-motion";
 import { X } from "lucide-react";
 import { useModalFocus } from "../hooks/useModalFocus";
@@ -14,6 +14,7 @@ export interface ModalBaseProps {
   maxWidth?: number | string;
   role?: "dialog" | "alertdialog";
   ariaLabel?: string;
+  ariaLabelledBy?: string;
   ariaDescribedBy?: string;
   initialFocusRef?: React.RefObject<HTMLElement | null>;
   variant?: "default" | "danger";
@@ -31,6 +32,7 @@ export function ModalBase({
   maxWidth = 440,
   role = "dialog",
   ariaLabel,
+  ariaLabelledBy,
   ariaDescribedBy,
   initialFocusRef,
   variant = "default",
@@ -38,11 +40,18 @@ export function ModalBase({
 }: ModalBaseProps) {
   const internalDialogRef = useRef<HTMLDivElement>(null);
   const isBackdropMouseDownRef = useRef(false);
+  const generatedTitleId = useId();
   useModalFocus(isOpen, internalDialogRef, onClose, initialFocusRef);
 
   if (!isOpen) return null;
 
   const isDanger = variant === "danger";
+  // A dialog with no accessible name is announced only as "dialog". Callers
+  // that pass a plain-string title get it wired to the heading automatically;
+  // an explicit ariaLabel/ariaLabelledBy always wins.
+  const titleId = `${generatedTitleId}-title`;
+  const resolvedLabelledBy =
+    ariaLabelledBy ?? (ariaLabel || typeof title !== "string" ? undefined : titleId);
 
   const handleBackdropMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
     isBackdropMouseDownRef.current = e.target === e.currentTarget;
@@ -66,6 +75,7 @@ export function ModalBase({
         role={role}
         aria-modal="true"
         aria-label={ariaLabel}
+        aria-labelledby={resolvedLabelledBy}
         aria-describedby={ariaDescribedBy}
         data-modal-dialog
         ref={internalDialogRef}
@@ -80,7 +90,13 @@ export function ModalBase({
             <div className="modal-title-group">
               {icon && <div className="modal-title-icon">{icon}</div>}
               <div>
-                {typeof title === "string" ? <h2 className="modal-title">{title}</h2> : title}
+                {typeof title === "string" ? (
+                  <h2 className="modal-title" id={titleId}>
+                    {title}
+                  </h2>
+                ) : (
+                  title
+                )}
                 {subtitle && <div className="modal-subtitle">{subtitle}</div>}
               </div>
             </div>

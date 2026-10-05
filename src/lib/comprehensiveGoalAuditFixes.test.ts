@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   resetPasswordTableEnsured,
   ensurePasswordTable,
-} from "../../worker/index";
+} from "../../worker/internal";
 import { DEFAULT_INDICES, SYSTEM_INDICES } from "../data/indices";
 import { getTickerBasePrice } from "../hooks/useSimulation";
 

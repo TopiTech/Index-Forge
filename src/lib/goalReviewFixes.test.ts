@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import worker, {
+import worker from "../../worker/index";
+import {
   clearAuthCache,
   resetPasswordTableEnsured,
   ensurePasswordTable,
-} from "../../worker/index";
+} from "../../worker/internal";
 import {
   clearClientCalcCache,
   setClientCalcCache,

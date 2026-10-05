@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { isMissingColumnError, isMissingTableError } from "../../worker/index";
+import { isMissingColumnError, isMissingTableError } from "../../worker/internal";
 import {
   calculateConstituentPerformance,
   calculatePeriodReturns,

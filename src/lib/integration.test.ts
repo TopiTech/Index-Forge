@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import worker, { hashToken, clearMemoryCache } from "../../worker/index";
+import worker from "../../worker/index";
+import { hashToken, clearMemoryCache } from "../../worker/internal";
 import { buildChartData } from "./chartData";
 import { normalizeWeights, calculateCustomIndex } from "./indexEngine";
 import type { BasketItem, PricePoint, StockSeries } from "../types";

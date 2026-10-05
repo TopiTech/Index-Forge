@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import {
   Plus,
   Trash2,
@@ -160,7 +160,13 @@ export function IndexBuilderContent({
   const { session, isAuthenticated, isUser, maxStocks } = useAuth();
   const { success: toastSuccess, info: toastInfo, error: toastError } = useToast();
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
-  const [pendingSaveAfterAuth, setPendingSaveAfterAuth] = useState(false);
+  // Incremented once the authenticated session has been committed, so the retry
+  // effect re-runs after login with the post-login role and limits.
+  const [postAuthSaveNonce, setPostAuthSaveNonce] = useState(0);
+  // The post-login save must re-read the freshly authenticated session (role,
+  // stock quota). AuthModal calls login() and onSuccess() in the same batch, so
+  // an executeSave captured by that closure still sees the pre-login session.
+  const executeSaveRef = useRef<() => Promise<void>>(async () => {});
 
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -172,6 +178,28 @@ export function IndexBuilderContent({
   ]);
 
   const [activeTab, setActiveTab] = useState<"builder" | "simulation">("builder");
+
+  // Arrow-key navigation for the mobile tablist (WAI-ARIA tabs pattern).
+  const handleMobileTabKeyDown = (
+    e: React.KeyboardEvent,
+    current: "builder" | "simulation",
+  ) => {
+    let next: "builder" | "simulation" | null = null;
+    if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+      next = current === "builder" ? "simulation" : "builder";
+    } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+      next = current === "simulation" ? "builder" : "simulation";
+    } else if (e.key === "Home") {
+      next = "builder";
+    } else if (e.key === "End") {
+      next = "simulation";
+    }
+    if (!next) return;
+    e.preventDefault();
+    setActiveTab(next);
+    const targetId = next === "builder" ? "builder-tab-builder" : "builder-tab-simulation";
+    document.getElementById(targetId)?.focus();
+  };
   const [customTicker, setCustomTicker] = useState("");
   const [customName, setCustomName] = useState("");
   const [customTheme, setCustomTheme] = useState("");
@@ -342,9 +370,28 @@ export function IndexBuilderContent({
     }
   };
 
+  // Keep the ref pointing at the latest executeSave so the post-login retry
+  // always re-runs the current validation with the current session.
+  executeSaveRef.current = executeSave;
+
+  // Retry the save once the authenticated session has been committed. Driving
+  // this from state (instead of a setTimeout closure) means it cannot fire after
+  // unmount and always sees the post-login role/limits.
+  useEffect(() => {
+    if (postAuthSaveNonce === 0) return;
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      if (cancelled) return;
+      void executeSaveRef.current();
+    }, 0);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [postAuthSaveNonce]);
+
   const handleSubmit = async () => {
     if (!isAuthenticated) {
-      setPendingSaveAfterAuth(true);
       setIsAuthModalOpen(true);
       setError(null);
       return;
@@ -463,9 +510,13 @@ export function IndexBuilderContent({
             <button
               type="button"
               role="tab"
+              id="builder-tab-builder"
+              aria-controls="builder-panel-builder"
               aria-selected={activeTab === "builder"}
+              tabIndex={activeTab === "builder" ? 0 : -1}
               className={`mobile-builder-tab-btn ${activeTab === "builder" ? "active" : ""}`}
               onClick={() => setActiveTab("builder")}
+              onKeyDown={(e) => handleMobileTabKeyDown(e, "builder")}
             >
               <Sliders size={13} />
               <span>構成・ウェイト</span>
@@ -474,9 +525,13 @@ export function IndexBuilderContent({
             <button
               type="button"
               role="tab"
+              id="builder-tab-simulation"
+              aria-controls="builder-panel-simulation"
               aria-selected={activeTab === "simulation"}
+              tabIndex={activeTab === "simulation" ? 0 : -1}
               className={`mobile-builder-tab-btn ${activeTab === "simulation" ? "active" : ""}`}
               onClick={() => setActiveTab("simulation")}
+              onKeyDown={(e) => handleMobileTabKeyDown(e, "simulation")}
             >
               <Sparkles size={13} />
               <span>シミュレーション</span>
@@ -509,6 +564,10 @@ export function IndexBuilderContent({
         {/* Left Column: Form & Basket Controls */}
         <div
           className={`builder-left-pane ${activeTab === "builder" ? "active-pane" : ""}`}
+          id="builder-panel-builder"
+          role="tabpanel"
+          aria-labelledby="builder-tab-builder"
+          tabIndex={0}
           style={{ display: "flex", flexDirection: "column", gap: 14 }}
         >
           {/* Strategy Presets quick bar */}
@@ -791,7 +850,11 @@ export function IndexBuilderContent({
                 margin: "2px 0 6px",
               }}
               title={`合計ウェイト: ${totalWeight.toFixed(1)}%`}
-              aria-label={`合計ウェイト: ${totalWeight.toFixed(1)}%`}
+              role="progressbar"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={Number(totalWeight.toFixed(1))}
+              aria-valuetext={`合計ウェイト: ${totalWeight.toFixed(1)}%`}
             >
               <div
                 style={{
@@ -885,6 +948,10 @@ export function IndexBuilderContent({
         {/* Right Column: Interactive Simulation Preview */}
         <div
           className={`builder-right-pane ${activeTab === "simulation" ? "active-pane" : ""}`}
+          id="builder-panel-simulation"
+          role="tabpanel"
+          aria-labelledby="builder-tab-simulation"
+          tabIndex={0}
           style={{ display: "flex", flexDirection: "column" }}
         >
           <SimulationPreview
@@ -972,18 +1039,13 @@ export function IndexBuilderContent({
         isOpen={isAuthModalOpen}
         onClose={() => {
           setIsAuthModalOpen(false);
-          setPendingSaveAfterAuth(false);
         }}
         onSuccess={() => {
           setIsAuthModalOpen(false);
           setError(null);
-          if (pendingSaveAfterAuth) {
-            setPendingSaveAfterAuth(false);
-            // Re-trigger save
-            setTimeout(() => {
-              executeSave();
-            }, 100);
-          }
+          // The retry is driven by this nonce increment, which commits after the
+          // session update so the effect sees the post-login role/limits.
+          setPostAuthSaveNonce((n) => n + 1);
         }}
       />
     </div>

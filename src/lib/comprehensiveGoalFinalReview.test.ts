@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import worker, { clearAuthCache, resetPasswordTableEnsured } from "../../worker/index";
+import worker from "../../worker/index";
+import { clearAuthCache, resetPasswordTableEnsured } from "../../worker/internal";
 import { calculateStockDetails } from "./analytics";
 import type { BasketItem, StockSeries } from "../types";
 

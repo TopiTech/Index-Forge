@@ -2,15 +2,16 @@ import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import worker, {
+import worker from "../../worker/index";
+import {
   fetchAllTickerQuotes,
   clearAuthCache,
   resetPasswordTableEnsured,
   setAllowMemoryCacheInTest,
-} from "../../worker/index";
+} from "../../worker/internal";
 import { isPriceCacheFresh, MAX_CACHE_CLOCK_SKEW_SECONDS } from "./marketCache";
 import { SYSTEM_INDICES as SRC_SYSTEM_INDICES } from "../data/indices";
-import { SYSTEM_INDICES as WORKER_SYSTEM_INDICES } from "../../worker/index";
+import { SYSTEM_INDICES as WORKER_SYSTEM_INDICES } from "../../worker/internal";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const readSrc = (rel: string) => readFileSync(resolve(here, rel), "utf8");
@@ -151,7 +152,7 @@ describe("P2: SYSTEM_INDICES parity between frontend and worker", () => {
 });
 
 describe("P2/P3: admin name validation and indices weight guard", () => {
-  const workerSrc = readSrc("../../worker/index.ts");
+  const workerSrc = readSrc("../../worker/internal-impl.ts");
 
   it("rejects overlong names symmetrically on update", () => {
     expect(workerSrc).toContain("ユーザー名/ラベルは1〜100文字で入力してください");

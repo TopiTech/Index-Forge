@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import worker, {
+import worker from "../../worker/index";
+import {
   authenticatePassword,
   clearAuthCache,
   resetPasswordTableEnsured,
-} from "../../worker/index";
+} from "../../worker/internal";
 import { isBenchmarkDataForSymbol, type BenchmarkData } from "../hooks/useBenchmark";
 
 const TEST_ADMIN_PASSWORD = "test-admin-password-secure";
