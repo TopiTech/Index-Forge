@@ -38,7 +38,6 @@ export function ConfirmModal({
       isOpen={isOpen}
       onClose={handleClose}
       role="alertdialog"
-      ariaLabel={title}
       ariaDescribedBy="confirm-modal-description"
       maxWidth={420}
       variant={isDanger ? "danger" : "default"}
@@ -50,7 +49,7 @@ export function ConfirmModal({
           <AlertCircle size={18} style={{ color: "var(--accent-text)" }} />
         )
       }
-      title={<h2 id="confirm-modal-title" className="modal-title">{title}</h2>}
+      title={title}
       footer={
         <div className="row" style={{ justifyContent: "flex-end", gap: 10 }}>
           <button

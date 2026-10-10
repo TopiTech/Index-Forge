@@ -810,7 +810,7 @@ export async function authenticatePassword(
   // call inside the try block below would never be reached.
   await ensurePasswordTable(env);
 
-  const ip = request.headers.get("cf-connecting-ip") || "unknown";
+  const ip = getClientIp(request);
   // Keep login verification separate from authenticated API traffic. Otherwise
   // routine administration can exhaust the stricter login-attempt budget.
   const limitMax = rateLimitEndpoint === "auth-login" ? AUTH_RATE_LIMIT_MAX : RATE_LIMIT_MAX;
@@ -1114,20 +1114,26 @@ export function formatTickerPrice(price: number): string {
 }
 
 export function formatTickerChange(change: number): string {
+  if (!Number.isFinite(change) || Math.abs(change) < 0.005 || Object.is(change, -0)) {
+    return "0.00";
+  }
   const formatted = Math.abs(change).toLocaleString("en-US", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
   if (change > 0) return `+${formatted}`;
   if (change < 0) return `-${formatted}`;
-  return `0.00`;
+  return "0.00";
 }
 
 export function formatTickerChangePercent(pct: number): string {
+  if (!Number.isFinite(pct) || Math.abs(pct) < 0.005 || Object.is(pct, -0)) {
+    return "0.00%";
+  }
   const formatted = Math.abs(pct).toFixed(2);
   if (pct > 0) return `+${formatted}%`;
   if (pct < 0) return `-${formatted}%`;
-  return `0.00%`;
+  return "0.00%";
 }
 
 export interface YahooQuoteSummary {
@@ -1354,6 +1360,48 @@ export function notModified(request?: Request, customHeaders?: Record<string, st
     status: 304,
     headers,
   });
+}
+
+/**
+ * RFC 7232 / RFC 9110 conditional request validator for If-None-Match header.
+ * Supports wildcard (*), comma-separated ETag lists, whitespace normalization,
+ * and weak/strong comparison (W/"..." vs "...").
+ */
+export function matchesIfNoneMatch(
+  ifNoneMatchHeader: string | null | undefined,
+  etag: string,
+): boolean {
+  if (!ifNoneMatchHeader || !etag) return false;
+  const trimmedHeader = ifNoneMatchHeader.trim();
+  if (!trimmedHeader) return false;
+  if (trimmedHeader === "*") return true;
+
+  const normalizeTag = (tag: string) => {
+    let t = tag.trim();
+    if (t.startsWith("W/")) t = t.slice(2).trim();
+    if (t.startsWith('"') && t.endsWith('"') && t.length >= 2) {
+      t = t.slice(1, -1);
+    }
+    return t;
+  };
+
+  const target = normalizeTag(etag);
+  const candidates = trimmedHeader.split(",").map(normalizeTag);
+  return candidates.some((candidate) => candidate === target);
+}
+
+/**
+ * Extracts client IP address with fallback from cf-connecting-ip to x-real-ip
+ * and x-forwarded-for to ensure rate limiting operates correctly across environments.
+ */
+export function getClientIp(request: Request): string {
+  const cf = request.headers.get("cf-connecting-ip")?.trim();
+  if (cf) return cf;
+  const real = request.headers.get("x-real-ip")?.trim();
+  if (real) return real;
+  const forwarded = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
+  if (forwarded) return forwarded;
+  return "unknown";
 }
 
 // Maximum request body size (1 MB) to prevent DoS attacks
@@ -2025,7 +2073,7 @@ export default {
       // 構成銘柄の個別追加 (パスワード認証＋上限数チェック)
       if (url.pathname === "/api/indices/stock" && request.method === "POST") {
         try {
-          const ip = request.headers.get("cf-connecting-ip") || "unknown";
+          const ip = getClientIp(request);
           const allowed = await checkRateLimit(env, ip, "indices-stock", RATE_LIMIT_MAX, false, ctx);
           if (!allowed) {
             return json({ error: "Rate limit exceeded. Please try again later." }, 429, request);
@@ -2351,7 +2399,7 @@ export default {
       // 構成銘柄の個別削除 (パスワード認証)
       if (url.pathname === "/api/indices/stock" && request.method === "DELETE") {
         try {
-          const ip = request.headers.get("cf-connecting-ip") || "unknown";
+          const ip = getClientIp(request);
           const allowed = await checkRateLimit(env, ip, "indices-stock", RATE_LIMIT_MAX, false, ctx);
           if (!allowed) {
             return json({ error: "Rate limit exceeded. Please try again later." }, 429, request);
@@ -2502,7 +2550,7 @@ export default {
       // ベンチマーク・スナップショットの取得（D1キャッシュ付き・複数ベンチマーク対応・インメモリ&エッジキャッシュ）
       if (url.pathname === "/api/snapshot" && request.method === "GET") {
         try {
-          const ip = request.headers.get("cf-connecting-ip") || "unknown";
+          const ip = getClientIp(request);
           const allowed = await checkRateLimit(env, ip, "snapshot", RATE_LIMIT_MAX, false, ctx);
           if (!allowed) {
             return json({ error: "Rate limit exceeded. Please try again later." }, 429, request);
@@ -2527,8 +2575,7 @@ export default {
             const remainingTtl = Math.max(10, memCachedEntry.remainingSeconds);
             const cacheControl = `public, max-age=${Math.min(60, remainingTtl)}, s-maxage=${Math.min(remainingTtl, 1800)}`;
             const etag = await generateETag(JSON.stringify(memCached));
-            const ifNoneMatch = request.headers.get("if-none-match");
-            if (ifNoneMatch && (ifNoneMatch === etag || ifNoneMatch === `W/${etag}`)) {
+            if (matchesIfNoneMatch(request.headers.get("if-none-match"), etag)) {
               return notModified(request, {
                 etag: etag,
                 "cache-control": cacheControl,
@@ -2587,8 +2634,7 @@ export default {
               const memTtl = Math.max(10, Math.min(remainingTtl, 300));
               setMemoryCache(memKey, parsedData, memTtl);
               const etag = await generateETag(JSON.stringify(parsedData));
-              const ifNoneMatch = request.headers.get("if-none-match");
-              if (ifNoneMatch && (ifNoneMatch === etag || ifNoneMatch === `W/${etag}`)) {
+              if (matchesIfNoneMatch(request.headers.get("if-none-match"), etag)) {
                 return notModified(request, {
                   etag: etag,
                   "cache-control": `public, max-age=${Math.min(60, remainingTtl)}, s-maxage=${Math.min(remainingTtl, 1800)}`,
@@ -2725,8 +2771,7 @@ export default {
               : 300;
           setMemoryCache(memKey, responseData, freshMemTtl);
           const freshEtag = await generateETag(JSON.stringify(responseData));
-          const ifNoneMatch = request.headers.get("if-none-match");
-          if (ifNoneMatch && (ifNoneMatch === freshEtag || ifNoneMatch === `W/${freshEtag}`)) {
+          if (matchesIfNoneMatch(request.headers.get("if-none-match"), freshEtag)) {
             return notModified(request, {
               etag: freshEtag,
               "cache-control": `public, max-age=60, s-maxage=${freshSMaxAge}`,
@@ -2745,7 +2790,7 @@ export default {
       // ティッカーバー用リアルタイム実データ取得エンドポイント
       if (url.pathname === "/api/ticker-prices" && request.method === "GET") {
         try {
-          const ip = request.headers.get("cf-connecting-ip") || "unknown";
+          const ip = getClientIp(request);
           const allowed = await checkRateLimit(env, ip, "ticker-prices", RATE_LIMIT_MAX, false, ctx);
           if (!allowed) {
             return json({ error: "Rate limit exceeded. Please try again later." }, 429, request);
@@ -2765,8 +2810,7 @@ export default {
             const browserTtl = isStale ? Math.min(5, remainingTtl) : Math.min(30, remainingTtl);
             const cacheControl = `public, max-age=${browserTtl}, s-maxage=${edgeTtl}`;
             const etag = await generateETag(JSON.stringify(memCached));
-            const ifNoneMatch = request.headers.get("if-none-match");
-            if (ifNoneMatch && (ifNoneMatch === etag || ifNoneMatch === `W/${etag}`)) {
+            if (matchesIfNoneMatch(request.headers.get("if-none-match"), etag)) {
               return notModified(request, {
                 etag,
                 "cache-control": cacheControl,
@@ -2799,8 +2843,7 @@ export default {
           const browserTtl = allStale ? 5 : 30;
           const cacheControl = `public, max-age=${browserTtl}, s-maxage=${edgeTtl}`;
           const etag = await generateETag(JSON.stringify(responseData));
-          const ifNoneMatch = request.headers.get("if-none-match");
-          if (ifNoneMatch && (ifNoneMatch === etag || ifNoneMatch === `W/${etag}`)) {
+          if (matchesIfNoneMatch(request.headers.get("if-none-match"), etag)) {
             return notModified(request, {
               etag,
               "cache-control": cacheControl,
@@ -2823,8 +2866,7 @@ export default {
           const cachedIndices = getMemoryCache<unknown>("api:indices");
           if (cachedIndices) {
             const etag = await generateETag(JSON.stringify(cachedIndices));
-            const ifNoneMatch = request.headers.get("if-none-match");
-            if (ifNoneMatch && (ifNoneMatch === etag || ifNoneMatch === `W/${etag}`)) {
+            if (matchesIfNoneMatch(request.headers.get("if-none-match"), etag)) {
               return notModified(request, {
                 etag: etag,
                 // ETag/304 revalidation only; the CDN must not cache this list
@@ -2921,8 +2963,7 @@ export default {
           setMemoryCache("api:indices", indicesList, 15);
 
           const etag = await generateETag(JSON.stringify(indicesList));
-          const ifNoneMatch = request.headers.get("if-none-match");
-          if (ifNoneMatch && (ifNoneMatch === etag || ifNoneMatch === `W/${etag}`)) {
+          if (matchesIfNoneMatch(request.headers.get("if-none-match"), etag)) {
             return notModified(request, {
               etag: etag,
               "cache-control": "no-cache",
@@ -2942,7 +2983,7 @@ export default {
       // 指数の新規登録・更新 (D1への永続化 + 作成者権限チェック)
       if (url.pathname === "/api/indices" && request.method === "POST") {
         try {
-          const ip = request.headers.get("cf-connecting-ip") || "unknown";
+          const ip = getClientIp(request);
           const allowed = await checkRateLimit(env, ip, "indices");
           if (!allowed) {
             return json({ error: "Rate limit exceeded. Please try again later." }, 429, request);
@@ -3514,7 +3555,7 @@ export default {
       // 指数の削除 (作成者認証付き)
       if (url.pathname === "/api/indices" && request.method === "DELETE") {
         try {
-          const ip = request.headers.get("cf-connecting-ip") || "unknown";
+          const ip = getClientIp(request);
           const allowed = await checkRateLimit(env, ip, "indices");
           if (!allowed) {
             return json({ error: "Rate limit exceeded. Please try again later." }, 429, request);
@@ -3619,7 +3660,7 @@ export default {
       // 銘柄データの同期 (履歴をD1に保存、並列バッチ処理)
       if (url.pathname === "/api/sync-prices" && request.method === "POST") {
         try {
-          const ip = request.headers.get("cf-connecting-ip") || "unknown";
+          const ip = getClientIp(request);
           const allowed = await checkRateLimit(env, ip, "sync-prices", RATE_LIMIT_MAX, false, ctx);
           if (!allowed) {
             return json({ error: "Rate limit exceeded. Please try again later." }, 429, request);
@@ -3904,7 +3945,7 @@ export default {
       // 独自指数の計算（D1キャッシュ優先）
       if (url.pathname === "/api/calculate" && request.method === "POST") {
         try {
-          const ip = request.headers.get("cf-connecting-ip") || "unknown";
+          const ip = getClientIp(request);
           const allowed = await checkRateLimit(env, ip, "calculate", RATE_LIMIT_MAX, false, ctx);
           if (!allowed) {
             return json({ error: "Rate limit exceeded. Please try again later." }, 429, request);

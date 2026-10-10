@@ -40,6 +40,7 @@ export {
   getMarketAwareCacheDuration,
   isPriceCacheFresh,
   generateETag,
+  matchesIfNoneMatch,
   // Ticker formatting and fetching
   formatTickerChange,
   formatTickerChangePercent,
@@ -47,10 +48,11 @@ export {
   fetchYahooQuote,
   fetchAllTickerQuotes,
   resetLastKnownTickerQuotes,
-  // In-memory rate limiting
+  // In-memory rate limiting and client IP
   MAX_MEMORY_RATE_LIMIT_ENTRIES,
   checkMemoryRateLimit,
   clearMemoryRateLimits,
+  getClientIp,
 } from "./internal-impl";
 
 export type {
