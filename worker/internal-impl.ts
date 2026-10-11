@@ -33,6 +33,17 @@ export interface AuthResult {
 export interface YahooChartResponse {
   chart?: {
     result?: {
+      meta?: {
+        regularMarketPrice?: number;
+        regularMarketChange?: number;
+        regularMarketChangePercent?: number;
+        chartPreviousClose?: number;
+        regularMarketVolume?: number;
+        regularMarketDayHigh?: number;
+        regularMarketDayLow?: number;
+        fiftyTwoWeekHigh?: number;
+        fiftyTwoWeekLow?: number;
+      };
       timestamp: number[];
       indicators: {
         quote: { close: (number | null)[] }[];
@@ -1660,6 +1671,58 @@ export async function fetchLiveMarketOverview(
   };
 }
 
+interface YahooQuoteSummaryResponse {
+  quoteSummary?: {
+    result?: Array<{
+      price?: {
+        regularMarketPrice?: { raw?: number };
+        regularMarketChange?: { raw?: number };
+        regularMarketChangePercent?: { raw?: number };
+        regularMarketPreviousClose?: { raw?: number };
+        regularMarketVolume?: { raw?: number };
+        regularMarketDayHigh?: { raw?: number };
+        regularMarketDayLow?: { raw?: number };
+        marketCap?: { raw?: number };
+        sector?: string;
+      };
+      financialData?: {
+        returnOnEquity?: { raw?: number };
+        recommendationKey?: string;
+      };
+      defaultKeyStatistics?: {
+        trailingPE?: { raw?: number };
+        forwardPE?: { raw?: number };
+        priceToBook?: { raw?: number };
+        lastDividendValue?: { raw?: number };
+        trailingEps?: { raw?: number };
+        debtToEquity?: { raw?: number };
+      };
+      summaryDetail?: {
+        trailingPE?: { raw?: number };
+        dividendYield?: { raw?: number };
+        dividendRate?: { raw?: number };
+        volume?: { raw?: number };
+        dayHigh?: { raw?: number };
+        dayLow?: { raw?: number };
+        fiftyTwoWeekHigh?: { raw?: number };
+        fiftyTwoWeekLow?: { raw?: number };
+        marketCap?: { raw?: number };
+      };
+      earnings?: {
+        financialsChart?: {
+          yearly?: Array<{
+            date: number;
+            revenue?: { raw?: number };
+            earnings?: { raw?: number };
+          }>;
+        };
+      };
+    }>;
+  };
+}
+
+
+
 export async function fetchLiveStockFundamentals(
   ticker: string,
 ): Promise<StockQuoteFundamentals> {
@@ -1759,19 +1822,20 @@ export async function fetchLiveStockFundamentals(
       ),
     ]);
 
-    let summaryData: any = null;
+    let summaryData: YahooQuoteSummaryResponse | null = null;
     if (summaryRes && summaryRes.ok) {
-      summaryData = await summaryRes.json();
+      summaryData = (await summaryRes.json()) as YahooQuoteSummaryResponse;
     }
-    let chartData: any = null;
+    let chartData: YahooChartResponse | null = null;
     if (chartRes && chartRes.ok) {
-      chartData = await chartRes.json();
+      chartData = (await chartRes.json()) as YahooChartResponse;
     }
 
     const chartMeta = chartData?.chart?.result?.[0]?.meta || {};
-    const chartCloses = chartData?.chart?.result?.[0]?.indicators?.quote?.[0]?.close?.filter(
-      (c: any): c is number => typeof c === "number" && Number.isFinite(c) && c > 0,
-    ) || [];
+    const chartCloses =
+      chartData?.chart?.result?.[0]?.indicators?.quote?.[0]?.close?.filter(
+        (c): c is number => typeof c === "number" && Number.isFinite(c) && c > 0,
+      ) || [];
 
     if (chartCloses.length > 0) {
       sparkline = chartCloses;
@@ -1860,11 +1924,16 @@ export async function fetchLiveStockFundamentals(
 
     const yearlyChart = earnings.financialsChart?.yearly;
     if (Array.isArray(yearlyChart) && yearlyChart.length > 0) {
-      historicalFinances = yearlyChart.map((y: any) => {
+      const baseEarningsRaw = yearlyChart[yearlyChart.length - 1]?.earnings?.raw;
+      historicalFinances = yearlyChart.map((y) => {
         const rev = Math.round((y.revenue?.raw || 0) / (isUS ? 1_000_000 : 100_000_000));
         const net = Math.round((y.earnings?.raw || 0) / (isUS ? 1_000_000 : 100_000_000));
         const opInc = Math.round(net * 1.3);
-        const yEps = eps ? Math.round(eps * (y.earnings?.raw / (yearlyChart[yearlyChart.length - 1].earnings?.raw || 1))) : 0;
+        const earningsRatio =
+          typeof baseEarningsRaw === "number" && baseEarningsRaw > 0 && typeof y.earnings?.raw === "number"
+            ? y.earnings.raw / baseEarningsRaw
+            : 1;
+        const yEps = eps ? Math.round(eps * earningsRatio) : 0;
         const yDps = dps ? Math.round(dps * (y.date < currentYear ? 0.9 : 1)) : 0;
         return {
           fiscalYear: `${y.date}/3`,
@@ -3550,13 +3619,17 @@ export default {
             return json({ error: "ticker query parameter is required" }, 400, request);
           }
 
+          const norm = ticker.trim().toUpperCase();
+          if (norm.length > 20 || !/^[A-Z0-9.=-]{1,20}$/.test(norm)) {
+            return json({ error: "Invalid ticker format" }, 400, request);
+          }
+
           const ip = getClientIp(request);
           const allowed = await checkRateLimit(env, ip, "stock-fundamentals", RATE_LIMIT_MAX, false, ctx);
           if (!allowed) {
             return json({ error: "Rate limit exceeded. Please try again later." }, 429, request);
           }
 
-          const norm = ticker.trim().toUpperCase();
           const memKey = `stock:${norm}`;
           const memCachedEntry = getMemoryCacheEntry<StockQuoteFundamentals>(memKey);
           if (memCachedEntry) {

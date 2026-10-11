@@ -9,6 +9,7 @@ import {
   Newspaper,
   Compass,
   Zap,
+  ExternalLink,
 } from "lucide-react";
 import {
   fetchMarketOverview,
@@ -311,28 +312,30 @@ export function MarketOverviewPage({
                 </div>
 
                 {/* Sparkline Visual Simulation */}
-                {asset.sparkline && (
-                  <div style={{ width: "70px", height: "28px", display: "flex", alignItems: "flex-end", gap: "3px" }}>
-                    {asset.sparkline.map((val, idx) => {
-                      const min = Math.min(...asset.sparkline!);
-                      const max = Math.max(...asset.sparkline!);
-                      const range = max - min || 1;
-                      const heightPercent = Math.max(15, Math.min(100, ((val - min) / range) * 100));
-                      return (
-                        <div
-                          key={idx}
-                          style={{
-                            flex: 1,
-                            height: `${heightPercent}%`,
-                            background: isPositive ? "var(--color-positive)" : "var(--color-negative)",
-                            opacity: 0.35 + (idx / asset.sparkline!.length) * 0.65,
-                            borderRadius: "2px",
-                          }}
-                        />
-                      );
-                    })}
-                  </div>
-                )}
+                {asset.sparkline && asset.sparkline.length > 0 && (() => {
+                  const min = Math.min(...asset.sparkline);
+                  const max = Math.max(...asset.sparkline);
+                  const range = max - min || 1;
+                  return (
+                    <div style={{ width: "70px", height: "28px", display: "flex", alignItems: "flex-end", gap: "3px" }}>
+                      {asset.sparkline.map((val, idx) => {
+                        const heightPercent = Math.max(15, Math.min(100, ((val - min) / range) * 100));
+                        return (
+                          <div
+                            key={idx}
+                            style={{
+                              flex: 1,
+                              height: `${heightPercent}%`,
+                              background: isPositive ? "var(--color-positive)" : "var(--color-negative)",
+                              opacity: 0.35 + (idx / asset.sparkline!.length) * 0.65,
+                              borderRadius: "2px",
+                            }}
+                          />
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
               </div>
             </div>
           );
@@ -448,9 +451,25 @@ export function MarketOverviewPage({
                 }}
               >
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span className="badge badge-default mono tiny" style={{ fontSize: "0.68rem" }}>
-                    {item.source}
-                  </span>
+                  <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                    <span className="badge badge-default mono tiny" style={{ fontSize: "0.68rem" }}>
+                      {item.source}
+                    </span>
+                    {item.url && (
+                      <a
+                        href={item.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="tiny muted"
+                        style={{ display: "inline-flex", alignItems: "center", gap: "2px", textDecoration: "none" }}
+                        onClick={(e) => e.stopPropagation()}
+                        aria-label={`${item.source} の記事原文を新しいタブで開く`}
+                      >
+                        <ExternalLink size={11} />
+                        <span style={{ fontSize: "0.68rem" }}>記事を開く</span>
+                      </a>
+                    )}
+                  </div>
                   <span className="tiny muted mono">{item.publishedAt}</span>
                 </div>
                 <div style={{ fontSize: "0.92rem", fontWeight: 600, lineHeight: 1.4 }}>

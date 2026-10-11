@@ -29,6 +29,7 @@ import {
 } from "../lib/portfolioStorage";
 import { getStockFundamentals } from "../lib/marketDataService";
 import { POPULAR_STOCKS } from "../data/popularStocks";
+import { getStockCurrency } from "../lib/currency";
 import type { PageView } from "../lib/navigation";
 import { useToast } from "./Toast";
 
@@ -646,6 +647,7 @@ export function PortfolioManagerPage({
                 <tbody>
                   {summary.positions.map((p) => {
                     const isProfit = p.unrealizedProfit >= 0;
+                    const curr = getStockCurrency(p.ticker);
                     return (
                       <tr key={p.id}>
                         <td>
@@ -675,13 +677,13 @@ export function PortfolioManagerPage({
                           {p.shares.toLocaleString()}株
                         </td>
                         <td style={{ textAlign: "right" }} className="mono">
-                          ¥{p.averageCost.toLocaleString()}
+                          {curr}{p.averageCost.toLocaleString()}
                         </td>
                         <td style={{ textAlign: "right" }} className="mono bold">
-                          ¥{p.currentPrice.toLocaleString()}
+                          {curr}{p.currentPrice.toLocaleString()}
                         </td>
                         <td style={{ textAlign: "right" }} className="mono bold">
-                          ¥{p.marketValue.toLocaleString()}
+                          {curr}{p.marketValue.toLocaleString()}
                         </td>
                         <td
                           style={{
@@ -691,7 +693,7 @@ export function PortfolioManagerPage({
                           className="mono bold"
                         >
                           {isProfit ? "+" : ""}
-                          ¥{p.unrealizedProfit.toLocaleString()}
+                          {curr}{p.unrealizedProfit.toLocaleString()}
                         </td>
                         <td
                           style={{
@@ -770,7 +772,7 @@ export function PortfolioManagerPage({
 
                   <div style={{ textAlign: "right" }}>
                     <div className="mono bold" style={{ fontSize: "1.1rem" }}>
-                      ¥{fund.price.toLocaleString()}
+                      {getStockCurrency(ticker)}{fund.price.toLocaleString()}
                     </div>
                     <div
                       className="mono tiny bold"

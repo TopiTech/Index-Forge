@@ -14,6 +14,10 @@ import {
   fetchStockFundamentals,
   clearStockFundamentalsClientCache,
   getStockFundamentals,
+  formatMarketCapDisplay,
+  resetMarketOverviewEndpointProbe,
+  DEFAULT_MARKET_OVERVIEW,
+  runStockScreener,
 } from "./marketDataService";
 
 function createMockEnv() {
@@ -123,6 +127,23 @@ describe("Live Market and Stock Data Endpoints & Services", () => {
       expect(data.error).toContain("ticker");
     });
 
+    it("returns 400 when ticker format is invalid or oversized", async () => {
+      const env = createMockEnv();
+      const invalidCharsReq = new Request("http://localhost/api/stock/fundamentals?ticker=evil<script>", {
+        method: "GET",
+      });
+      const invalidRes = await worker.fetch(invalidCharsReq, env as any);
+      expect(invalidRes.status).toBe(400);
+      const invalidData = await invalidRes.json();
+      expect(invalidData.error).toContain("Invalid ticker format");
+
+      const oversizedReq = new Request("http://localhost/api/stock/fundamentals?ticker=TOOLONGTICKERSYMBOLOVER20CHARS", {
+        method: "GET",
+      });
+      const oversizedRes = await worker.fetch(oversizedReq, env as any);
+      expect(oversizedRes.status).toBe(400);
+    });
+
     it("returns complete fundamentals for a Japanese stock (7203)", async () => {
       setAllowMemoryCacheInTest(true);
       try {
@@ -206,10 +227,13 @@ describe("Live Market and Stock Data Endpoints & Services", () => {
       expect(data.pbr).toBeGreaterThan(0);
     });
 
-    it("uses in-memory client cache on repeated calls", async () => {
+    it("uses in-memory client cache on repeated calls and respects forceRefresh", async () => {
       const first = await fetchStockFundamentals("NVDA");
       const second = await fetchStockFundamentals("NVDA");
       expect(first).toBe(second);
+
+      const refreshed = await fetchStockFundamentals("NVDA", true);
+      expect(refreshed.ticker).toBe("NVDA");
     });
 
     it("getStockFundamentals provides accurate anchor baselines", () => {
@@ -223,6 +247,30 @@ describe("Live Market and Stock Data Endpoints & Services", () => {
       expect(nvda.price).toBe(229.28);
       expect(nvda.per).toBe(29.0);
       expect(nvda.marketCap).toBeGreaterThan(5000000);
+    });
+
+    it("fetchMarketOverview returns baseline and supports probe reset", async () => {
+      resetMarketOverviewEndpointProbe();
+      const overview = await fetchMarketOverview();
+      expect(overview).toEqual(DEFAULT_MARKET_OVERVIEW);
+      expect(overview.indices.length).toBeGreaterThan(0);
+      expect(overview.forex.length).toBeGreaterThan(0);
+      expect(overview.marketBreadth.gainers).toBeGreaterThan(0);
+    });
+
+    it("formatMarketCapDisplay formats Japanese and US stocks accurately", () => {
+      expect(formatMarketCapDisplay(344657, "PRIME")).toBe("34.5 兆円");
+      expect(formatMarketCapDisplay(71200, "PRIME")).toBe("7.1 兆円");
+      expect(formatMarketCapDisplay(3500, "STANDARD")).toBe("3,500 億円");
+      expect(formatMarketCapDisplay(5536424, "US")).toBe("5.54 兆ドル");
+      expect(formatMarketCapDisplay(45000, "US")).toBe("45 億ドル");
+      expect(formatMarketCapDisplay(850, "US")).toBe("850 百万ドル");
+      expect(formatMarketCapDisplay(-1, "US")).toBe("--");
+    });
+
+    it("runStockScreener supports sector in searchQuery matching", () => {
+      const results = runStockScreener({ searchQuery: "輸送用機器" });
+      expect(results.some((s) => s.ticker === "7203")).toBe(true);
     });
   });
 });

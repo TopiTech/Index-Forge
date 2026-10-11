@@ -15,6 +15,7 @@ import {
 import {
   getStockFundamentals,
   fetchStockFundamentals,
+  formatMarketCapDisplay,
   type StockQuoteFundamentals,
 } from "../lib/marketDataService";
 import type { PageView } from "../lib/navigation";
@@ -42,10 +43,10 @@ export function StockDetailPage({
   const [activeTab, setActiveTab] = useState<"CHART" | "FINANCIALS">("CHART");
   const { success } = useToast();
 
-  const loadStockData = useCallback(async (targetTicker: string) => {
+  const loadStockData = useCallback(async (targetTicker: string, forceRefresh = false) => {
     setLoading(true);
     try {
-      const data = await fetchStockFundamentals(targetTicker);
+      const data = await fetchStockFundamentals(targetTicker, forceRefresh);
       setStock(data);
     } finally {
       setLoading(false);
@@ -97,10 +98,10 @@ export function StockDetailPage({
           <button
             type="button"
             className="btn btn-sm btn-outline"
-            onClick={() => void loadStockData(stock.ticker)}
+            onClick={() => void loadStockData(stock.ticker, true)}
             title="最新データを再取得"
           >
-            <RefreshCw size={13} className={loading ? "spin" : ""} />
+            <RefreshCw size={13} className={loading ? "spin animate-spin" : ""} />
             <span>更新</span>
           </button>
 
@@ -183,7 +184,7 @@ export function StockDetailPage({
             </h1>
           </div>
 
-          <div style={{ textAlign: "right" }}>
+          <div className="stock-hero-price" style={{ textAlign: "right" }}>
             <div style={{ fontSize: "2.2rem", fontWeight: 800 }} className="mono">
               {stock.price.toLocaleString("en-US", { minimumFractionDigits: 1 })}
               <span className="tiny muted" style={{ fontSize: "1rem", marginLeft: "6px", fontWeight: 400 }}>
@@ -279,18 +280,19 @@ export function StockDetailPage({
           <div className="mono bold" style={{ fontSize: "1.3rem", marginTop: 4, color: "#10b981" }}>
             {stock.dividendYield ? `${stock.dividendYield.toFixed(2)}%` : "--"}
           </div>
-          <span className="tiny muted">1株配当: {stock.dps ?? "--"}円</span>
+          <span className="tiny muted">
+            1株配当: {stock.dps !== null && stock.dps !== undefined ? `${stock.dps}${stock.market === "US" ? " USD" : "円"}` : "--"}
+          </span>
         </div>
 
         <div className="card" style={{ padding: "14px 16px" }}>
           <span className="tiny muted mono uppercase">時価総額</span>
           <div className="mono bold" style={{ fontSize: "1.3rem", marginTop: 4 }}>
-            {(stock.marketCap / 100).toFixed(0)}
-            <span className="tiny" style={{ fontWeight: 400, marginLeft: 2 }}>
-              {stock.market === "US" ? "億ドル" : "億円"}
-            </span>
+            {formatMarketCapDisplay(stock.marketCap, stock.market)}
           </div>
-          <span className="tiny muted">大型優良株</span>
+          <span className="tiny muted">
+            {stock.market === "US" ? "グローバル大型株" : "東証大型優良株"}
+          </span>
         </div>
 
         <div className="card" style={{ padding: "14px 16px" }}>
@@ -436,12 +438,12 @@ export function StockDetailPage({
               <thead>
                 <tr>
                   <th style={{ textAlign: "left" }}>決算期</th>
-                  <th style={{ textAlign: "right" }}>売上高 (億円)</th>
-                  <th style={{ textAlign: "right" }}>営業利益 (億円)</th>
+                  <th style={{ textAlign: "right" }}>売上高 ({stock.market === "US" ? "百万ドル" : "億円"})</th>
+                  <th style={{ textAlign: "right" }}>営業利益 ({stock.market === "US" ? "百万ドル" : "億円"})</th>
                   <th style={{ textAlign: "right" }}>営業利益率</th>
-                  <th style={{ textAlign: "right" }}>純利益 (億円)</th>
-                  <th style={{ textAlign: "right" }}>EPS (円)</th>
-                  <th style={{ textAlign: "right" }}>1株配当 (円)</th>
+                  <th style={{ textAlign: "right" }}>純利益 ({stock.market === "US" ? "百万ドル" : "億円"})</th>
+                  <th style={{ textAlign: "right" }}>EPS ({stock.market === "US" ? "USD" : "円"})</th>
+                  <th style={{ textAlign: "right" }}>1株配当 ({stock.market === "US" ? "USD" : "円"})</th>
                 </tr>
               </thead>
               <tbody>

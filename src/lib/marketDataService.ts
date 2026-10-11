@@ -799,15 +799,31 @@ export function normalizeMarketOverview(raw: unknown): MarketOverviewData | null
         }
         : fallback.marketBreadth,
     news: Array.isArray(record.news)
-      ? record.news.filter(
-        (item): item is MarketOverviewData["news"][number] =>
-          !!item &&
-          typeof item === "object" &&
-          typeof (item as { id?: unknown }).id === "string" &&
-          typeof (item as { title?: unknown }).title === "string" &&
-          typeof (item as { source?: unknown }).source === "string" &&
-          typeof (item as { publishedAt?: unknown }).publishedAt === "string",
-      )
+      ? record.news
+          .filter(
+            (item): item is Record<string, unknown> =>
+              !!item &&
+              typeof item === "object" &&
+              typeof (item as { id?: unknown }).id === "string" &&
+              typeof (item as { title?: unknown }).title === "string" &&
+              typeof (item as { source?: unknown }).source === "string" &&
+              typeof (item as { publishedAt?: unknown }).publishedAt === "string",
+          )
+          .map((item) => {
+            const rawUrl = typeof item.url === "string" ? item.url : undefined;
+            const safeUrl = rawUrl && /^https?:\/\//i.test(rawUrl) ? rawUrl : undefined;
+            return {
+              id: item.id as string,
+              title: item.title as string,
+              source: item.source as string,
+              publishedAt: item.publishedAt as string,
+              url: safeUrl,
+              relatedTicker:
+                typeof item.relatedTicker === "string" && item.relatedTicker
+                  ? (item.relatedTicker as string)
+                  : undefined,
+            };
+          })
       : fallback.news,
   };
 }
@@ -844,7 +860,6 @@ export async function fetchMarketOverview(): Promise<MarketOverviewData> {
         }
         const normalized = normalizeMarketOverview(await res.json());
         if (normalized) return normalized;
-        overviewEndpointConfirmedMissing = true;
       }
     } catch {
       // Graceful fallback to rich local baseline; a network error may be
@@ -862,15 +877,45 @@ export function clearStockFundamentalsClientCache(): void {
 }
 
 /**
+ * Format market cap for display with correct Japanese and US financial conventions.
+ * Japanese stocks: stored in 億円. >= 10,000 億円 formatted as 兆円 (e.g. 29.1 兆円), otherwise 億円 (e.g. 3,500 億円).
+ * US stocks: stored in millions of USD ($M). >= 1,000,000 $M formatted as 兆ドル (e.g. 5.54 兆ドル), >= 1,000 as 億ドル, otherwise 百万ドル.
+ */
+export function formatMarketCapDisplay(marketCap: number, market: string): string {
+  if (typeof marketCap !== "number" || !Number.isFinite(marketCap) || marketCap <= 0) {
+    return "--";
+  }
+  if (market === "US") {
+    if (marketCap >= 1_000_000) {
+      return `${(marketCap / 1_000_000).toFixed(2)} 兆ドル`;
+    } else if (marketCap >= 1_000) {
+      return `${(marketCap / 1_000).toFixed(0)} 億ドル`;
+    }
+    return `${marketCap.toLocaleString()} 百万ドル`;
+  }
+  if (marketCap >= 10_000) {
+    return `${(marketCap / 10_000).toFixed(1)} 兆円`;
+  }
+  return `${marketCap.toLocaleString()} 億円`;
+}
+
+/**
  * Fetch real stock quote & fundamentals from /api/stock/fundamentals,
  * falling back to getStockFundamentals(ticker) if unavailable or offline.
  */
-export async function fetchStockFundamentals(ticker: string): Promise<StockQuoteFundamentals> {
+export async function fetchStockFundamentals(
+  ticker: string,
+  forceRefresh = false,
+): Promise<StockQuoteFundamentals> {
   const normTicker = ticker.trim().toUpperCase();
   if (!normTicker) return getStockFundamentals(ticker);
 
-  const cached = stockFundamentalsClientCache.get(normTicker);
-  if (cached) return cached;
+  if (forceRefresh) {
+    stockFundamentalsClientCache.delete(normTicker);
+  } else {
+    const cached = stockFundamentalsClientCache.get(normTicker);
+    if (cached) return cached;
+  }
 
   const isBrowser = typeof globalThis !== "undefined" && "window" in globalThis;
   if (isBrowser) {
@@ -965,7 +1010,8 @@ export function runStockScreener(options: ScreenerFilterOptions = {}): StockQuot
       const match =
         stock.ticker.toLowerCase().includes(q) ||
         stock.name.toLowerCase().includes(q) ||
-        stock.theme.toLowerCase().includes(q);
+        stock.theme.toLowerCase().includes(q) ||
+        (stock.sector && stock.sector.toLowerCase().includes(q));
       if (!match) return false;
     }
 
