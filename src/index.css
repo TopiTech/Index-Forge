@@ -40,12 +40,20 @@ body::before {
   display: none;
 }
 
-.app {
-  max-width: var(--content-max-width);
-  margin: 0 auto;
-  padding: 16px 24px 48px;
-  position: relative;
+.site-wrapper {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
   width: 100%;
+}
+
+.app {
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  position: relative;
+  box-sizing: border-box;
 }
 
 /* ==========================================================================
@@ -57,12 +65,15 @@ body::before {
   gap: 16px;
   max-width: var(--shell-max-width);
   margin: 0 auto;
-  padding: 16px 20px 0;
+  padding: 16px 20px 32px;
   width: 100%;
+  flex: 1;
+  box-sizing: border-box;
 }
 
 .app-column {
   min-width: 0;
+  width: 100%;
 }
 
 .global-sidebar {
@@ -346,8 +357,9 @@ h3 {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 16px;
   flex-wrap: nowrap;
+  width: 100%;
 }
 
 /* Quick Search Trigger in Header */
@@ -355,7 +367,7 @@ h3 {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 12px;
+  padding: 7px 14px;
   border-radius: 8px;
   background: var(--bg-card);
   border: 1px solid var(--border-subtle);
@@ -363,7 +375,10 @@ h3 {
   font-size: 0.82rem;
   cursor: pointer;
   transition: all 0.15s ease;
-  min-width: 160px;
+  width: 100%;
+  max-width: 300px;
+  min-width: 180px;
+  flex-shrink: 1;
 }
 
 .header-search-btn:hover {
@@ -382,17 +397,19 @@ h3 {
   color: var(--text-muted);
 }
 
-.header-mobile-search-btn {
-  display: none;
+.header-mobile-search-btn,
+.btn.header-mobile-search-btn {
+  display: none !important;
 }
 
-@media (max-width: 1120px) {
+@media (max-width: 1080px) {
   .header-search-btn {
-    display: none;
+    display: none !important;
   }
 
-  .header-mobile-search-btn {
-    display: inline-flex;
+  .header-mobile-search-btn,
+  .btn.header-mobile-search-btn {
+    display: inline-flex !important;
   }
 }
 
@@ -3373,28 +3390,31 @@ textarea:focus-visible {
    App Footer
    ========================================================================== */
 .app-footer {
-  margin-top: 40px;
+  width: 100%;
   background: var(--surface-footer);
   border-top: 1px solid var(--border-subtle);
-  padding: 40px 24px 28px;
+  padding: 36px 20px 24px;
   position: relative;
   z-index: 10;
+  box-sizing: border-box;
 }
 
 .footer-inner {
-  max-width: 1440px;
+  max-width: var(--shell-max-width);
   margin: 0 auto;
+  width: 100%;
 }
 
 .footer-grid {
   display: grid;
-  grid-template-columns: 2fr 1fr 1.2fr;
-  gap: 32px;
-  margin-bottom: 28px;
+  grid-template-columns: 1.3fr 1.7fr 1fr;
+  gap: 36px;
+  margin-bottom: 24px;
+  align-items: start;
 }
 
 .footer-col-brand {
-  max-width: 520px;
+  max-width: 480px;
 }
 
 .footer-brand-header {
@@ -3405,7 +3425,7 @@ textarea:focus-visible {
 }
 
 .footer-brand-title {
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 700;
   letter-spacing: 0.04em;
   color: var(--text-heading);
@@ -3413,7 +3433,7 @@ textarea:focus-visible {
 
 .footer-desc {
   font-size: 12px;
-  line-height: 1.6;
+  line-height: 1.65;
   margin-bottom: 14px;
 }
 
@@ -3424,7 +3444,7 @@ textarea:focus-visible {
   font-size: 12px;
   color: var(--text-secondary);
   background: var(--surface-control);
-  padding: 4px 10px;
+  padding: 5px 12px;
   border-radius: 6px;
   border: 1px solid var(--border-subtle);
 }
@@ -3434,15 +3454,23 @@ textarea:focus-visible {
 }
 
 .footer-heading {
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-secondary);
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
   margin-bottom: 12px;
 }
 
-.footer-nav-list,
+.footer-nav-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px 12px;
+}
+
 .footer-social-list {
   list-style: none;
   padding: 0;
@@ -3455,17 +3483,17 @@ textarea:focus-visible {
 .footer-link-btn {
   background: none;
   border: none;
-  padding: 6px 8px;
+  padding: 5px 8px;
   color: var(--text-secondary);
   text-decoration: none;
   box-sizing: border-box;
-  font-size: 13px;
+  font-size: 12.5px;
   display: inline-flex;
   align-items: center;
   gap: 8px;
   cursor: pointer;
   border-radius: 5px;
-  transition: all 0.2s ease;
+  transition: all 0.15s ease;
   width: 100%;
   text-align: left;
 }
@@ -3517,12 +3545,23 @@ textarea:focus-visible {
   max-width: 720px;
   margin: 0;
   line-height: 1.5;
+  font-size: 11px;
 }
 
-@media (max-width: 768px) {
+@media (max-width: 900px) {
   .footer-grid {
     grid-template-columns: 1fr;
     gap: 24px;
+  }
+
+  .footer-col-brand {
+    max-width: 100%;
+  }
+
+  .footer-bottom {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
   }
 }
 
