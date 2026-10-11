@@ -40,6 +40,12 @@ describe("MarketDataService", () => {
       const jpStocks = runStockScreener({ market: "PRIME" });
       expect(jpStocks.length).toBeGreaterThan(0);
       jpStocks.forEach((s) => expect(s.market).toBe("PRIME"));
+
+      // Strict market checking: non-matching markets should return empty, not leak PRIME stocks
+      const standardStocks = runStockScreener({ market: "STANDARD" });
+      expect(standardStocks).toHaveLength(0);
+      const growthStocks = runStockScreener({ market: "GROWTH" });
+      expect(growthStocks).toHaveLength(0);
     });
 
     it("filters by dividend yield and sorts correctly", () => {

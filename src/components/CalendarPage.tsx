@@ -49,7 +49,11 @@ export function CalendarPage({
           </p>
         </div>
 
-        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+        <div
+          role="group"
+          aria-label="イベント種別フィルター"
+          style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}
+        >
           {(
             [
               { id: "ALL", label: "全イベント" },
@@ -60,6 +64,7 @@ export function CalendarPage({
             <button
               key={tab.id}
               type="button"
+              aria-pressed={activeFilter === tab.id}
               className={`btn btn-sm ${activeFilter === tab.id ? "btn-accent" : "btn-ghost"}`}
               onClick={() => setActiveFilter(tab.id)}
               style={{ borderRadius: "20px", padding: "5px 14px" }}

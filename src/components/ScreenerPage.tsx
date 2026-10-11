@@ -434,12 +434,17 @@ export function ScreenerPage({
           flexWrap: "wrap",
         }}
       >
-        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+        <div
+          role="group"
+          aria-label="プリセット戦略フィルター"
+          style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}
+        >
           <span className="tiny muted mono" style={{ marginRight: 4 }}>
             プリセット戦略:
           </span>
           <button
             type="button"
+            aria-pressed={activePreset === "TOP_GAINERS"}
             className={`btn btn-sm ${activePreset === "TOP_GAINERS" ? "btn-accent active-preset-pill" : "btn-outline"}`}
             onClick={() => applyPreset("TOP_GAINERS")}
             style={{ borderRadius: "20px" }}
@@ -449,6 +454,7 @@ export function ScreenerPage({
           </button>
           <button
             type="button"
+            aria-pressed={activePreset === "HIGH_DIVIDEND"}
             className={`btn btn-sm ${activePreset === "HIGH_DIVIDEND" ? "btn-accent active-preset-pill" : "btn-outline"}`}
             onClick={() => applyPreset("HIGH_DIVIDEND")}
             style={{ borderRadius: "20px" }}
@@ -458,6 +464,7 @@ export function ScreenerPage({
           </button>
           <button
             type="button"
+            aria-pressed={activePreset === "LOW_PBR"}
             className={`btn btn-sm ${activePreset === "LOW_PBR" ? "btn-accent active-preset-pill" : "btn-outline"}`}
             onClick={() => applyPreset("LOW_PBR")}
             style={{ borderRadius: "20px" }}
@@ -467,6 +474,7 @@ export function ScreenerPage({
           </button>
           <button
             type="button"
+            aria-pressed={activePreset === "US_TECH"}
             className={`btn btn-sm ${activePreset === "US_TECH" ? "btn-accent active-preset-pill" : "btn-outline"}`}
             onClick={() => applyPreset("US_TECH")}
             style={{ borderRadius: "20px" }}

@@ -606,9 +606,8 @@ export function runStockScreener(options: ScreenerFilterOptions = {}): StockQuot
   const allStocks = POPULAR_STOCKS.map((s) => getStockFundamentals(s.ticker));
 
   const filtered = allStocks.filter((stock) => {
-    if (market !== "ALL") {
-      if (market === "US" && stock.market !== "US") return false;
-      if (market !== "US" && stock.market === "US") return false;
+    if (market !== "ALL" && stock.market !== market) {
+      return false;
     }
 
     if (minDividendYield !== undefined && (stock.dividendYield === null || stock.dividendYield < minDividendYield)) {

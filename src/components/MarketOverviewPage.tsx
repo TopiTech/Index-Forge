@@ -207,6 +207,8 @@ export function MarketOverviewPage({
 
       {/* Asset Filter Tabs */}
       <div
+        role="group"
+        aria-label="資産カテゴリフィルター"
         style={{
           display: "flex",
           gap: "6px",
@@ -228,6 +230,7 @@ export function MarketOverviewPage({
           <button
             key={tab.id}
             type="button"
+            aria-pressed={selectedAssetTab === tab.id}
             className={`btn btn-sm ${selectedAssetTab === tab.id ? "btn-accent" : "btn-ghost"}`}
             onClick={() => setSelectedAssetTab(tab.id)}
             style={{ borderRadius: "20px", padding: "5px 14px" }}

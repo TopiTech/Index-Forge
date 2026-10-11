@@ -1,3 +1,5 @@
+import { parseViewFromLocation } from "./navigation";
+
 /**
  * Manages tutorial completion state and determines whether the tutorial should be shown on initial launch.
  */
@@ -85,7 +87,7 @@ export interface LaunchConditionOptions {
  * Rules:
  * 1. If explicit query (?tutorial=1, ?tutorial=true, ?page=tutorial) or path (/tutorial) is present, returns true.
  * 2. If explicit suppression (?tutorial=0, ?tutorial=false) is present, returns false.
- * 3. If explicit other page is requested (/admin, /builder, /portfolio, /disclaimer), returns false.
+ * 3. If explicit other page is requested (/market, /stock, /screener, /calendar, /admin, etc.), returns false.
  * 4. Otherwise (default entry /), returns true ONLY IF the tutorial has NOT yet been completed.
  */
 export function shouldShowTutorialOnLaunch(options?: LaunchConditionOptions): boolean {
@@ -113,18 +115,8 @@ export function shouldShowTutorialOnLaunch(options?: LaunchConditionOptions): bo
   }
 
   // If another explicit subpage is requested by path or page param, don't interrupt with tutorial
-  if (
-    pathname === "/admin" ||
-    pathname === "/builder" ||
-    pathname === "/simulator" ||
-    pathname === "/portfolio" ||
-    pathname === "/profile" ||
-    pathname === "/disclaimer" ||
-    pageParam === "admin" ||
-    pageParam === "builder" ||
-    pageParam === "portfolio" ||
-    pageParam === "disclaimer"
-  ) {
+  const view = parseViewFromLocation(pathname, search);
+  if (view !== "dashboard" && view !== "tutorial") {
     return false;
   }
 

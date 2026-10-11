@@ -117,6 +117,15 @@ export function GlobalSearchModal({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isOpen, filteredResults, selectedIndex, onClose, onNavigate]);
 
+  // Ensure active keyboard selection stays visible in scrollable container
+  useEffect(() => {
+    if (!isOpen || filteredResults.length === 0) return;
+    const targetEl = listRef.current?.querySelector<HTMLElement>(
+      `[data-result-index="${selectedIndex}"]`
+    );
+    targetEl?.scrollIntoView({ block: "nearest" });
+  }, [selectedIndex, isOpen, filteredResults.length]);
+
   if (!isOpen) return null;
 
   const handleBackdropMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -155,6 +164,11 @@ export function GlobalSearchModal({
           <input
             ref={inputRef}
             type="text"
+            role="combobox"
+            aria-autocomplete="list"
+            aria-expanded={isOpen && filteredResults.length > 0}
+            aria-controls="global-search-results"
+            aria-activedescendant={filteredResults.length > 0 ? `global-search-item-${selectedIndex}` : undefined}
             className="global-search-input"
             placeholder="銘柄名、コード (例: 7203, NVDA)、テーマ、指数を検索..."
             value={query}
@@ -180,7 +194,13 @@ export function GlobalSearchModal({
         </div>
 
         {/* Search Results List */}
-        <div ref={listRef} className="global-search-list">
+        <div
+          ref={listRef}
+          id="global-search-results"
+          role="listbox"
+          aria-label="検索結果"
+          className="global-search-list"
+        >
           {filteredResults.length === 0 ? (
             <div style={{ padding: "32px 20px", textAlign: "center", color: "var(--text-muted)" }}>
               <p>一致する銘柄または指数が見つかりませんでした。</p>
@@ -193,6 +213,10 @@ export function GlobalSearchModal({
                 return (
                   <div
                     key={`${item.type}-${item.id}`}
+                    id={`global-search-item-${idx}`}
+                    role="option"
+                    aria-selected={isSelected}
+                    data-result-index={idx}
                     className={`search-result-item ${isSelected ? "selected" : ""}`}
                     onClick={() => {
                       if (item.type === "stock") {

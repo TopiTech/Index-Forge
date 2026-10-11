@@ -36,7 +36,7 @@ export function StockDetailPage({
   const [stock, setStock] = useState<StockQuoteFundamentals>(() =>
     getStockFundamentals(ticker),
   );
-  const [activeTab, setActiveTab] = useState<"CHART" | "FINANCIALS" | "PEERS">("CHART");
+  const [activeTab, setActiveTab] = useState<"CHART" | "FINANCIALS">("CHART");
   const { success } = useToast();
 
   useEffect(() => {
@@ -279,8 +279,10 @@ export function StockDetailPage({
         </div>
       </div>
 
-      {/* Tabs: Interactive Chart / Financials / Peers */}
+      {/* Tabs: Interactive Chart / Financials */}
       <div
+        role="tablist"
+        aria-label="銘柄詳細タブ"
         style={{
           display: "flex",
           gap: "8px",
@@ -291,6 +293,10 @@ export function StockDetailPage({
       >
         <button
           type="button"
+          role="tab"
+          id="stock-tab-chart"
+          aria-selected={activeTab === "CHART"}
+          aria-controls="stock-tabpanel-chart"
           className={`btn btn-sm ${activeTab === "CHART" ? "btn-accent" : "btn-ghost"}`}
           onClick={() => setActiveTab("CHART")}
         >
@@ -299,6 +305,10 @@ export function StockDetailPage({
         </button>
         <button
           type="button"
+          role="tab"
+          id="stock-tab-financials"
+          aria-selected={activeTab === "FINANCIALS"}
+          aria-controls="stock-tabpanel-financials"
           className={`btn btn-sm ${activeTab === "FINANCIALS" ? "btn-accent" : "btn-ghost"}`}
           onClick={() => setActiveTab("FINANCIALS")}
         >
@@ -309,7 +319,13 @@ export function StockDetailPage({
 
       {/* Tab 1: Interactive Chart Placeholder with TradingView Widget Container */}
       {activeTab === "CHART" && (
-        <div className="card" style={{ padding: "20px", minHeight: "450px" }}>
+        <div
+          role="tabpanel"
+          id="stock-tabpanel-chart"
+          aria-labelledby="stock-tab-chart"
+          className="card"
+          style={{ padding: "20px", minHeight: "450px" }}
+        >
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
             <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
               <span className="badge badge-accent mono tiny">TRADINGVIEW ENGINE</span>
@@ -368,7 +384,13 @@ export function StockDetailPage({
 
       {/* Tab 2: Historical Financials Performance Table & Visuals */}
       {activeTab === "FINANCIALS" && (
-        <div className="card" style={{ padding: "20px" }}>
+        <div
+          role="tabpanel"
+          id="stock-tabpanel-financials"
+          aria-labelledby="stock-tab-financials"
+          className="card"
+          style={{ padding: "20px" }}
+        >
           <div style={{ marginBottom: "16px" }}>
             <h3 style={{ fontSize: "1.15rem", fontWeight: 600, margin: 0 }}>
               財務業績・収益性推移 (通期)

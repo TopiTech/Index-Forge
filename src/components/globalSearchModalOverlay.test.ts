@@ -45,4 +45,14 @@ describe("GlobalSearchModal overlay and placement regression tests", () => {
     // Guards against empty search result list corrupting selectedIndex to -1
     expect(searchModalSource).toContain("if (filteredResults.length === 0) return;");
   });
+
+  it("provides combobox and listbox ARIA attributes and scrolls active item into view", () => {
+    expect(searchModalSource).toContain('role="combobox"');
+    expect(searchModalSource).toContain('aria-autocomplete="list"');
+    expect(searchModalSource).toContain('aria-controls="global-search-results"');
+    expect(searchModalSource).toContain('role="listbox"');
+    expect(searchModalSource).toContain('role="option"');
+    expect(searchModalSource).toContain('aria-selected={isSelected}');
+    expect(searchModalSource).toContain("scrollIntoView({ block: \"nearest\" })");
+  });
 });

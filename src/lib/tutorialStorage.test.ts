@@ -104,6 +104,13 @@ describe("tutorialStorage", () => {
       expect(shouldShowTutorialOnLaunch({ pathname: "/portfolio", search: "" })).toBe(false);
       expect(shouldShowTutorialOnLaunch({ pathname: "/disclaimer", search: "" })).toBe(false);
       expect(shouldShowTutorialOnLaunch({ pathname: "/", search: "?page=admin" })).toBe(false);
+      // New platform routes should also not be hijacked by the tutorial
+      expect(shouldShowTutorialOnLaunch({ pathname: "/market", search: "" })).toBe(false);
+      expect(shouldShowTutorialOnLaunch({ pathname: "/stock", search: "" })).toBe(false);
+      expect(shouldShowTutorialOnLaunch({ pathname: "/stock/7203", search: "" })).toBe(false);
+      expect(shouldShowTutorialOnLaunch({ pathname: "/screener", search: "" })).toBe(false);
+      expect(shouldShowTutorialOnLaunch({ pathname: "/calendar", search: "" })).toBe(false);
+      expect(shouldShowTutorialOnLaunch({ pathname: "/", search: "?page=screener" })).toBe(false);
     });
   });
 });
