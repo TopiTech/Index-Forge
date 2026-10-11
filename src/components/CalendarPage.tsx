@@ -22,23 +22,26 @@ export function CalendarPage({
   const [activeFilter, setActiveFilter] = useState<"ALL" | "MACRO" | "EARNINGS">("ALL");
 
   const mountedRef = useRef(true);
+  const requestIdRef = useRef(0);
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
+      requestIdRef.current += 1;
     };
   }, []);
 
   const loadEvents = useCallback(async (forceRefresh = false) => {
+    const requestId = ++requestIdRef.current;
     setLoading(true);
     try {
       const data = await fetchUpcomingEvents(forceRefresh);
-      if (!mountedRef.current) return;
+      if (!mountedRef.current || requestId !== requestIdRef.current) return;
       if (data && data.length > 0) {
         setEvents(data);
       }
     } finally {
-      if (mountedRef.current) {
+      if (mountedRef.current && requestId === requestIdRef.current) {
         setLoading(false);
       }
     }

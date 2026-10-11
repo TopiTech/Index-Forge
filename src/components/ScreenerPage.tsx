@@ -97,24 +97,27 @@ export function ScreenerPage({
   const [isLive, setIsLive] = useState(false);
 
   const mountedRef = useRef(true);
+  const requestIdRef = useRef(0);
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
+      requestIdRef.current += 1;
     };
   }, []);
 
   const loadScreenerData = useCallback(async (forceRefresh = false) => {
+    const requestId = ++requestIdRef.current;
     setLoading(true);
     try {
       const liveData = await fetchScreenerStocks({}, forceRefresh);
-      if (!mountedRef.current) return;
+      if (!mountedRef.current || requestId !== requestIdRef.current) return;
       if (liveData && liveData.length > 0) {
         setUniverse(liveData);
         setIsLive(true);
       }
     } finally {
-      if (mountedRef.current) {
+      if (mountedRef.current && requestId === requestIdRef.current) {
         setLoading(false);
       }
     }
@@ -258,8 +261,8 @@ export function ScreenerPage({
     }
   };
 
-  const handleToggleSelect = (ticker: string, e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handleToggleSelect = (ticker: string, e?: React.SyntheticEvent) => {
+    e?.stopPropagation();
     setSelectedTickers((prev) => {
       const next = new Set(prev);
       if (next.has(ticker)) {
@@ -318,10 +321,10 @@ export function ScreenerPage({
       escapeCsvCell(s.theme),
       escapeCsvCell(s.price),
       escapeCsvCell(s.changePercent.toFixed(2)),
-      escapeCsvCell(s.dividendYield ? s.dividendYield.toFixed(2) : ""),
-      escapeCsvCell(s.per ? s.per.toFixed(1) : ""),
-      escapeCsvCell(s.pbr ? s.pbr.toFixed(2) : ""),
-      escapeCsvCell(s.roe ? s.roe.toFixed(1) : ""),
+      escapeCsvCell(typeof s.dividendYield === "number" ? s.dividendYield.toFixed(2) : ""),
+      escapeCsvCell(typeof s.per === "number" ? s.per.toFixed(1) : ""),
+      escapeCsvCell(typeof s.pbr === "number" ? s.pbr.toFixed(2) : ""),
+      escapeCsvCell(typeof s.roe === "number" ? s.roe.toFixed(1) : ""),
       escapeCsvCell(s.technicalSignal),
     ]);
     const csvContent = "\uFEFF" + [headers.join(","), ...rows.map((r) => r.join(","))].join("\r\n");
@@ -854,7 +857,7 @@ export function ScreenerPage({
                       role="button"
                       tabIndex={0}
                       style={{ cursor: "pointer" }}
-                      className={`screener-row ${isSelected ? "selected-row" : ""}`}
+                      aria-label={`${stock.name} (${stock.ticker}) の詳細を見る`}
                       onClick={() => onOpenStockDetail(stock.ticker)}
                       onKeyDown={(e) => {
                         if (e.key === "Enter" || e.key === " ") {
@@ -862,25 +865,30 @@ export function ScreenerPage({
                           onOpenStockDetail(stock.ticker);
                         }
                       }}
-                      aria-label={`${stock.name} (${stock.ticker}) の詳細を見る`}
+                      className={`screener-row ${isSelected ? "selected-row" : ""}`}
                     >
                       <td
                         style={{ textAlign: "center" }}
-                        onClick={(e) => handleToggleSelect(stock.ticker, e)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleToggleSelect(stock.ticker, e);
+                        }}
                       >
                         <button
                           type="button"
                           className="btn btn-ghost tiny"
                           style={{ padding: 0 }}
-                          onClick={(e) => handleToggleSelect(stock.ticker, e)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleToggleSelect(stock.ticker, e);
+                          }}
                           onKeyDown={(e) => {
                             if (e.key === "Enter" || e.key === " ") {
                               e.stopPropagation();
-                              e.preventDefault();
-                              handleToggleSelect(stock.ticker, e as unknown as React.MouseEvent);
+                              handleToggleSelect(stock.ticker, e);
                             }
                           }}
-                          aria-label={`${stock.name} の選択トグル`}
+                          aria-label={`${stock.name} の選択切り替え`}
                         >
                           {isSelected ? (
                             <CheckSquare size={14} style={{ color: "var(--accent-text)" }} />
@@ -891,15 +899,11 @@ export function ScreenerPage({
                       </td>
 
                       <td>
-                        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                          <div>
-                            <span style={{ fontWeight: 600, color: "var(--accent-text)" }}>
-                              {stock.name}
-                            </span>
-                            <div className="tiny muted mono">
-                              {stock.ticker} · {stock.theme}
-                            </div>
-                          </div>
+                        <span style={{ fontWeight: 600, color: "var(--accent-text)" }}>
+                          {stock.name}
+                        </span>
+                        <div className="tiny muted mono">
+                          {stock.ticker} · {stock.theme}
                         </div>
                       </td>
 
@@ -911,7 +915,9 @@ export function ScreenerPage({
                         style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}
                         className="mono bold"
                       >
-                        {stock.price.toLocaleString()}
+                        {stock.market === "US"
+                          ? stock.price.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                          : stock.price.toLocaleString("ja-JP")}
                         <span className="tiny muted" style={{ marginLeft: 3 }}>
                           {stock.market === "US" ? "USD" : "円"}
                         </span>
@@ -937,28 +943,28 @@ export function ScreenerPage({
                         }}
                         className="mono bold"
                       >
-                        {stock.dividendYield ? `${stock.dividendYield.toFixed(2)}%` : "--"}
+                        {typeof stock.dividendYield === "number" ? `${stock.dividendYield.toFixed(2)}%` : "--"}
                       </td>
 
                       <td
                         style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}
                         className="mono"
                       >
-                        {stock.per ? `${stock.per.toFixed(1)}倍` : "--"}
+                        {typeof stock.per === "number" ? `${stock.per.toFixed(1)}倍` : "--"}
                       </td>
 
                       <td
                         style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}
                         className="mono"
                       >
-                        {stock.pbr ? `${stock.pbr.toFixed(2)}倍` : "--"}
+                        {typeof stock.pbr === "number" ? `${stock.pbr.toFixed(2)}倍` : "--"}
                       </td>
 
                       <td
                         style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}
                         className="mono"
                       >
-                        {stock.roe ? `${stock.roe.toFixed(1)}%` : "--"}
+                        {typeof stock.roe === "number" ? `${stock.roe.toFixed(1)}%` : "--"}
                       </td>
 
                       <td style={{ textAlign: "center" }}>

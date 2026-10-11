@@ -73,6 +73,16 @@ export function PortfolioManagerPage({
   const [newShares, setNewShares] = useState("100");
   const [newAverageCost, setNewAverageCost] = useState("2500");
 
+  const mountedRef = useRef(true);
+  const requestIdRef = useRef(0);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      requestIdRef.current += 1;
+    };
+  }, []);
+
   // Synchronize positions & watchlist immediately when auth transition occurs
   // during render to prevent overwriting saved data with unauthenticated empty arrays
   const prevAuthRef = useRef(isAuthenticated);
@@ -134,6 +144,7 @@ export function PortfolioManagerPage({
   const loadLiveQuotes = useCallback(async (forceRefresh = false) => {
     const allTickers = Array.from(new Set([...positions.map((p) => p.ticker), ...watchlist]));
     if (allTickers.length === 0) return;
+    const requestId = ++requestIdRef.current;
     setRefreshing(true);
     try {
       const entries = await Promise.all(
@@ -146,6 +157,7 @@ export function PortfolioManagerPage({
           }
         }),
       );
+      if (!mountedRef.current || requestId !== requestIdRef.current) return;
       setLiveQuotes((prev) => {
         const next = new Map(prev);
         for (const entry of entries) {
@@ -156,7 +168,9 @@ export function PortfolioManagerPage({
         return next;
       });
     } finally {
-      setRefreshing(false);
+      if (mountedRef.current && requestId === requestIdRef.current) {
+        setRefreshing(false);
+      }
     }
   }, [positions, watchlist]);
 
@@ -729,13 +743,22 @@ export function PortfolioManagerPage({
                           {p.shares.toLocaleString()}株
                         </td>
                         <td style={{ textAlign: "right" }} className="mono">
-                          {curr}{p.averageCost.toLocaleString()}
+                          {curr}{p.averageCost.toLocaleString("en-US", {
+                            minimumFractionDigits: curr === "$" ? 2 : 0,
+                            maximumFractionDigits: 2,
+                          })}
                         </td>
                         <td style={{ textAlign: "right" }} className="mono bold">
-                          {curr}{p.currentPrice.toLocaleString()}
+                          {curr}{p.currentPrice.toLocaleString("en-US", {
+                            minimumFractionDigits: curr === "$" ? 2 : 0,
+                            maximumFractionDigits: 2,
+                          })}
                         </td>
                         <td style={{ textAlign: "right" }} className="mono bold">
-                          {curr}{p.marketValue.toLocaleString()}
+                          {curr}{p.marketValue.toLocaleString("en-US", {
+                            minimumFractionDigits: curr === "$" ? 2 : 0,
+                            maximumFractionDigits: 2,
+                          })}
                         </td>
                         <td
                           style={{
@@ -745,7 +768,10 @@ export function PortfolioManagerPage({
                           className="mono bold"
                         >
                           {isProfit ? "+" : ""}
-                          {curr}{p.unrealizedProfit.toLocaleString()}
+                          {curr}{p.unrealizedProfit.toLocaleString("en-US", {
+                            minimumFractionDigits: curr === "$" ? 2 : 0,
+                            maximumFractionDigits: 2,
+                          })}
                         </td>
                         <td
                           style={{
@@ -898,8 +924,8 @@ export function PortfolioManagerPage({
               style={{ width: "100%", padding: "8px 12px" }}
               value={newShares}
               onChange={(e) => setNewShares(e.target.value)}
-              min="1"
-              step="1"
+              min="0.001"
+              step="any"
               required
             />
           </div>
@@ -915,8 +941,8 @@ export function PortfolioManagerPage({
               style={{ width: "100%", padding: "8px 12px" }}
               value={newAverageCost}
               onChange={(e) => setNewAverageCost(e.target.value)}
-              min="1"
-              step="0.1"
+              min="0.01"
+              step="any"
               required
             />
           </div>

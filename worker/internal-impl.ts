@@ -1608,8 +1608,9 @@ export async function fetchLiveMarketOverview(
       if (Array.isArray(sJson.news) && sJson.news.length > 0) {
         newsList = sJson.news.map((item) => {
           const date = new Date((item.providerPublishTime || Math.floor(Date.now() / 1000)) * 1000);
-          const hh = String(date.getHours()).padStart(2, "0");
-          const mm = String(date.getMinutes()).padStart(2, "0");
+          const jstDate = new Date(date.getTime() + 9 * 60 * 60 * 1000);
+          const hh = String(jstDate.getUTCHours()).padStart(2, "0");
+          const mm = String(jstDate.getUTCMinutes()).padStart(2, "0");
           return {
             id: item.uuid || `news-${Math.random()}`,
             title: item.title,
@@ -4022,7 +4023,7 @@ export default {
           }
 
           const norm = ticker.trim().toUpperCase();
-          if (norm.length > 20 || !/^[A-Z0-9.=-]{1,20}$/.test(norm)) {
+          if (norm.length > 20 || !/^[A-Z0-9.^=_-]{1,20}$/.test(norm)) {
             return json({ error: "Invalid ticker format" }, 400, request);
           }
 

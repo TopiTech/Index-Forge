@@ -1165,83 +1165,119 @@ export async function fetchUpcomingEvents(
   return UPCOMING_EVENTS;
 }
 
-// Sample Upcoming Earnings & Macro Events Calendar
-export const UPCOMING_EVENTS: CalendarEvent[] = [
-  {
-    id: "macro-1",
-    date: "10/18",
-    type: "MACRO",
-    title: "日銀金融政策決定会合・総裁記者会見",
-    importance: "HIGH",
-    previous: "0.25%",
-    forecast: "0.25%",
-  },
-  {
-    id: "earn-1",
-    date: "10/24",
-    type: "EARNINGS",
-    title: "信越化学工業 (4063) 2Q決算発表",
-    ticker: "4063",
-    companyName: "信越化学工業",
-    importance: "HIGH",
-    marketCap: 115000,
-  },
-  {
-    id: "earn-2",
-    date: "10/25",
-    type: "EARNINGS",
-    title: "ファナック (6954) 2Q決算発表",
-    ticker: "6954",
-    companyName: "ファナック",
-    importance: "MEDIUM",
-    marketCap: 41000,
-  },
-  {
-    id: "macro-2",
-    date: "10/31",
-    type: "MACRO",
-    title: "米FOMC 政策金利発表 & パウエル議長会見",
-    importance: "HIGH",
-    previous: "5.00%",
-    forecast: "4.75%",
-  },
-  {
-    id: "earn-3",
-    date: "11/01",
-    type: "EARNINGS",
-    title: "トヨタ自動車 (7203) 中間決算発表",
-    ticker: "7203",
-    companyName: "トヨタ自動車",
-    importance: "HIGH",
-    marketCap: 420000,
-  },
-  {
-    id: "macro-3",
-    date: "11/01",
-    type: "MACRO",
-    title: "米10月 雇用統計 (非農業部門雇用者数・失業率)",
-    importance: "HIGH",
-    previous: "25.4万人",
-    forecast: "12.0万人",
-  },
-  {
-    id: "earn-4",
-    date: "11/07",
-    type: "EARNINGS",
-    title: "ソフトバンクグループ (9984) 2Q決算発表",
-    ticker: "9984",
-    companyName: "ソフトバンクグループ",
-    importance: "HIGH",
-    marketCap: 135000,
-  },
-  {
-    id: "earn-5",
-    date: "11/12",
-    type: "EARNINGS",
-    title: "東京エレクトロン (8035) 2Q決算発表",
-    ticker: "8035",
-    companyName: "東京エレクトロン",
-    importance: "HIGH",
-    marketCap: 122000,
-  },
-];
+/**
+ * Generates financial calendar events dynamically relative to the reference date.
+ */
+export function generateUpcomingEvents(referenceDate = new Date()): CalendarEvent[] {
+  const year = referenceDate.getFullYear();
+  const monthIndex = referenceDate.getMonth(); // 0-11
+  const daysInCurrentMonth = new Date(year, monthIndex + 1, 0).getDate();
+  const mStr = (m: number) => String(m).padStart(2, "0");
+  const dStr = (d: number) => String(d).padStart(2, "0");
+  const currentMonth = monthIndex + 1;
+  const nextMonthDate = new Date(year, monthIndex + 1, 1);
+  const nextMonth = nextMonthDate.getMonth() + 1;
+  const endOfMonthDay = Math.min(28, daysInCurrentMonth);
+
+  return [
+    {
+      id: "macro-boj",
+      date: `${mStr(currentMonth)}/18`,
+      type: "MACRO",
+      title: "日銀金融政策決定会合・総裁記者会見",
+      importance: "HIGH",
+      previous: "0.25%",
+      forecast: "0.25%",
+    },
+    {
+      id: "earn-shinetsu",
+      date: `${mStr(currentMonth)}/20`,
+      type: "EARNINGS",
+      title: "信越化学工業 (4063) 決算発表",
+      ticker: "4063",
+      companyName: "信越化学工業",
+      importance: "HIGH",
+      marketCap: 115000,
+    },
+    {
+      id: "earn-fanuc",
+      date: `${mStr(currentMonth)}/22`,
+      type: "EARNINGS",
+      title: "ファナック (6954) 決算発表",
+      ticker: "6954",
+      companyName: "ファナック",
+      importance: "MEDIUM",
+      marketCap: 41000,
+    },
+    {
+      id: "earn-advantest",
+      date: `${mStr(currentMonth)}/25`,
+      type: "EARNINGS",
+      title: "アドバンテスト (6857) 決算発表",
+      ticker: "6857",
+      companyName: "アドバンテスト",
+      importance: "HIGH",
+      marketCap: 300000,
+    },
+    {
+      id: "macro-fomc",
+      date: `${mStr(currentMonth)}/${dStr(endOfMonthDay)}`,
+      type: "MACRO",
+      title: "米FOMC 政策金利発表 & パウエル議長会見",
+      importance: "HIGH",
+      previous: "5.00%",
+      forecast: "4.75%",
+    },
+    {
+      id: "earn-toyota",
+      date: `${mStr(nextMonth)}/01`,
+      type: "EARNINGS",
+      title: "トヨタ自動車 (7203) 決算発表",
+      ticker: "7203",
+      companyName: "トヨタ自動車",
+      importance: "HIGH",
+      marketCap: 345000,
+    },
+    {
+      id: "macro-jobs",
+      date: `${mStr(nextMonth)}/01`,
+      type: "MACRO",
+      title: "米雇用統計 (非農業部門雇用者数・失業率)",
+      importance: "HIGH",
+      previous: "25.4万人",
+      forecast: "12.0万人",
+    },
+    {
+      id: "earn-aapl",
+      date: `${mStr(nextMonth)}/05`,
+      type: "EARNINGS",
+      title: "Apple (AAPL) 決算発表",
+      ticker: "AAPL",
+      companyName: "Apple Inc.",
+      importance: "HIGH",
+      marketCap: 4900000,
+    },
+    {
+      id: "earn-sbg",
+      date: `${mStr(nextMonth)}/07`,
+      type: "EARNINGS",
+      title: "ソフトバンクグループ (9984) 決算発表",
+      ticker: "9984",
+      companyName: "ソフトバンクグループ",
+      importance: "HIGH",
+      marketCap: 135000,
+    },
+    {
+      id: "earn-tel",
+      date: `${mStr(nextMonth)}/12`,
+      type: "EARNINGS",
+      title: "東京エレクトロン (8035) 決算発表",
+      ticker: "8035",
+      companyName: "東京エレクトロン",
+      importance: "HIGH",
+      marketCap: 290000,
+    },
+  ];
+}
+
+export const UPCOMING_EVENTS: CalendarEvent[] = generateUpcomingEvents();

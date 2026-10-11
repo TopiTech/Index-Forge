@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { motion } from "framer-motion";
 import {
   TrendingUp,
@@ -43,13 +43,27 @@ export function StockDetailPage({
   const [activeTab, setActiveTab] = useState<"CHART" | "FINANCIALS">("CHART");
   const { success } = useToast();
 
+  const mountedRef = useRef(true);
+  const requestIdRef = useRef(0);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      requestIdRef.current += 1;
+    };
+  }, []);
+
   const loadStockData = useCallback(async (targetTicker: string, forceRefresh = false) => {
+    const requestId = ++requestIdRef.current;
     setLoading(true);
     try {
       const data = await fetchStockFundamentals(targetTicker, forceRefresh);
+      if (!mountedRef.current || requestId !== requestIdRef.current) return;
       setStock(data);
     } finally {
-      setLoading(false);
+      if (mountedRef.current && requestId === requestIdRef.current) {
+        setLoading(false);
+      }
     }
   }, []);
 
@@ -186,7 +200,10 @@ export function StockDetailPage({
 
           <div className="stock-hero-price" style={{ textAlign: "right" }}>
             <div style={{ fontSize: "2.2rem", fontWeight: 800 }} className="mono">
-              {stock.price.toLocaleString("en-US", { minimumFractionDigits: 1 })}
+              {stock.price.toLocaleString("en-US", {
+                minimumFractionDigits: stock.market === "US" ? 2 : 1,
+                maximumFractionDigits: stock.market === "US" ? 2 : 1,
+              })}
               <span className="tiny muted" style={{ fontSize: "1rem", marginLeft: "6px", fontWeight: 400 }}>
                 {stock.market === "US" ? "USD" : "JPY"}
               </span>
@@ -205,11 +222,14 @@ export function StockDetailPage({
               {isPositive ? <TrendingUp size={16} /> : <TrendingDown size={16} />}
               <span>
                 {isPositive ? "+" : ""}
-                {stock.change.toFixed(1)} ({isPositive ? "+" : ""}
+                {stock.market === "US" ? stock.change.toFixed(2) : stock.change.toFixed(1)} ({isPositive ? "+" : ""}
                 {stock.changePercent.toFixed(2)}%)
               </span>
               <span className="tiny muted" style={{ fontWeight: 400, marginLeft: 4 }}>
-                前日終値: {stock.previousClose.toLocaleString()}
+                前日終値: {stock.previousClose.toLocaleString("en-US", {
+                  minimumFractionDigits: stock.market === "US" ? 2 : 0,
+                  maximumFractionDigits: stock.market === "US" ? 2 : 1,
+                })}
               </span>
             </div>
             {stock.dayHigh > 0 && stock.dayLow > 0 && (
@@ -330,8 +350,16 @@ export function StockDetailPage({
           id="stock-tab-chart"
           aria-selected={activeTab === "CHART"}
           aria-controls="stock-tabpanel-chart"
+          tabIndex={activeTab === "CHART" ? 0 : -1}
           className={`btn btn-sm ${activeTab === "CHART" ? "btn-accent" : "btn-ghost"}`}
           onClick={() => setActiveTab("CHART")}
+          onKeyDown={(e) => {
+            if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+              e.preventDefault();
+              setActiveTab("FINANCIALS");
+              document.getElementById("stock-tab-financials")?.focus();
+            }
+          }}
         >
           <BarChart2 size={14} />
           <span>テクニカルチャート</span>
@@ -342,8 +370,16 @@ export function StockDetailPage({
           id="stock-tab-financials"
           aria-selected={activeTab === "FINANCIALS"}
           aria-controls="stock-tabpanel-financials"
+          tabIndex={activeTab === "FINANCIALS" ? 0 : -1}
           className={`btn btn-sm ${activeTab === "FINANCIALS" ? "btn-accent" : "btn-ghost"}`}
           onClick={() => setActiveTab("FINANCIALS")}
+          onKeyDown={(e) => {
+            if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+              e.preventDefault();
+              setActiveTab("CHART");
+              document.getElementById("stock-tab-chart")?.focus();
+            }
+          }}
         >
           <PieChart size={14} />
           <span>業績・財務ハイライト (4期推移)</span>
