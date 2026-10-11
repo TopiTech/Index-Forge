@@ -9,7 +9,14 @@ import {
   Sparkles,
   BookmarkPlus,
   Check,
+  Lock,
+  KeyRound,
+  Eye,
+  EyeOff,
+  ArrowLeft,
+  AlertCircle,
 } from "lucide-react";
+import { useAuth } from "../hooks/useAuth";
 import { ModalBase } from "./ModalBase";
 import {
   loadPortfolioPositions,
@@ -36,24 +43,70 @@ export function PortfolioManagerPage({
   onOpenStockDetail,
   onConvertAndCreateCustomIndex,
 }: PortfolioManagerPageProps) {
-  const [positions, setPositions] = useState<PortfolioPosition[]>(loadPortfolioPositions);
-  const [watchlist, setWatchlist] = useState<string[]>(loadWatchlist);
+  const { isAuthenticated, session, login, loading: authLoading } = useAuth();
+  const [positions, setPositions] = useState<PortfolioPosition[]>(() =>
+    isAuthenticated ? loadPortfolioPositions() : []
+  );
+  const [watchlist, setWatchlist] = useState<string[]>(() =>
+    isAuthenticated ? loadWatchlist() : []
+  );
   const [activeTab, setActiveTab] = useState<"HOLDINGS" | "WATCHLIST">("HOLDINGS");
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const { success, info } = useToast();
+
+  // Auth gate inline login state
+  const [authPassword, setAuthPassword] = useState("");
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [showPassword, setShowPassword] = useState(false);
+  const [isSubmittingAuth, setIsSubmittingAuth] = useState(false);
 
   // New position form state
   const [newTicker, setNewTicker] = useState("7203");
   const [newShares, setNewShares] = useState("100");
   const [newAverageCost, setNewAverageCost] = useState("2500");
 
+  // Synchronize positions & watchlist when auth state changes
   useEffect(() => {
-    savePortfolioPositions(positions);
-  }, [positions]);
+    if (isAuthenticated) {
+      setPositions(loadPortfolioPositions());
+      setWatchlist(loadWatchlist());
+    } else {
+      setPositions([]);
+      setWatchlist([]);
+    }
+  }, [isAuthenticated]);
 
   useEffect(() => {
-    saveWatchlist(watchlist);
-  }, [watchlist]);
+    if (isAuthenticated) {
+      savePortfolioPositions(positions);
+    }
+  }, [positions, isAuthenticated]);
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      saveWatchlist(watchlist);
+    }
+  }, [watchlist, isAuthenticated]);
+
+  const handleInlineLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = authPassword.trim();
+    if (!trimmed) {
+      setAuthError("パスワードを入力してください");
+      return;
+    }
+
+    setAuthError(null);
+    setIsSubmittingAuth(true);
+    const res = await login(trimmed);
+    setIsSubmittingAuth(false);
+    if (res.ok) {
+      setAuthPassword("");
+      success("ログインしました。ポートフォリオ管理機能をご利用いただけます。");
+    } else {
+      setAuthError(res.error || "パスワードが正しくありません");
+    }
+  };
 
   const summary = calculatePortfolioSummary(positions);
   const isTotalProfitPositive = summary.totalProfit >= 0;
@@ -105,6 +158,288 @@ export function PortfolioManagerPage({
     }
     success(`保有ポートフォリオ（${basket.length}銘柄）を指数ビルダーに一括エクスポートしました！`);
   };
+
+  if (!isAuthenticated) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.3 }}
+        className="page-container portfolio-manager-page portfolio-auth-gate"
+      >
+        {/* Subpage Top Bar */}
+        <div
+          className="subpage-nav-bar"
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            marginBottom: "24px",
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => onNavigate("dashboard")}
+            className="btn btn-default subpage-back-btn"
+            aria-label="ダッシュボードへ戻る"
+          >
+            <ArrowLeft size={16} />
+            <span>ダッシュボードに戻る</span>
+          </button>
+          <span className="mono tiny muted uppercase">ASSET MANAGEMENT · LOGIN REQUIRED</span>
+        </div>
+
+        {/* Hero Header */}
+        <div style={{ textAlign: "center", marginBottom: "32px" }}>
+          <div
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "8px",
+              marginBottom: "8px",
+            }}
+          >
+            <span className="badge badge-accent mono tiny">
+              <Lock size={12} /> AUTH REQUIRED
+            </span>
+            <span className="tiny muted mono">MEMBERS ONLY</span>
+          </div>
+          <h1 className="page-header-title" style={{ fontSize: "1.9rem", margin: "4px 0 8px" }}>
+            マイ・ポートフォリオ & ウォッチリスト
+          </h1>
+          <p
+            className="muted"
+            style={{ maxWidth: "620px", margin: "0 auto", fontSize: "0.95rem", lineHeight: 1.6 }}
+          >
+            実際の保有株式の損益・利回り管理、ウォッチリスト、および保有資産に基づく客観的カスタム指数バックテストはログインユーザー限定の機能です。
+          </p>
+        </div>
+
+        {/* Login Form Card */}
+        <div style={{ maxWidth: "480px", margin: "0 auto 40px" }}>
+          <div
+            className="card portfolio-gate-card"
+            style={{
+              padding: "32px 28px",
+              background: "var(--bg-surface)",
+              border: "1px solid var(--border-cyan)",
+              borderRadius: "16px",
+              boxShadow: "0 20px 50px rgba(0, 0, 0, 0.4), 0 0 30px rgba(0, 229, 255, 0.12)",
+            }}
+          >
+            <div style={{ textAlign: "center", marginBottom: "24px" }}>
+              <div
+                style={{
+                  width: "56px",
+                  height: "56px",
+                  margin: "0 auto 14px",
+                  borderRadius: "50%",
+                  background: "rgba(0, 229, 255, 0.12)",
+                  border: "1px solid var(--border-cyan)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <Lock size={26} style={{ color: "var(--neon-cyan)" }} />
+              </div>
+              <h2 style={{ fontSize: "1.25rem", fontWeight: 700, margin: "0 0 6px" }}>
+                ポートフォリオのロック解除
+              </h2>
+              <p className="tiny muted" style={{ margin: 0 }}>
+                パスワードを入力してポートフォリオ管理機能を開始してください
+              </p>
+            </div>
+
+            {authError && (
+              <div
+                role="alert"
+                aria-live="assertive"
+                className="row"
+                style={{
+                  gap: 8,
+                  padding: "10px 14px",
+                  background: "rgba(255, 51, 102, 0.15)",
+                  border: "1px solid var(--neon-red)",
+                  borderRadius: "8px",
+                  color: "var(--neon-red)",
+                  fontSize: "13px",
+                  marginBottom: "18px",
+                }}
+              >
+                <AlertCircle size={16} style={{ flexShrink: 0 }} />
+                <span>{authError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleInlineLogin}>
+              <div style={{ marginBottom: "18px" }}>
+                <label
+                  htmlFor="portfolio-auth-input"
+                  style={{
+                    display: "block",
+                    fontSize: "12px",
+                    fontWeight: 600,
+                    color: "var(--text-secondary)",
+                    marginBottom: "6px",
+                  }}
+                >
+                  アクセスパスワード
+                </label>
+                <div style={{ position: "relative" }}>
+                  <input
+                    id="portfolio-auth-input"
+                    type={showPassword ? "text" : "password"}
+                    value={authPassword}
+                    onChange={(e) => setAuthPassword(e.target.value)}
+                    placeholder="ユーザーまたは管理者パスワード"
+                    autoComplete="current-password"
+                    disabled={isSubmittingAuth || authLoading}
+                    style={{
+                      width: "100%",
+                      padding: "11px 44px 11px 14px",
+                      background: "var(--bg-input)",
+                      border: "1px solid var(--border-subtle)",
+                      borderRadius: "8px",
+                      color: "var(--text-primary)",
+                      fontSize: "14px",
+                      boxSizing: "border-box",
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    aria-label={showPassword ? "パスワードを隠す" : "パスワードを表示"}
+                    aria-pressed={showPassword}
+                    style={{
+                      position: "absolute",
+                      right: "10px",
+                      top: "50%",
+                      transform: "translateY(-50%)",
+                      background: "transparent",
+                      border: "none",
+                      color: "var(--text-secondary)",
+                      cursor: "pointer",
+                      padding: "4px",
+                      display: "flex",
+                      alignItems: "center",
+                    }}
+                  >
+                    {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+                <p className="tiny muted" style={{ margin: "6px 0 0", fontSize: "11px" }}>
+                  ※ 管理者パスワード、または管理者が発行したユーザーパスワードを入力してください
+                </p>
+              </div>
+
+              <div style={{ display: "flex", gap: "10px" }}>
+                <button
+                  type="button"
+                  onClick={() => onNavigate("dashboard")}
+                  className="btn btn-default"
+                  style={{ flex: 1 }}
+                >
+                  ダッシュボードへ戻る
+                </button>
+                <button
+                  type="submit"
+                  className="btn btn-accent"
+                  style={{
+                    flex: 2,
+                    display: "inline-flex",
+                    justifyContent: "center",
+                    alignItems: "center",
+                    gap: "6px",
+                  }}
+                  disabled={isSubmittingAuth || authLoading || !authPassword.trim()}
+                >
+                  <KeyRound size={15} />
+                  <span>{isSubmittingAuth || authLoading ? "認証中..." : "ログインして利用開始"}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+
+        {/* Feature Highlights Grid */}
+        <div style={{ maxWidth: "900px", margin: "0 auto" }}>
+          <div style={{ textAlign: "center", marginBottom: "18px" }}>
+            <span className="mono tiny muted uppercase">FEATURE HIGHLIGHTS</span>
+            <h3 style={{ fontSize: "1.1rem", margin: "4px 0 0" }}>ログインで利用可能になる機能</h3>
+          </div>
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+              gap: "16px",
+            }}
+          >
+            <div className="card" style={{ padding: "20px 22px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "10px" }}>
+                <div
+                  style={{
+                    padding: "8px",
+                    borderRadius: "8px",
+                    background: "rgba(0, 229, 255, 0.12)",
+                    color: "var(--neon-cyan)",
+                    display: "flex",
+                  }}
+                >
+                  <Briefcase size={20} />
+                </div>
+                <h4 style={{ margin: 0, fontSize: "1rem", fontWeight: 600 }}>リアルタイム損益・利回り管理</h4>
+              </div>
+              <p className="tiny muted" style={{ margin: 0, lineHeight: 1.6 }}>
+                保有株数や取得単価を登録し、時価評価額、トータル損益、本日前日比損益および年間予想配当金をリアルタイムで一元管理できます。
+              </p>
+            </div>
+
+            <div className="card" style={{ padding: "20px 22px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "10px" }}>
+                <div
+                  style={{
+                    padding: "8px",
+                    borderRadius: "8px",
+                    background: "rgba(168, 85, 247, 0.12)",
+                    color: "#a855f7",
+                    display: "flex",
+                  }}
+                >
+                  <Sparkles size={20} />
+                </div>
+                <h4 style={{ margin: 0, fontSize: "1rem", fontWeight: 600 }}>ワンクリック指数化バックテスト</h4>
+              </div>
+              <p className="tiny muted" style={{ margin: 0, lineHeight: 1.6 }}>
+                保有株式の時価評価額比率からオリジナルカスタム指数を瞬時に自動生成し、日経平均やS&P 500との客観的なリスク・リターン比較を実行できます。
+              </p>
+            </div>
+
+            <div className="card" style={{ padding: "20px 22px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "10px" }}>
+                <div
+                  style={{
+                    padding: "8px",
+                    borderRadius: "8px",
+                    background: "rgba(16, 185, 129, 0.12)",
+                    color: "#10b981",
+                    display: "flex",
+                  }}
+                >
+                  <BookmarkPlus size={20} />
+                </div>
+                <h4 style={{ margin: 0, fontSize: "1rem", fontWeight: 600 }}>銘柄監視ウォッチリスト</h4>
+              </div>
+              <p className="tiny muted" style={{ margin: 0, lineHeight: 1.6 }}>
+                気になる銘柄を登録して株価や前日比騰落率を素早く確認でき、財務指標やインタラクティブチャート分析へシームレスにアクセスできます。
+              </p>
+            </div>
+          </div>
+        </div>
+      </motion.div>
+    );
+  }
 
   return (
     <motion.div

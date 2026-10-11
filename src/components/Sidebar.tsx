@@ -13,6 +13,7 @@ import {
     Shield,
     X,
     Menu,
+    Lock,
 } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
 import { DataFreshness } from "./DataFreshness";
@@ -96,7 +97,7 @@ export function Sidebar({
     onRequestClose,
     freshnessProps,
 }: SidebarProps) {
-    const { isAdmin } = useAuth();
+    const { isAdmin, isAuthenticated } = useAuth();
     const drawerRef = useRef<HTMLElement>(null);
 
     const handleNavigate = useCallback(
@@ -165,18 +166,38 @@ export function Sidebar({
     const renderNavItem = (item: NavItem) => {
         const { view, label, title, icon: Icon } = item;
         const isActive = currentView === view;
+        const isLocked = view === "portfolio" && !isAuthenticated;
         return (
             <button
                 key={view}
                 type="button"
-                className={`global-nav-item ${isActive ? "active" : ""}`}
+                className={`global-nav-item ${isActive ? "active" : ""} ${isLocked ? "nav-item-locked" : ""}`}
                 onClick={() => handleNavigate(view)}
                 title={title}
                 aria-label={`${label}へ移動`}
                 aria-current={isActive ? "page" : undefined}
             >
                 <Icon size={15} strokeWidth={2} />
-                <span>{label}</span>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 6, flex: 1, justifyContent: "space-between" }}>
+                    <span>{label}</span>
+                    {isLocked && (
+                        <span
+                            className="badge badge-subtle tiny mono"
+                            style={{
+                                fontSize: "10px",
+                                padding: "1px 5px",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: 3,
+                                opacity: 0.85,
+                            }}
+                            title="ログインが必要です"
+                        >
+                            <Lock size={10} aria-hidden="true" />
+                            <span>要ログイン</span>
+                        </span>
+                    )}
+                </span>
             </button>
         );
     };
