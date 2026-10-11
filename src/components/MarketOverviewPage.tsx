@@ -1,13 +1,11 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { motion } from "framer-motion";
 import {
-  Globe,
   TrendingUp,
   TrendingDown,
   RefreshCw,
   Layers,
   ArrowRight,
-  Flame,
   Newspaper,
   Compass,
   Zap,
@@ -32,16 +30,32 @@ export function MarketOverviewPage({
   const [loading, setLoading] = useState(true);
   const [selectedAssetTab, setSelectedAssetTab] = useState<"ALL" | "INDEX" | "FX" | "COMMODITY" | "CRYPTO">("ALL");
 
-  const loadData = async () => {
+  // The refresh button can fire again while a request is in flight, and the
+  // page can unmount mid-request; tag each request so a stale response can
+  // neither overwrite a newer one nor setState after unmount.
+  const requestIdRef = useRef(0);
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      // Invalidate any in-flight response on unmount.
+      requestIdRef.current += 1;
+    };
+  }, []);
+
+  const loadData = useCallback(async () => {
+    const requestId = ++requestIdRef.current;
     setLoading(true);
     const result = await fetchMarketOverview();
+    if (!mountedRef.current || requestId !== requestIdRef.current) return;
     setData(result);
     setLoading(false);
-  };
+  }, []);
 
   useEffect(() => {
-    loadData();
-  }, []);
+    void loadData();
+  }, [loadData]);
 
   if (!data) {
     return (
@@ -100,7 +114,7 @@ export function MarketOverviewPage({
           <button
             type="button"
             className="btn btn-sm btn-outline"
-            onClick={loadData}
+            onClick={() => void loadData()}
             title="最新データを再取得"
           >
             <RefreshCw size={13} className={loading ? "spin" : ""} />

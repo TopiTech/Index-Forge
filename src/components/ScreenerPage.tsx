@@ -3,20 +3,17 @@ import { motion } from "framer-motion";
 import {
   Zap,
   TrendingUp,
-  TrendingDown,
-  Filter,
   Sparkles,
   Search,
   ArrowUpDown,
   Coins,
   ShieldCheck,
-  CheckCircle,
 } from "lucide-react";
 import {
   runStockScreener,
-  type StockQuoteFundamentals,
   type ScreenerFilterOptions,
 } from "../lib/marketDataService";
+import { allocateEvenWeights } from "../lib/weights";
 import type { PageView } from "../lib/navigation";
 import { useToast } from "./Toast";
 
@@ -93,13 +90,15 @@ export function ScreenerPage({
   const handleBatchIndexCreation = () => {
     if (results.length === 0) return;
     const topStocks = results.slice(0, 10);
-    const weightPerStock = Math.round(100 / topStocks.length);
+    // Equal split whose sum is exactly 100 for any result size
+    // (Math.round(100 / n) drifts: 7 stocks would sum to 99).
+    const weights = allocateEvenWeights(topStocks.length);
 
-    const basket = topStocks.map((s) => ({
+    const basket = topStocks.map((s, index) => ({
       ticker: s.ticker,
       name: s.name,
       theme: s.theme,
-      weight: weightPerStock,
+      weight: weights[index],
     }));
 
     if (onBatchCreateCustomIndex) {
@@ -215,7 +214,7 @@ export function ScreenerPage({
             className="select-styled"
             style={{ width: "100%", padding: "6px 10px", fontSize: "0.85rem" }}
             value={market}
-            onChange={(e) => setMarket(e.target.value as any)}
+            onChange={(e) => setMarket(e.target.value as "ALL" | "PRIME" | "US")}
           >
             <option value="ALL">全市場 (日本 & 米国)</option>
             <option value="PRIME">東証プライム</option>
@@ -305,7 +304,9 @@ export function ScreenerPage({
               className="select-styled tiny"
               style={{ padding: "4px 8px" }}
               value={sortBy}
-              onChange={(e) => setSortBy(e.target.value as any)}
+              onChange={(e) =>
+                setSortBy(e.target.value as NonNullable<ScreenerFilterOptions["sortBy"]>)
+              }
             >
               <option value="changePercent">騰落率 (%)</option>
               <option value="dividendYield">配当利回り (%)</option>

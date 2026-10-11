@@ -310,10 +310,17 @@ const DEFAULT_MARKET_OVERVIEW: MarketOverviewData = {
 
 // Generates rich fundamentals for any ticker
 export function getStockFundamentals(ticker: string): StockQuoteFundamentals {
-  const normTicker = ticker.trim().toUpperCase();
-  const matchedPreset = POPULAR_STOCKS.find(
-    (s) => s.ticker.toUpperCase() === normTicker || s.name.includes(normTicker),
-  );
+  const input = ticker.trim().toUpperCase();
+  // Exact ticker match first, then exact name lookup. The previous
+  // `name.includes(...)` matched substrings, so short inputs like "72"
+  // resolved to an unrelated preset (and an empty ticker matched the
+  // first stock).
+  const matchedPreset =
+    POPULAR_STOCKS.find((s) => s.ticker.toUpperCase() === input) ??
+    (input ? POPULAR_STOCKS.find((s) => s.name === input) : undefined);
+  // A name lookup resolves to the preset's code so callers always receive a
+  // real ticker (and the same seed/data as a code lookup for that stock).
+  const normTicker = matchedPreset ? matchedPreset.ticker.toUpperCase() : input;
 
   const name = matchedPreset ? matchedPreset.name : `銘柄 ${normTicker}`;
   const theme = matchedPreset ? matchedPreset.theme : "株式";
@@ -407,20 +414,148 @@ export function getStockFundamentals(ticker: string): StockQuoteFundamentals {
   };
 }
 
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function sanitizeQuote(raw: unknown): MarketAssetQuote | null {
+  if (!raw || typeof raw !== "object") return null;
+  const record = raw as Record<string, unknown>;
+  if (typeof record.symbol !== "string" || !record.symbol) return null;
+  if (typeof record.name !== "string" || !record.name) return null;
+  if (!isFiniteNumber(record.price)) return null;
+
+  const change = isFiniteNumber(record.change) ? record.change : 0;
+  const changePercent = isFiniteNumber(record.changePercent)
+    ? record.changePercent
+    : 0;
+  const sparkline = Array.isArray(record.sparkline)
+    ? record.sparkline.filter(isFiniteNumber)
+    : [];
+
+  return {
+    symbol: record.symbol,
+    name: record.name,
+    category:
+      record.category === "FX" ||
+        record.category === "COMMODITY" ||
+        record.category === "CRYPTO" ||
+        record.category === "BOND" ||
+        record.category === "INDEX"
+        ? record.category
+        : "INDEX",
+    price: record.price,
+    change,
+    changePercent,
+    currency: typeof record.currency === "string" && record.currency ? record.currency : "USD",
+    ...(sparkline.length > 0 ? { sparkline } : {}),
+    updatedAt:
+      typeof record.updatedAt === "string" && record.updatedAt
+        ? record.updatedAt
+        : "-",
+  };
+}
+
+function sanitizeQuotes(raw: unknown): MarketAssetQuote[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map(sanitizeQuote)
+    .filter((quote): quote is MarketAssetQuote => quote !== null);
+}
+
+/**
+ * Validates an untrusted /api/market/overview payload before it reaches the
+ * page. The endpoint can return partial or non-JSON responses, and the page
+ * dereferences `marketBreadth`, `sectors` and `news` unconditionally, so any
+ * missing section would otherwise throw during render.
+ * Returns `null` when `indices` is absent or empty (the required section).
+ */
+export function normalizeMarketOverview(raw: unknown): MarketOverviewData | null {
+  if (!raw || typeof raw !== "object") return null;
+  const record = raw as Record<string, unknown>;
+  if (!Array.isArray(record.indices) || record.indices.length === 0) return null;
+
+  const breadth = record.marketBreadth as Record<string, unknown> | undefined;
+  const fallback = DEFAULT_MARKET_OVERVIEW;
+
+  return {
+    indices: sanitizeQuotes(record.indices),
+    forex: sanitizeQuotes(record.forex),
+    commodities: sanitizeQuotes(record.commodities),
+    crypto: sanitizeQuotes(record.crypto),
+    sectors: Array.isArray(record.sectors)
+      ? record.sectors.filter(
+        (sector): sector is MarketOverviewData["sectors"][number] =>
+          !!sector &&
+          typeof sector === "object" &&
+          typeof (sector as { name?: unknown }).name === "string" &&
+          isFiniteNumber((sector as { changePercent?: unknown }).changePercent),
+      )
+      : fallback.sectors,
+    marketBreadth:
+      breadth &&
+        isFiniteNumber(breadth.gainers) &&
+        isFiniteNumber(breadth.losers) &&
+        isFiniteNumber(breadth.unchanged) &&
+        isFiniteNumber(breadth.sentimentScore)
+        ? {
+          gainers: breadth.gainers,
+          losers: breadth.losers,
+          unchanged: breadth.unchanged,
+          sentimentScore: Math.max(0, Math.min(100, breadth.sentimentScore)),
+        }
+        : fallback.marketBreadth,
+    news: Array.isArray(record.news)
+      ? record.news.filter(
+        (item): item is MarketOverviewData["news"][number] =>
+          !!item &&
+          typeof item === "object" &&
+          typeof (item as { id?: unknown }).id === "string" &&
+          typeof (item as { title?: unknown }).title === "string" &&
+          typeof (item as { source?: unknown }).source === "string" &&
+          typeof (item as { publishedAt?: unknown }).publishedAt === "string",
+      )
+      : fallback.news,
+  };
+}
+
+// The worker has no /api/market/overview route yet, so every call would 404
+// (or fall through to the SPA index.html in dev). Remember a confirmed
+// missing/mismatched endpoint and skip the request until a full reload.
+let overviewEndpointConfirmedMissing = false;
+
+/** Test hook: re-arm the endpoint probe between assertions. */
+export function resetMarketOverviewEndpointProbe(): void {
+  overviewEndpointConfirmedMissing = false;
+}
+
 // Fetch Market Overview Data (with API fallback)
 export async function fetchMarketOverview(): Promise<MarketOverviewData> {
   const isBrowser = typeof globalThis !== "undefined" && "window" in globalThis;
-  if (isBrowser) {
+  if (isBrowser && !overviewEndpointConfirmedMissing) {
     try {
-      const res = await fetch("/api/market/overview");
+      const res = await fetch("/api/market/overview", {
+        headers: { accept: "application/json" },
+      });
+      if (res.status === 404) {
+        overviewEndpointConfirmedMissing = true;
+        return DEFAULT_MARKET_OVERVIEW;
+      }
       if (res.ok) {
-        const data: any = await res.json();
-        if (data && data.indices && Array.isArray(data.indices)) {
-          return data as MarketOverviewData;
+        const contentType = res.headers.get("content-type") || "";
+        // The SPA fallback answers *.html paths with index.html; anything
+        // that is not JSON means the route does not exist.
+        if (!contentType.includes("json")) {
+          overviewEndpointConfirmedMissing = true;
+          return DEFAULT_MARKET_OVERVIEW;
         }
+        const normalized = normalizeMarketOverview(await res.json());
+        if (normalized) return normalized;
+        overviewEndpointConfirmedMissing = true;
       }
     } catch {
-      // Graceful fallback to rich local baseline
+      // Graceful fallback to rich local baseline; a network error may be
+      // transient, so the endpoint probe stays armed.
     }
   }
   return DEFAULT_MARKET_OVERVIEW;
@@ -487,6 +622,9 @@ export function runStockScreener(options: ScreenerFilterOptions = {}): StockQuot
   return filtered.sort((a, b) => {
     const valA = a[sortBy] ?? 0;
     const valB = b[sortBy] ?? 0;
+    // Keep equal keys untouched: returning -1 for ties makes the comparator
+    // inconsistent (a > b and b > a both yield -1) and the order unstable.
+    if (valA === valB) return 0;
     return sortOrder === "asc" ? (valA > valB ? 1 : -1) : valA < valB ? 1 : -1;
   });
 }

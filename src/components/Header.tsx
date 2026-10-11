@@ -435,6 +435,54 @@ export function Header({
                           <span>マーケット概況</span>
                         </button>
                       )}
+                      {onNavigateToStock && (
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className={`header-desktop-dropdown-item ${currentView === "stock" ? "active" : ""}`}
+                          onClick={() => {
+                            onNavigateToStock();
+                            closeDesktopMenu();
+                          }}
+                          title="個別銘柄分析"
+                          aria-label="個別銘柄分析へ移動"
+                        >
+                          <TrendingUp size={15} />
+                          <span>銘柄分析</span>
+                        </button>
+                      )}
+                      {onNavigateToScreener && (
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className={`header-desktop-dropdown-item ${currentView === "screener" ? "active" : ""}`}
+                          onClick={() => {
+                            onNavigateToScreener();
+                            closeDesktopMenu();
+                          }}
+                          title="銘柄スクリーナー"
+                          aria-label="銘柄スクリーナーへ移動"
+                        >
+                          <Zap size={15} />
+                          <span>スクリーナー</span>
+                        </button>
+                      )}
+                      {onNavigateToCalendar && (
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className={`header-desktop-dropdown-item ${currentView === "calendar" ? "active" : ""}`}
+                          onClick={() => {
+                            onNavigateToCalendar();
+                            closeDesktopMenu();
+                          }}
+                          title="決算・マクロ経済カレンダー"
+                          aria-label="決算・マクロ経済カレンダーへ移動"
+                        >
+                          <Calendar size={15} />
+                          <span>カレンダー</span>
+                        </button>
+                      )}
                       {onNavigateToHome && (
                         <button
                           type="button"
@@ -732,21 +780,6 @@ export function Header({
                   >
                     <Sliders size={16} />
                     <span>指数ビルダー＆シミュレーター</span>
-                  </button>
-                )}
-                {onNavigateToPortfolio && (
-                  <button
-                    type="button"
-                    className={`header-mobile-nav-item ${currentView === "portfolio" ? "active" : ""}`}
-                    onClick={() => {
-                      onNavigateToPortfolio();
-                      closeMobileMenu();
-                    }}
-                    title="開発者ポートフォリオ・自己紹介"
-                    aria-label="開発者ポートフォリオ・自己紹介へ移動"
-                  >
-                    <Briefcase size={16} />
-                    <span>ポートフォリオ</span>
                   </button>
                 )}
                 {onNavigateToDisclaimer && (

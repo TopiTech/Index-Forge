@@ -6,13 +6,10 @@ import {
   Sparkles,
   BookmarkPlus,
   Briefcase,
-  Share2,
   ExternalLink,
   ArrowLeft,
   BarChart2,
   PieChart,
-  ShieldCheck,
-  CheckCircle,
 } from "lucide-react";
 import {
   getStockFundamentals,
@@ -89,8 +86,10 @@ export function StockDetailPage({
               type="button"
               className="btn btn-sm btn-accent"
               onClick={() => {
+                // The owner reports the real outcome: without an editable
+                // index the action only opens the builder, which must not
+                // be announced as a successful add.
                 onAddToIndex(stock.ticker, stock.name, stock.theme);
-                success(`「${stock.name}」を指数ビルダーに追加しました`);
               }}
             >
               <Sparkles size={14} />
@@ -104,7 +103,6 @@ export function StockDetailPage({
               className="btn btn-sm btn-outline"
               onClick={() => {
                 onAddToWatchlist(stock.ticker);
-                success(`「${stock.name}」をウォッチリストに登録しました`);
               }}
             >
               <BookmarkPlus size={14} />

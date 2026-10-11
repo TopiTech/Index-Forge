@@ -76,6 +76,38 @@ export function parseStockParams(search: string = ""): StockQueryParams {
   return { ticker };
 }
 
+// Tickers arrive from the URL (deep links, back/forward), so only accept a
+// short, known-safe symbol shape instead of echoing arbitrary path text into
+// the detail view.
+const STOCK_TICKER_PATTERN = /^[A-Za-z0-9.^=&-]{1,16}$/;
+
+function normalizeTicker(raw: string | null | undefined): string | undefined {
+  if (!raw) return undefined;
+  let decoded = raw.trim();
+  try {
+    decoded = decodeURIComponent(decoded).trim();
+  } catch {
+    // Malformed percent-encoding: keep the raw text for the shape check below.
+  }
+  if (!STOCK_TICKER_PATTERN.test(decoded)) return undefined;
+  return decoded;
+}
+
+/**
+ * Resolves the active stock ticker from both supported URL shapes:
+ * `/stock?ticker=7203` (in-app navigation) and `/stock/7203` (deep link).
+ * The query parameter wins so in-app navigation always reflects the last
+ * selection even when the path segment still holds a previous ticker.
+ */
+export function resolveStockTicker(pathname: string = "", search: string = ""): string | undefined {
+  return (
+    normalizeTicker(new URLSearchParams(search).get("ticker")) ||
+    normalizeTicker(
+      pathname.startsWith("/stock/") ? pathname.slice("/stock/".length) : undefined,
+    )
+  );
+}
+
 /**
  * Builds a query string preserving existing non-dashboard params when present.
  */

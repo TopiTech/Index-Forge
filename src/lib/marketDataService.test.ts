@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   getStockFundamentals,
+  normalizeMarketOverview,
   runStockScreener,
   fetchMarketOverview,
   UPCOMING_EVENTS,
@@ -64,6 +65,97 @@ describe("MarketDataService", () => {
           s.name.includes("半導体") || s.theme.includes("半導体") || s.ticker.includes("半導体");
         expect(matched).toBe(true);
       });
+    });
+
+    it("keeps the original order when the sort key ties", () => {
+      // changePercent is derived from the ticker seed, so grouping by the
+      // tied value must not depend on the comparator direction.
+      const byDesc = runStockScreener({ sortBy: "changePercent", sortOrder: "desc" });
+      const tied = byDesc.filter((s) => s.changePercent === byDesc[0].changePercent);
+      const byAsc = runStockScreener({ sortBy: "changePercent", sortOrder: "asc" });
+      const tiedAsc = byAsc.filter((s) => s.changePercent === tied[0].changePercent);
+      const descTickers = tied.map((s) => s.ticker).sort();
+      const ascTickers = tiedAsc.map((s) => s.ticker).sort();
+      expect(descTickers).toEqual(ascTickers);
+    });
+  });
+
+  describe("exact preset matching", () => {
+    it("does not resolve a substring to a preset name", () => {
+      const data = getStockFundamentals("72");
+      expect(data.ticker).toBe("72");
+      expect(data.name).toBe("銘柄 72");
+    });
+
+    it("does not resolve an empty ticker to the first preset", () => {
+      const data = getStockFundamentals("");
+      expect(data.ticker).toBe("");
+      expect(data.name).not.toContain("トヨタ");
+    });
+
+    it("still resolves a preset by exact name", () => {
+      const data = getStockFundamentals("トヨタ自動車");
+      expect(data.ticker).toBe("7203");
+    });
+  });
+
+  describe("normalizeMarketOverview", () => {
+    it("rejects payloads without a usable indices section", () => {
+      expect(normalizeMarketOverview(null)).toBeNull();
+      expect(normalizeMarketOverview("nope")).toBeNull();
+      expect(normalizeMarketOverview({ indices: [] })).toBeNull();
+      expect(normalizeMarketOverview({ indices: "broken" })).toBeNull();
+    });
+
+    it("fills missing sections so the page never dereferences undefined", () => {
+      const normalized = normalizeMarketOverview({
+        indices: [{ symbol: "^N225", name: "日経平均", price: 40000, changePercent: 1.2 }],
+      });
+      expect(normalized).not.toBeNull();
+      expect(normalized!.indices).toHaveLength(1);
+      expect(normalized!.forex).toEqual([]);
+      expect(normalized!.commodities).toEqual([]);
+      expect(normalized!.crypto).toEqual([]);
+      expect(normalized!.sectors.length).toBeGreaterThan(0);
+      expect(normalized!.news.length).toBeGreaterThan(0);
+      expect(normalized!.marketBreadth.sentimentScore).toBeGreaterThanOrEqual(0);
+      expect(normalized!.marketBreadth.sentimentScore).toBeLessThanOrEqual(100);
+    });
+
+    it("drops malformed quotes and clamps the sentiment score", () => {
+      const normalized = normalizeMarketOverview({
+        indices: [
+          { symbol: "^GSPC", name: "S&P 500", price: 5800 },
+          { symbol: "BROKEN", name: "No price" },
+          null,
+          "junk",
+        ],
+        forex: [{ symbol: "USDJPY=X", name: "ドル円", price: 150.1, changePercent: 0.3 }],
+        marketBreadth: {
+          gainers: 10,
+          losers: 5,
+          unchanged: 1,
+          sentimentScore: 250,
+        },
+        news: [{ id: "n1", title: "t", source: "s" }, { id: "n2", title: "t2", source: "s2", publishedAt: "1h" }],
+      });
+      expect(normalized).not.toBeNull();
+      expect(normalized!.indices).toHaveLength(1);
+      expect(normalized!.indices[0].updatedAt).toBe("-");
+      expect(normalized!.forex).toHaveLength(1);
+      expect(normalized!.marketBreadth.sentimentScore).toBe(100);
+      // Incomplete news items (missing publishedAt) are filtered out
+      expect(normalized!.news).toHaveLength(1);
+      expect(normalized!.news[0].id).toBe("n2");
+    });
+
+    it("falls back to the baseline breadth when it is malformed", () => {
+      const normalized = normalizeMarketOverview({
+        indices: [{ symbol: "^DJI", name: "NYダウ", price: 43000 }],
+        marketBreadth: { gainers: "many" },
+      });
+      expect(normalized).not.toBeNull();
+      expect(normalized!.marketBreadth.gainers).toBeGreaterThan(0);
     });
   });
 

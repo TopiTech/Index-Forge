@@ -4,6 +4,7 @@ import {
   getViewPath,
   parseDashboardParams,
   buildDashboardQuery,
+  resolveStockTicker,
 } from "./navigation";
 
 describe("Navigation & View Routing Logic", () => {
@@ -59,6 +60,37 @@ describe("Navigation & View Routing Logic", () => {
     it("falls back to dashboard for unknown paths", () => {
       expect(parseViewFromLocation("/unknown-page")).toBe("dashboard");
       expect(parseViewFromLocation("/", "?page=other")).toBe("dashboard");
+    });
+  });
+
+  describe("resolveStockTicker", () => {
+    it("reads the in-app query shape", () => {
+      expect(resolveStockTicker("/stock", "?ticker=NVDA")).toBe("NVDA");
+      expect(resolveStockTicker("/stock", "?page=stock&ticker=7203")).toBe("7203");
+    });
+
+    it("reads the deep-link path shape", () => {
+      expect(resolveStockTicker("/stock/7203", "")).toBe("7203");
+      expect(resolveStockTicker("/stock/BTC-USD", "")).toBe("BTC-USD");
+      expect(resolveStockTicker("/stock/^GSPC", "")).toBe("^GSPC");
+    });
+
+    it("prefers the query ticker over a stale path segment", () => {
+      expect(resolveStockTicker("/stock/7203", "?ticker=NVDA")).toBe("NVDA");
+    });
+
+    it("rejects missing or malformed tickers from the URL", () => {
+      expect(resolveStockTicker("/stock", "")).toBeUndefined();
+      expect(resolveStockTicker("/stock/", "")).toBeUndefined();
+      expect(resolveStockTicker("/stock/%3Cscript%3E", "")).toBeUndefined();
+      expect(resolveStockTicker(`/stock/${"A".repeat(40)}`, "")).toBeUndefined();
+      expect(resolveStockTicker("/other", "?ticker=")).toBeUndefined();
+      expect(resolveStockTicker("/other", "")).toBeUndefined();
+    });
+
+    it("ignores path segments that are not a stock route", () => {
+      expect(resolveStockTicker("/market", "")).toBeUndefined();
+      expect(resolveStockTicker("/stocks/7203", "")).toBeUndefined();
     });
   });
 

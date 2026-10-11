@@ -5,6 +5,8 @@ import { useIndices } from "./hooks/useIndices";
 import { isBenchmarkDataForSymbol, useBenchmark, AVAILABLE_BENCHMARKS } from "./hooks/useBenchmark";
 import { useCalculation } from "./hooks/useCalculation";
 import { useAuth } from "./hooks/useAuth";
+import { useToast } from "./components/Toast";
+import { addWatchlistTicker } from "./lib/portfolioStorage";
 import { Header } from "./components/Header";
 import { TradingViewTickerTape } from "./components/TradingViewTickerTape";
 import { StatsGrid } from "./components/StatsGrid";
@@ -47,9 +49,6 @@ import { LoadingScreen } from "./components/LoadingScreen";
 import { buildChartData } from "./lib/chartData";
 import { filterByTimeframe } from "./lib/timeframe";
 import { Footer } from "./components/Footer";
-const PortfolioPage = lazy(() =>
-  import("./components/PortfolioPage").then((m) => ({ default: m.PortfolioPage })),
-);
 const DisclaimerPage = lazy(() =>
   import("./components/DisclaimerPage").then((m) => ({ default: m.DisclaimerPage })),
 );
@@ -61,11 +60,11 @@ import {
   parseViewFromLocation,
   getViewPath,
   parseDashboardParams,
-  parseStockParams,
+  resolveStockTicker,
   buildDashboardQuery,
   type PageView,
 } from "./lib/navigation";
-import type { Timeframe, BenchmarkSymbol, BasketItem } from "./types";
+import type { Timeframe, BenchmarkSymbol } from "./types";
 import type { CustomIndex } from "./data/indices";
 import type { ReactNode } from "react";
 
@@ -136,20 +135,23 @@ export default function App({
   const [currentView, setCurrentView] = useState<PageView>(getInitialView);
   const [activeStockTicker, setActiveStockTicker] = useState<string>(() => {
     if (typeof window === "undefined") return "7203";
-    const p = parseStockParams(window.location.search);
-    return p.ticker || "7203";
+    // Deep links come in as both `/stock?ticker=7203` and `/stock/7203`.
+    return (
+      resolveStockTicker(window.location.pathname, window.location.search) || "7203"
+    );
   });
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
   const { isAdmin } = useAuth();
+  const { success: toastSuccess, info: toastInfo } = useToast();
 
   const navigateTo = useCallback((view: PageView, searchParams: string = "") => {
     setCurrentView(view);
     const basePath = getViewPath(view);
     const targetPath = searchParams ? `${basePath}${searchParams}` : basePath;
 
-    if (searchParams && view === "stock") {
-      const p = parseStockParams(searchParams);
-      if (p.ticker) setActiveStockTicker(p.ticker);
+    if (view === "stock") {
+      const ticker = resolveStockTicker(basePath, searchParams);
+      if (ticker) setActiveStockTicker(ticker);
     }
 
     if (
@@ -372,6 +374,15 @@ export default function App({
     const onPopState = () => {
       const newView = parseViewFromLocation(window.location.pathname, window.location.search);
       setCurrentView(newView);
+      if (newView === "stock") {
+        // Back/forward between two detail pages must follow the URL instead
+        // of keeping whatever ticker was selected last in-app.
+        const ticker = resolveStockTicker(
+          window.location.pathname,
+          window.location.search,
+        );
+        if (ticker) setActiveStockTicker(ticker);
+      }
       if (newView === "dashboard") {
         const params = parseDashboardParams(window.location.search);
         if (isValidTimeframe(params.timeframe)) {
@@ -420,6 +431,41 @@ export default function App({
       navigateTo("dashboard");
     },
     [selectIndex, navigateTo],
+  );
+
+  // Shared "add this stock to my index" action for the detail page and the
+  // global search. The result is reported here rather than by the callers,
+  // because the fallback path (no editable index -> open the builder) is not
+  // a successful add and must not claim it was.
+  const handleAddStockToIndex = useCallback(
+    (ticker: string, name: string, theme: string) => {
+      if (selectedIndex && canEditSelectedIndex) {
+        void addStockToIndex(selectedIndex.id, { ticker, name, theme, weight: 10 });
+        toastSuccess(`「${name}」を指数に追加しました`);
+      } else {
+        handleOpenBuilder();
+        toastInfo("編集可能な指数が無いため指数ビルダーを開きました");
+      }
+    },
+    [
+      selectedIndex,
+      canEditSelectedIndex,
+      addStockToIndex,
+      handleOpenBuilder,
+      toastSuccess,
+      toastInfo,
+    ],
+  );
+
+  const handleAddToWatchlist = useCallback(
+    (ticker: string) => {
+      if (addWatchlistTicker(ticker)) {
+        toastSuccess(`「${ticker}」をウォッチリストに登録しました`);
+      } else {
+        toastInfo(`「${ticker}」は既にウォッチリストに登録済みです`);
+      }
+    },
+    [toastSuccess, toastInfo],
   );
 
 
@@ -523,13 +569,8 @@ export default function App({
       onClose={() => setIsSearchModalOpen(false)}
       onNavigate={navigateTo}
       availableIndices={indices}
-      onAddToIndex={(t, name, theme) => {
-        if (selectedIndex && canEditSelectedIndex) {
-          addStockToIndex(selectedIndex.id, { ticker: t, name, theme, weight: 10 });
-        } else {
-          handleOpenBuilder();
-        }
-      }}
+      onAddToIndex={handleAddStockToIndex}
+      onAddToWatchlist={handleAddToWatchlist}
     />
   );
 
@@ -579,14 +620,8 @@ export default function App({
           <StockDetailPage
             ticker={activeStockTicker}
             onNavigate={navigateTo}
-            onAddToIndex={(t, name, theme) => {
-              if (selectedIndex && canEditSelectedIndex) {
-                addStockToIndex(selectedIndex.id, { ticker: t, name, theme, weight: 10 });
-              } else {
-                handleOpenBuilder();
-              }
-            }}
-            onAddToWatchlist={() => {}}
+            onAddToIndex={handleAddStockToIndex}
+            onAddToWatchlist={handleAddToWatchlist}
           />
         </Suspense>
       </PageLayout>

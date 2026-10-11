@@ -7,11 +7,7 @@ import {
   Plus,
   Trash2,
   Sparkles,
-  PieChart,
   BookmarkPlus,
-  ArrowRight,
-  Layers,
-  Coins,
   X,
   Check,
 } from "lucide-react";
@@ -23,12 +19,10 @@ import {
   calculatePortfolioSummary,
   convertPortfolioToCustomIndexBasket,
   type PortfolioPosition,
-  type PositionCalculation,
 } from "../lib/portfolioStorage";
 import { getStockFundamentals } from "../lib/marketDataService";
 import { POPULAR_STOCKS } from "../data/popularStocks";
 import type { PageView } from "../lib/navigation";
-import type { CustomIndex } from "../data/indices";
 import { useToast } from "./Toast";
 
 interface PortfolioManagerPageProps {

@@ -35,5 +35,10 @@ export default defineConfig({
     // (eslint + tsconfigs) already anticipates .tsx tests, and a .ts-only
     // pattern would silently skip the first real DOM test.
     include: ["src/**/*.{test,spec}.{ts,tsx}", "worker/**/*.{test,spec}.{ts,tsx}"],
+    // Windows + vitest 4 default pools (forks/threads) load
+    // "@vitest/runner" twice, so the module-scope `runner` is never set and
+    // every suite dies with `Cannot read properties of undefined (reading
+    // 'config')`. The vmThreads pool shares module state correctly here.
+    pool: "vmThreads",
   },
 });

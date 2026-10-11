@@ -1,16 +1,7 @@
 import React, { useState } from "react";
 import { motion } from "framer-motion";
-import {
-  Calendar,
-  Compass,
-  FileText,
-  AlertCircle,
-  TrendingUp,
-  ArrowRight,
-  Clock,
-  Sparkles,
-} from "lucide-react";
-import { UPCOMING_EVENTS, type CalendarEvent } from "../lib/marketDataService";
+import { ArrowRight } from "lucide-react";
+import { UPCOMING_EVENTS } from "../lib/marketDataService";
 import type { PageView } from "../lib/navigation";
 
 interface CalendarPageProps {
@@ -61,7 +52,7 @@ export function CalendarPage({
           </p>
         </div>
 
-        <div style={{ display: "flex", gap: "6px" }}>
+        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
           {(
             [
               { id: "ALL", label: "全イベント" },
@@ -79,6 +70,15 @@ export function CalendarPage({
               {tab.label}
             </button>
           ))}
+          <button
+            type="button"
+            className="btn btn-sm btn-outline"
+            onClick={() => onNavigate("market")}
+            title="マーケット概況へ移動"
+            style={{ borderRadius: "20px", padding: "5px 14px" }}
+          >
+            マーケット概況へ
+          </button>
         </div>
       </div>
 

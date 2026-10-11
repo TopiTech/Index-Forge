@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
-import { Search, X, TrendingUp, BarChart2, BookmarkPlus, ArrowRight, CornerDownLeft, Sparkles } from "lucide-react";
+import { Search, X, TrendingUp, BarChart2, BookmarkPlus, CornerDownLeft, Sparkles } from "lucide-react";
 import { POPULAR_STOCKS, type PopularStock } from "../data/popularStocks";
+import { useModalFocus } from "../hooks/useModalFocus";
 import type { PageView } from "../lib/navigation";
 import type { CustomIndex } from "../data/indices";
 
@@ -25,15 +26,17 @@ export function GlobalSearchModal({
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+
+  // Focus trap, Escape handling and focus restoration are delegated to the
+  // shared modal hook (same contract as every other dialog in the app); the
+  // hook also needs the dialog marker to detect the topmost layer.
+  useModalFocus(isOpen, dialogRef, onClose, inputRef);
 
   useEffect(() => {
     if (isOpen) {
       setQuery("");
       setSelectedIndex(0);
-      const timer = setTimeout(() => {
-        inputRef.current?.focus();
-      }, 50);
-      return () => clearTimeout(timer);
     }
   }, [isOpen]);
 
@@ -83,15 +86,12 @@ export function GlobalSearchModal({
     return [...matchedStocks, ...matchedIndices];
   }, [query, availableIndices]);
 
-  // Handle keyboard navigation
+  // Handle keyboard navigation (Escape is owned by useModalFocus above)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!isOpen) return;
 
-      if (e.key === "Escape") {
-        e.preventDefault();
-        onClose();
-      } else if (e.key === "ArrowDown") {
+      if (e.key === "ArrowDown") {
         e.preventDefault();
         setSelectedIndex((prev) => (prev < filteredResults.length - 1 ? prev + 1 : 0));
       } else if (e.key === "ArrowUp") {
@@ -116,9 +116,14 @@ export function GlobalSearchModal({
   if (!isOpen) return null;
 
   return (
-    <div className="modal-backdrop" onClick={onClose} role="dialog" aria-modal="true">
+    <div className="modal-backdrop" onClick={onClose}>
       <div
+        ref={dialogRef}
+        data-modal-dialog
         className="modal-card global-search-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="銘柄・指数の統合検索"
         onClick={(e) => e.stopPropagation()}
         style={{
           maxWidth: "640px",
@@ -242,11 +247,27 @@ export function GlobalSearchModal({
                     </div>
 
                     <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                      {item.type === "stock" && onAddToWatchlist && (
+                        <button
+                          type="button"
+                          className="btn btn-ghost tiny"
+                          title="ウォッチリストに追加"
+                          aria-label={`${item.title}をウォッチリストに追加`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onAddToWatchlist(item.id);
+                          }}
+                        >
+                          <BookmarkPlus size={14} />
+                          <span style={{ marginLeft: "4px" }}>監視</span>
+                        </button>
+                      )}
                       {item.type === "stock" && onAddToIndex && (
                         <button
                           type="button"
                           className="btn btn-ghost tiny"
                           title="指数ビルダーに追加"
+                          aria-label={`${item.title}を指数に追加`}
                           onClick={(e) => {
                             e.stopPropagation();
                             const s = item.raw as PopularStock;

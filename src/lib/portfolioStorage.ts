@@ -3,7 +3,8 @@
  * 実保有株式の損益計算、アセットアロケーション、およびオリジナル指数化連携
  */
 
-import { getStockFundamentals, type StockQuoteFundamentals } from "./marketDataService";
+import { getStockFundamentals } from "./marketDataService";
+import { allocateIntegerWeights } from "./weights";
 import type { BasketItem } from "../types";
 
 export interface PortfolioPosition {
@@ -84,6 +85,58 @@ function getLocalStorage(): Storage | undefined {
   return undefined;
 }
 
+/**
+ * Validates one stored position. localStorage content can be stale or
+ * hand-edited, and an unvalidated array reaches `.shares`/`.averageCost`
+ * arithmetic in the summary, so malformed entries are dropped here instead
+ * of crashing the portfolio page.
+ */
+function sanitizePosition(raw: unknown): PortfolioPosition | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const record = raw as Record<string, unknown>;
+
+  const ticker = typeof record.ticker === "string" ? record.ticker.trim() : "";
+  if (!ticker) return null;
+
+  const shares = Number(record.shares);
+  const averageCost = Number(record.averageCost);
+  if (!Number.isFinite(shares) || shares <= 0) return null;
+  if (!Number.isFinite(averageCost) || averageCost <= 0) return null;
+
+  const id =
+    typeof record.id === "string" && record.id.trim()
+      ? record.id.trim()
+      : `pos-${ticker}-${shares}`;
+  const name =
+    typeof record.name === "string" && record.name.trim()
+      ? record.name.trim()
+      : ticker;
+
+  const position: PortfolioPosition = { id, ticker, name, shares, averageCost };
+  if (typeof record.acquiredAt === "string" && record.acquiredAt) {
+    position.acquiredAt = record.acquiredAt;
+  }
+  if (typeof record.notes === "string" && record.notes) {
+    position.notes = record.notes;
+  }
+  return position;
+}
+
+/** Normalizes a raw watchlist array to unique, non-empty ticker strings. */
+export function sanitizeWatchlist(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const entry of raw) {
+    if (typeof entry !== "string") continue;
+    const ticker = entry.trim().toUpperCase();
+    if (!ticker || seen.has(ticker)) continue;
+    seen.add(ticker);
+    result.push(ticker);
+  }
+  return result;
+}
+
 // Load positions from localStorage
 export function loadPortfolioPositions(): PortfolioPosition[] {
   const storage = getLocalStorage();
@@ -92,7 +145,14 @@ export function loadPortfolioPositions(): PortfolioPosition[] {
     const raw = storage.getItem(STORAGE_KEY_PORTFOLIO);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      if (Array.isArray(parsed)) {
+        const positions = parsed
+          .map(sanitizePosition)
+          .filter((position): position is PortfolioPosition => position !== null);
+        // An empty (or fully corrupt) list falls back to the presets, which
+        // also matches the previous behaviour for an absent key.
+        if (positions.length > 0) return positions;
+      }
     }
   } catch {
     // Ignore storage parse error
@@ -119,12 +179,28 @@ export function loadWatchlist(): string[] {
     const raw = storage.getItem(STORAGE_KEY_WATCHLIST);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      const tickers = sanitizeWatchlist(parsed);
+      if (tickers.length > 0) return tickers;
     }
   } catch {
     // Ignore storage parse error
   }
   return DEFAULT_PRESET_WATCHLIST;
+}
+
+/**
+ * Appends a ticker to the watchlist. Returns `true` when the list changed,
+ * `false` when it was already present, so callers can report the difference
+ * instead of always claiming success.
+ */
+export function addWatchlistTicker(ticker: string): boolean {
+  const normalized = sanitizeWatchlist([ticker]);
+  if (normalized.length === 0) return false;
+
+  const watchlist = loadWatchlist();
+  if (watchlist.includes(normalized[0])) return false;
+  saveWatchlist([...watchlist, normalized[0]]);
+  return true;
 }
 
 // Save watchlist to localStorage
@@ -228,10 +304,14 @@ export function convertPortfolioToCustomIndexBasket(
   const summary = calculatePortfolioSummary(positions);
   if (summary.positions.length === 0) return [];
 
-  return summary.positions.map((pos) => ({
+  const weights = allocateIntegerWeights(
+    summary.positions.map((position) => position.marketValue),
+  );
+
+  return summary.positions.map((pos, index) => ({
     ticker: pos.ticker,
     name: pos.name,
     theme: pos.theme,
-    weight: Math.max(1, Math.round(pos.weightPercent)),
+    weight: weights[index],
   }));
 }
