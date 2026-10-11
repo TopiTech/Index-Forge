@@ -1,4 +1,14 @@
-export type PageView = "dashboard" | "admin" | "portfolio" | "disclaimer" | "builder" | "tutorial";
+export type PageView =
+  | "dashboard"
+  | "market"
+  | "stock"
+  | "portfolio"
+  | "screener"
+  | "calendar"
+  | "admin"
+  | "disclaimer"
+  | "builder"
+  | "tutorial";
 
 /**
  * Parses pathname and search parameters to determine the current view.
@@ -6,6 +16,11 @@ export type PageView = "dashboard" | "admin" | "portfolio" | "disclaimer" | "bui
 export function parseViewFromLocation(pathname: string, search: string = ""): PageView {
   const params = new URLSearchParams(search);
   const pageParam = params.get("page");
+
+  if (pathname === "/market" || pageParam === "market") return "market";
+  if (pathname === "/stock" || pathname.startsWith("/stock/") || pageParam === "stock") return "stock";
+  if (pathname === "/screener" || pageParam === "screener") return "screener";
+  if (pathname === "/calendar" || pageParam === "calendar") return "calendar";
 
   if (pathname === "/admin" || pageParam === "admin") return "admin";
   if (
@@ -48,6 +63,19 @@ export function parseDashboardParams(search: string = ""): DashboardQueryParams 
   return { indexId, benchmark, timeframe };
 }
 
+export type StockQueryParams = {
+  ticker?: string;
+};
+
+/**
+ * Parses stock detail query parameters.
+ */
+export function parseStockParams(search: string = ""): StockQueryParams {
+  const params = new URLSearchParams(search);
+  const ticker = params.get("ticker") || undefined;
+  return { ticker };
+}
+
 /**
  * Builds a query string preserving existing non-dashboard params when present.
  */
@@ -72,6 +100,14 @@ export function buildDashboardQuery(
 
 export function getViewPath(view: PageView): string {
   switch (view) {
+    case "market":
+      return "/market";
+    case "stock":
+      return "/stock";
+    case "screener":
+      return "/screener";
+    case "calendar":
+      return "/calendar";
     case "admin":
       return "/admin";
     case "portfolio":

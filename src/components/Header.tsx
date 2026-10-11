@@ -14,6 +14,12 @@ import {
   Home,
   ChevronDown,
   Compass,
+  Search,
+  Globe,
+  BarChart3,
+  PieChart,
+  Zap,
+  Calendar,
 } from "lucide-react";
 import { Badge } from "./ui";
 import { useAuth } from "../hooks/useAuth";
@@ -24,11 +30,16 @@ import { AuthModal } from "./AuthModal";
 
 interface HeaderProps {
   onNavigateToHome?: () => void;
+  onNavigateToMarket?: () => void;
+  onNavigateToStock?: (ticker?: string) => void;
+  onNavigateToPortfolio?: () => void;
+  onNavigateToScreener?: () => void;
+  onNavigateToCalendar?: () => void;
   onNavigateToAdmin?: () => void;
   onNavigateToBuilder?: () => void;
-  onNavigateToPortfolio?: () => void;
   onNavigateToDisclaimer?: () => void;
   onNavigateToTutorial?: () => void;
+  onOpenSearch?: () => void;
   currentView?: string;
   benchmarkUpdatedAt?: number | null;
   calculationUpdatedAt?: number | null;
@@ -40,11 +51,16 @@ interface HeaderProps {
 
 export function Header({
   onNavigateToHome,
+  onNavigateToMarket,
+  onNavigateToStock,
+  onNavigateToPortfolio,
+  onNavigateToScreener,
+  onNavigateToCalendar,
   onNavigateToAdmin,
   onNavigateToBuilder,
-  onNavigateToPortfolio,
   onNavigateToDisclaimer,
   onNavigateToTutorial,
+  onOpenSearch,
   currentView,
   benchmarkUpdatedAt,
   calculationUpdatedAt,
@@ -217,7 +233,105 @@ export function Header({
             </div>
           </a>
 
+          {/* Platform Primary Nav Tabs (Desktop) */}
+          <nav className="header-primary-nav" aria-label="メインナビゲーション">
+            {onNavigateToMarket && (
+              <button
+                type="button"
+                className={`header-nav-tab ${currentView === "market" ? "active" : ""}`}
+                onClick={onNavigateToMarket}
+                title="世界の主要指数・為替・セクター動向"
+              >
+                <Globe size={13} />
+                <span>マーケット</span>
+              </button>
+            )}
+            {onNavigateToHome && (
+              <button
+                type="button"
+                className={`header-nav-tab ${currentView === "dashboard" || currentView === "builder" ? "active" : ""}`}
+                onClick={onNavigateToHome}
+                title="カスタム指数ダッシュボード & ビルダー"
+              >
+                <BarChart3 size={13} />
+                <span>指数スタジオ</span>
+              </button>
+            )}
+            {onNavigateToStock && (
+              <button
+                type="button"
+                className={`header-nav-tab ${currentView === "stock" ? "active" : ""}`}
+                onClick={() => onNavigateToStock()}
+                title="個別銘柄の財務指標・チャート分析"
+              >
+                <TrendingUp size={13} />
+                <span>銘柄分析</span>
+              </button>
+            )}
+            {onNavigateToPortfolio && (
+              <button
+                type="button"
+                className={`header-nav-tab ${currentView === "portfolio" ? "active" : ""}`}
+                onClick={onNavigateToPortfolio}
+                title="保有資産管理・損益トラッカー & 指数化連携"
+              >
+                <PieChart size={13} />
+                <span>ポートフォリオ</span>
+              </button>
+            )}
+            {onNavigateToScreener && (
+              <button
+                type="button"
+                className={`header-nav-tab ${currentView === "screener" ? "active" : ""}`}
+                onClick={onNavigateToScreener}
+                title="高配当・低PBR・騰落率ランキング＆スクリーナー"
+              >
+                <Zap size={13} />
+                <span>スクリーナー</span>
+              </button>
+            )}
+            {onNavigateToCalendar && (
+              <button
+                type="button"
+                className={`header-nav-tab ${currentView === "calendar" ? "active" : ""}`}
+                onClick={onNavigateToCalendar}
+                title="決算発表予定 & 主要マクロ経済カレンダー"
+              >
+                <Calendar size={13} />
+                <span>カレンダー</span>
+              </button>
+            )}
+          </nav>
+
+          {/* Quick Search Trigger (Desktop) */}
+          {onOpenSearch && (
+            <button
+              type="button"
+              className="header-search-btn"
+              onClick={onOpenSearch}
+              title="銘柄・指数をクイック検索 (⌘K / Ctrl+K)"
+              aria-label="検索モーダルを開く"
+            >
+              <Search size={13} className="muted" />
+              <span className="header-search-text">銘柄・コード検索...</span>
+              <kbd className="header-search-kbd mono tiny">⌘K</kbd>
+            </button>
+          )}
+
           <div className="header-meta">
+            {/* Quick search button for mobile */}
+            {onOpenSearch && (
+              <button
+                type="button"
+                className="btn btn-sm btn-ghost header-mobile-search-btn"
+                onClick={onOpenSearch}
+                title="検索"
+                aria-label="検索モーダルを開く"
+              >
+                <Search size={15} />
+              </button>
+            )}
+
             {/* Status indicators group (Desktop only) */}
             <div className="header-meta-group header-meta-status header-status-desktop">
               <DataFreshness
@@ -282,7 +396,7 @@ export function Header({
                   aria-label={isDesktopMenuOpen ? "メニューを閉じる" : "メニューを開く"}
                 >
                   <Menu size={14} />
-                  <span>メニュー</span>
+                  <span>その他</span>
                   <ChevronDown
                     size={12}
                     style={{
@@ -306,6 +420,21 @@ export function Header({
                       role="menu"
                       aria-label="ナビゲーションメニュー"
                     >
+                      {onNavigateToMarket && (
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className={`header-desktop-dropdown-item ${currentView === "market" ? "active" : ""}`}
+                          onClick={() => {
+                            onNavigateToMarket();
+                            closeDesktopMenu();
+                          }}
+                          title="マーケット概況"
+                        >
+                          <Globe size={15} />
+                          <span>マーケット概況</span>
+                        </button>
+                      )}
                       {onNavigateToHome && (
                         <button
                           type="button"
@@ -505,6 +634,20 @@ export function Header({
               </div>
 
               <div className="header-mobile-nav-links">
+                {onNavigateToMarket && (
+                  <button
+                    type="button"
+                    className={`header-mobile-nav-item ${currentView === "market" ? "active" : ""}`}
+                    onClick={() => {
+                      onNavigateToMarket();
+                      closeMobileMenu();
+                    }}
+                    title="マーケット概況"
+                  >
+                    <Globe size={16} />
+                    <span>マーケット概況</span>
+                  </button>
+                )}
                 {onNavigateToHome && (
                   <button
                     type="button"
@@ -513,11 +656,67 @@ export function Header({
                       onNavigateToHome();
                       closeMobileMenu();
                     }}
-                    title="ダッシュボード"
-                    aria-label="ダッシュボードへ移動"
+                    title="指数スタジオ"
+                    aria-label="指数スタジオへ移動"
                   >
-                    <Home size={16} />
-                    <span>ダッシュボード</span>
+                    <BarChart3 size={16} />
+                    <span>指数スタジオ</span>
+                  </button>
+                )}
+                {onNavigateToStock && (
+                  <button
+                    type="button"
+                    className={`header-mobile-nav-item ${currentView === "stock" ? "active" : ""}`}
+                    onClick={() => {
+                      onNavigateToStock();
+                      closeMobileMenu();
+                    }}
+                    title="銘柄分析"
+                  >
+                    <TrendingUp size={16} />
+                    <span>銘柄分析</span>
+                  </button>
+                )}
+                {onNavigateToPortfolio && (
+                  <button
+                    type="button"
+                    className={`header-mobile-nav-item ${currentView === "portfolio" ? "active" : ""}`}
+                    onClick={() => {
+                      onNavigateToPortfolio();
+                      closeMobileMenu();
+                    }}
+                    title="ポートフォリオ"
+                  >
+                    <PieChart size={16} />
+                    <span>ポートフォリオ</span>
+                  </button>
+                )}
+                {onNavigateToScreener && (
+                  <button
+                    type="button"
+                    className={`header-mobile-nav-item ${currentView === "screener" ? "active" : ""}`}
+                    onClick={() => {
+                      onNavigateToScreener();
+                      closeMobileMenu();
+                    }}
+                    title="スクリーナー"
+                  >
+                    <Zap size={16} />
+                    <span>スクリーナー</span>
+                  </button>
+                )}
+                {onNavigateToCalendar && (
+                  <button
+                    type="button"
+                    className={`header-mobile-nav-item ${currentView === "calendar" ? "active" : ""}`}
+                    onClick={() => {
+                      onNavigateToCalendar();
+                      closeMobileMenu();
+                    }}
+                    title="カレンダー"
+                  >
+                    <Calendar size={16} />
+                    <span>カレンダー</span>
                   </button>
                 )}
                 {onNavigateToBuilder && (

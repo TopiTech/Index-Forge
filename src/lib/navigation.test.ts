@@ -44,6 +44,18 @@ describe("Navigation & View Routing Logic", () => {
       expect(parseViewFromLocation("/", "?page=tutorial")).toBe("tutorial");
     });
 
+    it("parses market, stock, screener, calendar paths and search params", () => {
+      expect(parseViewFromLocation("/market")).toBe("market");
+      expect(parseViewFromLocation("/", "?page=market")).toBe("market");
+      expect(parseViewFromLocation("/stock")).toBe("stock");
+      expect(parseViewFromLocation("/stock/7203")).toBe("stock");
+      expect(parseViewFromLocation("/", "?page=stock&ticker=7203")).toBe("stock");
+      expect(parseViewFromLocation("/screener")).toBe("screener");
+      expect(parseViewFromLocation("/", "?page=screener")).toBe("screener");
+      expect(parseViewFromLocation("/calendar")).toBe("calendar");
+      expect(parseViewFromLocation("/", "?page=calendar")).toBe("calendar");
+    });
+
     it("falls back to dashboard for unknown paths", () => {
       expect(parseViewFromLocation("/unknown-page")).toBe("dashboard");
       expect(parseViewFromLocation("/", "?page=other")).toBe("dashboard");
@@ -53,8 +65,12 @@ describe("Navigation & View Routing Logic", () => {
   describe("getViewPath", () => {
     it("returns correct paths for all views", () => {
       expect(getViewPath("dashboard")).toBe("/");
-      expect(getViewPath("admin")).toBe("/admin");
+      expect(getViewPath("market")).toBe("/market");
+      expect(getViewPath("stock")).toBe("/stock");
       expect(getViewPath("portfolio")).toBe("/portfolio");
+      expect(getViewPath("screener")).toBe("/screener");
+      expect(getViewPath("calendar")).toBe("/calendar");
+      expect(getViewPath("admin")).toBe("/admin");
       expect(getViewPath("disclaimer")).toBe("/disclaimer");
       expect(getViewPath("builder")).toBe("/builder");
       expect(getViewPath("tutorial")).toBe("/tutorial");

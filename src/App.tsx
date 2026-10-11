@@ -18,15 +18,30 @@ import { ConstituentsTable } from "./components/ConstituentsTable";
 import { IndexBuilderModal } from "./components/IndexBuilderModal";
 // Route-level pages are lazy-loaded so the initial bundle (dashboard) does
 // not pay for three.js (tutorial 3D scene), recharts-heavy admin tooling,
-// or rarely-visited static pages. The three-*.js output chunk is then
-// fetched only when the tutorial route is opened.
+// or rarely-visited static pages.
 const IndexBuilderPage = lazy(() =>
   import("./components/IndexBuilderPage").then((m) => ({ default: m.IndexBuilderPage })),
 );
 const AdminDashboard = lazy(() =>
   import("./components/AdminDashboard").then((m) => ({ default: m.AdminDashboard })),
 );
+const MarketOverviewPage = lazy(() =>
+  import("./components/MarketOverviewPage").then((m) => ({ default: m.MarketOverviewPage })),
+);
+const StockDetailPage = lazy(() =>
+  import("./components/StockDetailPage").then((m) => ({ default: m.StockDetailPage })),
+);
+const PortfolioManagerPage = lazy(() =>
+  import("./components/PortfolioManagerPage").then((m) => ({ default: m.PortfolioManagerPage })),
+);
+const ScreenerPage = lazy(() =>
+  import("./components/ScreenerPage").then((m) => ({ default: m.ScreenerPage })),
+);
+const CalendarPage = lazy(() =>
+  import("./components/CalendarPage").then((m) => ({ default: m.CalendarPage })),
+);
 
+import { GlobalSearchModal } from "./components/GlobalSearchModal";
 import { ErrorFallback } from "./components/ErrorFallback";
 import { LoadingScreen } from "./components/LoadingScreen";
 import { buildChartData } from "./lib/chartData";
@@ -46,10 +61,11 @@ import {
   parseViewFromLocation,
   getViewPath,
   parseDashboardParams,
+  parseStockParams,
   buildDashboardQuery,
   type PageView,
 } from "./lib/navigation";
-import type { Timeframe, BenchmarkSymbol } from "./types";
+import type { Timeframe, BenchmarkSymbol, BasketItem } from "./types";
 import type { CustomIndex } from "./data/indices";
 import type { ReactNode } from "react";
 
@@ -69,11 +85,13 @@ function PageLayout({
   headerProps,
   currentView,
   navigateTo,
+  searchModal,
   children,
 }: {
   headerProps: React.ComponentProps<typeof Header>;
   currentView: PageView;
   navigateTo: (view: PageView) => void;
+  searchModal?: ReactNode;
   children: ReactNode;
 }) {
   return (
@@ -82,6 +100,7 @@ function PageLayout({
       <TradingViewTickerTape />
       <main style={{ minHeight: "calc(100vh - 280px)" }}>{children}</main>
       <Footer onNavigate={navigateTo} currentView={currentView} />
+      {searchModal}
     </div>
   );
 }
@@ -115,24 +134,50 @@ export default function App({
   const sidebarRef = useRef<HTMLElement>(null);
   const sidebarWasOpenRef = useRef(false);
   const [currentView, setCurrentView] = useState<PageView>(getInitialView);
+  const [activeStockTicker, setActiveStockTicker] = useState<string>(() => {
+    if (typeof window === "undefined") return "7203";
+    const p = parseStockParams(window.location.search);
+    return p.ticker || "7203";
+  });
+  const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
   const { isAdmin } = useAuth();
 
-  const navigateTo = useCallback((view: PageView) => {
+  const navigateTo = useCallback((view: PageView, searchParams: string = "") => {
     setCurrentView(view);
-    const targetPath = getViewPath(view);
+    const basePath = getViewPath(view);
+    const targetPath = searchParams ? `${basePath}${searchParams}` : basePath;
 
-    if (typeof window !== "undefined" && window.location.pathname !== targetPath) {
+    if (searchParams && view === "stock") {
+      const p = parseStockParams(searchParams);
+      if (p.ticker) setActiveStockTicker(p.ticker);
+    }
+
+    if (
+      typeof window !== "undefined" &&
+      (window.location.pathname !== basePath ||
+        (searchParams && window.location.search !== searchParams))
+    ) {
       window.history.pushState({}, "", targetPath);
     }
     if (typeof window !== "undefined") {
-      // "instant" is valid in modern browsers but unknown to older TS DOM
-      // libs / engines; fall back to "auto" so the scroll still happens.
       try {
         window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
       } catch {
         window.scrollTo(0, 0);
       }
     }
+  }, []);
+
+  // Global Cmd+K / Ctrl+K keyboard shortcut
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setIsSearchModalOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
 
@@ -440,11 +485,19 @@ export default function App({
   const pageLayoutHeaderProps = useMemo(
     () => ({
       onNavigateToHome: () => navigateTo("dashboard"),
+      onNavigateToMarket: () => navigateTo("market"),
+      onNavigateToStock: (ticker?: string) => {
+        if (ticker) setActiveStockTicker(ticker);
+        navigateTo("stock", ticker ? `?ticker=${ticker}` : "");
+      },
+      onNavigateToPortfolio: () => navigateTo("portfolio"),
+      onNavigateToScreener: () => navigateTo("screener"),
+      onNavigateToCalendar: () => navigateTo("calendar"),
       onNavigateToAdmin: () => navigateTo("admin"),
       onNavigateToBuilder: () => navigateTo("builder"),
-      onNavigateToPortfolio: () => navigateTo("portfolio"),
       onNavigateToDisclaimer: () => navigateTo("disclaimer"),
       onNavigateToTutorial: () => navigateTo("tutorial"),
+      onOpenSearch: () => setIsSearchModalOpen(true),
       currentView,
       benchmarkUpdatedAt,
       calculationUpdatedAt,
@@ -464,6 +517,22 @@ export default function App({
     ],
   );
 
+  const commonSearchModal = (
+    <GlobalSearchModal
+      isOpen={isSearchModalOpen}
+      onClose={() => setIsSearchModalOpen(false)}
+      onNavigate={navigateTo}
+      availableIndices={indices}
+      onAddToIndex={(t, name, theme) => {
+        if (selectedIndex && canEditSelectedIndex) {
+          addStockToIndex(selectedIndex.id, { ticker: t, name, theme, weight: 10 });
+        } else {
+          handleOpenBuilder();
+        }
+      }}
+    />
+  );
+
   if (currentView === "tutorial") {
     return (
       <Suspense fallback={<LoadingScreen />}>
@@ -475,11 +544,151 @@ export default function App({
     );
   }
 
-  // Static pages do not depend on the index list. Render them even while the
-  // optional dashboard data request is slow or unavailable.
+  // Market Intelligence Overview
+  if (currentView === "market") {
+    return (
+      <PageLayout
+        headerProps={{ ...pageLayoutHeaderProps, benchmarkStale: false }}
+        currentView={currentView}
+        navigateTo={navigateTo}
+        searchModal={commonSearchModal}
+      >
+        <Suspense fallback={<LoadingScreen />}>
+          <MarketOverviewPage
+            onNavigate={navigateTo}
+            onOpenStockDetail={(t) => {
+              setActiveStockTicker(t);
+              navigateTo("stock", `?ticker=${t}`);
+            }}
+          />
+        </Suspense>
+      </PageLayout>
+    );
+  }
+
+  // Stock Deep-Dive Detail
+  if (currentView === "stock") {
+    return (
+      <PageLayout
+        headerProps={{ ...pageLayoutHeaderProps, benchmarkStale: false }}
+        currentView={currentView}
+        navigateTo={navigateTo}
+        searchModal={commonSearchModal}
+      >
+        <Suspense fallback={<LoadingScreen />}>
+          <StockDetailPage
+            ticker={activeStockTicker}
+            onNavigate={navigateTo}
+            onAddToIndex={(t, name, theme) => {
+              if (selectedIndex && canEditSelectedIndex) {
+                addStockToIndex(selectedIndex.id, { ticker: t, name, theme, weight: 10 });
+              } else {
+                handleOpenBuilder();
+              }
+            }}
+            onAddToWatchlist={() => {}}
+          />
+        </Suspense>
+      </PageLayout>
+    );
+  }
+
+  // Real Portfolio Tracking & Index Conversion
+  if (currentView === "portfolio") {
+    return (
+      <PageLayout
+        headerProps={{ ...pageLayoutHeaderProps, benchmarkStale: false }}
+        currentView={currentView}
+        navigateTo={navigateTo}
+        searchModal={commonSearchModal}
+      >
+        <Suspense fallback={<LoadingScreen />}>
+          <PortfolioManagerPage
+            onNavigate={navigateTo}
+            onOpenStockDetail={(t) => {
+              setActiveStockTicker(t);
+              navigateTo("stock", `?ticker=${t}`);
+            }}
+            onConvertAndCreateCustomIndex={(basket) => {
+              const tempIndex: CustomIndex = {
+                id: `portfolio-${Date.now()}`,
+                name: "マイ・保有ポートフォリオ指数",
+                description: "保有株式の評価額比率から自動生成されたカスタム指数",
+                basket,
+                baseValue: 1000,
+                sortOrder: 1,
+              };
+              handlePreviewInDashboard(tempIndex);
+            }}
+          />
+        </Suspense>
+      </PageLayout>
+    );
+  }
+
+  // Multi-Factor Screener & Ranking
+  if (currentView === "screener") {
+    return (
+      <PageLayout
+        headerProps={{ ...pageLayoutHeaderProps, benchmarkStale: false }}
+        currentView={currentView}
+        navigateTo={navigateTo}
+        searchModal={commonSearchModal}
+      >
+        <Suspense fallback={<LoadingScreen />}>
+          <ScreenerPage
+            onNavigate={navigateTo}
+            onOpenStockDetail={(t) => {
+              setActiveStockTicker(t);
+              navigateTo("stock", `?ticker=${t}`);
+            }}
+            onBatchCreateCustomIndex={(basket) => {
+              const tempIndex: CustomIndex = {
+                id: `screener-${Date.now()}`,
+                name: "スクリーニング選抜指数",
+                description: "スクリーナー条件抽出結果による均等配分指数",
+                basket,
+                baseValue: 1000,
+                sortOrder: 1,
+              };
+              handlePreviewInDashboard(tempIndex);
+            }}
+          />
+        </Suspense>
+      </PageLayout>
+    );
+  }
+
+  // Financial Calendar
+  if (currentView === "calendar") {
+    return (
+      <PageLayout
+        headerProps={{ ...pageLayoutHeaderProps, benchmarkStale: false }}
+        currentView={currentView}
+        navigateTo={navigateTo}
+        searchModal={commonSearchModal}
+      >
+        <Suspense fallback={<LoadingScreen />}>
+          <CalendarPage
+            onNavigate={navigateTo}
+            onOpenStockDetail={(t) => {
+              setActiveStockTicker(t);
+              navigateTo("stock", `?ticker=${t}`);
+            }}
+          />
+        </Suspense>
+      </PageLayout>
+    );
+  }
+
   if (currentView === "builder") {
     return (
-      <PageLayout headerProps={{ ...pageLayoutHeaderProps, benchmarkStale: false }} currentView={currentView} navigateTo={navigateTo}>
+      <PageLayout
+        headerProps={{ ...pageLayoutHeaderProps, benchmarkStale: false }}
+        currentView={currentView}
+        navigateTo={navigateTo}
+        searchModal={commonSearchModal}
+      >
         <Suspense fallback={<LoadingScreen />}>
           <IndexBuilderPage
             onBackToDashboard={() => navigateTo("dashboard")}
@@ -491,19 +700,14 @@ export default function App({
     );
   }
 
-  if (currentView === "portfolio") {
-    return (
-      <PageLayout headerProps={{ ...pageLayoutHeaderProps, benchmarkStale: false }} currentView={currentView} navigateTo={navigateTo}>
-        <Suspense fallback={<LoadingScreen />}>
-          <PortfolioPage onNavigate={navigateTo} />
-        </Suspense>
-      </PageLayout>
-    );
-  }
-
   if (currentView === "disclaimer") {
     return (
-      <PageLayout headerProps={{ ...pageLayoutHeaderProps, benchmarkStale: false }} currentView={currentView} navigateTo={navigateTo}>
+      <PageLayout
+        headerProps={{ ...pageLayoutHeaderProps, benchmarkStale: false }}
+        currentView={currentView}
+        navigateTo={navigateTo}
+        searchModal={commonSearchModal}
+      >
         <Suspense fallback={<LoadingScreen />}>
           <DisclaimerPage onNavigate={navigateTo} />
         </Suspense>
@@ -780,6 +984,9 @@ export default function App({
         onSave={saveCustomIndex}
         onPreviewInDashboard={handlePreviewInDashboard}
       />
+
+      {/* Global Search Modal */}
+      {commonSearchModal}
     </div>
   );
 }
