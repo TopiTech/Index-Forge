@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
+import { createPortal } from "react-dom";
+import { motion } from "framer-motion";
 import { Search, X, TrendingUp, BarChart2, BookmarkPlus, CornerDownLeft, Sparkles } from "lucide-react";
 import { POPULAR_STOCKS, type PopularStock } from "../data/popularStocks";
 import { useModalFocus } from "../hooks/useModalFocus";
@@ -27,6 +29,7 @@ export function GlobalSearchModal({
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
+  const isBackdropMouseDownRef = useRef(false);
 
   // Focus trap, Escape handling and focus restoration are delegated to the
   // shared modal hook (same contract as every other dialog in the app); the
@@ -115,36 +118,38 @@ export function GlobalSearchModal({
 
   if (!isOpen) return null;
 
-  return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div
+  const handleBackdropMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    isBackdropMouseDownRef.current = e.target === e.currentTarget;
+  };
+
+  const handleBackdropClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (isBackdropMouseDownRef.current && e.target === e.currentTarget) {
+      onClose();
+    }
+    isBackdropMouseDownRef.current = false;
+  };
+
+  const modalContent = (
+    <div
+      className="modal-overlay"
+      onMouseDown={handleBackdropMouseDown}
+      onClick={handleBackdropClick}
+    >
+      <motion.div
         ref={dialogRef}
         data-modal-dialog
-        className="modal-card global-search-modal"
+        className="modal-dialog global-search-modal"
         role="dialog"
         aria-modal="true"
         aria-label="銘柄・指数の統合検索"
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          maxWidth: "640px",
-          width: "92vw",
-          maxHeight: "80vh",
-          display: "flex",
-          flexDirection: "column",
-          padding: 0,
-          overflow: "hidden",
-        }}
+        onMouseDown={(e) => e.stopPropagation()}
+        initial={{ opacity: 0, scale: 0.96, y: -12 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.96, y: -12 }}
+        transition={{ duration: 0.15, ease: "easeOut" }}
       >
         {/* Search Input Bar */}
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            padding: "16px 20px",
-            borderBottom: "1px solid var(--border-color)",
-            gap: "12px",
-          }}
-        >
+        <div className="global-search-header">
           <Search size={20} className="muted" />
           <input
             ref={inputRef}
@@ -156,14 +161,6 @@ export function GlobalSearchModal({
               setQuery(e.target.value);
               setSelectedIndex(0);
             }}
-            style={{
-              flex: 1,
-              background: "transparent",
-              border: "none",
-              outline: "none",
-              fontSize: "1.05rem",
-              color: "var(--text-color)",
-            }}
           />
           {query && (
             <button
@@ -171,6 +168,7 @@ export function GlobalSearchModal({
               className="btn btn-ghost"
               style={{ padding: "4px" }}
               onClick={() => setQuery("")}
+              aria-label="検索キーワードをクリア"
             >
               <X size={16} />
             </button>
@@ -181,15 +179,7 @@ export function GlobalSearchModal({
         </div>
 
         {/* Search Results List */}
-        <div
-          ref={listRef}
-          style={{
-            flex: 1,
-            overflowY: "auto",
-            padding: "10px",
-            maxHeight: "400px",
-          }}
-        >
+        <div ref={listRef} className="global-search-list">
           {filteredResults.length === 0 ? (
             <div style={{ padding: "32px 20px", textAlign: "center", color: "var(--text-muted)" }}>
               <p>一致する銘柄または指数が見つかりませんでした。</p>
@@ -212,16 +202,6 @@ export function GlobalSearchModal({
                       onClose();
                     }}
                     onMouseEnter={() => setSelectedIndex(idx)}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      padding: "10px 14px",
-                      borderRadius: "8px",
-                      cursor: "pointer",
-                      background: isSelected ? "var(--bg-card-hover)" : "transparent",
-                      transition: "background 0.15s ease",
-                    }}
                   >
                     <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
                       <div
@@ -294,17 +274,7 @@ export function GlobalSearchModal({
         </div>
 
         {/* Footer shortcuts hint */}
-        <div
-          style={{
-            padding: "10px 16px",
-            borderTop: "1px solid var(--border-color)",
-            display: "flex",
-            justifyContent: "space-between",
-            fontSize: "0.78rem",
-            color: "var(--text-muted)",
-            background: "var(--bg-app)",
-          }}
-        >
+        <div className="global-search-footer">
           <div style={{ display: "flex", gap: "14px" }}>
             <span>↑↓ で選択</span>
             <span>↵ で決定</span>
@@ -314,7 +284,12 @@ export function GlobalSearchModal({
             <span>IndexForge 統合検索</span>
           </div>
         </div>
-      </div>
+      </motion.div>
     </div>
   );
+
+  if (typeof document !== "undefined") {
+    return createPortal(modalContent, document.body);
+  }
+  return modalContent;
 }

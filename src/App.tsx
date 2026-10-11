@@ -119,31 +119,33 @@ function PageLayout({
   }, []);
 
   return (
-    <div className="app-shell">
-      <Sidebar
-        currentView={currentView}
-        navigateTo={navigateTo}
-        isOpen={isNavOpen}
-        onRequestClose={closeNav}
-        freshnessProps={headerProps}
-      />
-      <div className="app-column">
-        <div className="app">
-          <Header
-            {...headerProps}
-            onNavigateToHome={() => navigateTo("dashboard")}
-            isNavOpen={isNavOpen}
-            onToggleNav={() => setIsNavOpen((prev) => !prev)}
-            navToggleRef={navToggleRef}
-          />
-          <TradingViewTickerTape />
-          <main style={{ minHeight: "calc(100vh - 280px)" }}>{children}</main>
-          <Footer onNavigate={navigateTo} currentView={currentView} />
+    <>
+      <div className="app-shell">
+        <Sidebar
+          currentView={currentView}
+          navigateTo={navigateTo}
+          isOpen={isNavOpen}
+          onRequestClose={closeNav}
+          freshnessProps={headerProps}
+        />
+        <div className="app-column">
+          <div className="app">
+            <Header
+              {...headerProps}
+              onNavigateToHome={() => navigateTo("dashboard")}
+              isNavOpen={isNavOpen}
+              onToggleNav={() => setIsNavOpen((prev) => !prev)}
+              navToggleRef={navToggleRef}
+            />
+            <TradingViewTickerTape />
+            <main style={{ minHeight: "calc(100vh - 280px)" }}>{children}</main>
+            <Footer onNavigate={navigateTo} currentView={currentView} />
+          </div>
         </div>
       </div>
       {overlays}
       {searchModal}
-    </div>
+    </>
   );
 }
 
