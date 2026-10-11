@@ -165,5 +165,17 @@ describe("PortfolioStorage & Engine", () => {
       saveWatchlist(["AAPL", "aapl", "6920"]);
       expect(loadWatchlist()).toEqual(["AAPL", "6920"]);
     });
+
+    it("persists deliberate empty positions when user clears all positions", () => {
+      stubLocalStorage();
+      savePortfolioPositions([]);
+      expect(loadPortfolioPositions()).toEqual([]);
+    });
+
+    it("persists deliberate empty watchlist when user clears watchlist", () => {
+      stubLocalStorage();
+      saveWatchlist([]);
+      expect(loadWatchlist()).toEqual([]);
+    });
   });
 });

@@ -143,14 +143,16 @@ export function loadPortfolioPositions(): PortfolioPosition[] {
   if (!storage) return DEFAULT_PRESET_POSITIONS;
   try {
     const raw = storage.getItem(STORAGE_KEY_PORTFOLIO);
-    if (raw) {
+    if (raw !== null) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) {
+        // An explicit empty list is an intended user action (cleared positions).
+        if (parsed.length === 0) return [];
+
         const positions = parsed
           .map(sanitizePosition)
           .filter((position): position is PortfolioPosition => position !== null);
-        // An empty (or fully corrupt) list falls back to the presets, which
-        // also matches the previous behaviour for an absent key.
+        // A fully corrupt non-empty list falls back to presets.
         if (positions.length > 0) return positions;
       }
     }
@@ -177,10 +179,16 @@ export function loadWatchlist(): string[] {
   if (!storage) return DEFAULT_PRESET_WATCHLIST;
   try {
     const raw = storage.getItem(STORAGE_KEY_WATCHLIST);
-    if (raw) {
+    if (raw !== null) {
       const parsed = JSON.parse(raw);
-      const tickers = sanitizeWatchlist(parsed);
-      if (tickers.length > 0) return tickers;
+      if (Array.isArray(parsed)) {
+        // An explicit empty list is an intended user action (cleared watchlist).
+        if (parsed.length === 0) return [];
+
+        const tickers = sanitizeWatchlist(parsed);
+        // A fully corrupt non-empty list falls back to presets.
+        if (tickers.length > 0) return tickers;
+      }
     }
   } catch {
     // Ignore storage parse error

@@ -413,6 +413,13 @@ export function MarketOverviewPage({
             {data.news.map((item) => (
               <div
                 key={item.id}
+                role={item.relatedTicker ? "button" : undefined}
+                tabIndex={item.relatedTicker ? 0 : undefined}
+                aria-label={
+                  item.relatedTicker
+                    ? `${item.title} (${item.relatedTicker}の銘柄分析を開く)`
+                    : undefined
+                }
                 style={{
                   padding: "12px",
                   borderRadius: "8px",
@@ -425,6 +432,12 @@ export function MarketOverviewPage({
                 }}
                 onClick={() => {
                   if (item.relatedTicker) {
+                    onOpenStockDetail(item.relatedTicker);
+                  }
+                }}
+                onKeyDown={(e) => {
+                  if (item.relatedTicker && (e.key === "Enter" || e.key === " ")) {
+                    e.preventDefault();
                     onOpenStockDetail(item.relatedTicker);
                   }
                 }}

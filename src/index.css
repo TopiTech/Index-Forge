@@ -149,6 +149,7 @@ body::before {
   display: none;
 }
 
+.global-sidebar-drawer,
 .global-sidebar-backdrop {
   display: none;
 }
@@ -496,9 +497,11 @@ h3 {
   min-width: 28px;
 }
 
-.header-mobile-menu-btn,
-.btn.header-mobile-menu-btn {
-  display: none !important;
+@media (min-width: 1081px) {
+  .header-mobile-menu-btn,
+  .btn.header-mobile-menu-btn {
+    display: none !important;
+  }
 }
 
 @media (max-width: 768px) {

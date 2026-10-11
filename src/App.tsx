@@ -106,6 +106,18 @@ function PageLayout({
     navToggleRef.current?.focus();
   }, []);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mediaQuery = window.matchMedia(MOBILE_LAYOUT_QUERY);
+    const handleLayoutChange = () => {
+      if (!mediaQuery.matches) {
+        setIsNavOpen(false);
+      }
+    };
+    mediaQuery.addEventListener("change", handleLayoutChange);
+    return () => mediaQuery.removeEventListener("change", handleLayoutChange);
+  }, []);
+
   return (
     <div className="app-shell">
       <Sidebar
@@ -174,32 +186,6 @@ export default function App({
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
   const { isAdmin } = useAuth();
   const { success: toastSuccess, info: toastInfo } = useToast();
-
-  const navigateTo = useCallback((view: PageView, searchParams: string = "") => {
-    setCurrentView(view);
-    const basePath = getViewPath(view);
-    const targetPath = searchParams ? `${basePath}${searchParams}` : basePath;
-
-    if (view === "stock") {
-      const ticker = resolveStockTicker(basePath, searchParams);
-      if (ticker) setActiveStockTicker(ticker);
-    }
-
-    if (
-      typeof window !== "undefined" &&
-      (window.location.pathname !== basePath ||
-        (searchParams && window.location.search !== searchParams))
-    ) {
-      window.history.pushState({}, "", targetPath);
-    }
-    if (typeof window !== "undefined") {
-      try {
-        window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
-      } catch {
-        window.scrollTo(0, 0);
-      }
-    }
-  }, []);
 
   // Global Cmd+K / Ctrl+K keyboard shortcut
   useEffect(() => {
@@ -349,6 +335,64 @@ export default function App({
     }
     initialBenchmarkHandledRef.current = true;
   }, [setSelectedBenchmark]);
+
+  const pendingIndexIdRef = useRef<string | null>(null);
+
+  const navigateTo = useCallback(
+    (view: PageView, searchParams: string = "") => {
+      setCurrentView(view);
+      const basePath = getViewPath(view);
+      const targetPath = searchParams ? `${basePath}${searchParams}` : basePath;
+
+      if (view === "stock") {
+        const ticker = resolveStockTicker(basePath, searchParams);
+        if (ticker) setActiveStockTicker(ticker);
+      }
+
+      if (view === "dashboard" && searchParams) {
+        const params = parseDashboardParams(searchParams);
+        if (isValidTimeframe(params.timeframe)) {
+          setTimeframe(params.timeframe);
+        }
+        if (isBenchmarkSymbol(params.benchmark)) {
+          setSelectedBenchmark(params.benchmark);
+        }
+        if (params.indexId) {
+          const match = indices?.find((idx) => idx.id === params.indexId);
+          if (match) {
+            selectIndex(match);
+          } else {
+            pendingIndexIdRef.current = params.indexId;
+          }
+        }
+      }
+
+      if (
+        typeof window !== "undefined" &&
+        (window.location.pathname !== basePath ||
+          (searchParams && window.location.search !== searchParams))
+      ) {
+        window.history.pushState({}, "", targetPath);
+      }
+      if (typeof window !== "undefined") {
+        try {
+          window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
+        } catch {
+          window.scrollTo(0, 0);
+        }
+      }
+    },
+    [indices, selectIndex, setSelectedBenchmark],
+  );
+
+  useEffect(() => {
+    if (!pendingIndexIdRef.current || !indices || indices.length === 0) return;
+    const match = indices.find((idx) => idx.id === pendingIndexIdRef.current);
+    if (match) {
+      selectIndex(match);
+      pendingIndexIdRef.current = null;
+    }
+  }, [indices, selectIndex]);
 
   const {
     customSeries,

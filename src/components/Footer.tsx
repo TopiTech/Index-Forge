@@ -1,4 +1,17 @@
-import { ExternalLink, ShieldAlert, User, Home, Shield, Code2, Sliders, Compass } from "lucide-react";
+import {
+  ExternalLink,
+  ShieldAlert,
+  Home,
+  Shield,
+  Code2,
+  Sliders,
+  Compass,
+  Globe,
+  TrendingUp,
+  Zap,
+  Calendar,
+  PieChart,
+} from "lucide-react";
 import { getViewPath, type PageView } from "../lib/navigation";
 import { useAuth } from "../hooks/useAuth";
 
@@ -93,11 +106,47 @@ export function Footer({ onNavigate, currentView = "dashboard" }: FooterProps) {
             <ul className="footer-nav-list">
               <li>
                 <FooterNavLink
+                  view="market"
+                  currentView={currentView}
+                  onNavigate={onNavigate}
+                  icon={<Globe size={14} />}
+                  label="マーケット概観"
+                />
+              </li>
+              <li>
+                <FooterNavLink
+                  view="stock"
+                  currentView={currentView}
+                  onNavigate={onNavigate}
+                  icon={<TrendingUp size={14} />}
+                  label="銘柄分析"
+                />
+              </li>
+              <li>
+                <FooterNavLink
+                  view="calendar"
+                  currentView={currentView}
+                  onNavigate={onNavigate}
+                  icon={<Calendar size={14} />}
+                  label="カレンダー"
+                />
+              </li>
+              <li>
+                <FooterNavLink
+                  view="screener"
+                  currentView={currentView}
+                  onNavigate={onNavigate}
+                  icon={<Zap size={14} />}
+                  label="スクリーナー"
+                />
+              </li>
+              <li>
+                <FooterNavLink
                   view="dashboard"
                   currentView={currentView}
                   onNavigate={onNavigate}
                   icon={<Home size={14} />}
-                  label="ダッシュボード"
+                  label="指数スタジオ"
                 />
               </li>
               <li>
@@ -114,17 +163,8 @@ export function Footer({ onNavigate, currentView = "dashboard" }: FooterProps) {
                   view="portfolio"
                   currentView={currentView}
                   onNavigate={onNavigate}
-                  icon={<User size={14} />}
-                  label="ポートフォリオ / SNS"
-                />
-              </li>
-              <li>
-                <FooterNavLink
-                  view="disclaimer"
-                  currentView={currentView}
-                  onNavigate={onNavigate}
-                  icon={<ShieldAlert size={14} />}
-                  label="免責事項"
+                  icon={<PieChart size={14} />}
+                  label="保有ポートフォリオ"
                 />
               </li>
               <li>
@@ -134,6 +174,15 @@ export function Footer({ onNavigate, currentView = "dashboard" }: FooterProps) {
                   onNavigate={onNavigate}
                   icon={<Compass size={14} />}
                   label="操作チュートリアル"
+                />
+              </li>
+              <li>
+                <FooterNavLink
+                  view="disclaimer"
+                  currentView={currentView}
+                  onNavigate={onNavigate}
+                  icon={<ShieldAlert size={14} />}
+                  label="免責事項"
                 />
               </li>
               {isAdmin && (
