@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
 import {
   Briefcase,
@@ -64,6 +64,19 @@ export function PortfolioManagerPage({
   const [newTicker, setNewTicker] = useState("7203");
   const [newShares, setNewShares] = useState("100");
   const [newAverageCost, setNewAverageCost] = useState("2500");
+
+  // Synchronize positions & watchlist immediately when auth transition occurs
+  // during render to prevent overwriting saved data with unauthenticated empty arrays
+  const prevAuthRef = useRef(isAuthenticated);
+  if (!prevAuthRef.current && isAuthenticated) {
+    prevAuthRef.current = true;
+    setPositions(loadPortfolioPositions());
+    setWatchlist(loadWatchlist());
+  } else if (prevAuthRef.current && !isAuthenticated) {
+    prevAuthRef.current = false;
+    setPositions([]);
+    setWatchlist([]);
+  }
 
   // Synchronize positions & watchlist when auth state changes
   useEffect(() => {

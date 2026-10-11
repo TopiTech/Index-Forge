@@ -173,6 +173,20 @@ export function savePortfolioPositions(positions: PortfolioPosition[]): void {
   }
 }
 
+/**
+ * Appends a position to the portfolio. Returns `true` when successful.
+ */
+export function addPortfolioPosition(
+  position: Omit<PortfolioPosition, "id"> & { id?: string },
+): boolean {
+  const id = position.id?.trim() || `pos-${position.ticker}-${Date.now()}`;
+  const sanitized = sanitizePosition({ ...position, id });
+  if (!sanitized) return false;
+  const current = loadPortfolioPositions();
+  savePortfolioPositions([...current, sanitized]);
+  return true;
+}
+
 // Load watchlist from localStorage
 export function loadWatchlist(): string[] {
   const storage = getLocalStorage();

@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { motion } from "framer-motion";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, Calendar as CalendarIcon } from "lucide-react";
 import { UPCOMING_EVENTS } from "../lib/marketDataService";
 import type { PageView } from "../lib/navigation";
 
@@ -86,7 +86,37 @@ export function CalendarPage({
 
       {/* Events Timeline List */}
       <div className="card" style={{ padding: "20px" }}>
-        <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+        {filteredEvents.length === 0 ? (
+          <div
+            role="status"
+            aria-live="polite"
+            style={{
+              padding: "48px 20px",
+              textAlign: "center",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: "12px",
+            }}
+          >
+            <CalendarIcon size={40} style={{ color: "var(--text-muted)", opacity: 0.6 }} />
+            <div style={{ fontWeight: 600, fontSize: "1rem" }}>
+              該当するイベントが見つかりませんでした
+            </div>
+            <p className="tiny muted" style={{ margin: 0, maxWidth: "360px" }}>
+              選択中のフィルター条件（{activeFilter === "MACRO" ? "経済指標" : "決算発表"}）に一致する予定はありません。
+            </p>
+            <button
+              type="button"
+              className="btn btn-sm btn-outline"
+              onClick={() => setActiveFilter("ALL")}
+              style={{ marginTop: "8px" }}
+            >
+              すべてのイベントを表示
+            </button>
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
           {filteredEvents.map((evt) => {
             const isMacro = evt.type === "MACRO";
             const ticker = evt.ticker;
@@ -181,7 +211,8 @@ export function CalendarPage({
               </div>
             );
           })}
-        </div>
+          </div>
+        )}
       </div>
     </motion.div>
   );

@@ -6,7 +6,8 @@ import { isBenchmarkDataForSymbol, useBenchmark, AVAILABLE_BENCHMARKS } from "./
 import { useCalculation } from "./hooks/useCalculation";
 import { useAuth } from "./hooks/useAuth";
 import { useToast } from "./components/Toast";
-import { addWatchlistTicker } from "./lib/portfolioStorage";
+import { addWatchlistTicker, addPortfolioPosition } from "./lib/portfolioStorage";
+import { getStockFundamentals } from "./lib/marketDataService";
 import { Header } from "./components/Header";
 import { Sidebar } from "./components/Sidebar";
 import { TradingViewTickerTape } from "./components/TradingViewTickerTape";
@@ -188,7 +189,7 @@ export default function App({
     );
   });
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
-  const { isAdmin } = useAuth();
+  const { isAdmin, isAuthenticated } = useAuth();
   const { success: toastSuccess, info: toastInfo } = useToast();
 
   // Global Cmd+K / Ctrl+K keyboard shortcut
@@ -547,6 +548,26 @@ export default function App({
     [toastSuccess, toastInfo],
   );
 
+  const handleAddToPortfolio = useCallback(
+    (ticker: string, currentPrice: number) => {
+      if (!isAuthenticated) {
+        toastInfo("ポートフォリオ登録にはログインが必要です");
+        navigateTo("portfolio");
+        return;
+      }
+      const fund = getStockFundamentals(ticker);
+      addPortfolioPosition({
+        ticker,
+        name: fund.name,
+        shares: 100,
+        averageCost: currentPrice,
+        acquiredAt: new Date().toISOString().split("T")[0],
+      });
+      navigateTo("portfolio");
+    },
+    [isAuthenticated, navigateTo, toastInfo],
+  );
+
 
   const handleRetry = useCallback(() => {
     if (benchmarkError) refetchBenchmark();
@@ -685,6 +706,7 @@ export default function App({
             onNavigate={navigateTo}
             onAddToIndex={handleAddStockToIndex}
             onAddToWatchlist={handleAddToWatchlist}
+            onAddToPortfolio={handleAddToPortfolio}
           />
         </Suspense>
       </PageLayout>

@@ -86,7 +86,28 @@ export function GlobalSearchModal({
         raw: idx,
       }));
 
-    return [...matchedStocks, ...matchedIndices];
+    const upperQuery = q.toUpperCase();
+    const isTickerPattern = /^[A-Z0-9.]{2,8}$/.test(upperQuery);
+    const hasExactTicker = matchedStocks.some((s) => s.id.toUpperCase() === upperQuery);
+
+    const customStockResult =
+      isTickerPattern && !hasExactTicker
+        ? [
+            {
+              type: "stock" as const,
+              id: upperQuery,
+              title: `銘柄 ${upperQuery}`,
+              subtitle: `${upperQuery} · 個別銘柄の分析・詳細を表示`,
+              raw: {
+                ticker: upperQuery,
+                name: `銘柄 ${upperQuery}`,
+                theme: /^\d/.test(upperQuery) ? "日本株" : "米国株",
+              },
+            },
+          ]
+        : [];
+
+    return [...customStockResult, ...matchedStocks, ...matchedIndices];
   }, [query, availableIndices]);
 
   // Handle keyboard navigation (Escape is owned by useModalFocus above)
