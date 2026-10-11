@@ -92,7 +92,8 @@ export function GlobalSearchModal({
   // Handle keyboard navigation (Escape is owned by useModalFocus above)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (!isOpen) return;
+      if (!isOpen || e.isComposing || e.keyCode === 229) return;
+      if (filteredResults.length === 0) return;
 
       if (e.key === "ArrowDown") {
         e.preventDefault();

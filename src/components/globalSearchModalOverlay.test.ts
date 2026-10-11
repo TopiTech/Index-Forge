@@ -36,4 +36,13 @@ describe("GlobalSearchModal overlay and placement regression tests", () => {
     const pageLayoutJsx = pageLayoutMatch![0];
     expect(pageLayoutJsx).toMatch(/<\/div>\s*\{overlays\}\s*\{searchModal\}/);
   });
+
+  it("guards keyboard handling against IME composition and empty search results", () => {
+    // Guards against premature submission during Japanese IME conversion (Enter / ArrowDown / ArrowUp)
+    expect(searchModalSource).toMatch(
+      /if \(!isOpen \|\| e\.isComposing \|\| e\.keyCode === 229\) return;/,
+    );
+    // Guards against empty search result list corrupting selectedIndex to -1
+    expect(searchModalSource).toContain("if (filteredResults.length === 0) return;");
+  });
 });
