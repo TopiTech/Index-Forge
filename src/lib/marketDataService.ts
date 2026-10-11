@@ -838,13 +838,17 @@ export function resetMarketOverviewEndpointProbe(): void {
   overviewEndpointConfirmedMissing = false;
 }
 
-// Fetch Market Overview Data (with API fallback)
-export async function fetchMarketOverview(): Promise<MarketOverviewData> {
+// Fetch Market Overview Data (with API fallback and forceRefresh support)
+export async function fetchMarketOverview(forceRefresh = false): Promise<MarketOverviewData> {
   const isBrowser = typeof globalThis !== "undefined" && "window" in globalThis;
+  if (forceRefresh) {
+    overviewEndpointConfirmedMissing = false;
+  }
   if (isBrowser && !overviewEndpointConfirmedMissing) {
     try {
       const res = await fetch("/api/market/overview", {
         headers: { accept: "application/json" },
+        cache: forceRefresh ? "no-cache" : "default",
       });
       if (res.status === 404) {
         overviewEndpointConfirmedMissing = true;
@@ -874,6 +878,24 @@ const stockFundamentalsClientCache = new Map<string, StockQuoteFundamentals>();
 
 export function clearStockFundamentalsClientCache(): void {
   stockFundamentalsClientCache.clear();
+}
+
+/**
+ * Return cached fundamentals if available (e.g. preloaded by Screener),
+ * otherwise falling back to baseline getStockFundamentals.
+ */
+export function getCachedStockFundamentals(ticker: string): StockQuoteFundamentals {
+  const norm = ticker.trim().toUpperCase();
+  const cached = stockFundamentalsClientCache.get(norm);
+  if (cached) return cached;
+  return getStockFundamentals(ticker);
+}
+
+/** Cache for entire screener universe fetched from /api/stocks/screener. */
+let screenerUniverseClientCache: StockQuoteFundamentals[] | null = null;
+
+export function clearScreenerUniverseClientCache(): void {
+  screenerUniverseClientCache = null;
 }
 
 /**
@@ -922,6 +944,7 @@ export async function fetchStockFundamentals(
     try {
       const res = await fetch(`/api/stock/fundamentals?ticker=${encodeURIComponent(normTicker)}`, {
         headers: { accept: "application/json" },
+        cache: forceRefresh ? "no-cache" : "default",
       });
       if (res.ok) {
         const contentType = res.headers.get("content-type") || "";
@@ -972,8 +995,14 @@ export interface ScreenerFilterOptions {
   sortOrder?: "asc" | "desc";
 }
 
-// Screen Stocks across POPULAR_STOCKS universe
-export function runStockScreener(options: ScreenerFilterOptions = {}): StockQuoteFundamentals[] {
+/**
+ * Screen Stocks across POPULAR_STOCKS universe (supports an optional custom universe
+ * populated with live market data from /api/stocks/screener).
+ */
+export function runStockScreener(
+  options: ScreenerFilterOptions = {},
+  customUniverse?: StockQuoteFundamentals[],
+): StockQuoteFundamentals[] {
   const {
     market = "ALL",
     minDividendYield,
@@ -985,7 +1014,7 @@ export function runStockScreener(options: ScreenerFilterOptions = {}): StockQuot
     sortOrder = "desc",
   } = options;
 
-  const allStocks = POPULAR_STOCKS.map((s) => getStockFundamentals(s.ticker));
+  const allStocks = customUniverse ?? POPULAR_STOCKS.map((s) => getStockFundamentals(s.ticker));
 
   const filtered = allStocks.filter((stock) => {
     if (market !== "ALL" && stock.market !== market) {
@@ -1040,6 +1069,100 @@ export function runStockScreener(options: ScreenerFilterOptions = {}): StockQuot
     if (numA === numB) return 0;
     return sortOrder === "asc" ? (numA > numB ? 1 : -1) : (numA < numB ? 1 : -1);
   });
+}
+
+/**
+ * Fetch entire universe of live stocks from /api/stocks/screener,
+ * caching results and falling back to local baseline universe if offline.
+ */
+export async function fetchScreenerStocks(
+  options: ScreenerFilterOptions = {},
+  forceRefresh = false,
+): Promise<StockQuoteFundamentals[]> {
+  if (forceRefresh) {
+    screenerUniverseClientCache = null;
+  }
+
+  if (screenerUniverseClientCache && !forceRefresh) {
+    return runStockScreener(options, screenerUniverseClientCache);
+  }
+
+  const isBrowser = typeof globalThis !== "undefined" && "window" in globalThis;
+  if (isBrowser) {
+    try {
+      const res = await fetch("/api/stocks/screener", {
+        headers: { accept: "application/json" },
+        cache: forceRefresh ? "no-cache" : "default",
+      });
+      if (res.ok) {
+        const contentType = res.headers.get("content-type") || "";
+        if (contentType.includes("json")) {
+          const raw = await res.json();
+          if (Array.isArray(raw) && raw.length > 0) {
+            const valid = raw.filter(
+              (item): item is StockQuoteFundamentals =>
+                !!item &&
+                typeof item === "object" &&
+                typeof item.ticker === "string" &&
+                typeof item.price === "number" &&
+                Number.isFinite(item.price) &&
+                item.price > 0,
+            );
+            if (valid.length > 0) {
+              screenerUniverseClientCache = valid;
+              // Also populate individual stock cache for faster StockDetailPage access
+              for (const stock of valid) {
+                stockFundamentalsClientCache.set(stock.ticker.toUpperCase(), stock);
+              }
+              return runStockScreener(options, valid);
+            }
+          }
+        }
+      }
+    } catch {
+      // Graceful fallback to baseline
+    }
+  }
+
+  return runStockScreener(options);
+}
+
+/**
+ * Fetch dynamic financial calendar events from /api/market/calendar,
+ * falling back to UPCOMING_EVENTS.
+ */
+export async function fetchUpcomingEvents(
+  forceRefresh = false,
+): Promise<CalendarEvent[]> {
+  const isBrowser = typeof globalThis !== "undefined" && "window" in globalThis;
+  if (isBrowser) {
+    try {
+      const res = await fetch("/api/market/calendar", {
+        headers: { accept: "application/json" },
+        cache: forceRefresh ? "no-cache" : "default",
+      });
+      if (res.ok) {
+        const contentType = res.headers.get("content-type") || "";
+        if (contentType.includes("json")) {
+          const raw = await res.json();
+          if (Array.isArray(raw) && raw.length > 0) {
+            const valid = raw.filter(
+              (e): e is CalendarEvent =>
+                !!e &&
+                typeof e === "object" &&
+                typeof e.id === "string" &&
+                typeof e.date === "string" &&
+                typeof e.title === "string",
+            );
+            if (valid.length > 0) return valid;
+          }
+        }
+      }
+    } catch {
+      // Graceful fallback
+    }
+  }
+  return UPCOMING_EVENTS;
 }
 
 // Sample Upcoming Earnings & Macro Events Calendar

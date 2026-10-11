@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { motion } from "framer-motion";
 import {
   Zap,
@@ -16,10 +16,13 @@ import {
   CheckSquare,
   Square,
   MinusSquare,
+  RefreshCw,
 } from "lucide-react";
 import {
   runStockScreener,
+  fetchScreenerStocks,
   type ScreenerFilterOptions,
+  type StockQuoteFundamentals,
 } from "../lib/marketDataService";
 import { allocateEvenWeights } from "../lib/weights";
 import { escapeCsvCell } from "../lib/csv";
@@ -89,6 +92,37 @@ export function ScreenerPage({
   const [searchQuery, setSearchQuery] = useState("");
   const [activePreset, setActivePreset] = useState<PresetKey>(null);
   const [selectedTickers, setSelectedTickers] = useState<Set<string>>(new Set());
+  const [universe, setUniverse] = useState<StockQuoteFundamentals[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [isLive, setIsLive] = useState(false);
+
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  const loadScreenerData = useCallback(async (forceRefresh = false) => {
+    setLoading(true);
+    try {
+      const liveData = await fetchScreenerStocks({}, forceRefresh);
+      if (!mountedRef.current) return;
+      if (liveData && liveData.length > 0) {
+        setUniverse(liveData);
+        setIsLive(true);
+      }
+    } finally {
+      if (mountedRef.current) {
+        setLoading(false);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadScreenerData();
+  }, [loadScreenerData]);
 
   const { success, info } = useToast();
 
@@ -145,16 +179,19 @@ export function ScreenerPage({
   };
 
   const results = useMemo(() => {
-    return runStockScreener({
-      market,
-      minDividendYield: minDividend,
-      maxPbr,
-      maxPer,
-      searchQuery,
-      sortBy,
-      sortOrder,
-    });
-  }, [market, minDividend, maxPbr, maxPer, searchQuery, sortBy, sortOrder]);
+    return runStockScreener(
+      {
+        market,
+        minDividendYield: minDividend,
+        maxPbr,
+        maxPer,
+        searchQuery,
+        sortBy,
+        sortOrder,
+      },
+      universe ?? undefined,
+    );
+  }, [market, minDividend, maxPbr, maxPer, searchQuery, sortBy, sortOrder, universe]);
 
   // Active filter pills
   const activeFilters = useMemo(() => {
@@ -384,15 +421,46 @@ export function ScreenerPage({
         <div>
           <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
             <span className="badge badge-accent mono tiny">MULTI-FACTOR SCREENER</span>
-            <span className="tiny muted mono">DISCOVERY & RANKING</span>
+            <span
+              className={`badge ${isLive ? "badge-success" : "badge-default"} mono tiny`}
+              style={{
+                fontSize: "0.68rem",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "4px",
+                color: isLive ? "var(--color-positive)" : "inherit",
+              }}
+            >
+              {loading ? (
+                <>
+                  <RefreshCw size={10} className="spin" />
+                  <span>実データ取得中...</span>
+                </>
+              ) : isLive ? (
+                <span>● LIVE 市場実データ</span>
+              ) : (
+                <span>参考値</span>
+              )}
+            </span>
           </div>
           <h2 className="page-header-title">銘柄スクリーナー & ランキング</h2>
           <p className="muted tiny" style={{ margin: "4px 0 0" }}>
-            配当利回り、PBR1倍割れ、騰落率、バリュエーションによる絞り込みと一括指数組成
+            リアルタイム株価、配当利回り、PBR1倍割れ、騰落率、バリュエーションによる絞り込みと一括指数組成
           </p>
         </div>
 
         <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
+          <button
+            type="button"
+            className="btn btn-sm btn-outline"
+            onClick={() => void loadScreenerData(true)}
+            disabled={loading}
+            title="最新の市場実データを再取得"
+          >
+            <RefreshCw size={13} className={loading ? "spin" : ""} />
+            <span>更新</span>
+          </button>
+
           <button
             type="button"
             className="btn btn-sm btn-outline"

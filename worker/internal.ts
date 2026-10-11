@@ -51,6 +51,9 @@ export {
   // Live market overview and stock fundamentals
   fetchLiveMarketOverview,
   fetchLiveStockFundamentals,
+  fetchLiveScreenerUniverse,
+  fetchLiveMarketCalendar,
+  resetLastKnownScreenerUniverse,
   getYahooCrumb,
   resetYahooCrumbCache,
   resetLastKnownMarketOverview,

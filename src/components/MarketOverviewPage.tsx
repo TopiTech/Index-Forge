@@ -45,10 +45,10 @@ export function MarketOverviewPage({
     };
   }, []);
 
-  const loadData = useCallback(async () => {
+  const loadData = useCallback(async (forceRefresh = false) => {
     const requestId = ++requestIdRef.current;
     setLoading(true);
-    const result = await fetchMarketOverview();
+    const result = await fetchMarketOverview(forceRefresh);
     if (!mountedRef.current || requestId !== requestIdRef.current) return;
     setData(result);
     setLoading(false);
@@ -112,7 +112,7 @@ export function MarketOverviewPage({
           <button
             type="button"
             className="btn btn-sm btn-outline"
-            onClick={() => void loadData()}
+            onClick={() => void loadData(true)}
             title="最新データを再取得"
           >
             <RefreshCw size={13} className={loading ? "spin" : ""} />

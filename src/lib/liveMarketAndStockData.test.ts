@@ -6,19 +6,27 @@ import {
   clearMemoryRateLimits,
   fetchLiveMarketOverview,
   fetchLiveStockFundamentals,
+  fetchLiveScreenerUniverse,
+  fetchLiveMarketCalendar,
   resetLastKnownMarketOverview,
+  resetLastKnownScreenerUniverse,
   resetYahooCrumbCache,
 } from "../../worker/internal";
 import {
   fetchMarketOverview,
   fetchStockFundamentals,
   clearStockFundamentalsClientCache,
+  clearScreenerUniverseClientCache,
+  fetchScreenerStocks,
+  fetchUpcomingEvents,
+  getCachedStockFundamentals,
   getStockFundamentals,
   formatMarketCapDisplay,
   resetMarketOverviewEndpointProbe,
   DEFAULT_MARKET_OVERVIEW,
   runStockScreener,
 } from "./marketDataService";
+import { calculatePortfolioSummary, type PortfolioPosition } from "./portfolioStorage";
 
 function createMockEnv() {
   return {
@@ -40,7 +48,9 @@ describe("Live Market and Stock Data Endpoints & Services", () => {
     clearMemoryCache();
     clearMemoryRateLimits();
     clearStockFundamentalsClientCache();
+    clearScreenerUniverseClientCache();
     resetLastKnownMarketOverview();
+    resetLastKnownScreenerUniverse();
     resetYahooCrumbCache();
   });
 
@@ -272,5 +282,138 @@ describe("Live Market and Stock Data Endpoints & Services", () => {
       const results = runStockScreener({ searchQuery: "輸送用機器" });
       expect(results.some((s) => s.ticker === "7203")).toBe(true);
     });
+
+    it("getCachedStockFundamentals falls back to baseline or cached data", () => {
+      const baseline = getCachedStockFundamentals("7203");
+      expect(baseline.ticker).toBe("7203");
+      expect(baseline.price).toBeGreaterThan(0);
+    });
+
+    it("calculatePortfolioSummary applies live quotes when provided", () => {
+      const positions: PortfolioPosition[] = [
+        {
+          id: "pos-1",
+          ticker: "7203",
+          name: "トヨタ自動車",
+          shares: 100,
+          averageCost: 2500,
+          acquiredAt: "2026-01-01",
+        },
+      ];
+
+      const customQuotes = new Map([
+        ["7203", { price: 3200, change: 50, dps: 110, name: "トヨタ自動車" }],
+      ]);
+
+      const summary = calculatePortfolioSummary(positions, customQuotes);
+      expect(summary.totalMarketValue).toBe(320000);
+      expect(summary.totalCost).toBe(250000);
+      expect(summary.totalProfit).toBe(70000);
+      expect(summary.dailyTotalChange).toBe(5000);
+      expect(summary.totalAnnualDividend).toBe(11000);
+    });
+  });
+
+  describe("GET /api/stocks/screener", () => {
+    it("returns screener universe with complete fundamentals for popular stocks", async () => {
+      setAllowMemoryCacheInTest(true);
+      try {
+        const env = createMockEnv();
+        const req = new Request("http://localhost/api/stocks/screener", {
+          method: "GET",
+        });
+
+        const res = await worker.fetch(req, env as any);
+        expect(res.status).toBe(200);
+        expect(res.headers.get("content-type")).toContain("application/json");
+
+        const universe = await res.json();
+        expect(Array.isArray(universe)).toBe(true);
+        expect(universe.length).toBeGreaterThanOrEqual(50);
+
+        const toyota = universe.find((s: any) => s.ticker === "7203");
+        expect(toyota).toBeDefined();
+        expect(toyota.price).toBeGreaterThan(0);
+        expect(toyota.marketCap).toBeGreaterThan(0);
+
+        // ETag revalidation check
+        const etag = res.headers.get("etag");
+        expect(etag).toBeTruthy();
+        if (etag) {
+          const cachedReq = new Request("http://localhost/api/stocks/screener", {
+            method: "GET",
+            headers: { "if-none-match": etag },
+          });
+          const cachedRes = await worker.fetch(cachedReq, env as any);
+          expect(cachedRes.status).toBe(304);
+        }
+      } finally {
+        setAllowMemoryCacheInTest(false);
+      }
+    });
+
+    it("fetchLiveScreenerUniverse helper returns all universe stocks with valid prices", async () => {
+      const data = await fetchLiveScreenerUniverse();
+      expect(Array.isArray(data)).toBe(true);
+      expect(data.length).toBeGreaterThanOrEqual(50);
+      for (const item of data.slice(0, 5)) {
+        expect(item.price).toBeGreaterThan(0);
+        expect(item.name).toBeTruthy();
+        expect(item.theme).toBeTruthy();
+      }
+    });
+  });
+
+  describe("GET /api/market/calendar", () => {
+    it("returns financial calendar events with both macro and earnings categories", async () => {
+      setAllowMemoryCacheInTest(true);
+      try {
+        const env = createMockEnv();
+        const req = new Request("http://localhost/api/market/calendar", {
+          method: "GET",
+        });
+
+        const res = await worker.fetch(req, env as any);
+        expect(res.status).toBe(200);
+
+        const events = await res.json();
+        expect(Array.isArray(events)).toBe(true);
+        expect(events.length).toBeGreaterThan(0);
+
+        const hasMacro = events.some((e: any) => e.type === "MACRO");
+        const hasEarnings = events.some((e: any) => e.type === "EARNINGS");
+        expect(hasMacro).toBe(true);
+        expect(hasEarnings).toBe(true);
+      } finally {
+        setAllowMemoryCacheInTest(false);
+      }
+    });
+
+    it("fetchLiveMarketCalendar helper generates dynamic events with current dates", () => {
+      const events = fetchLiveMarketCalendar();
+      expect(events.length).toBeGreaterThanOrEqual(5);
+      const toyotaEvent = events.find((e) => e.ticker === "7203");
+      expect(toyotaEvent).toBeDefined();
+      expect(toyotaEvent?.type).toBe("EARNINGS");
+    });
+  });
+
+  describe("Client Service Helpers", () => {
+    it("fetchScreenerStocks falls back to runStockScreener when API is unavailable or returns results", async () => {
+      const results = await fetchScreenerStocks({ maxPer: 50 });
+      expect(Array.isArray(results)).toBe(true);
+      expect(results.length).toBeGreaterThan(0);
+      for (const stock of results) {
+        expect(stock.per).not.toBeNull();
+        expect(stock.per!).toBeLessThanOrEqual(50);
+      }
+    });
+
+    it("fetchUpcomingEvents returns calendar events", async () => {
+      const events = await fetchUpcomingEvents();
+      expect(Array.isArray(events)).toBe(true);
+      expect(events.length).toBeGreaterThan(0);
+    });
   });
 });
+

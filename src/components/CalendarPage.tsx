@@ -1,7 +1,11 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { motion } from "framer-motion";
-import { ArrowRight, Calendar as CalendarIcon } from "lucide-react";
-import { UPCOMING_EVENTS } from "../lib/marketDataService";
+import { ArrowRight, Calendar as CalendarIcon, RefreshCw } from "lucide-react";
+import {
+  fetchUpcomingEvents,
+  UPCOMING_EVENTS,
+  type CalendarEvent,
+} from "../lib/marketDataService";
 import type { PageView } from "../lib/navigation";
 
 interface CalendarPageProps {
@@ -13,12 +17,41 @@ export function CalendarPage({
   onNavigate,
   onOpenStockDetail,
 }: CalendarPageProps) {
+  const [events, setEvents] = useState<CalendarEvent[]>(UPCOMING_EVENTS);
+  const [loading, setLoading] = useState(false);
   const [activeFilter, setActiveFilter] = useState<"ALL" | "MACRO" | "EARNINGS">("ALL");
+
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  const loadEvents = useCallback(async (forceRefresh = false) => {
+    setLoading(true);
+    try {
+      const data = await fetchUpcomingEvents(forceRefresh);
+      if (!mountedRef.current) return;
+      if (data && data.length > 0) {
+        setEvents(data);
+      }
+    } finally {
+      if (mountedRef.current) {
+        setLoading(false);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadEvents();
+  }, [loadEvents]);
 
   const filteredEvents =
     activeFilter === "ALL"
-      ? UPCOMING_EVENTS
-      : UPCOMING_EVENTS.filter((e) => e.type === activeFilter);
+      ? events
+      : events.filter((e) => e.type === activeFilter);
 
   return (
     <motion.div
@@ -52,8 +85,19 @@ export function CalendarPage({
         <div
           role="group"
           aria-label="イベント種別フィルター"
-          style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}
+          style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}
         >
+          <button
+            type="button"
+            className="btn btn-sm btn-outline"
+            onClick={() => void loadEvents(true)}
+            disabled={loading}
+            title="最新カレンダーを再取得"
+            style={{ borderRadius: "20px", padding: "5px 12px" }}
+          >
+            <RefreshCw size={12} className={loading ? "spin" : ""} />
+            <span>更新</span>
+          </button>
           {(
             [
               { id: "ALL", label: "全イベント" },

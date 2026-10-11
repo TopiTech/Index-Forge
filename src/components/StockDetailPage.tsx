@@ -13,7 +13,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import {
-  getStockFundamentals,
+  getCachedStockFundamentals,
   fetchStockFundamentals,
   formatMarketCapDisplay,
   type StockQuoteFundamentals,
@@ -37,7 +37,7 @@ export function StockDetailPage({
   onAddToPortfolio,
 }: StockDetailPageProps) {
   const [stock, setStock] = useState<StockQuoteFundamentals>(() =>
-    getStockFundamentals(ticker),
+    getCachedStockFundamentals(ticker),
   );
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<"CHART" | "FINANCIALS">("CHART");
@@ -54,7 +54,7 @@ export function StockDetailPage({
   }, []);
 
   useEffect(() => {
-    setStock(getStockFundamentals(ticker));
+    setStock(getCachedStockFundamentals(ticker));
     void loadStockData(ticker);
   }, [ticker, loadStockData]);
 

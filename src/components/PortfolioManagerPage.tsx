@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { motion } from "framer-motion";
 import {
   Briefcase,
@@ -15,6 +15,7 @@ import {
   EyeOff,
   ArrowLeft,
   AlertCircle,
+  RefreshCw,
 } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
 import { ModalBase } from "./ModalBase";
@@ -27,7 +28,11 @@ import {
   convertPortfolioToCustomIndexBasket,
   type PortfolioPosition,
 } from "../lib/portfolioStorage";
-import { getStockFundamentals } from "../lib/marketDataService";
+import {
+  getStockFundamentals,
+  fetchStockFundamentals,
+  type StockQuoteFundamentals,
+} from "../lib/marketDataService";
 import { POPULAR_STOCKS } from "../data/popularStocks";
 import { getStockCurrency } from "../lib/currency";
 import type { PageView } from "../lib/navigation";
@@ -51,6 +56,8 @@ export function PortfolioManagerPage({
   const [watchlist, setWatchlist] = useState<string[]>(() =>
     isAuthenticated ? loadWatchlist() : []
   );
+  const [liveQuotes, setLiveQuotes] = useState<Map<string, StockQuoteFundamentals>>(new Map());
+  const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState<"HOLDINGS" | "WATCHLIST">("HOLDINGS");
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const { success, info } = useToast();
@@ -124,7 +131,42 @@ export function PortfolioManagerPage({
     }
   };
 
-  const summary = calculatePortfolioSummary(positions);
+  const loadLiveQuotes = useCallback(async (forceRefresh = false) => {
+    const allTickers = Array.from(new Set([...positions.map((p) => p.ticker), ...watchlist]));
+    if (allTickers.length === 0) return;
+    setRefreshing(true);
+    try {
+      const entries = await Promise.all(
+        allTickers.map(async (ticker) => {
+          try {
+            const data = await fetchStockFundamentals(ticker, forceRefresh);
+            return [ticker.toUpperCase(), data] as const;
+          } catch {
+            return null;
+          }
+        }),
+      );
+      setLiveQuotes((prev) => {
+        const next = new Map(prev);
+        for (const entry of entries) {
+          if (entry) {
+            next.set(entry[0], entry[1]);
+          }
+        }
+        return next;
+      });
+    } finally {
+      setRefreshing(false);
+    }
+  }, [positions, watchlist]);
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      void loadLiveQuotes();
+    }
+  }, [isAuthenticated, loadLiveQuotes]);
+
+  const summary = calculatePortfolioSummary(positions, liveQuotes);
   const isTotalProfitPositive = summary.totalProfit >= 0;
   const isDailyProfitPositive = summary.dailyTotalChange >= 0;
 
@@ -487,7 +529,17 @@ export function PortfolioManagerPage({
           </p>
         </div>
 
-        <div style={{ display: "flex", gap: "8px" }}>
+        <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+          <button
+            type="button"
+            className="btn btn-sm btn-outline"
+            onClick={() => void loadLiveQuotes(true)}
+            disabled={refreshing}
+            title="最新の株価・損益を再取得"
+          >
+            <RefreshCw size={13} className={refreshing ? "spin" : ""} />
+            <span>更新</span>
+          </button>
           <button
             type="button"
             className="btn btn-sm btn-accent"
@@ -734,7 +786,8 @@ export function PortfolioManagerPage({
         <div className="card" style={{ padding: "20px" }}>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: "12px" }}>
             {watchlist.map((ticker) => {
-              const fund = getStockFundamentals(ticker);
+              const live = liveQuotes.get(ticker.toUpperCase());
+              const fund = live ?? getStockFundamentals(ticker);
               const isPos = fund.changePercent >= 0;
               return (
                 <div

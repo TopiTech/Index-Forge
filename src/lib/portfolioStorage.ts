@@ -239,6 +239,7 @@ export function saveWatchlist(tickers: string[]): void {
 // Calculate entire portfolio financials and breakdown
 export function calculatePortfolioSummary(
   positions: PortfolioPosition[],
+  liveQuotesMap?: Map<string, { price: number; change?: number; dps?: number | null; name?: string }>,
 ): PortfolioSummary {
   if (!positions || positions.length === 0) {
     return {
@@ -255,20 +256,22 @@ export function calculatePortfolioSummary(
 
   // 1. Calculate each position
   const enriched = positions.map((pos) => {
+    const live = liveQuotesMap?.get(pos.ticker.toUpperCase());
     const fund = getStockFundamentals(pos.ticker);
-    const currentPrice = fund.price;
+    const currentPrice = live?.price && live.price > 0 ? live.price : fund.price;
     const marketValue = Math.round(pos.shares * currentPrice);
     const totalCost = Math.round(pos.shares * pos.averageCost);
     const unrealizedProfit = marketValue - totalCost;
     const unrealizedProfitPercent =
       totalCost > 0 ? Number(((unrealizedProfit / totalCost) * 100).toFixed(2)) : 0;
-    const dailyChange = Math.round(pos.shares * fund.change);
-    const dps = fund.dps ?? 0;
+    const change = live?.change !== undefined ? live.change : fund.change;
+    const dailyChange = Math.round(pos.shares * change);
+    const dps = live?.dps ?? fund.dps ?? 0;
     const annualDividend = Math.round(pos.shares * dps);
 
     return {
       ...pos,
-      name: fund.name,
+      name: live?.name || fund.name,
       currentPrice,
       marketValue,
       totalCost,
