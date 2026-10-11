@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import {
   Briefcase,
   TrendingUp,
@@ -8,9 +8,9 @@ import {
   Trash2,
   Sparkles,
   BookmarkPlus,
-  X,
   Check,
 } from "lucide-react";
+import { ModalBase } from "./ModalBase";
 import {
   loadPortfolioPositions,
   savePortfolioPositions,
@@ -302,9 +302,18 @@ export function PortfolioManagerPage({
                       <tr key={p.id}>
                         <td>
                           <div
+                            role="button"
+                            tabIndex={0}
                             style={{ cursor: "pointer" }}
                             onClick={() => onOpenStockDetail(p.ticker)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" || e.key === " ") {
+                                e.preventDefault();
+                                onOpenStockDetail(p.ticker);
+                              }
+                            }}
                             title="銘柄詳細を見る"
+                            aria-label={`${p.name} (${p.ticker}) の詳細を見る`}
                           >
                             <span style={{ fontWeight: 600, color: "var(--accent-text)" }}>
                               {p.name}
@@ -380,6 +389,8 @@ export function PortfolioManagerPage({
               return (
                 <div
                   key={ticker}
+                  role="button"
+                  tabIndex={0}
                   className="card interactive-card"
                   style={{
                     padding: "14px 16px",
@@ -387,8 +398,16 @@ export function PortfolioManagerPage({
                     justifyContent: "space-between",
                     alignItems: "center",
                     border: "1px solid var(--border-subtle)",
+                    cursor: "pointer",
                   }}
                   onClick={() => onOpenStockDetail(ticker)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      onOpenStockDetail(ticker);
+                    }
+                  }}
+                  aria-label={`${fund.name} (${ticker}) の詳細を見る`}
                 >
                   <div>
                     <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
@@ -418,7 +437,9 @@ export function PortfolioManagerPage({
                         e.stopPropagation();
                         handleRemoveFromWatchlist(ticker);
                       }}
+                      onKeyDown={(e) => e.stopPropagation()}
                       title="ウォッチリストから削除"
+                      aria-label={`${fund.name} をウォッチリストから削除`}
                       style={{ padding: "2px", marginTop: 4 }}
                     >
                       <Trash2 size={12} className="muted" />
@@ -432,99 +453,86 @@ export function PortfolioManagerPage({
       )}
 
       {/* Add Position Modal */}
-      <AnimatePresence>
-        {isAddModalOpen && (
-          <div className="modal-backdrop" onClick={() => setIsAddModalOpen(false)}>
-            <div
-              className="modal-card"
-              onClick={(e) => e.stopPropagation()}
-              style={{ maxWidth: "480px", width: "90vw", padding: "24px" }}
+      <ModalBase
+        isOpen={isAddModalOpen}
+        onClose={() => setIsAddModalOpen(false)}
+        title="保有銘柄の新規登録"
+        icon={<Briefcase size={18} style={{ color: "var(--accent-text)" }} />}
+        maxWidth={480}
+      >
+        <form onSubmit={handleAddPosition}>
+          <div style={{ marginBottom: 14 }}>
+            <label htmlFor="position-ticker-select" className="tiny muted mono uppercase block" style={{ marginBottom: 4 }}>
+              銘柄コードまたはプリセット
+            </label>
+            <select
+              id="position-ticker-select"
+              className="select-styled"
+              style={{ width: "100%", padding: "8px 12px" }}
+              value={newTicker}
+              onChange={(e) => {
+                setNewTicker(e.target.value);
+                const f = getStockFundamentals(e.target.value);
+                setNewAverageCost(String(f.price));
+              }}
             >
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-                <h3 style={{ margin: 0, fontSize: "1.2rem", fontWeight: 700 }}>保有銘柄の新規登録</h3>
-                <button
-                  type="button"
-                  className="btn btn-ghost"
-                  onClick={() => setIsAddModalOpen(false)}
-                  style={{ padding: 4 }}
-                >
-                  <X size={18} />
-                </button>
-              </div>
-
-              <form onSubmit={handleAddPosition}>
-                <div style={{ marginBottom: 14 }}>
-                  <label className="tiny muted mono uppercase block" style={{ marginBottom: 4 }}>
-                    銘柄コードまたはプリセット
-                  </label>
-                  <select
-                    className="select-styled"
-                    style={{ width: "100%", padding: "8px 12px" }}
-                    value={newTicker}
-                    onChange={(e) => {
-                      setNewTicker(e.target.value);
-                      const f = getStockFundamentals(e.target.value);
-                      setNewAverageCost(String(f.price));
-                    }}
-                  >
-                    {POPULAR_STOCKS.map((s) => (
-                      <option key={s.ticker} value={s.ticker}>
-                        {s.ticker} - {s.name} ({s.theme})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div style={{ marginBottom: 14 }}>
-                  <label className="tiny muted mono uppercase block" style={{ marginBottom: 4 }}>
-                    保有株数
-                  </label>
-                  <input
-                    type="number"
-                    className="input-styled mono"
-                    style={{ width: "100%", padding: "8px 12px" }}
-                    value={newShares}
-                    onChange={(e) => setNewShares(e.target.value)}
-                    min="1"
-                    step="1"
-                    required
-                  />
-                </div>
-
-                <div style={{ marginBottom: 20 }}>
-                  <label className="tiny muted mono uppercase block" style={{ marginBottom: 4 }}>
-                    平均取得単価 (円またはドル)
-                  </label>
-                  <input
-                    type="number"
-                    className="input-styled mono"
-                    style={{ width: "100%", padding: "8px 12px" }}
-                    value={newAverageCost}
-                    onChange={(e) => setNewAverageCost(e.target.value)}
-                    min="1"
-                    step="0.1"
-                    required
-                  />
-                </div>
-
-                <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
-                  <button
-                    type="button"
-                    className="btn btn-default"
-                    onClick={() => setIsAddModalOpen(false)}
-                  >
-                    キャンセル
-                  </button>
-                  <button type="submit" className="btn btn-accent">
-                    <Check size={14} />
-                    <span>登録する</span>
-                  </button>
-                </div>
-              </form>
-            </div>
+              {POPULAR_STOCKS.map((s) => (
+                <option key={s.ticker} value={s.ticker}>
+                  {s.ticker} - {s.name} ({s.theme})
+                </option>
+              ))}
+            </select>
           </div>
-        )}
-      </AnimatePresence>
+
+          <div style={{ marginBottom: 14 }}>
+            <label htmlFor="position-shares-input" className="tiny muted mono uppercase block" style={{ marginBottom: 4 }}>
+              保有株数
+            </label>
+            <input
+              id="position-shares-input"
+              type="number"
+              className="input-styled mono"
+              style={{ width: "100%", padding: "8px 12px" }}
+              value={newShares}
+              onChange={(e) => setNewShares(e.target.value)}
+              min="1"
+              step="1"
+              required
+            />
+          </div>
+
+          <div style={{ marginBottom: 20 }}>
+            <label htmlFor="position-avg-cost-input" className="tiny muted mono uppercase block" style={{ marginBottom: 4 }}>
+              平均取得単価 (円またはドル)
+            </label>
+            <input
+              id="position-avg-cost-input"
+              type="number"
+              className="input-styled mono"
+              style={{ width: "100%", padding: "8px 12px" }}
+              value={newAverageCost}
+              onChange={(e) => setNewAverageCost(e.target.value)}
+              min="1"
+              step="0.1"
+              required
+            />
+          </div>
+
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+            <button
+              type="button"
+              className="btn btn-default"
+              onClick={() => setIsAddModalOpen(false)}
+            >
+              キャンセル
+            </button>
+            <button type="submit" className="btn btn-accent">
+              <Check size={14} />
+              <span>登録する</span>
+            </button>
+          </div>
+        </form>
+      </ModalBase>
     </motion.div>
   );
 }

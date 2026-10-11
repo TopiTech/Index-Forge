@@ -351,8 +351,17 @@ export function ScreenerPage({
                   return (
                     <tr
                       key={stock.ticker}
+                      role="button"
+                      tabIndex={0}
                       style={{ cursor: "pointer" }}
                       onClick={() => onOpenStockDetail(stock.ticker)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          onOpenStockDetail(stock.ticker);
+                        }
+                      }}
+                      aria-label={`${stock.name} (${stock.ticker}) の詳細を見る`}
                     >
                       <td>
                         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>

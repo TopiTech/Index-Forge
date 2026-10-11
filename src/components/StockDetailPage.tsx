@@ -352,16 +352,16 @@ export function StockDetailPage({
               <p className="tiny muted" style={{ maxWidth: 420, margin: "6px auto 16px" }}>
                 ヘッダーのティッカーまたは構成銘柄クリックで、ポップアップ詳細TradingViewチャートをフル画面展開してインジケーター描画・オシレーター分析が可能です。
               </p>
-              <button
-                type="button"
+              <a
+                href={`https://jp.tradingview.com/symbols/${stock.market === "US" ? stock.ticker : `TSE-${stock.ticker}`}/`}
+                target="_blank"
+                rel="noopener noreferrer"
                 className="btn btn-sm btn-outline"
-                onClick={() => {
-                  window.open(`https://jp.tradingview.com/symbols/${stock.market === "US" ? stock.ticker : `TSE-${stock.ticker}`}/`, "_blank");
-                }}
+                style={{ display: "inline-flex", alignItems: "center", gap: "6px", textDecoration: "none" }}
               >
                 <span>TradingView 公式で開く</span>
                 <ExternalLink size={13} />
-              </button>
+              </a>
             </div>
           </div>
         </div>

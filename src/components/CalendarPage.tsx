@@ -87,9 +87,13 @@ export function CalendarPage({
         <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
           {filteredEvents.map((evt) => {
             const isMacro = evt.type === "MACRO";
+            const ticker = evt.ticker;
             return (
               <div
                 key={evt.id}
+                role={ticker ? "button" : undefined}
+                tabIndex={ticker ? 0 : undefined}
+                aria-label={ticker ? `${evt.title} (${ticker}) の詳細を見る` : undefined}
                 style={{
                   padding: "16px",
                   borderRadius: "10px",
@@ -100,14 +104,24 @@ export function CalendarPage({
                   justifyContent: "space-between",
                   flexWrap: "wrap",
                   gap: "14px",
-                  cursor: evt.ticker ? "pointer" : "default",
+                  cursor: ticker ? "pointer" : "default",
                   transition: "border-color 0.15s ease",
                 }}
                 onClick={() => {
-                  if (evt.ticker) {
-                    onOpenStockDetail(evt.ticker);
+                  if (ticker) {
+                    onOpenStockDetail(ticker);
                   }
                 }}
+                onKeyDown={
+                  ticker
+                    ? (e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          onOpenStockDetail(ticker);
+                        }
+                      }
+                    : undefined
+                }
               >
                 <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
                   <div
