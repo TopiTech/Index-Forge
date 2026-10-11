@@ -175,10 +175,13 @@ describe("P3: accessibility and mobile fixes", () => {
 
   it("wires aria-controls and focus restore on the header menu", () => {
     const headerSrc = readSrc("../components/Header.tsx");
+    const sidebarSrc = readSrc("../components/Sidebar.tsx");
+    const appSrc = readSrc("../App.tsx");
     expect(headerSrc).toContain('aria-controls="header-mobile-nav"');
-    expect(headerSrc).toContain('id="header-mobile-nav"');
-    // Item activation restores focus to the toggle.
-    expect(headerSrc).toMatch(/closeMobileMenu[\s\S]{0,300}mobileMenuToggleRef\.current\?\.focus\(\)/);
+    // The drawer itself lives in the global sidebar.
+    expect(sidebarSrc).toContain('id="header-mobile-nav"');
+    // Item activation restores focus to the toggle (PageLayout owns the state).
+    expect(appSrc).toMatch(/setIsNavOpen\(false\);\s*navToggleRef\.current\?\.focus\(\)/);
   });
 
   it("persists mobile chart resizes against responsive floors", () => {

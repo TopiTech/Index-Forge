@@ -78,7 +78,7 @@ export function Footer({ onNavigate, currentView = "dashboard" }: FooterProps) {
               <span className="badge badge-subtle mono tiny" style={{ fontSize: 10, padding: "2px 6px" }}>v0.1.0</span>
             </div>
             <p className="footer-desc muted">
-              独自投資戦略・テーマ別ポートフォリオの客観的株価指数化プラットフォーム。
+              マーケット観測・指数開発・銘柄リサーチ・資産管理をひとつにまとめた統合投資情報プラットフォーム。
               日米主要ベンチマークとの比較分析とリスク指標の算出を、エッジ上で高速に実行します。
             </p>
             <div className="footer-creator-note">

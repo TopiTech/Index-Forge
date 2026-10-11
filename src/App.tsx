@@ -8,6 +8,7 @@ import { useAuth } from "./hooks/useAuth";
 import { useToast } from "./components/Toast";
 import { addWatchlistTicker } from "./lib/portfolioStorage";
 import { Header } from "./components/Header";
+import { Sidebar } from "./components/Sidebar";
 import { TradingViewTickerTape } from "./components/TradingViewTickerTape";
 import { StatsGrid } from "./components/StatsGrid";
 import { BenchmarkSelector } from "./components/BenchmarkSelector";
@@ -79,26 +80,56 @@ function isBenchmarkSymbol(s: string | undefined): s is BenchmarkSymbol {
 
 const MOBILE_LAYOUT_QUERY = "(max-width: 1080px)";
 
-/** Shared page layout for all non-admin views (Header + TickerTape + Footer). */
+/** Shared page layout for all non-admin views (Sidebar + Header + TickerTape + Footer). */
 function PageLayout({
   headerProps,
   currentView,
   navigateTo,
   searchModal,
+  overlays,
   children,
 }: {
   headerProps: React.ComponentProps<typeof Header>;
   currentView: PageView;
-  navigateTo: (view: PageView) => void;
+  navigateTo: (view: PageView, searchParams?: string) => void;
   searchModal?: ReactNode;
+  overlays?: ReactNode;
   children: ReactNode;
 }) {
+  const [isNavOpen, setIsNavOpen] = useState(false);
+  const navToggleRef = useRef<HTMLButtonElement>(null);
+
+  // Closing the drawer restores focus to the header toggle so keyboard users
+  // do not lose their place (Escape path and item activation both route here).
+  const closeNav = useCallback(() => {
+    setIsNavOpen(false);
+    navToggleRef.current?.focus();
+  }, []);
+
   return (
-    <div className="app">
-      <Header {...headerProps} />
-      <TradingViewTickerTape />
-      <main style={{ minHeight: "calc(100vh - 280px)" }}>{children}</main>
-      <Footer onNavigate={navigateTo} currentView={currentView} />
+    <div className="app-shell">
+      <Sidebar
+        currentView={currentView}
+        navigateTo={navigateTo}
+        isOpen={isNavOpen}
+        onRequestClose={closeNav}
+        freshnessProps={headerProps}
+      />
+      <div className="app-column">
+        <div className="app">
+          <Header
+            {...headerProps}
+            onNavigateToHome={() => navigateTo("dashboard")}
+            isNavOpen={isNavOpen}
+            onToggleNav={() => setIsNavOpen((prev) => !prev)}
+            navToggleRef={navToggleRef}
+          />
+          <TradingViewTickerTape />
+          <main style={{ minHeight: "calc(100vh - 280px)" }}>{children}</main>
+          <Footer onNavigate={navigateTo} currentView={currentView} />
+        </div>
+      </div>
+      {overlays}
       {searchModal}
     </div>
   );
@@ -527,24 +558,10 @@ export default function App({
     return chartData[chartData.length - 1]?.nikkei;
   }, [chartData]);
 
-  // Shared page layout props for Header
+  // Shared page layout props for Header (navigation lives in the Sidebar now)
   const pageLayoutHeaderProps = useMemo(
     () => ({
-      onNavigateToHome: () => navigateTo("dashboard"),
-      onNavigateToMarket: () => navigateTo("market"),
-      onNavigateToStock: (ticker?: string) => {
-        if (ticker) setActiveStockTicker(ticker);
-        navigateTo("stock", ticker ? `?ticker=${ticker}` : "");
-      },
-      onNavigateToPortfolio: () => navigateTo("portfolio"),
-      onNavigateToScreener: () => navigateTo("screener"),
-      onNavigateToCalendar: () => navigateTo("calendar"),
-      onNavigateToAdmin: () => navigateTo("admin"),
-      onNavigateToBuilder: () => navigateTo("builder"),
-      onNavigateToDisclaimer: () => navigateTo("disclaimer"),
-      onNavigateToTutorial: () => navigateTo("tutorial"),
       onOpenSearch: () => setIsSearchModalOpen(true),
-      currentView,
       benchmarkUpdatedAt,
       calculationUpdatedAt,
       dataLoading: loadingBenchmark || loadingCalc,
@@ -552,8 +569,6 @@ export default function App({
       hasSyncWarning: syncWarnings.length > 0,
     }),
     [
-      navigateTo,
-      currentView,
       benchmarkUpdatedAt,
       calculationUpdatedAt,
       loadingBenchmark,
@@ -773,14 +788,20 @@ export default function App({
   }
 
   return (
-    <div className="app">
-      <Header
-        {...pageLayoutHeaderProps}
-        benchmarkStale={activeBenchmarkData?.stale === true}
-      />
-
-      <TradingViewTickerTape />
-
+    <PageLayout
+      headerProps={{ ...pageLayoutHeaderProps, benchmarkStale: activeBenchmarkData?.stale === true }}
+      currentView={currentView}
+      navigateTo={navigateTo}
+      searchModal={commonSearchModal}
+      overlays={
+        <IndexBuilderModal
+          isOpen={isBuilderOpen}
+          onClose={() => setIsBuilderOpen(false)}
+          onSave={saveCustomIndex}
+          onPreviewInDashboard={handlePreviewInDashboard}
+        />
+      }
+    >
       <div className="mobile-dashboard-toolbar" aria-label="ダッシュボード操作">
         <div className="mobile-current-index">
           <span className="mono tiny uppercase muted">CURRENT INDEX</span>
@@ -865,7 +886,7 @@ export default function App({
           </AnimatePresence>
         </aside>
 
-        <main className="dashboard-main grid" style={{ gap: 20 }}>
+        <div className="dashboard-main grid" style={{ gap: 20 }}>
           {/* StatsGrid lives inside <main>: as a sibling it was page content
               outside every landmark, which broke landmark navigation. */}
           <motion.div
@@ -1006,23 +1027,9 @@ export default function App({
               )}
             </motion.div>
           </AnimatePresence>
-        </main>
+        </div>
       </div>
-
-      {/* Footer */}
-      <Footer onNavigate={navigateTo} currentView={currentView} />
-
-      {/* Index Builder Modal */}
-      <IndexBuilderModal
-        isOpen={isBuilderOpen}
-        onClose={() => setIsBuilderOpen(false)}
-        onSave={saveCustomIndex}
-        onPreviewInDashboard={handlePreviewInDashboard}
-      />
-
-      {/* Global Search Modal */}
-      {commonSearchModal}
-    </div>
+    </PageLayout>
   );
 }
 

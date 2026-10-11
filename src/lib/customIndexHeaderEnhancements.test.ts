@@ -20,9 +20,11 @@ describe("Header, Admin Guard, BTC Benchmark & TradingView Enhancements", () => 
   });
 
   describe("Admin Navigation Guard", () => {
-    it("guards admin page button with isAdmin in Header.tsx", () => {
-      const headerCode = readFileSync(resolve(__dirname, "../components/Header.tsx"), "utf8");
-      expect(headerCode).toContain("isAdmin && onNavigateToAdmin");
+    it("guards admin page button with isAdmin in Sidebar.tsx", () => {
+      // The admin entry moved from the header dropdown into the sidebar.
+      const sidebarCode = readFileSync(resolve(__dirname, "../components/Sidebar.tsx"), "utf8");
+      expect(sidebarCode).toMatch(/\(isAdmin\s*\?/);
+      expect(sidebarCode).toContain('view: "admin"');
     });
 
     it("guards admin page link with isAdmin in Footer.tsx", () => {

@@ -80,7 +80,8 @@ describe("UI/UX Enhancements Unit Tests", () => {
     it("defines CSS variables for all 5 accent palettes in dark and light modes", async () => {
       const { readFileSync } = await import("node:fs");
       const { resolve } = await import("node:path");
-      const css = readFileSync(resolve("src/index.css"), "utf8");
+      // Accent and theme tokens live in styles/tokens.css since the P0 split.
+      const css = readFileSync(resolve("src/styles/tokens.css"), "utf8");
 
       const accents = ["cyan", "emerald", "violet", "amber", "rose"];
       for (const accent of accents) {

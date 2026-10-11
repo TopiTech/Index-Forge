@@ -112,7 +112,6 @@ export function PortfolioManagerPage({
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3 }}
       className="page-container portfolio-manager-page"
-      style={{ maxWidth: "1280px", margin: "0 auto", padding: "16px 20px 48px" }}
     >
       {/* Top Banner */}
       <div
@@ -130,9 +129,7 @@ export function PortfolioManagerPage({
             <span className="badge badge-accent mono tiny">ASSET & WATCHLIST TRACKER</span>
             <span className="tiny muted mono">REAL PORTFOLIO MANAGEMENT</span>
           </div>
-          <h2 style={{ fontSize: "1.65rem", fontWeight: 700, margin: 0, letterSpacing: "-0.02em" }}>
-            マイ・ポートフォリオ & ウォッチリスト
-          </h2>
+          <h2 className="page-header-title">マイ・ポートフォリオ & ウォッチリスト</h2>
           <p className="muted tiny" style={{ margin: "4px 0 0" }}>
             実際の保有株式の損益・利回り管理と、ワンクリックでの客観的カスタム指数バックテスト
           </p>

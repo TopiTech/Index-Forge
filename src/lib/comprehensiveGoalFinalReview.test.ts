@@ -94,28 +94,21 @@ describe("Comprehensive Goal Final Review Tests", () => {
     });
   });
 
-  describe("Header Accessible Names and Tooltips", () => {
-    const headerSource = readFileSync(
-      new URL("../components/Header.tsx", import.meta.url),
+  describe("Sidebar Accessible Names and Tooltips", () => {
+    // Navigation moved from the header into the global sidebar (P1 refresh).
+    const sidebarSource = readFileSync(
+      new URL("../components/Sidebar.tsx", import.meta.url),
       "utf8",
     );
 
-    it("defines title and aria-label for desktop navigation dropdown buttons", () => {
-      expect(headerSource).toContain('title="ダッシュボード"');
-      expect(headerSource).toContain('aria-label="ダッシュボードへ移動"');
-      expect(headerSource).toContain('title="指数ビルダー"');
-      expect(headerSource).toContain('aria-label="指数ビルダーへ移動"');
-      expect(headerSource).toContain('title="開発者ポートフォリオ・自己紹介"');
-      expect(headerSource).toContain('aria-label="開発者ポートフォリオ・自己紹介へ移動"');
-      expect(headerSource).toContain('title="免責事項・利用規約"');
-      expect(headerSource).toContain('aria-label="免責事項へ移動"');
-      expect(headerSource).toContain('title="管理者ページ"');
-      expect(headerSource).toContain('aria-label="管理者ページへ移動"');
-    });
-
-    it("defines title and aria-label for mobile navigation links", () => {
-      expect(headerSource).toContain('title="指数ビルダー＆シミュレーター"');
-      expect(headerSource).toContain('aria-label="指数ビルダー＆シミュレーターへ移動"');
+    it("defines title and accessible names for navigation buttons", () => {
+      expect(sidebarSource).toContain('title: "カスタム指数ダッシュボード"');
+      expect(sidebarSource).toContain('title: "指数ビルダー&シミュレーター"');
+      expect(sidebarSource).toContain('title: "保有資産管理・損益トラッカー&指数化連携"');
+      expect(sidebarSource).toContain('title: "免責事項・利用規約"');
+      expect(sidebarSource).toContain('title: "管理者ページ"');
+      expect(sidebarSource).toContain("aria-label={`${label}へ移動`}");
+      expect(sidebarSource).toContain('aria-current={isActive ? "page" : undefined}');
     });
   });
 

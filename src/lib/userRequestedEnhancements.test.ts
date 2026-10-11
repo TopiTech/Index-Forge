@@ -4,16 +4,17 @@ import { resolve } from "path";
 
 describe("User Requested Enhancements: Portfolio Tooltip, Menu Button, Builder Mobile & Fullscreen, TradingView Popup", () => {
   describe("1. Portfolio Button Tooltip Fix", () => {
-    it("updates tooltip and aria-label to developer portfolio / self-introduction", () => {
-      const headerCode = readFileSync(
-        resolve(__dirname, "../components/Header.tsx"),
+    it("updates tooltip and aria-label for the portfolio navigation entry", () => {
+      // Navigation moved from the header into the global sidebar (P1 refresh).
+      const sidebarCode = readFileSync(
+        resolve(__dirname, "../components/Sidebar.tsx"),
         "utf8",
       );
       // Ensure the incorrect string "ポートフォリオ・保有銘柄確認" is removed
-      expect(headerCode).not.toContain("ポートフォリオ・保有銘柄確認");
-      // Ensure the correct developer profile string is present
-      expect(headerCode).toContain('title="開発者ポートフォリオ・自己紹介"');
-      expect(headerCode).toContain('aria-label="開発者ポートフォリオ・自己紹介へ移動"');
+      expect(sidebarCode).not.toContain("ポートフォリオ・保有銘柄確認");
+      // Ensure the accurate description of the page is present
+      expect(sidebarCode).toContain('title: "保有資産管理・損益トラッカー&指数化連携"');
+      expect(sidebarCode).toContain("aria-label={`${label}へ移動`}");
     });
   });
 

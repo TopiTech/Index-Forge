@@ -26,7 +26,6 @@ export function CalendarPage({
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3 }}
       className="page-container calendar-page"
-      style={{ maxWidth: "1280px", margin: "0 auto", padding: "16px 20px 48px" }}
     >
       {/* Top Banner */}
       <div
@@ -44,9 +43,7 @@ export function CalendarPage({
             <span className="badge badge-accent mono tiny">FINANCIAL CALENDAR</span>
             <span className="tiny muted mono">EARNINGS & MACRO SCHEDULE</span>
           </div>
-          <h2 style={{ fontSize: "1.65rem", fontWeight: 700, margin: 0, letterSpacing: "-0.02em" }}>
-            決算・マクロ経済イベントカレンダー
-          </h2>
+          <h2 className="page-header-title">決算・マクロ経済イベントカレンダー</h2>
           <p className="muted tiny" style={{ margin: "4px 0 0" }}>
             日銀金融政策決定会合、FOMC、米雇用統計、および国内主要企業の決算発表スケジュール
           </p>
@@ -115,11 +112,11 @@ export function CalendarPage({
                 onKeyDown={
                   ticker
                     ? (e) => {
-                        if (e.key === "Enter" || e.key === " ") {
-                          e.preventDefault();
-                          onOpenStockDetail(ticker);
-                        }
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        onOpenStockDetail(ticker);
                       }
+                    }
                     : undefined
                 }
               >

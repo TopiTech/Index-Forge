@@ -92,8 +92,8 @@ describe("regression: worker API contract", () => {
   });
 
   it("R9: --surface-hover is defined so mobile nav hover never loses its background", () => {
-    const cssSrc = readFileSync(resolve("src/index.css"), "utf-8");
-    expect(cssSrc).toMatch(/--surface-hover\s*:/);
+    const tokensSrc = readFileSync(resolve("src/styles/tokens.css"), "utf-8");
+    expect(tokensSrc).toMatch(/--surface-hover\s*:/);
   });
 
   it("R10: /api/calculate requires theme on every basket item (no silent default)", async () => {

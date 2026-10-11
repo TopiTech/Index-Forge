@@ -5,6 +5,7 @@ import { resolve } from "path";
 describe("UI Major Enhancements: Header 2-row Fix, Light Mode Visibility, Mobile Polish", () => {
   const cssCode = readFileSync(resolve(__dirname, "../index.css"), "utf8");
   const headerCode = readFileSync(resolve(__dirname, "../components/Header.tsx"), "utf8");
+  const sidebarCode = readFileSync(resolve(__dirname, "../components/Sidebar.tsx"), "utf8");
   const tvCode = readFileSync(resolve(__dirname, "../components/TradingViewTickerTape.tsx"), "utf8");
   const chartCode = readFileSync(resolve(__dirname, "../components/PerformanceChart.tsx"), "utf8");
 
@@ -20,11 +21,12 @@ describe("UI Major Enhancements: Header 2-row Fix, Light Mode Visibility, Mobile
       expect(cssCode).toContain(".header-desc");
     });
 
-    it("streamlines mobile header and moves DataFreshness and Auth into mobile drawer", () => {
+    it("keeps status groups in the header and moves data freshness into the sidebar drawer", () => {
       expect(headerCode).toContain("header-status-desktop");
       expect(headerCode).toContain("header-status-mobile");
-      expect(headerCode).toContain("header-mobile-meta-section");
-      expect(headerCode).toContain("header-mobile-auth-section");
+      // The old header drawer was folded into the global sidebar.
+      expect(sidebarCode).toContain("sidebar-meta-section");
+      expect(sidebarCode).toContain("sidebar-utility");
     });
   });
 

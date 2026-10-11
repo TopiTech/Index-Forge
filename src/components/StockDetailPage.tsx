@@ -58,7 +58,6 @@ export function StockDetailPage({
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3 }}
       className="page-container stock-detail-page"
-      style={{ maxWidth: "1280px", margin: "0 auto", padding: "16px 20px 48px" }}
     >
       {/* Top Back Nav & Actions Bar */}
       <div

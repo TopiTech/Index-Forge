@@ -12,8 +12,8 @@ describe("Tutorial Page Enhancements & Verification", () => {
     resolve(__dirname, "../components/Tutorial3DCanvas.tsx"),
     "utf8"
   );
-  const headerTsx = readFileSync(
-    resolve(__dirname, "../components/Header.tsx"),
+  const sidebarTsx = readFileSync(
+    resolve(__dirname, "../components/Sidebar.tsx"),
     "utf8"
   );
   const footerTsx = readFileSync(
@@ -44,11 +44,12 @@ describe("Tutorial Page Enhancements & Verification", () => {
       expect(tutorialPageTsx).not.toContain("IndexForge 3D Quick Start");
     });
 
-    it("uses restrained '操作チュートリアル' in desktop and mobile header navigation", () => {
-      expect(headerTsx).toContain("<span>操作チュートリアル</span>");
-      expect(headerTsx).not.toContain("<span>操作チュートリアル (3D)</span>");
-      expect(headerTsx).toContain('title="操作チュートリアルガイド"');
-      expect(headerTsx).not.toContain('title="3D操作チュートリアルガイド"');
+    it("uses restrained '操作チュートリアル' in sidebar navigation", () => {
+      // Navigation moved from the header into the global sidebar (P1 refresh).
+      expect(sidebarTsx).toContain('label: "操作チュートリアル"');
+      expect(sidebarTsx).not.toContain('label: "操作チュートリアル (3D)"');
+      expect(sidebarTsx).toContain('title: "操作チュートリアルガイド"');
+      expect(sidebarTsx).not.toContain('title: "3D操作チュートリアルガイド"');
     });
 
     it("uses restrained '操作チュートリアル' in footer navigation link", () => {

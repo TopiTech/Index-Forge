@@ -126,7 +126,7 @@ export function PortfolioPage({ onNavigate }: PortfolioPageProps) {
               <span className="badge badge-accent mono tiny">IndexForge</span>
               <span className="badge badge-subtle mono tiny">LIVE SERVICE</span>
             </div>
-            <h3 className="project-title">独自株価指数トラッカー & クオンツ分析プラットフォーム</h3>
+            <h3 className="project-title">統合投資情報プラットフォーム & クオンツ指数分析</h3>
             <p className="project-desc">
               「特定のテーマや自分独自の投資戦略銘柄群を、市場ベンチマーク（日経平均・S&P 500・米ドル/円）と客観的に比較したい」というニーズに応えるため開発したWebアプリケーション。
               Yahoo Financeの最新データを取得し、Cloudflare EdgeとD1データベースを組み合わせた高速な多段キャッシュ機構により、瞬時にインデックス計算とリスク指標分析を提供します。

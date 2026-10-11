@@ -115,7 +115,6 @@ export function ScreenerPage({
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3 }}
       className="page-container screener-page"
-      style={{ maxWidth: "1280px", margin: "0 auto", padding: "16px 20px 48px" }}
     >
       {/* Top Header */}
       <div
@@ -133,9 +132,7 @@ export function ScreenerPage({
             <span className="badge badge-accent mono tiny">MULTI-FACTOR SCREENER</span>
             <span className="tiny muted mono">DISCOVERY & RANKING</span>
           </div>
-          <h2 style={{ fontSize: "1.65rem", fontWeight: 700, margin: 0, letterSpacing: "-0.02em" }}>
-            銘柄スクリーナー & ランキング
-          </h2>
+          <h2 className="page-header-title">銘柄スクリーナー & ランキング</h2>
           <p className="muted tiny" style={{ margin: "4px 0 0" }}>
             配当利回り、PBR1倍割れ、騰落率、バリュエーションによる絞り込みと一括指数組成
           </p>

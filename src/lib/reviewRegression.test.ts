@@ -26,7 +26,10 @@ describe("review regressions: dashboard styles", () => {
     expect(buttonBlock).not.toContain("width: 100%");
     expect(trendBlock).toContain("padding: 2px 8px");
     expect(trendBlock).not.toContain("cursor: pointer");
-    expect(statBlock).toContain("font-size: 24px");
+    // P2 refresh: stat values use a fluid display scale with tabular figures.
+    expect(statBlock).toContain("font-size: clamp(22px, 2.2vw, 26px)");
+    expect(statBlock).toContain("font-family: var(--display-font)");
+    expect(statBlock).toContain("font-variant-numeric: tabular-nums");
     expect(css).toContain("color: var(--text-on-heatmap)");
     expect(heatmap).toContain('color: "var(--text-heading)"');
     expect((css.match(/\.index-item::before/g) || []).length).toBe(1);

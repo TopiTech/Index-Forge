@@ -1,31 +1,36 @@
 <!doctype html>
 <html lang="ja">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="theme-color" content="#0f172a" />
-    <meta name="description" content="独自株価指数の日足終値追跡と日経225とのパフォーマンス比較" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&family=Outfit:wght@400;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
-    <title>IndexForge</title>
-    <script>
-      (function() {
-        try {
-          var p = window.performance;
-          var nav = p && p.getEntriesByType && p.getEntriesByType("navigation");
-          var isReload = (nav && nav.length > 0 && nav[0].type === "reload") || (p && p.navigation && p.navigation.type === 1);
-          if (isReload) {
-            document.documentElement.classList.add("is-reload-suppressed");
-          }
-        } catch (e) {}
-      })();
-    </script>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script src="/asset-error-recovery.js"></script>
-    <script type="module" src="/src/main.tsx"></script>
-  </body>
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#0f172a" />
+  <meta name="description" content="マーケット観測・カスタム指数・スクリーナー・決算カレンダー・ポートフォリオ管理をひとつにした統合投資情報プラットフォーム" />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@400;600;700;900&family=JetBrains+Mono:wght@400;500&display=swap"
+    rel="stylesheet">
+  <title>IndexForge</title>
+  <script>
+    (function () {
+      try {
+        var p = window.performance;
+        var nav = p && p.getEntriesByType && p.getEntriesByType("navigation");
+        var isReload = (nav && nav.length > 0 && nav[0].type === "reload") || (p && p.navigation && p.navigation.type === 1);
+        if (isReload) {
+          document.documentElement.classList.add("is-reload-suppressed");
+        }
+      } catch (e) { }
+    })();
+  </script>
+</head>
+
+<body>
+  <div id="root"></div>
+  <script src="/asset-error-recovery.js"></script>
+  <script type="module" src="/src/main.tsx"></script>
+</body>
+
 </html>
