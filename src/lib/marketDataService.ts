@@ -69,6 +69,7 @@ export interface StockQuoteFundamentals {
   equityRatio: number | null; // %
   eps: number | null;
   dps: number | null;
+  sparkline?: number[];
   technicalSignal: "STRONG_BUY" | "BUY" | "NEUTRAL" | "SELL" | "STRONG_SELL";
   historicalFinances: Array<{
     fiscalYear: string;
@@ -386,32 +387,38 @@ export function getStockFundamentals(ticker: string): StockQuoteFundamentals {
     },
   ];
 
+  const s1 = Number((prevClose * (1 - ((seed % 15) - 7) / 200)).toFixed(2));
+  const s2 = Number((prevClose * (1 - ((seed % 19) - 9) / 200)).toFixed(2));
+  const s3 = Number((prevClose * (1 - ((seed % 11) - 5) / 200)).toFixed(2));
+  const sparkline = [s1, s2, s3, prevClose, basePrice];
+
   return {
-    ticker: normTicker,
-    name,
-    theme,
-    sector: isUS ? "Information Tech" : "電気機器・精密",
-    market: isUS ? "US" : "PRIME",
-    price: basePrice,
-    change,
-    changePercent: changePct,
-    volume: 1250000 + (seed * 8500),
-    previousClose: prevClose,
-    dayHigh: Number((basePrice * 1.015).toFixed(2)),
-    dayLow: Number((basePrice * 0.985).toFixed(2)),
-    yearHigh: Number((basePrice * 1.28).toFixed(2)),
-    yearLow: Number((basePrice * 0.78).toFixed(2)),
-    marketCap,
-    per,
-    pbr,
-    dividendYield,
-    roe,
-    equityRatio,
-    eps,
-    dps,
-    technicalSignal,
-    historicalFinances,
-  };
+      ticker: normTicker,
+      name,
+      theme,
+      sector: isUS ? "Information Tech" : "電気機器・精密",
+      market: isUS ? "US" : "PRIME",
+      price: basePrice,
+      change,
+      changePercent: changePct,
+      volume: 1250000 + (seed * 8500),
+      previousClose: prevClose,
+      dayHigh: Number((basePrice * 1.015).toFixed(2)),
+      dayLow: Number((basePrice * 0.985).toFixed(2)),
+      yearHigh: Number((basePrice * 1.28).toFixed(2)),
+      yearLow: Number((basePrice * 0.78).toFixed(2)),
+      marketCap,
+      per,
+      pbr,
+      dividendYield,
+      roe,
+      equityRatio,
+      eps,
+      dps,
+      sparkline,
+      technicalSignal,
+      historicalFinances,
+    };
 }
 
 function isFiniteNumber(value: unknown): value is number {
@@ -569,7 +576,17 @@ export interface ScreenerFilterOptions {
   maxPbr?: number;
   minRoe?: number;
   searchQuery?: string;
-  sortBy?: "changePercent" | "dividendYield" | "per" | "pbr" | "volume" | "marketCap";
+  sortBy?:
+    | "changePercent"
+    | "dividendYield"
+    | "per"
+    | "pbr"
+    | "volume"
+    | "marketCap"
+    | "price"
+    | "roe"
+    | "name"
+    | "ticker";
   sortOrder?: "asc" | "desc";
 }
 
@@ -620,12 +637,18 @@ export function runStockScreener(options: ScreenerFilterOptions = {}): StockQuot
   });
 
   return filtered.sort((a, b) => {
-    const valA = a[sortBy] ?? 0;
-    const valB = b[sortBy] ?? 0;
-    // Keep equal keys untouched: returning -1 for ties makes the comparator
-    // inconsistent (a > b and b > a both yield -1) and the order unstable.
-    if (valA === valB) return 0;
-    return sortOrder === "asc" ? (valA > valB ? 1 : -1) : valA < valB ? 1 : -1;
+    const valA = a[sortBy];
+    const valB = b[sortBy];
+
+    if (typeof valA === "string" && typeof valB === "string") {
+      const cmp = valA.localeCompare(valB, "ja");
+      return sortOrder === "asc" ? cmp : -cmp;
+    }
+
+    const numA = typeof valA === "number" ? valA : 0;
+    const numB = typeof valB === "number" ? valB : 0;
+    if (numA === numB) return 0;
+    return sortOrder === "asc" ? (numA > numB ? 1 : -1) : (numA < numB ? 1 : -1);
   });
 }
 
