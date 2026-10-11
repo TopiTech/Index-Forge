@@ -645,8 +645,16 @@ export function runStockScreener(options: ScreenerFilterOptions = {}): StockQuot
       return sortOrder === "asc" ? cmp : -cmp;
     }
 
-    const numA = typeof valA === "number" ? valA : 0;
-    const numB = typeof valB === "number" ? valB : 0;
+    const hasNumA = typeof valA === "number" && Number.isFinite(valA);
+    const hasNumB = typeof valB === "number" && Number.isFinite(valB);
+
+    if (!hasNumA && !hasNumB) return 0;
+    // Missing/null metrics always sort to the end
+    if (!hasNumA) return 1;
+    if (!hasNumB) return -1;
+
+    const numA = valA as number;
+    const numB = valB as number;
     if (numA === numB) return 0;
     return sortOrder === "asc" ? (numA > numB ? 1 : -1) : (numA < numB ? 1 : -1);
   });

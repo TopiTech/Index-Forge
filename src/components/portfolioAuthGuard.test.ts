@@ -52,6 +52,11 @@ describe("Portfolio Page Authentication Guard & Access Control", () => {
       expect(portfolioTsx).toMatch(/if\s*\(isAuthenticated\)\s*\{\s*savePortfolioPositions\(positions\);/);
       expect(portfolioTsx).toMatch(/if\s*\(isAuthenticated\)\s*\{\s*saveWatchlist\(watchlist\);/);
     });
+
+    it("does not bind unused session and synchronizes state on inline login", () => {
+      expect(portfolioTsx).not.toMatch(/const\s*\{[^}]*session[^}]*\}\s*=\s*useAuth\(\)/);
+      expect(portfolioTsx).toContain("setPositions(loadPortfolioPositions())");
+    });
   });
 
   describe("2. Sidebar Navigation Login Indication", () => {
@@ -63,6 +68,10 @@ describe("Portfolio Page Authentication Guard & Access Control", () => {
       expect(sidebarTsx).toContain('view === "portfolio" && !isAuthenticated');
       expect(sidebarTsx).toContain("要ログイン");
       expect(sidebarTsx).toContain("<Lock");
+    });
+
+    it("applies nav-lock-badge class to the locked badge in Sidebar", () => {
+      expect(sidebarTsx).toContain("nav-lock-badge");
     });
 
     it("preserves standard title and accessible navigation labels", () => {

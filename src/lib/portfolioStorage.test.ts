@@ -101,6 +101,23 @@ describe("PortfolioStorage & Engine", () => {
     expect(basket.every((item) => item.weight >= 1)).toBe(true);
   });
 
+  it("aggregates multiple lots/positions of the same ticker to prevent duplicate basket items", () => {
+    const multiLotPositions: PortfolioPosition[] = [
+      { id: "lot-1", ticker: "7203", name: "トヨタ自動車", shares: 100, averageCost: 2400 },
+      { id: "lot-2", ticker: "7203", name: "トヨタ自動車", shares: 100, averageCost: 2600 },
+      { id: "lot-3", ticker: "8035", name: "東京エレクトロン", shares: 10, averageCost: 25000 },
+    ];
+    const basket = convertPortfolioToCustomIndexBasket(multiLotPositions);
+    // Even though there are 3 positions, there are only 2 distinct tickers
+    expect(basket).toHaveLength(2);
+    const tickers = basket.map((b) => b.ticker);
+    expect(tickers).toEqual(["7203", "8035"]);
+    // Unique tickers guarantee no duplicate constituent errors downstream
+    expect(new Set(tickers).size).toBe(2);
+    const totalWeight = basket.reduce((sum, item) => sum + item.weight, 0);
+    expect(totalWeight).toBe(100);
+  });
+
   describe("storage hardening", () => {
     it("round-trips saved positions", () => {
       stubLocalStorage();

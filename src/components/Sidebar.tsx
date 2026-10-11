@@ -182,7 +182,7 @@ export function Sidebar({
                     <span>{label}</span>
                     {isLocked && (
                         <span
-                            className="badge badge-subtle tiny mono"
+                            className="badge badge-subtle tiny mono nav-lock-badge"
                             style={{
                                 fontSize: "10px",
                                 padding: "1px 5px",

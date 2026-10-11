@@ -393,7 +393,10 @@ export function StockDetailPage({
               </thead>
               <tbody>
                 {stock.historicalFinances.map((f, idx) => {
-                  const opMargin = Number(((f.operatingIncome / f.revenue) * 100).toFixed(1));
+                  const opMargin =
+                    f.revenue > 0
+                      ? Number(((f.operatingIncome / f.revenue) * 100).toFixed(1))
+                      : 0;
                   const isLatest = idx === stock.historicalFinances.length - 1;
                   return (
                     <tr key={f.fiscalYear} style={{ background: isLatest ? "rgba(56, 189, 248, 0.05)" : "transparent" }}>

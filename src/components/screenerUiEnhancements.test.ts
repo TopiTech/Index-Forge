@@ -54,6 +54,16 @@ describe("Screener UI/UX Enhancements", () => {
       expect(screenerTsx).toContain('role="columnheader"');
       expect(screenerTsx).toContain("aria-sort");
       expect(screenerTsx).toContain("handleSortColumn");
+      expect(screenerTsx).toContain("tabIndex={0}");
+      expect(screenerTsx).toMatch(/onKeyDown=\{.*handleSortColumn/s);
+    });
+
+    it("isolates checkbox button keyboard events from parent row navigation", () => {
+      expect(screenerTsx).toMatch(/onKeyDown=\{\(e\)\s*=>\s*\{[^}]*e\.stopPropagation\(\)/);
+    });
+
+    it("does not import unused AnimatePresence", () => {
+      expect(screenerTsx).not.toContain("AnimatePresence");
     });
 
     it("includes multi-selection checkboxes and CSV export button", () => {

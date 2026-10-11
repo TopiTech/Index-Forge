@@ -312,14 +312,35 @@ export function convertPortfolioToCustomIndexBasket(
   const summary = calculatePortfolioSummary(positions);
   if (summary.positions.length === 0) return [];
 
+  // Group by ticker to prevent duplicate constituents in the index basket
+  const grouped = new Map<
+    string,
+    { ticker: string; name: string; theme: string; marketValue: number }
+  >();
+  for (const pos of summary.positions) {
+    const existing = grouped.get(pos.ticker);
+    if (existing) {
+      existing.marketValue += pos.marketValue;
+    } else {
+      grouped.set(pos.ticker, {
+        ticker: pos.ticker,
+        name: pos.name,
+        theme: pos.theme,
+        marketValue: pos.marketValue,
+      });
+    }
+  }
+
+  const items = Array.from(grouped.values());
   const weights = allocateIntegerWeights(
-    summary.positions.map((position) => position.marketValue),
+    items.map((item) => item.marketValue),
   );
 
-  return summary.positions.map((pos, index) => ({
-    ticker: pos.ticker,
-    name: pos.name,
-    theme: pos.theme,
+  return items.map((item, index) => ({
+    ticker: item.ticker,
+    name: item.name,
+    theme: item.theme,
     weight: weights[index],
   }));
 }
+

@@ -78,6 +78,19 @@ describe("MarketDataService", () => {
       const ascTickers = tiedAsc.map((s) => s.ticker).sort();
       expect(descTickers).toEqual(ascTickers);
     });
+
+    it("sorts stocks with null metrics to the bottom in both asc and desc order", () => {
+      const perAsc = runStockScreener({ sortBy: "per", sortOrder: "asc" });
+      const nonNulls = perAsc.filter((s) => s.per !== null);
+      const nulls = perAsc.filter((s) => s.per === null);
+      if (nulls.length > 0 && nonNulls.length > 0) {
+        expect(perAsc[0].per).not.toBeNull();
+        expect(perAsc[0].per).toBeGreaterThan(0);
+        const firstNullIdx = perAsc.findIndex((s) => s.per === null);
+        const lastNonNullIdx = perAsc.map((s) => s.per).lastIndexOf(nonNulls[nonNulls.length - 1].per);
+        expect(firstNullIdx).toBeGreaterThan(lastNonNullIdx);
+      }
+    });
   });
 
   describe("exact preset matching", () => {

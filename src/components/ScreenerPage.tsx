@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import {
   Zap,
   TrendingUp,
@@ -330,6 +330,13 @@ export function ScreenerPage({
         }}
         className={`sortable-col-header ${isActive ? "active" : ""}`}
         onClick={() => handleSortColumn(column)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            handleSortColumn(column);
+          }
+        }}
+        tabIndex={0}
         title={`${label} でソート (${isActive ? (sortOrder === "asc" ? "昇順" : "降順") : "クリックで並び替え"})`}
         role="columnheader"
         aria-sort={isActive ? (sortOrder === "asc" ? "ascending" : "descending") : "none"}
@@ -788,6 +795,14 @@ export function ScreenerPage({
                           type="button"
                           className="btn btn-ghost tiny"
                           style={{ padding: 0 }}
+                          onClick={(e) => handleToggleSelect(stock.ticker, e)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.stopPropagation();
+                              e.preventDefault();
+                              handleToggleSelect(stock.ticker, e as unknown as React.MouseEvent);
+                            }
+                          }}
                           aria-label={`${stock.name} の選択トグル`}
                         >
                           {isSelected ? (

@@ -43,7 +43,7 @@ export function PortfolioManagerPage({
   onOpenStockDetail,
   onConvertAndCreateCustomIndex,
 }: PortfolioManagerPageProps) {
-  const { isAuthenticated, session, login, loading: authLoading } = useAuth();
+  const { isAuthenticated, login, loading: authLoading } = useAuth();
   const [positions, setPositions] = useState<PortfolioPosition[]>(() =>
     isAuthenticated ? loadPortfolioPositions() : []
   );
@@ -101,6 +101,8 @@ export function PortfolioManagerPage({
     const res = await login(trimmed);
     setIsSubmittingAuth(false);
     if (res.ok) {
+      setPositions(loadPortfolioPositions());
+      setWatchlist(loadWatchlist());
       setAuthPassword("");
       success("ログインしました。ポートフォリオ管理機能をご利用いただけます。");
     } else {
