@@ -723,9 +723,10 @@ export function ScreenerPage({
             </select>
             <button
               type="button"
-              className="btn btn-ghost tiny"
+              className="btn btn-ghost tiny screener-sort-dir-btn"
               onClick={() => setSortOrder((prev) => (prev === "asc" ? "desc" : "asc"))}
               title={sortOrder === "asc" ? "昇順 (クリックで降順へ)" : "降順 (クリックで昇順へ)"}
+              aria-label={sortOrder === "asc" ? "昇順 (クリックで降順へ)" : "降順 (クリックで昇順へ)"}
             >
               {sortOrder === "asc" ? <ArrowUp size={13} /> : <ArrowDown size={13} />}
             </button>

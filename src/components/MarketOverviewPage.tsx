@@ -244,7 +244,7 @@ export function MarketOverviewPage({
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
+          gridTemplateColumns: "repeat(auto-fill, minmax(min(280px, 100%), 1fr))",
           gap: "14px",
           marginBottom: "32px",
         }}
@@ -343,7 +343,9 @@ export function MarketOverviewPage({
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))",
+          // min(360px, 100%) keeps the single-column fallback on phones;
+          // a bare 360px minimum track overflowed narrow viewports.
+          gridTemplateColumns: "repeat(auto-fit, minmax(min(360px, 100%), 1fr))",
           gap: "24px",
         }}
       >

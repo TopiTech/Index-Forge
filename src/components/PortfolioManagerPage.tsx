@@ -310,6 +310,7 @@ export function PortfolioManagerPage({
                   />
                   <button
                     type="button"
+                    className="password-visibility-btn"
                     onClick={() => setShowPassword(!showPassword)}
                     aria-label={showPassword ? "パスワードを隠す" : "パスワードを表示"}
                     aria-pressed={showPassword}

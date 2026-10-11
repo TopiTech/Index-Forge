@@ -349,8 +349,18 @@ h3 {
   transform: scale(1.18) !important;
 }
 
+/* The brand keeps its size on desktop but may shrink (with ellipsis) on
+   narrow screens so the control cluster never pushes the header off-screen. */
+.header-brand {
+  flex-shrink: 0;
+  min-width: 0;
+}
+
 .header-brand h1 {
   line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .header-inner-row {
@@ -531,6 +541,11 @@ h3 {
     width: 100%;
     justify-content: space-between;
     gap: 8px;
+  }
+
+  /* On phones the brand must be able to yield space to the controls. */
+  .header-brand {
+    flex-shrink: 1;
   }
 
   .header-status-desktop {
@@ -812,7 +827,10 @@ h3 {
   background: transparent;
   color: var(--accent-text);
   text-transform: uppercase;
-  letter-spacing: 1.2px;
+  /* 1.2px (~10% of an 11-12px glyph) visibly skewed Japanese labels such as
+     「銘柄スクリーナーへ」. A small em-based track keeps the fintech feel on
+     Latin text while staying inside Japanese typography norms. */
+  letter-spacing: 0.04em;
   font-size: 12px;
   font-weight: 600;
   position: relative;
@@ -1840,6 +1858,38 @@ h3 {
 @media (max-width: 350px) {
   .stats-grid {
     grid-template-columns: 1fr !important;
+  }
+}
+
+/* ==========================================================================
+   NARROW PHONES: collapse header text labels to icons so the control cluster
+   always fits beside the brand (previously pushed the header off-screen).
+   ========================================================================== */
+@media (max-width: 560px) {
+  .header-inner-row {
+    gap: 6px;
+  }
+
+  .header-meta {
+    gap: 4px;
+  }
+
+  .header-login-label,
+  .header-mobile-menu-label {
+    display: none;
+  }
+
+  .header-login-btn,
+  .btn.header-login-btn {
+    min-width: 40px;
+    padding: 8px;
+    gap: 0;
+  }
+
+  .header-mobile-menu-btn,
+  .btn.header-mobile-menu-btn {
+    padding: 8px;
+    gap: 0;
   }
 }
 
@@ -4441,6 +4491,14 @@ textarea:focus-visible {
   font-weight: 600;
 }
 
+@media (max-width: 768px) {
+  /* Give the numeric weight stepper a thumb-sized height on touch. */
+  .builder-weight-number-input {
+    height: 36px;
+    font-size: 13px;
+  }
+}
+
 .builder-basket-remove-btn {
   background: transparent;
   border: none;
@@ -5630,6 +5688,63 @@ textarea:focus-visible {
   align-items: center;
   justify-content: center;
   touch-action: manipulation;
+}
+
+/* Password reveal toggles sit inside inputs; inline padding must not
+   shrink the hit area below a usable size. */
+.password-visibility-btn {
+  min-width: 32px;
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  touch-action: manipulation;
+}
+
+/* Icon-only mobile search toggle: keep a finger-sized hit area. */
+.btn.header-mobile-search-btn {
+  min-width: 40px;
+  min-height: 40px;
+  padding: 8px;
+  touch-action: manipulation;
+}
+
+/* Compact filters, chips and segmented tabs stay thumb-friendly on touch. */
+@media (max-width: 768px) {
+  .btn-sm,
+  .btn-group-item,
+  .theme-chip,
+  select.select-styled.tiny {
+    min-height: 36px;
+  }
+
+  .btn-group-item {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+
+  /* Ticker links inside stat cards double as stock-detail navigation. */
+  a.tag {
+    min-height: 32px;
+    padding-top: 6px;
+    padding-bottom: 6px;
+  }
+
+  /* Removable basket tags in the index builder. */
+  button.tag {
+    min-height: 32px;
+    padding-top: 6px;
+    padding-bottom: 6px;
+  }
+
+  /* Screener row selection toggles ship with padding: 0 inline styles;
+     give them a finger-sized hit box without changing the icon size. */
+  .screener-grid-table .btn-ghost.tiny,
+  .constituents-table .btn-ghost.tiny,
+  .screener-sort-dir-btn {
+    min-width: 32px;
+    min-height: 32px;
+  }
 }
 
 .sidebar-close-button,

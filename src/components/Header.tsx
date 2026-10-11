@@ -80,7 +80,6 @@ export function Header({
               textDecoration: "none",
               color: "inherit",
               cursor: onNavigateToHome ? "pointer" : "default",
-              flexShrink: 0,
             }}
             onClick={(e) => {
               if (onNavigateToHome) {
@@ -180,7 +179,7 @@ export function Header({
                     aria-label="パスワード認証でログイン"
                   >
                     <LogIn size={12} style={{ color: "var(--accent-text)" }} />
-                    <span>ログイン</span>
+                    <span className="header-login-label">ログイン</span>
                   </button>
                 )}
               </div>
