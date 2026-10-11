@@ -1,0 +1,228 @@
+import { describe, it, expect, beforeEach } from "vitest";
+import worker from "../../worker/index";
+import {
+  setAllowMemoryCacheInTest,
+  clearMemoryCache,
+  clearMemoryRateLimits,
+  fetchLiveMarketOverview,
+  fetchLiveStockFundamentals,
+  resetLastKnownMarketOverview,
+  resetYahooCrumbCache,
+} from "../../worker/internal";
+import {
+  fetchMarketOverview,
+  fetchStockFundamentals,
+  clearStockFundamentalsClientCache,
+  getStockFundamentals,
+} from "./marketDataService";
+
+function createMockEnv() {
+  return {
+    ASSETS: { fetch: async () => new Response("OK") } as unknown as Fetcher,
+    DB: {
+      prepare: () => ({
+        bind: () => ({
+          first: async () => null,
+          all: async () => ({ results: [] }),
+          run: async () => ({ success: true }),
+        }),
+      }),
+    } as unknown as D1Database,
+  };
+}
+
+describe("Live Market and Stock Data Endpoints & Services", () => {
+  beforeEach(() => {
+    clearMemoryCache();
+    clearMemoryRateLimits();
+    clearStockFundamentalsClientCache();
+    resetLastKnownMarketOverview();
+    resetYahooCrumbCache();
+  });
+
+  describe("GET /api/market/overview", () => {
+    it("returns market overview with all asset classes, sectors, breadth and news", async () => {
+      setAllowMemoryCacheInTest(true);
+      try {
+        const env = createMockEnv();
+        const req = new Request("http://localhost/api/market/overview", {
+          method: "GET",
+        });
+
+        const res = await worker.fetch(req, env as any);
+        expect(res.status).toBe(200);
+        expect(res.headers.get("content-type")).toContain("application/json");
+        expect(res.headers.get("cache-control")).toContain("public");
+
+        const data = await res.json();
+        expect(Array.isArray(data.indices)).toBe(true);
+        expect(data.indices.length).toBeGreaterThanOrEqual(6);
+        expect(Array.isArray(data.forex)).toBe(true);
+        expect(data.forex.length).toBeGreaterThanOrEqual(3);
+        expect(Array.isArray(data.commodities)).toBe(true);
+        expect(data.commodities.length).toBeGreaterThanOrEqual(3);
+        expect(Array.isArray(data.crypto)).toBe(true);
+        expect(data.crypto.length).toBeGreaterThanOrEqual(2);
+        expect(Array.isArray(data.sectors)).toBe(true);
+        expect(data.sectors.length).toBeGreaterThan(0);
+        expect(data.marketBreadth).toBeDefined();
+        expect(typeof data.marketBreadth.sentimentScore).toBe("number");
+        expect(Array.isArray(data.news)).toBe(true);
+        expect(data.news.length).toBeGreaterThan(0);
+
+        // Check Nikkei quote structure
+        const nikkei = data.indices.find((i: any) => i.symbol === "^N225");
+        expect(nikkei).toBeDefined();
+        expect(nikkei.name).toContain("日経平均");
+        expect(typeof nikkei.price).toBe("number");
+        expect(nikkei.price).toBeGreaterThan(0);
+
+        // Check USD/JPY forex quote
+        const usdjpy = data.forex.find((f: any) => f.symbol === "USDJPY=X");
+        expect(usdjpy).toBeDefined();
+        expect(typeof usdjpy.price).toBe("number");
+        expect(usdjpy.price).toBeGreaterThan(100);
+
+        // ETag revalidation
+        const etag = res.headers.get("etag");
+        expect(etag).toBeTruthy();
+        if (etag) {
+          const cachedReq = new Request("http://localhost/api/market/overview", {
+            method: "GET",
+            headers: { "if-none-match": etag },
+          });
+          const cachedRes = await worker.fetch(cachedReq, env as any);
+          expect(cachedRes.status).toBe(304);
+        }
+      } finally {
+        setAllowMemoryCacheInTest(false);
+      }
+    });
+
+    it("fetchLiveMarketOverview helper returns well-structured live data", async () => {
+      const data = await fetchLiveMarketOverview();
+      expect(data.indices.length).toBeGreaterThanOrEqual(6);
+      expect(data.forex.length).toBeGreaterThanOrEqual(3);
+      expect(data.commodities.length).toBeGreaterThanOrEqual(3);
+      expect(data.crypto.length).toBeGreaterThanOrEqual(2);
+      expect(data.sectors.length).toBeGreaterThan(0);
+      expect(data.marketBreadth.gainers).toBeGreaterThan(0);
+      expect(data.marketBreadth.losers).toBeGreaterThan(0);
+    });
+  });
+
+  describe("GET /api/stock/fundamentals", () => {
+    it("returns 400 when ticker query parameter is missing", async () => {
+      const env = createMockEnv();
+      const req = new Request("http://localhost/api/stock/fundamentals", {
+        method: "GET",
+      });
+      const res = await worker.fetch(req, env as any);
+      expect(res.status).toBe(400);
+      const data = await res.json();
+      expect(data.error).toContain("ticker");
+    });
+
+    it("returns complete fundamentals for a Japanese stock (7203)", async () => {
+      setAllowMemoryCacheInTest(true);
+      try {
+        const env = createMockEnv();
+        const req = new Request("http://localhost/api/stock/fundamentals?ticker=7203", {
+          method: "GET",
+        });
+
+        const res = await worker.fetch(req, env as any);
+        expect(res.status).toBe(200);
+        expect(res.headers.get("content-type")).toContain("application/json");
+
+        const data = await res.json();
+        expect(data.ticker).toBe("7203");
+        expect(data.market).toBe("PRIME");
+        expect(typeof data.price).toBe("number");
+        expect(data.price).toBeGreaterThan(0);
+        expect(typeof data.dayHigh).toBe("number");
+        expect(typeof data.dayLow).toBe("number");
+        expect(typeof data.yearHigh).toBe("number");
+        expect(typeof data.yearLow).toBe("number");
+        expect(typeof data.marketCap).toBe("number");
+        expect(data.marketCap).toBeGreaterThan(0);
+        expect(Array.isArray(data.historicalFinances)).toBe(true);
+        expect(data.historicalFinances.length).toBe(4);
+
+        // ETag revalidation check
+        const etag = res.headers.get("etag");
+        expect(etag).toBeTruthy();
+        if (etag) {
+          const cachedReq = new Request("http://localhost/api/stock/fundamentals?ticker=7203", {
+            method: "GET",
+            headers: { "if-none-match": etag },
+          });
+          const cachedRes = await worker.fetch(cachedReq, env as any);
+          expect(cachedRes.status).toBe(304);
+        }
+      } finally {
+        setAllowMemoryCacheInTest(false);
+      }
+    });
+
+    it("returns complete fundamentals for a US stock (NVDA)", async () => {
+      setAllowMemoryCacheInTest(true);
+      try {
+        const env = createMockEnv();
+        const req = new Request("http://localhost/api/stock/fundamentals?ticker=NVDA", {
+          method: "GET",
+        });
+
+        const res = await worker.fetch(req, env as any);
+        expect(res.status).toBe(200);
+
+        const data = await res.json();
+        expect(data.ticker).toBe("NVDA");
+        expect(data.market).toBe("US");
+        expect(typeof data.price).toBe("number");
+        expect(data.price).toBeGreaterThan(0);
+        expect(Array.isArray(data.historicalFinances)).toBe(true);
+      } finally {
+        setAllowMemoryCacheInTest(false);
+      }
+    });
+
+    it("fetchLiveStockFundamentals helper returns realistic data for known tickers", async () => {
+      const data = await fetchLiveStockFundamentals("8035");
+      expect(data.ticker).toBe("8035");
+      expect(data.name).toContain("東京エレクトロン");
+      expect(data.price).toBeGreaterThan(0);
+      expect(data.marketCap).toBeGreaterThan(10000);
+    });
+  });
+
+  describe("Client-side fetchStockFundamentals Service", () => {
+    it("returns real or baseline fundamentals for ticker", async () => {
+      const data = await fetchStockFundamentals("7203");
+      expect(data.ticker).toBe("7203");
+      expect(data.name).toContain("トヨタ");
+      expect(data.price).toBeGreaterThan(0);
+      expect(data.per).toBeGreaterThan(0);
+      expect(data.pbr).toBeGreaterThan(0);
+    });
+
+    it("uses in-memory client cache on repeated calls", async () => {
+      const first = await fetchStockFundamentals("NVDA");
+      const second = await fetchStockFundamentals("NVDA");
+      expect(first).toBe(second);
+    });
+
+    it("getStockFundamentals provides accurate anchor baselines", () => {
+      const toyota = getStockFundamentals("7203");
+      expect(toyota.price).toBe(2910.5);
+      expect(toyota.per).toBe(8.3);
+      expect(toyota.pbr).toBe(0.92);
+      expect(toyota.dividendYield).toBe(3.45);
+
+      const nvda = getStockFundamentals("NVDA");
+      expect(nvda.price).toBe(229.28);
+      expect(nvda.per).toBe(29.0);
+      expect(nvda.marketCap).toBeGreaterThan(5000000);
+    });
+  });
+});

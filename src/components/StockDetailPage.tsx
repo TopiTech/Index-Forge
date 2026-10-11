@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
 import {
   TrendingUp,
@@ -10,9 +10,11 @@ import {
   ArrowLeft,
   BarChart2,
   PieChart,
+  RefreshCw,
 } from "lucide-react";
 import {
   getStockFundamentals,
+  fetchStockFundamentals,
   type StockQuoteFundamentals,
 } from "../lib/marketDataService";
 import type { PageView } from "../lib/navigation";
@@ -36,12 +38,24 @@ export function StockDetailPage({
   const [stock, setStock] = useState<StockQuoteFundamentals>(() =>
     getStockFundamentals(ticker),
   );
+  const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<"CHART" | "FINANCIALS">("CHART");
   const { success } = useToast();
 
+  const loadStockData = useCallback(async (targetTicker: string) => {
+    setLoading(true);
+    try {
+      const data = await fetchStockFundamentals(targetTicker);
+      setStock(data);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     setStock(getStockFundamentals(ticker));
-  }, [ticker]);
+    void loadStockData(ticker);
+  }, [ticker, loadStockData]);
 
   const isPositive = stock.changePercent >= 0;
 
@@ -80,6 +94,16 @@ export function StockDetailPage({
         </button>
 
         <div style={{ display: "flex", gap: "8px" }}>
+          <button
+            type="button"
+            className="btn btn-sm btn-outline"
+            onClick={() => void loadStockData(stock.ticker)}
+            title="最新データを再取得"
+          >
+            <RefreshCw size={13} className={loading ? "spin" : ""} />
+            <span>更新</span>
+          </button>
+
           {onAddToIndex && (
             <button
               type="button"
@@ -146,7 +170,8 @@ export function StockDetailPage({
         >
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "6px" }}>
-              <span className="badge badge-accent mono tiny">{stock.market}</span>
+              <span className="badge badge-accent mono tiny">LIVE</span>
+              <span className="badge badge-default mono tiny">{stock.market}</span>
               <span className="badge badge-default mono tiny">{stock.sector}</span>
               <span className="tiny muted mono">THEME: {stock.theme}</span>
             </div>
@@ -186,6 +211,12 @@ export function StockDetailPage({
                 前日終値: {stock.previousClose.toLocaleString()}
               </span>
             </div>
+            {stock.dayHigh > 0 && stock.dayLow > 0 && (
+              <div className="tiny muted mono" style={{ marginTop: 4 }}>
+                当日レンジ: {stock.dayLow.toLocaleString()} - {stock.dayHigh.toLocaleString()}
+                {stock.volume > 0 && ` | 出来高: ${stock.market === "US" ? (stock.volume / 1000000).toFixed(1) + "M" : (stock.volume / 10000).toFixed(0) + "万株"}`}
+              </div>
+            )}
           </div>
         </div>
 

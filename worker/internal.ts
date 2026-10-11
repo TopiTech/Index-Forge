@@ -48,6 +48,15 @@ export {
   fetchYahooQuote,
   fetchAllTickerQuotes,
   resetLastKnownTickerQuotes,
+  // Live market overview and stock fundamentals
+  fetchLiveMarketOverview,
+  fetchLiveStockFundamentals,
+  getYahooCrumb,
+  resetYahooCrumbCache,
+  resetLastKnownMarketOverview,
+  lastKnownMarketOverview,
+  OVERVIEW_ASSET_DEFS,
+  SECTOR_SAMPLE_DEFINITIONS,
   // In-memory rate limiting and client IP
   MAX_MEMORY_RATE_LIMIT_ENTRIES,
   checkMemoryRateLimit,
