@@ -512,6 +512,7 @@ export function StockTechnicalChart({
       resizeTimers.forEach(clearTimeout);
       if (container) container.innerHTML = "";
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [effectiveMode, stock.ticker, isUS, theme, retryKey]);
 
   // Dynamically update TradingView widget inner minHeight when mobile breakpoint changes without reloading iframe

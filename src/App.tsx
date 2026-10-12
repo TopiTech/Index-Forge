@@ -572,15 +572,25 @@ export default function App({
         return;
       }
       const fund = getStockFundamentals(ticker);
-      addPortfolioPosition({
+      const safePrice =
+        Number.isFinite(currentPrice) && currentPrice > 0
+          ? currentPrice
+          : Number.isFinite(fund.price) && fund.price > 0
+            ? fund.price
+            : 100;
+      const ok = addPortfolioPosition({
         ticker,
-        name: fund.name,
+        name: fund.name || ticker,
         shares: 100,
-        averageCost: currentPrice,
+        averageCost: safePrice,
         acquiredAt: new Date().toISOString().split("T")[0],
       });
-      toastSuccess(`「${fund.name}」をポートフォリオに追加しました`);
-      navigateTo("portfolio");
+      if (ok) {
+        toastSuccess(`「${fund.name || ticker}」をポートフォリオに追加しました`);
+        navigateTo("portfolio");
+      } else {
+        toastInfo(`「${fund.name || ticker}」のポートフォリオ登録に失敗しました`);
+      }
     },
     [isAuthenticated, navigateTo, toastInfo, toastSuccess],
   );

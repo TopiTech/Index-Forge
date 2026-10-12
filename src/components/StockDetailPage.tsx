@@ -17,7 +17,6 @@ import {
   getCachedStockFundamentals,
   fetchStockFundamentals,
   formatMarketCapDisplay,
-  isIndexAsset,
   isMacroAsset,
   type StockQuoteFundamentals,
 } from "../lib/marketDataService";

@@ -361,15 +361,25 @@ export function calculatePortfolioSummary(
         : pos.currentPrice && pos.currentPrice > 0
           ? pos.currentPrice
           : fund.price;
-    const marketValue = Math.round(pos.shares * currentPrice);
-    const totalCost = Math.round(pos.shares * pos.averageCost);
-    const unrealizedProfit = marketValue - totalCost;
+    const marketValue = isUSD
+      ? Number((pos.shares * currentPrice).toFixed(2))
+      : Math.round(pos.shares * currentPrice);
+    const totalCost = isUSD
+      ? Number((pos.shares * pos.averageCost).toFixed(2))
+      : Math.round(pos.shares * pos.averageCost);
+    const unrealizedProfit = isUSD
+      ? Number((marketValue - totalCost).toFixed(2))
+      : marketValue - totalCost;
     const unrealizedProfitPercent =
       totalCost > 0 ? Number(((unrealizedProfit / totalCost) * 100).toFixed(2)) : 0;
     const change = live?.change !== undefined ? live.change : fund.change;
-    const dailyChange = Math.round(pos.shares * change);
+    const dailyChange = isUSD
+      ? Number((pos.shares * change).toFixed(2))
+      : Math.round(pos.shares * change);
     const dps = live?.dps ?? fund.dps ?? 0;
-    const annualDividend = Math.round(pos.shares * dps);
+    const annualDividend = isUSD
+      ? Number((pos.shares * dps).toFixed(2))
+      : Math.round(pos.shares * dps);
 
     const marketValueJpy = Math.round(marketValue * fxRate);
     const totalCostJpy = Math.round(totalCost * fxRate);

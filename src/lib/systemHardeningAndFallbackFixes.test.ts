@@ -8,7 +8,7 @@ import {
 } from "./marketDataService";
 import { resolveTradingViewSymbol } from "../components/StockTechnicalChart";
 import { getStockCurrency } from "./currency";
-import { POPULAR_STOCKS, PRESET_STOCKS, searchPopularStocks } from "../data/popularStocks";
+import { PRESET_STOCKS, searchPopularStocks } from "../data/popularStocks";
 
 describe("System Hardening & Inconsistency Fixes", () => {
   describe("Macro & Index Asset Consistency Guards", () => {

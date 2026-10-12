@@ -169,6 +169,7 @@ export function PortfolioManagerPage({
     setAuthError(null);
     setIsSubmittingAuth(true);
     const res = await login(trimmed);
+    if (!mountedRef.current) return;
     setIsSubmittingAuth(false);
     if (res.ok) {
       setPositions(loadPortfolioPositions());
@@ -280,8 +281,9 @@ export function PortfolioManagerPage({
     };
 
     setAddError(null);
+    const isFirstPersist = !positionsPersistedRef.current;
     positionsPersistedRef.current = true;
-    setPositions((prev) => [...prev, newPos]);
+    setPositions((prev) => (isFirstPersist ? [newPos] : [...prev, newPos]));
     setIsAddModalOpen(false);
     success(`「${resolvedName} (${ticker})」を保有ポートフォリオに追加しました`);
   };
@@ -773,6 +775,45 @@ export function PortfolioManagerPage({
         </div>
       </div>
 
+      {/* Sample Portfolio Preview Notice */}
+      {!hasPersistedPortfolio() && positions.length > 0 && (
+        <div
+          role="note"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            flexWrap: "wrap",
+            gap: "12px",
+            padding: "10px 16px",
+            marginBottom: "16px",
+            borderRadius: "8px",
+            background: "rgba(0, 229, 255, 0.08)",
+            border: "1px solid var(--border-cyan)",
+            fontSize: "0.85rem",
+            color: "var(--accent-text)",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <Sparkles size={16} style={{ flexShrink: 0 }} />
+            <span>
+              現在<strong>サンプルポートフォリオ（参考例）</strong>を表示しています。銘柄の追加・削除やCSV取込を行うと、あなた専用のマイポートフォリオに自動保存されます。
+            </span>
+          </div>
+          <button
+            type="button"
+            className="btn btn-xs btn-outline"
+            onClick={() => {
+              positionsPersistedRef.current = true;
+              setPositions([]);
+              info("サンプルポートフォリオをクリアしました");
+            }}
+          >
+            <span>クリアして新規作成</span>
+          </button>
+        </div>
+      )}
+
       {/* FX Rate & Currency Conversion Notice */}
       <div
         className="card"
@@ -1071,7 +1112,7 @@ export function PortfolioManagerPage({
               </button>
             </div>
           ) : (
-            <div style={{ overflowX: "auto" }}>
+            <div tabIndex={0} role="region" aria-label="保有銘柄一覧テーブル" style={{ overflowX: "auto" }}>
               <table className="constituents-table" style={{ width: "100%" }}>
                 <thead>
                   <tr>
