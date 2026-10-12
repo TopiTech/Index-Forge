@@ -3498,10 +3498,39 @@ textarea:focus-visible {
   padding: 5px 12px;
   border-radius: 6px;
   border: 1px solid var(--border-subtle);
+  text-decoration: none;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  box-sizing: border-box;
+}
+
+a.footer-creator-note {
+  cursor: pointer;
+}
+
+a.footer-creator-note:hover {
+  color: var(--text-primary);
+  background: var(--surface-control-hover, rgba(255, 255, 255, 0.08));
+  border-color: var(--border-accent, rgba(56, 189, 248, 0.4));
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18), 0 0 12px rgba(56, 189, 248, 0.15);
+  transform: translateY(-1px);
+}
+
+a.footer-creator-note:active {
+  transform: translateY(0);
+}
+
+a.footer-creator-note:focus-visible {
+  outline: 2px solid var(--accent-primary, #0284c7);
+  outline-offset: 2px;
+}
+
+a.footer-creator-note:hover .footer-icon-accent {
+  filter: drop-shadow(0 0 6px var(--accent-text));
 }
 
 .footer-icon-accent {
   color: var(--accent-text);
+  transition: filter 0.2s ease;
 }
 
 .footer-heading {

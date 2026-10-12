@@ -22,10 +22,14 @@ describe("Navigation & View Routing Logic", () => {
 
     it("parses portfolio paths and search parameter", () => {
       expect(parseViewFromLocation("/portfolio")).toBe("portfolio");
-      expect(parseViewFromLocation("/profile")).toBe("portfolio");
-      expect(parseViewFromLocation("/about")).toBe("portfolio");
       expect(parseViewFromLocation("/", "?page=portfolio")).toBe("portfolio");
-      expect(parseViewFromLocation("/", "?page=profile")).toBe("portfolio");
+    });
+
+    it("parses developer profile (about) paths and search parameters", () => {
+      expect(parseViewFromLocation("/about")).toBe("about");
+      expect(parseViewFromLocation("/profile")).toBe("about");
+      expect(parseViewFromLocation("/", "?page=about")).toBe("about");
+      expect(parseViewFromLocation("/", "?page=profile")).toBe("about");
     });
 
     it("parses disclaimer path and search parameter", () => {
@@ -106,6 +110,7 @@ describe("Navigation & View Routing Logic", () => {
       expect(getViewPath("disclaimer")).toBe("/disclaimer");
       expect(getViewPath("builder")).toBe("/builder");
       expect(getViewPath("tutorial")).toBe("/tutorial");
+      expect(getViewPath("about")).toBe("/about");
     });
   });
 

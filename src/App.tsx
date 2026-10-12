@@ -57,6 +57,9 @@ const DisclaimerPage = lazy(() =>
 const TutorialPage = lazy(() =>
   import("./components/TutorialPage").then((m) => ({ default: m.TutorialPage })),
 );
+const PortfolioPage = lazy(() =>
+  import("./components/PortfolioPage").then((m) => ({ default: m.PortfolioPage })),
+);
 import { shouldShowTutorialOnLaunch } from "./lib/tutorialStorage";
 import {
   parseViewFromLocation,
@@ -830,6 +833,21 @@ export default function App({
       >
         <Suspense fallback={<LoadingScreen />}>
           <DisclaimerPage onNavigate={navigateTo} />
+        </Suspense>
+      </PageLayout>
+    );
+  }
+
+  if (currentView === "about") {
+    return (
+      <PageLayout
+        headerProps={{ ...pageLayoutHeaderProps, benchmarkStale: false }}
+        currentView={currentView}
+        navigateTo={navigateTo}
+        searchModal={commonSearchModal}
+      >
+        <Suspense fallback={<LoadingScreen />}>
+          <PortfolioPage onNavigate={navigateTo} />
         </Suspense>
       </PageLayout>
     );

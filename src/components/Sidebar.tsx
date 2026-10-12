@@ -14,6 +14,7 @@ import {
     X,
     Menu,
     Lock,
+    User,
 } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
 import { DataFreshness } from "./DataFreshness";
@@ -68,6 +69,7 @@ const NAV_GROUPS: NavGroup[] = [
 ];
 
 const SUB_ITEMS: NavItem[] = [
+    { view: "about", label: "開発者自己紹介", title: "開発者プロフィール & ポートフォリオ", icon: User },
     { view: "tutorial", label: "操作チュートリアル", title: "操作チュートリアルガイド", icon: Compass },
     { view: "disclaimer", label: "免責事項", title: "免責事項・利用規約", icon: FileText },
 ];

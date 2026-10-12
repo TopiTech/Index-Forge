@@ -11,6 +11,7 @@ import {
   Zap,
   Calendar,
   PieChart,
+  User,
 } from "lucide-react";
 import { getViewPath, type PageView } from "../lib/navigation";
 import { useAuth } from "../hooks/useAuth";
@@ -94,10 +95,21 @@ export function Footer({ onNavigate, currentView = "dashboard" }: FooterProps) {
               マーケット観測・指数開発・銘柄リサーチ・資産管理をひとつにまとめた統合投資情報プラットフォーム。
               日米主要ベンチマークとの比較分析とリスク指標の算出を、エッジ上で高速に実行します。
             </p>
-            <div className="footer-creator-note">
+            <a
+              href={getViewPath("about")}
+              onClick={(e) => {
+                if (!e.ctrlKey && !e.metaKey && !e.shiftKey && e.button === 0) {
+                  e.preventDefault();
+                  onNavigate("about");
+                }
+              }}
+              className="footer-creator-note is-link"
+              title="開発者の自己紹介ページを開く"
+              aria-label="開発者の自己紹介ページを開く"
+            >
               <Code2 size={13} className="footer-icon-accent" />
               <span>Developed by <strong style={{ color: "var(--text-primary)" }}>とぴ / TopiTech</strong></span>
-            </div>
+            </a>
           </div>
 
           {/* Site Navigation */}
@@ -203,6 +215,23 @@ export function Footer({ onNavigate, currentView = "dashboard" }: FooterProps) {
           <div className="footer-col">
             <h2 className="footer-heading">SNS & 開発者リンク</h2>
             <ul className="footer-social-list">
+              <li>
+                <a
+                  href={getViewPath("about")}
+                  onClick={(e) => {
+                    if (!e.ctrlKey && !e.metaKey && !e.shiftKey && e.button === 0) {
+                      e.preventDefault();
+                      onNavigate("about");
+                    }
+                  }}
+                  className={`footer-social-link ${currentView === "about" ? "is-active" : ""}`}
+                  aria-label="開発者自己紹介ページ（プロフィール & ポートフォリオ）"
+                >
+                  <User size={14} />
+                  <span>開発者自己紹介</span>
+                  <ExternalLink size={11} className="footer-ext-icon" style={{ opacity: 0.6 }} />
+                </a>
+              </li>
               <li>
                 <a
                   href="https://x.com/TopiSan_1"
