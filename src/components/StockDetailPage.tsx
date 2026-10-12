@@ -11,11 +11,14 @@ import {
   BarChart2,
   PieChart,
   RefreshCw,
+  AlertCircle,
 } from "lucide-react";
 import {
   getCachedStockFundamentals,
   fetchStockFundamentals,
   formatMarketCapDisplay,
+  isIndexAsset,
+  isMacroAsset,
   type StockQuoteFundamentals,
 } from "../lib/marketDataService";
 import { useTheme } from "../lib/theme";
@@ -82,6 +85,7 @@ export function StockDetailPage({
   }, [ticker, loadStockData]);
 
   const isPositive = stock.changePercent >= 0;
+  const isMacro = isMacroAsset(stock.ticker);
   const currencyMeta = getCurrencyMeta(stock.ticker, stock.market);
 
   // Calculate 52-week price position percentage
@@ -98,6 +102,44 @@ export function StockDetailPage({
       transition={{ duration: 0.3 }}
       className="page-container stock-detail-page"
     >
+      {/* Fallback / Demo Notice Banner */}
+      {stock.isDemoData && (
+        <div
+          role="alert"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            flexWrap: "wrap",
+            gap: "12px",
+            padding: "10px 16px",
+            marginBottom: "16px",
+            borderRadius: "8px",
+            background: "rgba(245, 158, 11, 0.1)",
+            border: "1px solid rgba(245, 158, 11, 0.35)",
+            fontSize: "0.85rem",
+            color: "var(--neon-amber, #f59e0b)",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <AlertCircle size={16} style={{ flexShrink: 0 }} />
+            <span>
+              リアルタイム実データの取得が一時的に利用できないか未対応のため、<strong>参考値（デモデータ）</strong>を表示しています。
+            </span>
+          </div>
+          <button
+            type="button"
+            className="btn btn-xs btn-outline"
+            onClick={() => void loadStockData(stock.ticker, true)}
+            disabled={loading}
+            style={{ borderColor: "rgba(245, 158, 11, 0.4)", color: "var(--text-primary)" }}
+          >
+            <RefreshCw size={11} className={loading ? "spin animate-spin" : ""} style={{ marginRight: 4 }} />
+            <span>再取得</span>
+          </button>
+        </div>
+      )}
+
       {/* Top Back Nav & Actions Bar */}
       <div
         style={{
@@ -144,7 +186,7 @@ export function StockDetailPage({
             <ExternalLink size={13} />
           </a>
 
-          {onAddToIndex && (
+          {onAddToIndex && !isMacro && (
             <button
               type="button"
               className="btn btn-sm btn-accent"
@@ -272,7 +314,7 @@ export function StockDetailPage({
             {stock.dayHigh > 0 && stock.dayLow > 0 && (
               <div className="tiny muted mono" style={{ marginTop: 4 }}>
                 当日レンジ: {formatStockPrice(stock.dayLow, stock.ticker, { market: stock.market })} - {formatStockPrice(stock.dayHigh, stock.ticker, { market: stock.market })}
-                {stock.volume > 0 && ` | 出来高: ${currencyMeta.isUSD ? (stock.volume / 1000000).toFixed(1) + "M" : (stock.volume / 10000).toFixed(0) + "万株"}`}
+                {stock.volume > 0 && !isMacro && ` | 出来高: ${currencyMeta.isUSD ? (stock.volume / 1000000).toFixed(1) + "M" : (stock.volume / 10000).toFixed(0) + "万株"}`}
               </div>
             )}
           </div>
@@ -317,47 +359,49 @@ export function StockDetailPage({
         <div className="card" style={{ padding: "14px 16px" }}>
           <span className="tiny muted mono uppercase">PER (株価収益率)</span>
           <div className="mono bold" style={{ fontSize: "1.3rem", marginTop: 4 }}>
-            {stock.per ? `${stock.per.toFixed(1)}倍` : "--"}
+            {!isMacro && stock.per ? `${stock.per.toFixed(1)}倍` : "--"}
           </div>
-          <span className="tiny muted">業界平均: 14.5倍</span>
+          <span className="tiny muted">{isMacro ? "指数・マクロ指標対象外" : "業界平均: 14.5倍"}</span>
         </div>
 
         <div className="card" style={{ padding: "14px 16px" }}>
           <span className="tiny muted mono uppercase">PBR (株価純資産倍率)</span>
           <div className="mono bold" style={{ fontSize: "1.3rem", marginTop: 4 }}>
-            {stock.pbr ? `${stock.pbr.toFixed(2)}倍` : "--"}
+            {!isMacro && stock.pbr ? `${stock.pbr.toFixed(2)}倍` : "--"}
           </div>
           <span className="tiny muted">
-            {stock.pbr && stock.pbr < 1.0 ? "割安 (1倍割れ)" : "適正水準"}
+            {isMacro ? "指数・マクロ指標対象外" : stock.pbr && stock.pbr < 1.0 ? "割安 (1倍割れ)" : "適正水準"}
           </span>
         </div>
 
         <div className="card" style={{ padding: "14px 16px" }}>
           <span className="tiny muted mono uppercase">予想配当利回り</span>
           <div className="mono bold" style={{ fontSize: "1.3rem", marginTop: 4, color: "var(--neon-green)" }}>
-            {stock.dividendYield ? `${stock.dividendYield.toFixed(2)}%` : "--"}
+            {!isMacro && stock.dividendYield ? `${stock.dividendYield.toFixed(2)}%` : "--"}
           </div>
           <span className="tiny muted">
-            1株配当: {stock.dps !== null && stock.dps !== undefined ? `${stock.dps} ${currencyMeta.code}` : "--"}
+            {isMacro
+              ? "1株配当: --"
+              : `1株配当: ${stock.dps !== null && stock.dps !== undefined ? `${stock.dps} ${currencyMeta.code}` : "--"}`}
           </span>
         </div>
 
         <div className="card" style={{ padding: "14px 16px" }}>
           <span className="tiny muted mono uppercase">時価総額</span>
           <div className="mono bold" style={{ fontSize: "1.3rem", marginTop: 4 }}>
-            {formatMarketCapDisplay(stock.marketCap, stock.market)}
+            {isMacro ? "--" : formatMarketCapDisplay(stock.marketCap, stock.market)}
           </div>
           <span className="tiny muted">
-            {stock.market === "US" ? "グローバル大型株" : "東証大型優良株"}
+            {isMacro ? "指数・マクロ資産" : stock.market === "US" ? "グローバル大型株" : "東証大型優良株"}
           </span>
         </div>
 
         <div className="card" style={{ padding: "14px 16px" }}>
           <span className="tiny muted mono uppercase">ROE (自己資本利益率)</span>
           <div className="mono bold" style={{ fontSize: "1.3rem", marginTop: 4 }}>
-            {stock.roe ? `${stock.roe.toFixed(1)}%` : "--"}
+            {!isMacro && stock.roe ? `${stock.roe.toFixed(1)}%` : "--"}
           </div>
-          <span className="tiny muted">高資本効率 (&gt;8%)</span>
+          <span className="tiny muted">{isMacro ? "指数・マクロ指標対象外" : "高資本効率 (>8%)"}</span>
         </div>
 
         <div className="card" style={{ padding: "14px 16px" }}>
@@ -391,7 +435,7 @@ export function StockDetailPage({
           className={`btn btn-sm ${activeTab === "CHART" ? "btn-accent" : "btn-ghost"}`}
           onClick={() => setActiveTab("CHART")}
           onKeyDown={(e) => {
-            if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+            if (!isMacro && (e.key === "ArrowRight" || e.key === "ArrowDown")) {
               e.preventDefault();
               setActiveTab("FINANCIALS");
               document.getElementById("stock-tab-financials")?.focus();
@@ -401,26 +445,28 @@ export function StockDetailPage({
           <BarChart2 size={14} />
           <span>テクニカルチャート</span>
         </button>
-        <button
-          type="button"
-          role="tab"
-          id="stock-tab-financials"
-          aria-selected={activeTab === "FINANCIALS"}
-          aria-controls="stock-tabpanel-financials"
-          tabIndex={activeTab === "FINANCIALS" ? 0 : -1}
-          className={`btn btn-sm ${activeTab === "FINANCIALS" ? "btn-accent" : "btn-ghost"}`}
-          onClick={() => setActiveTab("FINANCIALS")}
-          onKeyDown={(e) => {
-            if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
-              e.preventDefault();
-              setActiveTab("CHART");
-              document.getElementById("stock-tab-chart")?.focus();
-            }
-          }}
-        >
-          <PieChart size={14} />
-          <span>業績・財務ハイライト (4期推移)</span>
-        </button>
+        {!isMacro && (
+          <button
+            type="button"
+            role="tab"
+            id="stock-tab-financials"
+            aria-selected={activeTab === "FINANCIALS"}
+            aria-controls="stock-tabpanel-financials"
+            tabIndex={activeTab === "FINANCIALS" ? 0 : -1}
+            className={`btn btn-sm ${activeTab === "FINANCIALS" ? "btn-accent" : "btn-ghost"}`}
+            onClick={() => setActiveTab("FINANCIALS")}
+            onKeyDown={(e) => {
+              if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+                e.preventDefault();
+                setActiveTab("CHART");
+                document.getElementById("stock-tab-chart")?.focus();
+              }
+            }}
+          >
+            <PieChart size={14} />
+            <span>業績・財務ハイライト (4期推移)</span>
+          </button>
+        )}
       </div>
 
       {/* Tab 1: Interactive Hybrid Technical Chart Engine */}

@@ -10,6 +10,7 @@ import {
   Compass,
   Zap,
   ExternalLink,
+  AlertTriangle,
 } from "lucide-react";
 import {
   fetchMarketOverview,
@@ -86,6 +87,44 @@ export function MarketOverviewPage({
       transition={{ duration: 0.3 }}
       className="page-container market-overview-page"
     >
+      {/* Explicit Fallback Notice Banner */}
+      {data.dataSource === "fallback" && (
+        <div
+          role="note"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            flexWrap: "wrap",
+            gap: "12px",
+            padding: "10px 16px",
+            marginBottom: "20px",
+            borderRadius: "8px",
+            background: "rgba(245, 158, 11, 0.1)",
+            border: "1px solid rgba(245, 158, 11, 0.35)",
+            fontSize: "0.85rem",
+            color: "var(--neon-amber, #f59e0b)",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <AlertTriangle size={16} style={{ flexShrink: 0 }} />
+            <span>
+              市場実データの取得が一時的に利用できないため、<strong>参考ベースラインデータ（フォールバック）</strong>を表示しています。
+            </span>
+          </div>
+          <button
+            type="button"
+            className="btn btn-xs btn-outline"
+            onClick={() => void loadData(true)}
+            disabled={loading}
+            style={{ borderColor: "rgba(245, 158, 11, 0.4)", color: "var(--text-primary)" }}
+          >
+            <RefreshCw size={11} className={loading ? "spin" : ""} style={{ marginRight: 4 }} />
+            <span>再取得</span>
+          </button>
+        </div>
+      )}
+
       {/* Top Banner / Headline */}
       <div
         style={{
@@ -362,7 +401,10 @@ export function MarketOverviewPage({
                     {isPositive ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
                     <span>
                       {isPositive ? "+" : ""}
-                      {asset.change.toFixed(2)} ({isPositive ? "+" : ""}
+                      {asset.category === "FX" && Math.abs(asset.price) < 20
+                        ? asset.change.toFixed(4)
+                        : asset.change.toFixed(2)}{" "}
+                      ({isPositive ? "+" : ""}
                       {asset.changePercent.toFixed(2)}%)
                     </span>
                   </div>

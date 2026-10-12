@@ -1691,7 +1691,7 @@ export async function fetchLiveMarketOverview(
       changePercent: Number(changePercent.toFixed(2)),
       currency: def.currency,
       sparkline: spark,
-      updatedAt: "リアルタイム",
+      updatedAt: quotesMap.size > 0 ? "リアルタイム" : "参考値 (ベースライン)",
     };
   };
 
@@ -1893,12 +1893,32 @@ export async function fetchLiveStockFundamentals(ticker: string): Promise<StockQ
   const baselineAsset = BASELINE_ASSET_QUOTES.find(
     (a) => a.symbol.toUpperCase() === normTicker || a.querySymbol.toUpperCase() === normTicker,
   );
+  const isIndex = normTicker.startsWith("^") || (baselineAsset?.category === "INDEX");
+  const isFx = normTicker.includes("=X") || (baselineAsset?.category === "FX");
+  const isCrypto = normTicker.endsWith("-USD") || (baselineAsset?.category === "CRYPTO");
+  const isMacroAsset = Boolean(
+    isIndex ||
+    isFx ||
+    isCrypto ||
+    (baselineAsset && (baselineAsset.category === "COMMODITY" || baselineAsset.category === "BOND")),
+  );
+
   let name = baselineAsset
     ? baselineAsset.name
     : matchedPreset
       ? matchedPreset.name
       : `銘柄 ${normTicker}`;
-  const theme = matchedPreset ? matchedPreset.theme : baselineAsset ? "指数・ETF" : "株式";
+  const theme = isIndex
+    ? "株価指数"
+    : isFx
+      ? "為替"
+      : isCrypto
+        ? "暗号資産"
+        : baselineAsset
+          ? "指数・ETF"
+          : matchedPreset
+            ? matchedPreset.theme
+            : "株式";
   const isUS = baselineAsset ? baselineAsset.currency === "USD" : !/^\d/.test(normTicker);
   const market: StockQuoteFundamentals["market"] = isUS ? "US" : "PRIME";
   const yahooSymbol = baselineAsset ? baselineAsset.querySymbol : toYahooSymbol(normTicker);
@@ -1907,59 +1927,71 @@ export async function fetchLiveStockFundamentals(ticker: string): Promise<StockQ
   let change = baselineAsset ? baselineAsset.baselineChange : 0;
   let changePct = baselineAsset ? baselineAsset.baselineChangePercent : 0;
   let prevClose = currentPrice;
-  let volume = 1500000;
+  let volume = isFx ? 0 : 1500000;
   let dayHigh = currentPrice * 1.01;
   let dayLow = currentPrice * 0.99;
   let yearHigh = currentPrice * 1.25;
   let yearLow = currentPrice * 0.75;
-  let marketCap = isUS ? 50000 : 25000;
-  let per: number | null = 15;
-  let pbr: number | null = 1.2;
-  let dividendYield: number | null = 2.5;
-  let dps: number | null = 60;
-  let eps: number | null = 200;
-  let roe: number | null = 10.5;
-  let equityRatio: number | null = 50;
+  let marketCap = isMacroAsset ? 0 : isUS ? 50000 : 25000;
+  let per: number | null = isMacroAsset ? null : 15;
+  let pbr: number | null = isMacroAsset ? null : 1.2;
+  let dividendYield: number | null = isMacroAsset ? null : 2.5;
+  let dps: number | null = isMacroAsset ? null : 60;
+  let eps: number | null = isMacroAsset ? null : 200;
+  let roe: number | null = isMacroAsset ? null : 10.5;
+  let equityRatio: number | null = isMacroAsset ? null : 50;
   let sparkline: number[] = [];
   let technicalSignal: StockQuoteFundamentals["technicalSignal"] = "BUY";
-  let sector = isUS ? "Information Technology" : "電気機器・精密";
+  let sector = isIndex
+    ? isUS
+      ? "米国株価指数"
+      : "国内主要株価指数"
+    : isFx
+      ? "外国為替"
+      : isCrypto
+        ? "暗号資産"
+        : isUS
+          ? "Information Technology"
+          : "電気機器・精密";
   let hasLivePrice = false;
 
   const currentYear = new Date().getFullYear();
-  let historicalFinances = [
-    {
-      fiscalYear: `${currentYear - 3}/3`,
-      revenue: Math.round(marketCap * 0.75),
-      operatingIncome: Math.round(marketCap * 0.08),
-      netIncome: Math.round(marketCap * 0.055),
-      eps: Math.round((eps || 100) * 0.8),
-      dps: Math.round((dps || 50) * 0.85),
-    },
-    {
-      fiscalYear: `${currentYear - 2}/3`,
-      revenue: Math.round(marketCap * 0.83),
-      operatingIncome: Math.round(marketCap * 0.095),
-      netIncome: Math.round(marketCap * 0.065),
-      eps: Math.round((eps || 100) * 0.88),
-      dps: Math.round((dps || 50) * 0.9),
-    },
-    {
-      fiscalYear: `${currentYear - 1}/3`,
-      revenue: Math.round(marketCap * 0.92),
-      operatingIncome: Math.round(marketCap * 0.11),
-      netIncome: Math.round(marketCap * 0.078),
-      eps: Math.round((eps || 100) * 0.95),
-      dps: Math.round((dps || 50) * 0.95),
-    },
-    {
-      fiscalYear: `${currentYear}/3 (予)`,
-      revenue: Math.round(marketCap * 1.03),
-      operatingIncome: Math.round(marketCap * 0.125),
-      netIncome: Math.round(marketCap * 0.088),
-      eps: eps || 100,
-      dps: dps || 50,
-    },
-  ];
+  let historicalFinances: StockQuoteFundamentals["historicalFinances"] = isMacroAsset
+    ? []
+    : [
+        {
+          fiscalYear: isUS ? `${currentYear - 3} FY` : `${currentYear - 3}/3`,
+          revenue: Math.round(marketCap * 0.75),
+          operatingIncome: Math.round(marketCap * 0.08),
+          netIncome: Math.round(marketCap * 0.055),
+          eps: Math.round((eps || 100) * 0.8),
+          dps: Math.round((dps || 50) * 0.85),
+        },
+        {
+          fiscalYear: isUS ? `${currentYear - 2} FY` : `${currentYear - 2}/3`,
+          revenue: Math.round(marketCap * 0.83),
+          operatingIncome: Math.round(marketCap * 0.095),
+          netIncome: Math.round(marketCap * 0.065),
+          eps: Math.round((eps || 100) * 0.88),
+          dps: Math.round((dps || 50) * 0.9),
+        },
+        {
+          fiscalYear: isUS ? `${currentYear - 1} FY` : `${currentYear - 1}/3`,
+          revenue: Math.round(marketCap * 0.92),
+          operatingIncome: Math.round(marketCap * 0.11),
+          netIncome: Math.round(marketCap * 0.078),
+          eps: Math.round((eps || 100) * 0.95),
+          dps: Math.round((dps || 50) * 0.95),
+        },
+        {
+          fiscalYear: isUS ? `${currentYear} FY (予)` : `${currentYear}/3 (予)`,
+          revenue: Math.round(marketCap * 1.03),
+          operatingIncome: Math.round(marketCap * 0.125),
+          netIncome: Math.round(marketCap * 0.088),
+          eps: eps || 100,
+          dps: dps || 50,
+        },
+      ];
 
   try {
     const auth = await getYahooCrumb();
@@ -2073,39 +2105,50 @@ export async function fetchLiveStockFundamentals(ticker: string): Promise<StockQ
     yearHigh = detail.fiftyTwoWeekHigh?.raw || chartMeta.fiftyTwoWeekHigh || currentPrice * 1.25;
     yearLow = detail.fiftyTwoWeekLow?.raw || chartMeta.fiftyTwoWeekLow || currentPrice * 0.75;
 
-    const rawCap = detail.marketCap?.raw || priceObj.marketCap?.raw || 0;
-    if (rawCap > 0) {
-      marketCap = isUS ? Math.round(rawCap / 1_000_000) : Math.round(rawCap / 100_000_000);
-    }
-
-    per = stats.trailingPE?.raw || detail.trailingPE?.raw || stats.forwardPE?.raw || null;
-    if (per) per = Number(per.toFixed(1));
-    pbr = stats.priceToBook?.raw || null;
-    if (pbr) pbr = Number(pbr.toFixed(2));
-
-    const rawDiv = detail.dividendYield?.raw;
-    if (typeof rawDiv === "number") {
-      dividendYield = Number((rawDiv * 100).toFixed(2));
-    }
-    dps =
-      detail.dividendRate?.raw ||
-      stats.lastDividendValue?.raw ||
-      (dividendYield ? Number(((currentPrice * dividendYield) / 100).toFixed(1)) : null);
-    eps =
-      stats.trailingEps?.raw ||
-      (per && currentPrice ? Number((currentPrice / per).toFixed(1)) : null);
-    const rawRoe = fin.returnOnEquity?.raw;
-    if (typeof rawRoe === "number") {
-      roe = Number((rawRoe * 100).toFixed(1));
-    }
-    const debtEquity = stats.debtToEquity?.raw;
-    if (typeof debtEquity === "number" && Number.isFinite(debtEquity)) {
-      const denom = 1 + debtEquity / 100;
-      if (denom > 0) {
-        equityRatio = Number((100 / denom).toFixed(1));
-      } else {
-        equityRatio = null;
+    if (!isMacroAsset) {
+      const rawCap = detail.marketCap?.raw || priceObj.marketCap?.raw || 0;
+      if (rawCap > 0) {
+        marketCap = isUS ? Math.round(rawCap / 1_000_000) : Math.round(rawCap / 100_000_000);
       }
+
+      per = stats.trailingPE?.raw || detail.trailingPE?.raw || stats.forwardPE?.raw || null;
+      if (per) per = Number(per.toFixed(1));
+      pbr = stats.priceToBook?.raw || null;
+      if (pbr) pbr = Number(pbr.toFixed(2));
+
+      const rawDiv = detail.dividendYield?.raw;
+      if (typeof rawDiv === "number") {
+        dividendYield = Number((rawDiv * 100).toFixed(2));
+      }
+      dps =
+        detail.dividendRate?.raw ||
+        stats.lastDividendValue?.raw ||
+        (dividendYield ? Number(((currentPrice * dividendYield) / 100).toFixed(1)) : null);
+      eps =
+        stats.trailingEps?.raw ||
+        (per && currentPrice ? Number((currentPrice / per).toFixed(1)) : null);
+      const rawRoe = fin.returnOnEquity?.raw;
+      if (typeof rawRoe === "number") {
+        roe = Number((rawRoe * 100).toFixed(1));
+      }
+      const debtEquity = stats.debtToEquity?.raw;
+      if (typeof debtEquity === "number" && Number.isFinite(debtEquity)) {
+        const denom = 1 + debtEquity / 100;
+        if (denom > 0) {
+          equityRatio = Number((100 / denom).toFixed(1));
+        } else {
+          equityRatio = null;
+        }
+      }
+    } else {
+      marketCap = 0;
+      per = null;
+      pbr = null;
+      dividendYield = null;
+      dps = null;
+      eps = null;
+      roe = null;
+      equityRatio = null;
     }
 
     if (fin.recommendationKey === "strong_buy") technicalSignal = "STRONG_BUY";
@@ -2120,32 +2163,36 @@ export async function fetchLiveStockFundamentals(ticker: string): Promise<StockQ
       else technicalSignal = "SELL";
     }
 
-    if (priceObj.sector) sector = priceObj.sector;
+    if (!isMacroAsset && priceObj.sector) sector = priceObj.sector;
 
-    const yearlyChart = earnings.financialsChart?.yearly;
-    if (Array.isArray(yearlyChart) && yearlyChart.length > 0) {
-      const baseEarningsRaw = yearlyChart[yearlyChart.length - 1]?.earnings?.raw;
-      historicalFinances = yearlyChart.map((y) => {
-        const rev = Math.round((y.revenue?.raw || 0) / (isUS ? 1_000_000 : 100_000_000));
-        const net = Math.round((y.earnings?.raw || 0) / (isUS ? 1_000_000 : 100_000_000));
-        const opInc = Math.round(net * 1.3);
-        const earningsRatio =
-          typeof baseEarningsRaw === "number" &&
-          baseEarningsRaw > 0 &&
-          typeof y.earnings?.raw === "number"
-            ? y.earnings.raw / baseEarningsRaw
-            : 1;
-        const yEps = eps ? Math.round(eps * earningsRatio) : 0;
-        const yDps = dps ? Math.round(dps * (y.date < currentYear ? 0.9 : 1)) : 0;
-        return {
-          fiscalYear: `${y.date}/3`,
-          revenue: rev,
-          operatingIncome: opInc,
-          netIncome: net,
-          eps: yEps,
-          dps: yDps,
-        };
-      });
+    if (!isMacroAsset) {
+      const yearlyChart = earnings.financialsChart?.yearly;
+      if (Array.isArray(yearlyChart) && yearlyChart.length > 0) {
+        const baseEarningsRaw = yearlyChart[yearlyChart.length - 1]?.earnings?.raw;
+        historicalFinances = yearlyChart.map((y) => {
+          const rev = Math.round((y.revenue?.raw || 0) / (isUS ? 1_000_000 : 100_000_000));
+          const net = Math.round((y.earnings?.raw || 0) / (isUS ? 1_000_000 : 100_000_000));
+          const opInc = Math.round(net * 1.3);
+          const earningsRatio =
+            typeof baseEarningsRaw === "number" &&
+            baseEarningsRaw > 0 &&
+            typeof y.earnings?.raw === "number"
+              ? y.earnings.raw / baseEarningsRaw
+              : 1;
+          const yEps = eps ? Math.round(eps * earningsRatio) : 0;
+          const yDps = dps ? Math.round(dps * (y.date < currentYear ? 0.9 : 1)) : 0;
+          return {
+            fiscalYear: isUS ? `${y.date} FY` : `${y.date}/3`,
+            revenue: rev,
+            operatingIncome: opInc,
+            netIncome: net,
+            eps: yEps,
+            dps: yDps,
+          };
+        });
+      }
+    } else {
+      historicalFinances = [];
     }
   } catch {
     // Ignore error and return populated fundamentals

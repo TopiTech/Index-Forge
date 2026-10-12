@@ -150,6 +150,70 @@ function generateDeterministicHistory(
   return result;
 }
 
+/**
+ * Map local/Yahoo style tickers to valid TradingView symbol codes.
+ * Returns null if the symbol is known to be unsupported in TradingView embeds,
+ * triggering automatic fallback to LOCAL QUANT ENGINE.
+ */
+export function resolveTradingViewSymbol(
+  ticker: string,
+  isUS = false,
+): { symbol: string | null; isSupported: boolean } {
+  if (!ticker || !ticker.trim()) return { symbol: null, isSupported: false };
+  const clean = ticker.trim().toUpperCase();
+
+  // Explicit index and macro mappings
+  const SPECIAL_MAP: Record<string, string> = {
+    "^GSPC": "FOREXCOM:SPXUSD",
+    "^IXIC": "NASDAQ:IXIC",
+    "^DJI": "FOREXCOM:DJI",
+    "^N225": "INDEX:NKY",
+    "^TOPX": "TSE:1308",
+    "^TOPIXG": "TSE:2516",
+    "USDJPY=X": "FX:USDJPY",
+    "EURUSD=X": "FX:EURUSD",
+    "EURJPY=X": "FX:EURJPY",
+    "GBPJPY=X": "FX:GBPJPY",
+    "FX_IDC:USDJPY": "FX:USDJPY",
+    "BTC-USD": "COINBASE:BTCUSD",
+  };
+
+  if (SPECIAL_MAP[clean]) {
+    return { symbol: SPECIAL_MAP[clean], isSupported: true };
+  }
+
+  // Already prefixed with exchange
+  if (
+    clean.startsWith("NASDAQ:") ||
+    clean.startsWith("NYSE:") ||
+    clean.startsWith("AMEX:") ||
+    clean.startsWith("CBOE:") ||
+    clean.startsWith("TSE:") ||
+    clean.startsWith("FOREXCOM:") ||
+    clean.startsWith("FX:") ||
+    clean.startsWith("INDEX:")
+  ) {
+    return { symbol: clean, isSupported: true };
+  }
+
+  // Tickers starting with caret '^' or containing '=X' that weren't in SPECIAL_MAP are unsupported
+  if (clean.startsWith("^") || clean.includes("=X")) {
+    return { symbol: null, isSupported: false };
+  }
+
+  // Tokyo Stock Exchange (digits, 130A style)
+  if (/^\d/.test(clean)) {
+    return { symbol: `TSE:${clean.replace(/[^0-9A-Za-z]/g, "")}`, isSupported: true };
+  }
+
+  // Standard US equities (e.g. AAPL, NVDA, MSFT)
+  if (/^[A-Z]{1,6}$/.test(clean)) {
+    return { symbol: clean, isSupported: true };
+  }
+
+  return { symbol: isUS ? clean : null, isSupported: isUS };
+}
+
 export function StockTechnicalChart({
   stock,
   theme = "dark",
@@ -170,6 +234,11 @@ export function StockTechnicalChart({
     return () => window.removeEventListener("resize", handleResize);
   }, []);
   const activeIsMobile = isMobile || internalIsMobile;
+
+  const tvResolution = useMemo(
+    () => resolveTradingViewSymbol(stock.ticker, isUS),
+    [stock.ticker, isUS],
+  );
 
   // States for TradingView widget loading & fault tolerance
   const [tvLoaded, setTvLoaded] = useState(false);
@@ -194,8 +263,9 @@ export function StockTechnicalChart({
 
   // Decide effective active engine
   const effectiveMode = useMemo<"TRADINGVIEW" | "LOCAL">(() => {
-    // If fallback is triggered due to error/timeout, automatically fall back to LOCAL
+    // If symbol is not supported by TradingView, or fallback is active, automatically fall back to LOCAL
     if (tvFallbackActive || tvError || tvTimedOut) return "LOCAL";
+    if (!tvResolution.isSupported) return "LOCAL";
     if (userSelectedMode === "LOCAL") return "LOCAL";
     if (userSelectedMode === "TRADINGVIEW") return "TRADINGVIEW";
     // AUTO: US stock gets TradingView (unless error/timeout or demo)
@@ -203,7 +273,34 @@ export function StockTechnicalChart({
       return "TRADINGVIEW";
     }
     return "LOCAL";
-  }, [userSelectedMode, isUS, isDemo, tvError, tvTimedOut, tvFallbackActive]);
+  }, [tvResolution.isSupported, userSelectedMode, isUS, isDemo, tvError, tvTimedOut, tvFallbackActive]);
+
+  // Listen for TradingView postMessage runtime error events (e.g. invalid symbol)
+  useEffect(() => {
+    if (effectiveMode !== "TRADINGVIEW") return;
+    const handleTvMessage = (event: MessageEvent) => {
+      try {
+        const data = typeof event.data === "string" ? JSON.parse(event.data) : event.data;
+        if (
+          data &&
+          (data.name === "tv-widget-symbol-error" ||
+            data.name === "symbol_error" ||
+            data.event === "symbol_error" ||
+            (typeof data.msg === "string" && data.msg.toLowerCase().includes("symbol")))
+        ) {
+          setTvError(true);
+          setTvFallbackActive(true);
+        }
+      } catch {
+        // Ignore non-JSON postMessage from other scripts
+      }
+    };
+
+    window.addEventListener("message", handleTvMessage);
+    return () => {
+      window.removeEventListener("message", handleTvMessage);
+    };
+  }, [effectiveMode]);
 
   // Load /api/sync-prices or generate deterministic series for local chart
   useEffect(() => {
@@ -352,18 +449,12 @@ export function StockTechnicalChart({
     script.type = "text/javascript";
     script.async = true;
 
-    // Sanitize symbol for TradingView embed
-    const cleanTicker = stock.ticker.trim().toUpperCase();
-    const isUSStock = isUS;
-    const tvSymbol = cleanTicker.startsWith("NASDAQ:") ||
-      cleanTicker.startsWith("NYSE:") ||
-      cleanTicker.startsWith("AMEX:") ||
-      cleanTicker.startsWith("CBOE:") ||
-      cleanTicker.startsWith("TSE:")
-        ? cleanTicker
-        : isUSStock
-          ? cleanTicker
-          : `TSE:${cleanTicker.replace(/[^0-9A-Za-z]/g, "")}`;
+    // Sanitize and resolve symbol for TradingView embed
+    const tvSymbol = tvResolution.symbol;
+    if (!tvSymbol) {
+      setTvFallbackActive(true);
+      return;
+    }
 
     script.textContent = JSON.stringify({
       autosize: true,
@@ -576,7 +667,7 @@ export function StockTechnicalChart({
             <div>
               <div style={{ fontWeight: 600 }}>TradingView自動フォールバック稼働中</div>
               <div className="tiny" style={{ opacity: 0.9 }}>
-                接続制限または待機タイムアウトを検知したため、ローカル高機能チャートで表示しています（日足終値・移動平均線・出来高）。
+                TradingViewシンボル非対応またはエラー・接続制限を検知したため、ローカル高機能チャートで表示しています（日足終値・移動平均線・出来高）。
               </div>
             </div>
           </div>

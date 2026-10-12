@@ -496,6 +496,34 @@ const KNOWN_STOCK_ANCHORS: Record<string, KnownStockAnchor> = {
   },
 };
 
+/**
+ * Check if a ticker corresponds to a stock market index (e.g. ^GSPC, ^N225).
+ */
+export function isIndexAsset(ticker: string): boolean {
+  if (!ticker) return false;
+  const t = ticker.trim().toUpperCase();
+  if (t.startsWith("^") || t.startsWith("INDEX:")) return true;
+  return DEFAULT_MARKET_OVERVIEW.indices.some((idx) => idx.symbol.toUpperCase() === t);
+}
+
+/**
+ * Check if a ticker corresponds to a macro/benchmark asset (Index, FX, Commodity, Crypto).
+ */
+export function isMacroAsset(ticker: string): boolean {
+  if (!ticker) return false;
+  const t = ticker.trim().toUpperCase();
+  if (isIndexAsset(t)) return true;
+  if (t.includes("=X") || t.startsWith("FX:") || t.startsWith("FX_IDC:")) return true;
+  if (t.endsWith("-USD") || t.endsWith("USDT")) return true;
+  const allAssets = [
+    ...DEFAULT_MARKET_OVERVIEW.indices,
+    ...DEFAULT_MARKET_OVERVIEW.forex,
+    ...DEFAULT_MARKET_OVERVIEW.commodities,
+    ...DEFAULT_MARKET_OVERVIEW.crypto,
+  ];
+  return allAssets.some((a) => a.symbol.toUpperCase() === t);
+}
+
 // Generates rich fundamentals for any ticker
 export function getStockFundamentals(ticker: string): StockQuoteFundamentals {
   const input = ticker.trim().toUpperCase();
@@ -514,6 +542,17 @@ export function getStockFundamentals(ticker: string): StockQuoteFundamentals {
     ? allOverviewAssets.find((a) => a.symbol === normTicker)
     : undefined;
 
+  const isIndex = isIndexAsset(normTicker) || overviewAsset?.category === "INDEX";
+  const isFx = normTicker.includes("=X") || overviewAsset?.category === "FX";
+  const isCrypto = normTicker.endsWith("-USD") || overviewAsset?.category === "CRYPTO";
+  const isMacro = Boolean(
+    isIndex ||
+    isFx ||
+    isCrypto ||
+    overviewAsset?.category === "COMMODITY" ||
+    overviewAsset?.category === "BOND",
+  );
+
   const name = matchedPreset
     ? matchedPreset.name
     : overviewAsset
@@ -531,7 +570,13 @@ export function getStockFundamentals(ticker: string): StockQuoteFundamentals {
             : overviewAsset.category === "CRYPTO"
               ? "暗号資産"
               : "株価指数"
-      : "株式";
+      : isIndex
+        ? "株価指数"
+        : isFx
+          ? "為替"
+          : isCrypto
+            ? "暗号資産"
+            : "株式";
   const isUS = !/^\d/.test(normTicker);
 
   const anchor = KNOWN_STOCK_ANCHORS[normTicker];
@@ -557,26 +602,26 @@ export function getStockFundamentals(ticker: string): StockQuoteFundamentals {
       : Number(((basePrice * changePct) / 100).toFixed(2));
   const prevClose = Number((basePrice - change).toFixed(2));
 
-  const per = overviewAsset
+  const per = isMacro
     ? null
     : anchor
       ? anchor.per
       : isUS
         ? 22 + (seed % 35)
         : 12 + (seed % 20);
-  const pbr = overviewAsset
+  const pbr = isMacro
     ? null
     : anchor
       ? anchor.pbr
       : Number((0.8 + (seed % 35) / 10).toFixed(2));
-  const dividendYield = overviewAsset
+  const dividendYield = isMacro
     ? null
     : anchor
       ? anchor.dividendYield
       : Number((1.5 + (seed % 30) / 10).toFixed(2));
-  const roe = overviewAsset ? null : anchor ? anchor.roe : Number((8 + (seed % 14)).toFixed(1));
-  const equityRatio = overviewAsset ? null : anchor ? anchor.equityRatio : 40 + (seed % 45);
-  const marketCap = overviewAsset
+  const roe = isMacro ? null : anchor ? anchor.roe : Number((8 + (seed % 14)).toFixed(1));
+  const equityRatio = isMacro ? null : anchor ? anchor.equityRatio : 40 + (seed % 45);
+  const marketCap = isMacro
     ? 0
     : anchor
       ? anchor.marketCap
@@ -584,14 +629,14 @@ export function getStockFundamentals(ticker: string): StockQuoteFundamentals {
         ? 45000 + seed * 850
         : 12000 + seed * 280;
 
-  const eps = overviewAsset
+  const eps = isMacro
     ? null
     : anchor
       ? anchor.eps
       : per
         ? Number((basePrice / per).toFixed(1))
         : null;
-  const dps = overviewAsset
+  const dps = isMacro
     ? null
     : anchor
       ? anchor.dps
@@ -600,7 +645,13 @@ export function getStockFundamentals(ticker: string): StockQuoteFundamentals {
         : null;
   const sector = overviewAsset
     ? overviewAsset.category
-    : (anchor?.sector ?? (isUS ? "Information Tech" : "電気機器・精密"));
+    : isIndex
+      ? "INDEX"
+      : isFx
+        ? "FX"
+        : isCrypto
+          ? "CRYPTO"
+          : (anchor?.sector ?? (isUS ? "Information Tech" : "電気機器・精密"));
 
   let technicalSignal: StockQuoteFundamentals["technicalSignal"] = "BUY";
   if (changePct > 2.0) technicalSignal = "STRONG_BUY";
@@ -612,40 +663,42 @@ export function getStockFundamentals(ticker: string): StockQuoteFundamentals {
   const currentYear = new Date().getFullYear();
   const safeEps = eps ?? 0;
   const safeDps = dps ?? 0;
-  const historicalFinances = [
-    {
-      fiscalYear: `${currentYear - 3}/3`,
-      revenue: Math.round(marketCap * 0.72),
-      operatingIncome: Math.round(marketCap * 0.08),
-      netIncome: Math.round(marketCap * 0.055),
-      eps: Math.round(safeEps * 0.75),
-      dps: Math.round(safeDps * 0.8),
-    },
-    {
-      fiscalYear: `${currentYear - 2}/3`,
-      revenue: Math.round(marketCap * 0.81),
-      operatingIncome: Math.round(marketCap * 0.095),
-      netIncome: Math.round(marketCap * 0.065),
-      eps: Math.round(safeEps * 0.88),
-      dps: Math.round(safeDps * 0.9),
-    },
-    {
-      fiscalYear: `${currentYear - 1}/3`,
-      revenue: Math.round(marketCap * 0.92),
-      operatingIncome: Math.round(marketCap * 0.11),
-      netIncome: Math.round(marketCap * 0.078),
-      eps: Math.round(safeEps * 0.96),
-      dps: Math.round(safeDps * 0.95),
-    },
-    {
-      fiscalYear: `${currentYear}/3 (予)`,
-      revenue: Math.round(marketCap * 1.04),
-      operatingIncome: Math.round(marketCap * 0.125),
-      netIncome: Math.round(marketCap * 0.088),
-      eps: safeEps,
-      dps: safeDps,
-    },
-  ];
+  const historicalFinances = isMacro
+    ? []
+    : [
+        {
+          fiscalYear: isUS ? `${currentYear - 3} FY` : `${currentYear - 3}/3`,
+          revenue: Math.round(marketCap * 0.72),
+          operatingIncome: Math.round(marketCap * 0.08),
+          netIncome: Math.round(marketCap * 0.055),
+          eps: Math.round(safeEps * 0.75),
+          dps: Math.round(safeDps * 0.8),
+        },
+        {
+          fiscalYear: isUS ? `${currentYear - 2} FY` : `${currentYear - 2}/3`,
+          revenue: Math.round(marketCap * 0.81),
+          operatingIncome: Math.round(marketCap * 0.095),
+          netIncome: Math.round(marketCap * 0.065),
+          eps: Math.round(safeEps * 0.88),
+          dps: Math.round(safeDps * 0.9),
+        },
+        {
+          fiscalYear: isUS ? `${currentYear - 1} FY` : `${currentYear - 1}/3`,
+          revenue: Math.round(marketCap * 0.92),
+          operatingIncome: Math.round(marketCap * 0.11),
+          netIncome: Math.round(marketCap * 0.078),
+          eps: Math.round(safeEps * 0.96),
+          dps: Math.round(safeDps * 0.95),
+        },
+        {
+          fiscalYear: isUS ? `${currentYear} FY (予)` : `${currentYear}/3 (予)`,
+          revenue: Math.round(marketCap * 1.04),
+          operatingIncome: Math.round(marketCap * 0.125),
+          netIncome: Math.round(marketCap * 0.088),
+          eps: safeEps,
+          dps: safeDps,
+        },
+      ];
 
   const s1 = Number((prevClose * (1 - ((seed % 15) - 7) / 200)).toFixed(2));
   const s2 = Number((prevClose * (1 - ((seed % 19) - 9) / 200)).toFixed(2));
@@ -804,14 +857,13 @@ export function normalizeMarketOverview(raw: unknown): MarketOverviewData | null
   };
 }
 
-// The worker has no /api/market/overview route yet, so every call would 404
-// (or fall through to the SPA index.html in dev). Remember a confirmed
-// missing/mismatched endpoint and skip the request until a full reload.
 let overviewEndpointConfirmedMissing = false;
+let overviewEndpointMissingUntil = 0;
 
 /** Test hook: re-arm the endpoint probe between assertions. */
 export function resetMarketOverviewEndpointProbe(): void {
   overviewEndpointConfirmedMissing = false;
+  overviewEndpointMissingUntil = 0;
 }
 
 // Fetch Market Overview Data (with API fallback and forceRefresh support)
@@ -819,8 +871,11 @@ export async function fetchMarketOverview(forceRefresh = false): Promise<MarketO
   const isBrowser = typeof globalThis !== "undefined" && "window" in globalThis;
   if (forceRefresh) {
     overviewEndpointConfirmedMissing = false;
+    overviewEndpointMissingUntil = 0;
   }
-  if (isBrowser && !overviewEndpointConfirmedMissing) {
+  const now = Date.now();
+  const isCooldown = now < overviewEndpointMissingUntil;
+  if (isBrowser && (!overviewEndpointConfirmedMissing || !isCooldown || forceRefresh)) {
     try {
       const res = await fetch("/api/market/overview", {
         headers: { accept: "application/json" },
@@ -828,6 +883,7 @@ export async function fetchMarketOverview(forceRefresh = false): Promise<MarketO
       });
       if (res.status === 404) {
         overviewEndpointConfirmedMissing = true;
+        overviewEndpointMissingUntil = now + 30000;
         return withFallbackMetadata(DEFAULT_MARKET_OVERVIEW);
       }
       if (res.ok) {
@@ -836,10 +892,13 @@ export async function fetchMarketOverview(forceRefresh = false): Promise<MarketO
         // that is not JSON means the route does not exist.
         if (!contentType.includes("json")) {
           overviewEndpointConfirmedMissing = true;
+          overviewEndpointMissingUntil = now + 30000;
           return withFallbackMetadata(DEFAULT_MARKET_OVERVIEW);
         }
         const normalized = normalizeMarketOverview(await res.json());
         if (normalized) {
+          overviewEndpointConfirmedMissing = false;
+          overviewEndpointMissingUntil = 0;
           return {
             ...normalized,
             dataSource: normalized.dataSource || "live",

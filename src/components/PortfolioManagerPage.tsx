@@ -45,7 +45,7 @@ import {
   fetchStockFundamentals,
   type StockQuoteFundamentals,
 } from "../lib/marketDataService";
-import { POPULAR_STOCKS } from "../data/popularStocks";
+import { POPULAR_STOCKS, PRESET_STOCKS, searchPopularStocks } from "../data/popularStocks";
 import { getStockCurrency } from "../lib/currency";
 import type { PageView } from "../lib/navigation";
 import { useToast } from "./Toast";
@@ -107,8 +107,10 @@ export function PortfolioManagerPage({
 
   // New position form state
   const [newTicker, setNewTicker] = useState("7203");
+  const [newName, setNewName] = useState("トヨタ自動車");
   const [newShares, setNewShares] = useState("100");
   const [newAverageCost, setNewAverageCost] = useState("2500");
+  const [addError, setAddError] = useState<string | null>(null);
 
   const mountedRef = useRef(true);
   const requestIdRef = useRef(0);
@@ -248,24 +250,40 @@ export function PortfolioManagerPage({
     const shares = parseFloat(newShares);
     const avgCost = parseFloat(newAverageCost);
 
-    if (!ticker || isNaN(shares) || shares <= 0 || isNaN(avgCost) || avgCost <= 0) {
+    if (!ticker) {
+      setAddError("銘柄コードを入力してください");
+      return;
+    }
+    if (!/^[A-Za-z0-9.-]{1,20}$/.test(ticker)) {
+      setAddError("銘柄コードは英数字、ハイフン、ピリオド（最大20文字）で入力してください (例: 7203, AAPL)");
+      return;
+    }
+    if (isNaN(shares) || shares <= 0) {
+      setAddError("保有株数は正の数値を入力してください");
+      return;
+    }
+    if (isNaN(avgCost) || avgCost <= 0) {
+      setAddError("平均取得単価は正の数値を入力してください");
       return;
     }
 
     const fund = getStockFundamentals(ticker);
+    const resolvedName = newName.trim() || fund.name || ticker;
+
     const newPos: PortfolioPosition = {
       id: `pos-${Date.now()}`,
       ticker,
-      name: fund.name,
+      name: resolvedName,
       shares,
       averageCost: avgCost,
       acquiredAt: new Date().toISOString().split("T")[0],
     };
 
+    setAddError(null);
     positionsPersistedRef.current = true;
     setPositions((prev) => [...prev, newPos]);
     setIsAddModalOpen(false);
-    success(`「${fund.name} (${ticker})」を保有ポートフォリオに追加しました`);
+    success(`「${resolvedName} (${ticker})」を保有ポートフォリオに追加しました`);
   };
 
   const handleDeletePosition = (id: string, name: string) => {
@@ -755,6 +773,39 @@ export function PortfolioManagerPage({
         </div>
       </div>
 
+      {/* FX Rate & Currency Conversion Notice */}
+      <div
+        className="card"
+        style={{
+          padding: "10px 16px",
+          marginBottom: "16px",
+          background: "rgba(0, 229, 255, 0.04)",
+          border: "1px solid var(--border-cyan)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          flexWrap: "wrap",
+          gap: "8px",
+          fontSize: "0.85rem",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          <Coins size={16} style={{ color: "var(--accent-text)" }} />
+          <span>
+            為替換算基準レート:{" "}
+            <strong className="mono" style={{ color: "var(--neon-cyan)" }}>
+              1 USD = {usdJpyRate ? usdJpyRate.toFixed(2) : "150.00"} JPY
+            </strong>{" "}
+            <span className="tiny muted">
+              {usdJpyRate ? "(リアルタイム為替市場レート適用)" : "(基準参考レート)"}
+            </span>
+          </span>
+        </div>
+        <span className="tiny muted">
+          ※ 米国株（USD）は為替レートに基づき円換算され、ポートフォリオ全体の円評価額・損益に合算されます
+        </span>
+      </div>
+
       {/* Financial Summary KPI Cards */}
       <div
         style={{
@@ -1221,40 +1272,151 @@ export function PortfolioManagerPage({
       {/* Add Position Modal */}
       <ModalBase
         isOpen={isAddModalOpen}
-        onClose={() => setIsAddModalOpen(false)}
+        onClose={() => {
+          setIsAddModalOpen(false);
+          setAddError(null);
+        }}
         title="保有銘柄の新規登録"
         icon={<Briefcase size={18} style={{ color: "var(--accent-text)" }} />}
-        maxWidth={480}
+        maxWidth={500}
       >
         <form onSubmit={handleAddPosition}>
-          <div style={{ marginBottom: 14 }}>
-            <label
-              htmlFor="position-ticker-select"
-              className="tiny muted mono uppercase block"
-              style={{ marginBottom: 4 }}
-            >
-              銘柄コードまたはプリセット
-            </label>
-            <select
-              id="position-ticker-select"
-              className="select-styled"
-              style={{ width: "100%", padding: "8px 12px" }}
-              value={newTicker}
-              onChange={(e) => {
-                setNewTicker(e.target.value);
-                const f = getStockFundamentals(e.target.value);
-                setNewAverageCost(String(f.price));
+          {addError && (
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                padding: "8px 12px",
+                marginBottom: 14,
+                borderRadius: 6,
+                background: "rgba(239, 68, 68, 0.12)",
+                border: "1px solid rgba(239, 68, 68, 0.4)",
+                color: "var(--color-negative)",
+                fontSize: "0.85rem",
               }}
             >
-              {POPULAR_STOCKS.map((s) => (
-                <option key={s.ticker} value={s.ticker}>
-                  {s.ticker} - {s.name} ({s.theme})
-                </option>
+              <AlertCircle size={15} />
+              <span>{addError}</span>
+            </div>
+          )}
+
+          {/* Quick preset selector buttons */}
+          <div style={{ marginBottom: 12 }}>
+            <span className="tiny muted mono uppercase block" style={{ marginBottom: 6 }}>
+              人気銘柄クイック選択
+            </span>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {PRESET_STOCKS.slice(0, 7).map((p) => (
+                <button
+                  key={p.ticker}
+                  type="button"
+                  className="btn btn-ghost tiny"
+                  style={{
+                    border: "1px solid var(--border-subtle)",
+                    padding: "3px 8px",
+                    fontSize: "11px",
+                    background: newTicker.toUpperCase() === p.ticker.toUpperCase() ? "rgba(0, 229, 255, 0.15)" : undefined,
+                    borderColor: newTicker.toUpperCase() === p.ticker.toUpperCase() ? "var(--neon-cyan)" : undefined,
+                  }}
+                  onClick={() => {
+                    setNewTicker(p.ticker);
+                    setNewName(p.name);
+                    const f = getStockFundamentals(p.ticker);
+                    if (f && f.price > 0) {
+                      setNewAverageCost(String(f.price));
+                    }
+                    setAddError(null);
+                  }}
+                >
+                  <span className="mono bold">{p.ticker}</span>
+                  <span style={{ marginLeft: 4 }}>{p.name}</span>
+                </button>
               ))}
-            </select>
+            </div>
           </div>
 
-          <div style={{ marginBottom: 14 }}>
+          {/* Custom ticker input */}
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+              <label htmlFor="position-ticker-select" className="tiny muted mono uppercase">
+                銘柄コード (ティッカー)
+              </label>
+              <span className="tiny mono" style={{ color: "var(--accent-text)" }}>
+                通貨区分: {getStockCurrency(newTicker) === "$" ? "米ドル (USD)" : "日本円 (JPY)"}
+              </span>
+            </div>
+            <input
+              id="position-ticker-select"
+              type="text"
+              className="input-styled mono"
+              style={{ width: "100%", padding: "8px 12px", textTransform: "uppercase" }}
+              placeholder="例: 7203, AAPL, 6758, NVDA, TSLA"
+              value={newTicker}
+              onChange={(e) => {
+                const val = e.target.value;
+                setNewTicker(val);
+                setAddError(null);
+                const upper = val.trim().toUpperCase();
+                if (upper) {
+                  const match = POPULAR_STOCKS.find((s) => s.ticker.toUpperCase() === upper);
+                  if (match) {
+                    setNewName(match.name);
+                    const f = getStockFundamentals(upper);
+                    if (f && f.price > 0) {
+                      setNewAverageCost(String(f.price));
+                    }
+                  }
+                }
+              }}
+              required
+            />
+
+            {/* Suggestions dropdown if user is typing query */}
+            {newTicker.trim().length >= 1 && (
+              <div style={{ marginTop: 4, display: "flex", flexWrap: "wrap", gap: 4 }}>
+                {searchPopularStocks(newTicker, 3)
+                  .filter((s) => s.ticker.toUpperCase() !== newTicker.trim().toUpperCase())
+                  .map((s) => (
+                    <button
+                      key={s.ticker}
+                      type="button"
+                      className="btn btn-ghost tiny"
+                      style={{ fontSize: "11px", padding: "2px 6px" }}
+                      onClick={() => {
+                        setNewTicker(s.ticker);
+                        setNewName(s.name);
+                        const f = getStockFundamentals(s.ticker);
+                        if (f && f.price > 0) {
+                          setNewAverageCost(String(f.price));
+                        }
+                      }}
+                    >
+                      候補: <span className="mono bold">{s.ticker}</span> ({s.name})
+                    </button>
+                  ))}
+              </div>
+            )}
+          </div>
+
+          {/* Stock Name input */}
+          <div style={{ marginBottom: 12 }}>
+            <label htmlFor="position-name-input" className="tiny muted mono uppercase block" style={{ marginBottom: 4 }}>
+              銘柄名・企業名
+            </label>
+            <input
+              id="position-name-input"
+              type="text"
+              className="input-styled"
+              style={{ width: "100%", padding: "8px 12px" }}
+              placeholder="例: トヨタ自動車 (未入力の場合は自動解決)"
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+            />
+          </div>
+
+          {/* Shares input */}
+          <div style={{ marginBottom: 12 }}>
             <label
               htmlFor="position-shares-input"
               className="tiny muted mono uppercase block"
@@ -1268,39 +1430,82 @@ export function PortfolioManagerPage({
               className="input-styled mono"
               style={{ width: "100%", padding: "8px 12px" }}
               value={newShares}
-              onChange={(e) => setNewShares(e.target.value)}
+              onChange={(e) => {
+                setNewShares(e.target.value);
+                setAddError(null);
+              }}
               min="0.001"
               step="any"
               required
             />
           </div>
 
-          <div style={{ marginBottom: 20 }}>
-            <label
-              htmlFor="position-avg-cost-input"
-              className="tiny muted mono uppercase block"
-              style={{ marginBottom: 4 }}
-            >
-              平均取得単価 (円またはドル)
-            </label>
+          {/* Average cost input with clear currency indicator */}
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+              <label
+                htmlFor="position-avg-cost-input"
+                className="tiny muted mono uppercase"
+              >
+                平均取得単価 ({getStockCurrency(newTicker) === "$" ? "米ドル / USD ($)" : "日本円 / 円 (¥)"})
+              </label>
+              <button
+                type="button"
+                className="btn btn-ghost tiny"
+                style={{ fontSize: "11px", padding: "1px 6px" }}
+                onClick={() => {
+                  const f = getStockFundamentals(newTicker.trim());
+                  if (f && f.price > 0) {
+                    setNewAverageCost(String(f.price));
+                  }
+                }}
+              >
+                現在参考価格を自動入力
+              </button>
+            </div>
             <input
               id="position-avg-cost-input"
               type="number"
               className="input-styled mono"
               style={{ width: "100%", padding: "8px 12px" }}
               value={newAverageCost}
-              onChange={(e) => setNewAverageCost(e.target.value)}
+              onChange={(e) => {
+                setNewAverageCost(e.target.value);
+                setAddError(null);
+              }}
+              placeholder={getStockCurrency(newTicker) === "$" ? "例: 175.50 (USD)" : "例: 2500 (円)"}
               min="0.01"
               step="any"
               required
             />
+            <p className="tiny muted" style={{ margin: "4px 0 0", fontSize: "11px" }}>
+              ※ {getStockCurrency(newTicker) === "$" ? "米国株は米ドル建単価 (USD) を入力してください。" : "日本株は日本円建単価 (¥) を入力してください。"}
+            </p>
+          </div>
+
+          <div
+            style={{
+              padding: "8px 12px",
+              marginBottom: 16,
+              borderRadius: 6,
+              background: "rgba(0, 229, 255, 0.05)",
+              border: "1px solid var(--border-cyan)",
+              fontSize: "11px",
+              color: "var(--text-secondary)",
+              lineHeight: 1.5,
+            }}
+          >
+            ※ 米国株 (USD) の評価額および損益は、為替市場のリアルタイムレート (1 USD ≒ {usdJpyRate ? usdJpyRate.toFixed(2) : "150.00"} 円) に基づき自動的に円換算されて総合計に反映されます。
           </div>
 
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
             <button
               type="button"
               className="btn btn-default"
-              onClick={() => setIsAddModalOpen(false)}
+              onClick={() => {
+                setIsAddModalOpen(false);
+                setAddError(null);
+              }}
             >
               キャンセル
             </button>

@@ -11,6 +11,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { POPULAR_STOCKS, type PopularStock } from "../data/popularStocks";
+import { DEFAULT_MARKET_OVERVIEW, isMacroAsset } from "../lib/marketDataService";
 import { useModalFocus } from "../hooks/useModalFocus";
 import { isInteractiveKeyTarget } from "../lib/keyboardTarget";
 import type { PageView } from "../lib/navigation";
@@ -52,7 +53,7 @@ export function GlobalSearchModal({
     }
   }, [isOpen]);
 
-  // Filter stocks and custom indices
+  // Filter stocks, macro assets, and custom indices
   const filteredResults = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) {
@@ -65,6 +66,43 @@ export function GlobalSearchModal({
         raw: stock,
       }));
     }
+
+    // Macro assets (indices, forex, commodities, crypto)
+    const allMacro = [
+      ...DEFAULT_MARKET_OVERVIEW.indices,
+      ...DEFAULT_MARKET_OVERVIEW.forex,
+      ...DEFAULT_MARKET_OVERVIEW.commodities,
+      ...DEFAULT_MARKET_OVERVIEW.crypto,
+    ];
+
+    const matchedMacro = allMacro
+      .filter(
+        (m) =>
+          m.symbol.toLowerCase().includes(q) ||
+          m.name.toLowerCase().includes(q) ||
+          (m.category === "INDEX" && ("指数".includes(q) || "index".includes(q))) ||
+          (m.category === "FX" && ("為替".includes(q) || "fx".includes(q) || "ドル円".includes(q))),
+      )
+      .slice(0, 4)
+      .map((item) => ({
+        type: "stock" as const,
+        id: item.symbol,
+        title: item.name,
+        subtitle: `${item.symbol} · ${
+          item.category === "INDEX"
+            ? "主要市場指数"
+            : item.category === "FX"
+              ? "外国為替"
+              : item.category === "COMMODITY"
+                ? "商品先物"
+                : "暗号資産"
+        } · ${item.price.toLocaleString()} ${item.currency}`,
+        raw: {
+          ticker: item.symbol,
+          name: item.name,
+          theme: item.category,
+        },
+      }));
 
     const matchedStocks = POPULAR_STOCKS.filter(
       (s) =>
@@ -100,9 +138,10 @@ export function GlobalSearchModal({
     const upperQuery = q.toUpperCase();
     const isTickerPattern = /^[A-Z0-9.]{2,8}$/.test(upperQuery);
     const hasExactTicker = matchedStocks.some((s) => s.id.toUpperCase() === upperQuery);
+    const hasExactMacro = matchedMacro.some((m) => m.id.toUpperCase() === upperQuery);
 
     const customStockResult =
-      isTickerPattern && !hasExactTicker
+      isTickerPattern && !hasExactTicker && !hasExactMacro
         ? [
             {
               type: "stock" as const,
@@ -118,7 +157,7 @@ export function GlobalSearchModal({
           ]
         : [];
 
-    return [...customStockResult, ...matchedStocks, ...matchedIndices];
+    return [...matchedMacro, ...customStockResult, ...matchedStocks, ...matchedIndices];
   }, [query, availableIndices]);
 
   // Handle keyboard navigation (Escape is owned by useModalFocus above)
@@ -309,7 +348,7 @@ export function GlobalSearchModal({
                           <span style={{ marginLeft: "4px" }}>監視</span>
                         </button>
                       )}
-                      {item.type === "stock" && onAddToIndex && (
+                      {item.type === "stock" && !isMacroAsset(item.id) && onAddToIndex && (
                         <button
                           type="button"
                           className="btn btn-ghost tiny"
