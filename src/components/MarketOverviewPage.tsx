@@ -117,7 +117,14 @@ export function MarketOverviewPage({
             )}
             {data.dataAsOf && (
               <span className="tiny muted mono" title="データ生成時刻">
-                DATA AS OF: {new Date(data.dataAsOf).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })}
+                DATA AS OF: {(() => {
+                  try {
+                    const parsed = new Date(data.dataAsOf);
+                    return isNaN(parsed.getTime()) ? data.dataAsOf : parsed.toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" });
+                  } catch {
+                    return data.dataAsOf;
+                  }
+                })()}
               </span>
             )}
           </div>

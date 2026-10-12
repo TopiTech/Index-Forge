@@ -96,6 +96,8 @@ export interface StockQuoteFundamentals {
 export interface CalendarEvent {
   id: string;
   date: string;
+  /** 完全な日付 (YYYY-MM-DD)。年を跨ぐソートや曜日判定の精度向上に使用 (後方互換のためオプショナル)。 */
+  fullDate?: string;
   type: "EARNINGS" | "MACRO";
   title: string;
   ticker?: string;
@@ -1282,6 +1284,7 @@ export function generateUpcomingEvents(referenceDate = new Date()): CalendarEven
   const mStr = (m: number) => String(m).padStart(2, "0");
   const dStr = (d: number) => String(d).padStart(2, "0");
   const fmt = (d: Date) => `${mStr(d.getMonth() + 1)}/${dStr(d.getDate())}`;
+  const fmtFull = (d: Date) => `${d.getFullYear()}-${mStr(d.getMonth() + 1)}-${dStr(d.getDate())}`;
 
   const addBusinessDays = (start: Date, days: number): Date => {
     const cur = new Date(start);
@@ -1307,9 +1310,11 @@ export function generateUpcomingEvents(referenceDate = new Date()): CalendarEven
   const events: CalendarEvent[] = [];
 
   // マクロ: 日銀会合 (直近平日)
+  const bojDate = adjustToWeekday(addBusinessDays(referenceDate, 4));
   events.push({
     id: "macro-boj",
-    date: fmt(adjustToWeekday(addBusinessDays(referenceDate, 4))),
+    date: fmt(bojDate),
+    fullDate: fmtFull(bojDate),
     type: "MACRO",
     title: "日銀金融政策決定会合・総裁記者会見",
     importance: "HIGH",
@@ -1319,9 +1324,11 @@ export function generateUpcomingEvents(referenceDate = new Date()): CalendarEven
   });
 
   // マクロ: 米FOMC (中旬〜月末平日)
+  const fomcDate = adjustToWeekday(addBusinessDays(referenceDate, 12));
   events.push({
     id: "macro-fomc",
-    date: fmt(adjustToWeekday(addBusinessDays(referenceDate, 12))),
+    date: fmt(fomcDate),
+    fullDate: fmtFull(fomcDate),
     type: "MACRO",
     title: "米FOMC 政策金利発表 & パウエル議長記者会見",
     importance: "HIGH",
@@ -1349,6 +1356,7 @@ export function generateUpcomingEvents(referenceDate = new Date()): CalendarEven
   events.push({
     id: "macro-jobs",
     date: fmt(jobsDate),
+    fullDate: fmtFull(jobsDate),
     type: "MACRO",
     title: "米雇用統計 (非農業部門雇用者数・失業率)",
     importance: "HIGH",
@@ -1373,6 +1381,7 @@ export function generateUpcomingEvents(referenceDate = new Date()): CalendarEven
   events.push({
     id: "macro-cpi",
     date: fmt(cpiDate),
+    fullDate: fmtFull(cpiDate),
     type: "MACRO",
     title: "米消費者物価指数 (CPI) 発表",
     importance: "HIGH",
@@ -1394,9 +1403,11 @@ export function generateUpcomingEvents(referenceDate = new Date()): CalendarEven
   ];
 
   for (const corp of corporateList) {
+    const corpDate = addBusinessDays(referenceDate, corp.days);
     events.push({
       id: corp.id,
-      date: fmt(addBusinessDays(referenceDate, corp.days)),
+      date: fmt(corpDate),
+      fullDate: fmtFull(corpDate),
       type: "EARNINGS",
       title: corp.title,
       ticker: corp.ticker,
@@ -1407,16 +1418,32 @@ export function generateUpcomingEvents(referenceDate = new Date()): CalendarEven
     });
   }
 
-  // 日付順にソート
+  // 日付順にソート (fullDate 優先、または6ヶ月境界判定)
   const currentYear = referenceDate.getFullYear();
   const currentMonth = referenceDate.getMonth() + 1;
-  return events.sort((a, b) => {
-    const [ma, da] = a.date.split("/").map(Number);
-    const [mb, db] = b.date.split("/").map(Number);
-    const ya = ma < currentMonth ? currentYear + 1 : currentYear;
-    const yb = mb < currentMonth ? currentYear + 1 : currentYear;
-    return new Date(ya, ma - 1, da).getTime() - new Date(yb, mb - 1, db).getTime();
-  });
+  const parseEventTime = (e: CalendarEvent): number => {
+    if (e.fullDate) {
+      const parts = e.fullDate.split("-");
+      if (parts.length === 3) {
+        const y = parseInt(parts[0], 10);
+        const m = parseInt(parts[1], 10);
+        const d = parseInt(parts[2], 10);
+        if (!isNaN(y) && !isNaN(m) && !isNaN(d)) {
+          return new Date(y, m - 1, d).getTime();
+        }
+      }
+    }
+    const [m, d] = e.date.split("/").map(Number);
+    let y = currentYear;
+    if (m < currentMonth && currentMonth - m >= 6) {
+      y = currentYear + 1;
+    } else if (m > currentMonth && m - currentMonth >= 6) {
+      y = currentYear - 1;
+    }
+    return new Date(y, m - 1, d).getTime();
+  };
+
+  return events.sort((a, b) => parseEventTime(a) - parseEventTime(b));
 }
 
 export const UPCOMING_EVENTS: CalendarEvent[] = generateUpcomingEvents();

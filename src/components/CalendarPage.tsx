@@ -13,16 +13,34 @@ interface CalendarPageProps {
   onOpenStockDetail: (ticker: string) => void;
 }
 
-function getEventDayOfWeek(dateStr: string): string {
+function getEventDayOfWeek(dateStr: string, fullDate?: string): string {
+  const days = ["日", "月", "火", "水", "木", "金", "土"];
+  if (fullDate) {
+    const parts = fullDate.split("-");
+    if (parts.length === 3) {
+      const y = parseInt(parts[0], 10);
+      const m = parseInt(parts[1], 10);
+      const d = parseInt(parts[2], 10);
+      if (!isNaN(y) && !isNaN(m) && !isNaN(d)) {
+        return days[new Date(y, m - 1, d).getDay()] || "";
+      }
+    }
+  }
   const parts = dateStr.split("/");
   if (parts.length !== 2) return "";
   const m = parseInt(parts[0], 10);
   const d = parseInt(parts[1], 10);
   if (isNaN(m) || isNaN(d)) return "";
   const now = new Date();
-  const year = m < now.getMonth() + 1 ? now.getFullYear() + 1 : now.getFullYear();
+  const currentMonth = now.getMonth() + 1;
+  const currentYear = now.getFullYear();
+  let year = currentYear;
+  if (m < currentMonth && currentMonth - m >= 6) {
+    year = currentYear + 1;
+  } else if (m > currentMonth && m - currentMonth >= 6) {
+    year = currentYear - 1;
+  }
   const dateObj = new Date(year, m - 1, d);
-  const days = ["日", "月", "火", "水", "木", "金", "土"];
   return days[dateObj.getDay()] || "";
 }
 
@@ -259,10 +277,11 @@ export function CalendarPage({
                       : undefined
                   }
                 >
-                  <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "16px", flex: 1, minWidth: 0 }}>
                     <div
                       style={{
                         width: "68px",
+                        flexShrink: 0,
                         textAlign: "center",
                         padding: "8px 0",
                         background: isMacro ? "rgba(56, 189, 248, 0.1)" : "rgba(16, 185, 129, 0.1)",
@@ -277,12 +296,12 @@ export function CalendarPage({
                         {evt.date}
                       </span>
                       <div className="tiny muted mono" style={{ fontSize: "0.68rem" }}>
-                        {getEventDayOfWeek(evt.date) ? `(${getEventDayOfWeek(evt.date)}) ` : ""}{isMacro ? "マクロ" : "決算"}
+                        {getEventDayOfWeek(evt.date, evt.fullDate) ? `(${getEventDayOfWeek(evt.date, evt.fullDate)}) ` : ""}{isMacro ? "マクロ" : "決算"}
                       </div>
                     </div>
 
-                    <div>
-                      <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "3px" }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "3px", flexWrap: "wrap" }}>
                         <span className="badge badge-default mono tiny">{evt.importance} 重要度</span>
                         {evt.ticker && <span className="badge badge-accent mono tiny">{evt.ticker}</span>}
                         {evt.source === "fallback" && (
@@ -299,13 +318,13 @@ export function CalendarPage({
                           </span>
                         )}
                       </div>
-                      <h3 style={{ fontSize: "1.05rem", fontWeight: 600, margin: 0 }}>
+                      <h3 style={{ fontSize: "1.05rem", fontWeight: 600, margin: 0, wordBreak: "break-word" }}>
                         {evt.title}
                       </h3>
                     </div>
                   </div>
 
-                  <div style={{ display: "flex", alignItems: "center", gap: "20px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "16px", flexWrap: "wrap" }}>
                     {evt.previous && (
                       <div className="tiny muted">
                         前回: <strong className="mono">{evt.previous}</strong>

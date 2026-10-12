@@ -2353,6 +2353,7 @@ function generateUpcomingMacroEvents(refDate = new Date()): CalendarEvent[] {
   const mStr = (m: number) => String(m).padStart(2, "0");
   const dStr = (d: number) => String(d).padStart(2, "0");
   const fmt = (d: Date) => `${mStr(d.getMonth() + 1)}/${dStr(d.getDate())}`;
+  const fmtFull = (d: Date) => `${d.getFullYear()}-${mStr(d.getMonth() + 1)}-${dStr(d.getDate())}`;
 
   const events: CalendarEvent[] = [];
   const refTime = refDate.getTime() - 24 * 60 * 60 * 1000; // 過去24時間以内は当日分として保持
@@ -2365,6 +2366,7 @@ function generateUpcomingMacroEvents(refDate = new Date()): CalendarEvent[] {
       events.push({
         id: `macro-boj-${item.year}-${mStr(item.month)}`,
         date: fmt(d),
+        fullDate: fmtFull(d),
         type: "MACRO",
         title: "日銀金融政策決定会合・総裁記者会見",
         importance: "HIGH",
@@ -2383,6 +2385,7 @@ function generateUpcomingMacroEvents(refDate = new Date()): CalendarEvent[] {
       events.push({
         id: `macro-fomc-${item.year}-${mStr(item.month)}`,
         date: fmt(d),
+        fullDate: fmtFull(d),
         type: "MACRO",
         title: "米FOMC 政策金利発表 & パウエル議長記者会見",
         importance: "HIGH",
@@ -2406,6 +2409,7 @@ function generateUpcomingMacroEvents(refDate = new Date()): CalendarEvent[] {
       events.push({
         id: `macro-jobs-${y}-${mStr(m + 1)}`,
         date: fmt(friday),
+        fullDate: fmtFull(friday),
         type: "MACRO",
         title: "米雇用統計 (非農業部門雇用者数・失業率)",
         importance: "HIGH",
@@ -2425,6 +2429,7 @@ function generateUpcomingMacroEvents(refDate = new Date()): CalendarEvent[] {
       events.push({
         id: `macro-cpi-${y}-${mStr(m + 1)}`,
         date: fmt(cpiDate),
+        fullDate: fmtFull(cpiDate),
         type: "MACRO",
         title: "米消費者物価指数 (CPI) 発表",
         importance: "HIGH",
@@ -2451,6 +2456,7 @@ function generateFallbackEarningsEvents(
   const mStr = (m: number) => String(m).padStart(2, "0");
   const dStr = (d: number) => String(d).padStart(2, "0");
   const fmt = (d: Date) => `${mStr(d.getMonth() + 1)}/${dStr(d.getDate())}`;
+  const fmtFull = (d: Date) => `${d.getFullYear()}-${mStr(d.getMonth() + 1)}-${dStr(d.getDate())}`;
 
   // 基準日以降の平日に自然に分散配置
   const addBusinessDays = (start: Date, days: number): Date => {
@@ -2482,6 +2488,7 @@ function generateFallbackEarningsEvents(
     return {
       id: corp.id,
       date: fmt(targetDate),
+      fullDate: fmtFull(targetDate),
       type: "EARNINGS" as const,
       title: corp.title,
       ticker: corp.ticker,
@@ -2498,11 +2505,27 @@ function sortCalendarEvents(events: CalendarEvent[], refDate = new Date()): Cale
   const currentMonth = refDate.getMonth() + 1;
 
   const parseTime = (e: CalendarEvent): number => {
+    if (e.fullDate) {
+      const parts = e.fullDate.split("-");
+      if (parts.length === 3) {
+        const y = parseInt(parts[0], 10);
+        const m = parseInt(parts[1], 10);
+        const d = parseInt(parts[2], 10);
+        if (!isNaN(y) && !isNaN(m) && !isNaN(d)) {
+          return new Date(y, m - 1, d).getTime();
+        }
+      }
+    }
     const parts = e.date.split("/");
     const m = parseInt(parts[0], 10);
     const d = parseInt(parts[1], 10);
     if (isNaN(m) || isNaN(d)) return 0;
-    const y = m < currentMonth ? currentYear + 1 : currentYear;
+    let y = currentYear;
+    if (m < currentMonth && currentMonth - m >= 6) {
+      y = currentYear + 1;
+    } else if (m > currentMonth && m - currentMonth >= 6) {
+      y = currentYear - 1;
+    }
     return new Date(y, m - 1, d).getTime();
   };
 
@@ -2591,18 +2614,28 @@ export async function fetchLiveMarketCalendarAsync(
               const matchedPreset = POPULAR_STOCKS.find((s) => s.ticker === normTicker);
               const companyName = matchedPreset?.name || q.displayName || q.shortName || normTicker;
               const title = `${companyName} (${normTicker}) 決算発表`;
-              const marketCap = q.marketCap ? Math.round(q.marketCap / 100_000_000) : undefined;
+              const isUS = !/^\d{4}/.test(normTicker) && !rawSymbol.endsWith(".T");
+              const marketCap = q.marketCap
+                ? isUS
+                  ? Math.round(q.marketCap / 1_000_000)
+                  : Math.round(q.marketCap / 100_000_000)
+                : undefined;
+              const isHighImportance = isUS
+                ? marketCap !== undefined && marketCap >= 500000
+                : marketCap !== undefined && marketCap >= 50000;
               const dateStr = `${mStr(jstDate.getUTCMonth() + 1)}/${dStr(jstDate.getUTCDate())}`;
+              const fullDateStr = `${jstDate.getUTCFullYear()}-${mStr(jstDate.getUTCMonth() + 1)}-${dStr(jstDate.getUTCDate())}`;
 
               liveEarnings.push({
                 id: `earn-live-${normTicker.toLowerCase()}`,
                 date: dateStr,
+                fullDate: fullDateStr,
                 type: "EARNINGS",
                 title,
                 ticker: normTicker,
                 companyName,
                 marketCap,
-                importance: marketCap && marketCap > 500000 ? "HIGH" : "MEDIUM",
+                importance: isHighImportance ? "HIGH" : "MEDIUM",
                 // 実データのため source は付与しない (undefined)
               });
             }
@@ -2617,11 +2650,12 @@ export async function fetchLiveMarketCalendarAsync(
   // 実データ決算イベントをフォールバック決算リストと統合
   const fallbackEarnings = generateFallbackEarningsEvents(universe, refDate);
   let finalEarnings: CalendarEvent[] = [];
+  let finalMacros = macroEvents;
 
   if (liveEarnings.length >= 4) {
     // 実データが十分に取得できた場合は実データを優先
     finalEarnings = liveEarnings;
-  } else {
+  } else if (liveEarnings.length > 0) {
     // 取得できた実データがあれば該当銘柄を実データに置換
     const liveMap = new Map<string, CalendarEvent>();
     for (const le of liveEarnings) {
@@ -2640,11 +2674,15 @@ export async function fetchLiveMarketCalendarAsync(
         finalEarnings.push(le);
       }
     }
+  } else {
+    // 実データ取得ゼロ件 (ネットワーク不通など): 全イベントに source: fallback を付与
+    finalEarnings = fallbackEarnings;
+    finalMacros = macroEvents.map((m) => ({ ...m, source: "fallback" }));
   }
 
-  const combined = sortCalendarEvents([...macroEvents, ...finalEarnings], refDate);
+  const combined = sortCalendarEvents([...finalMacros, ...finalEarnings], refDate);
 
-  const hasLive = combined.some((e) => e.source !== "fallback");
+  const hasLive = liveEarnings.length > 0;
   if (hasLive) {
     lastKnownCalendarEvents = combined;
   }
@@ -4465,7 +4503,9 @@ export default {
             events = lastKnownCalendarEvents || fetchLiveMarketCalendar(lastKnownScreenerUniverse ?? undefined);
           }
 
-          setMemoryCache(memKey, events, 600);
+          const isAllFallback = events.every((e) => e.source === "fallback");
+          const memTtl = isAllFallback ? 60 : 600;
+          setMemoryCache(memKey, events, memTtl);
 
           const cacheControl = `public, max-age=120, s-maxage=300`;
           const etag = await generateETag(JSON.stringify(events));
