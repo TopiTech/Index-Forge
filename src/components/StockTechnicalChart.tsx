@@ -15,7 +15,6 @@ import {
   ExternalLink,
   RefreshCw,
   AlertCircle,
-  BarChart2,
   Sliders,
 } from "lucide-react";
 import type { StockQuoteFundamentals } from "../lib/marketDataService";
@@ -53,8 +52,10 @@ function generateDeterministicHistory(
   const prevClose = stock.previousClose > 0 ? stock.previousClose : currentPrice;
   const dayHigh = stock.dayHigh > 0 ? stock.dayHigh : currentPrice * 1.01;
   const dayLow = stock.dayLow > 0 ? stock.dayLow : currentPrice * 0.99;
-  const yearHigh = stock.yearHigh > 0 ? stock.yearHigh : currentPrice * 1.2;
-  const yearLow = stock.yearLow > 0 ? stock.yearLow : currentPrice * 0.8;
+  const rawYearHigh = stock.yearHigh > 0 ? stock.yearHigh : currentPrice * 1.2;
+  const rawYearLow = stock.yearLow > 0 ? stock.yearLow : currentPrice * 0.8;
+  const yearHigh = Math.max(rawYearHigh, rawYearLow, currentPrice);
+  const yearLow = Math.min(rawYearHigh, rawYearLow, currentPrice * 0.5);
 
   // Simple pseudo-random hash based on ticker
   let seed = 0;
@@ -186,6 +187,11 @@ export function StockTechnicalChart({
   const tvContainerRef = useRef<HTMLDivElement>(null);
   const timeoutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const gradientId = useMemo(
+    () => `stockPriceAreaGrad-${stock.ticker.replace(/[^a-zA-Z0-9_-]/g, "_")}`,
+    [stock.ticker],
+  );
+
   // Decide effective active engine
   const effectiveMode = useMemo<"TRADINGVIEW" | "LOCAL">(() => {
     // If fallback is triggered due to error/timeout, automatically fall back to LOCAL
@@ -273,6 +279,11 @@ export function StockTechnicalChart({
     };
   }, [stock, retryKey]);
 
+  const activeIsMobileRef = useRef(activeIsMobile);
+  useEffect(() => {
+    activeIsMobileRef.current = activeIsMobile;
+  }, [activeIsMobile]);
+
   // Mount TradingView Widget when in TRADINGVIEW mode
   useEffect(() => {
     if (effectiveMode !== "TRADINGVIEW") return;
@@ -299,7 +310,7 @@ export function StockTechnicalChart({
     widgetInner.className = "tradingview-widget-container__widget";
     widgetInner.style.width = "100%";
     widgetInner.style.height = "100%";
-    widgetInner.style.minHeight = activeIsMobile ? "340px" : "460px";
+    widgetInner.style.minHeight = activeIsMobileRef.current ? "340px" : "460px";
     container.appendChild(widgetInner);
 
     const script = document.createElement("script");
@@ -337,6 +348,8 @@ export function StockTechnicalChart({
       studies: ["STD;SMA"],
     });
 
+    const resizeTimers: ReturnType<typeof setTimeout>[] = [];
+
     script.onload = () => {
       scriptLoaded = true;
       if (!isCancelled) {
@@ -344,16 +357,17 @@ export function StockTechnicalChart({
         setTvFallbackActive(false);
         if (timeoutTimerRef.current) clearTimeout(timeoutTimerRef.current);
         // Dispatch resize event so TradingView canvas recalculates to full container height
-        setTimeout(() => {
+        const t1 = setTimeout(() => {
           if (typeof window !== "undefined") {
             window.dispatchEvent(new Event("resize"));
           }
         }, 120);
-        setTimeout(() => {
+        const t2 = setTimeout(() => {
           if (typeof window !== "undefined") {
             window.dispatchEvent(new Event("resize"));
           }
         }, 350);
+        resizeTimers.push(t1, t2);
       }
     };
 
@@ -370,9 +384,20 @@ export function StockTechnicalChart({
     return () => {
       isCancelled = true;
       if (timeoutTimerRef.current) clearTimeout(timeoutTimerRef.current);
+      resizeTimers.forEach(clearTimeout);
       if (container) container.innerHTML = "";
     };
-  }, [effectiveMode, stock.ticker, isUS, theme, retryKey, activeIsMobile]);
+  }, [effectiveMode, stock.ticker, isUS, theme, retryKey]);
+
+  // Dynamically update TradingView widget inner minHeight when mobile breakpoint changes without reloading iframe
+  useEffect(() => {
+    if (tvContainerRef.current) {
+      const widget = tvContainerRef.current.querySelector<HTMLElement>(".tradingview-widget-container__widget");
+      if (widget) {
+        widget.style.minHeight = activeIsMobile ? "340px" : "460px";
+      }
+    }
+  }, [activeIsMobile]);
 
   // Filter local series based on selected period
   const displaySeries = useMemo(() => {
@@ -668,10 +693,10 @@ export function StockTechnicalChart({
               <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart
                   data={displaySeries}
-                  margin={{ top: 12, right: activeIsMobile ? 8 : 16, left: activeIsMobile ? -16 : 8, bottom: 4 }}
+                  margin={{ top: 12, right: activeIsMobile ? 8 : 16, left: activeIsMobile ? 0 : 8, bottom: 4 }}
                 >
                   <defs>
-                    <linearGradient id="stockPriceAreaGrad" x1="0" y1="0" x2="0" y2="1">
+                    <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor="var(--accent-color)" stopOpacity={0.28} />
                       <stop offset="95%" stopColor="var(--accent-color)" stopOpacity={0.01} />
                     </linearGradient>
@@ -697,6 +722,7 @@ export function StockTechnicalChart({
                     fontSize={10}
                     domain={["auto", "auto"]}
                     tickLine={false}
+                    width={activeIsMobile ? 52 : 60}
                     tickFormatter={(val: number) =>
                       isUS ? `$${val.toFixed(1)}` : `¥${val.toLocaleString()}`
                     }
@@ -742,6 +768,13 @@ export function StockTechnicalChart({
                     height={28}
                     iconSize={10}
                     wrapperStyle={{ fontSize: "11px", paddingTop: "0px" }}
+                    formatter={(value: string) => {
+                      if (value === "volume") return "出来高";
+                      if (value === "close") return "終値";
+                      if (value === "sma25") return "SMA 25日";
+                      if (value === "sma75") return "SMA 75日";
+                      return value;
+                    }}
                   />
 
                   <Bar
@@ -759,7 +792,7 @@ export function StockTechnicalChart({
                     name="close"
                     stroke="var(--accent-color)"
                     strokeWidth={2}
-                    fill="url(#stockPriceAreaGrad)"
+                    fill={`url(#${gradientId})`}
                   />
 
                   <Line

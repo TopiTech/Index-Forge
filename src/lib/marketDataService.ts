@@ -1461,7 +1461,12 @@ export function generateUpcomingEvents(referenceDate = new Date()): CalendarEven
         }
       }
     }
-    const [m, d] = e.date.split("/").map(Number);
+    const parts = (e.date || "").split("/");
+    const m = parseInt(parts[0], 10);
+    const d = parseInt(parts[1], 10);
+    if (isNaN(m) || isNaN(d)) {
+      return 0;
+    }
     let y = currentYear;
     if (m < currentMonth && currentMonth - m >= 6) {
       y = currentYear + 1;

@@ -29,7 +29,7 @@ export function DataFreshness({
   hasSyncWarning = false,
 }: DataFreshnessProps) {
   const timestamps = [benchmarkUpdatedAt, calculationUpdatedAt].filter(
-    (timestamp): timestamp is number => typeof timestamp === "number" && Number.isFinite(timestamp),
+    (timestamp): timestamp is number => typeof timestamp === "number" && Number.isFinite(timestamp) && timestamp > 0,
   );
   const latestUpdatedAt = timestamps.length > 0 ? Math.max(...timestamps) : null;
   const isUpdating = loading || syncing;
