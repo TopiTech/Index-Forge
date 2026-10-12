@@ -288,8 +288,8 @@ export function ScreenerPage({
     const weights = allocateEvenWeights(chosenStocks.length);
     const basket = chosenStocks.map((s, index) => ({
       ticker: s.ticker,
-      name: s.name,
-      theme: s.theme,
+      name: (s.name || "").trim() || s.ticker,
+      theme: typeof s.theme === "string" && s.theme.trim().length > 0 ? s.theme.trim() : "スクリーニング",
       weight: weights[index],
     }));
 

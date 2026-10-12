@@ -13,16 +13,27 @@ interface CalendarPageProps {
   onOpenStockDetail: (ticker: string) => void;
 }
 
-function getEventDayOfWeek(dateStr: string, fullDate?: string): string {
+export function getEventDayOfWeek(dateStr: string, fullDate?: string): string {
   const days = ["日", "月", "火", "水", "木", "金", "土"];
   if (fullDate) {
-    const parts = fullDate.split("-");
-    if (parts.length === 3) {
-      const y = parseInt(parts[0], 10);
-      const m = parseInt(parts[1], 10);
-      const d = parseInt(parts[2], 10);
-      if (!isNaN(y) && !isNaN(m) && !isNaN(d)) {
-        return days[new Date(y, m - 1, d).getDay()] || "";
+    const match = fullDate.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+    if (match) {
+      const y = parseInt(match[1], 10);
+      const m = parseInt(match[2], 10);
+      const d = parseInt(match[3], 10);
+      if (
+        !isNaN(y) &&
+        !isNaN(m) &&
+        !isNaN(d) &&
+        m >= 1 &&
+        m <= 12 &&
+        d >= 1 &&
+        d <= 31
+      ) {
+        const dObj = new Date(y, m - 1, d);
+        if (!isNaN(dObj.getTime()) && dObj.getMonth() === m - 1) {
+          return days[dObj.getDay()] || "";
+        }
       }
     }
   }
@@ -30,7 +41,7 @@ function getEventDayOfWeek(dateStr: string, fullDate?: string): string {
   if (parts.length !== 2) return "";
   const m = parseInt(parts[0], 10);
   const d = parseInt(parts[1], 10);
-  if (isNaN(m) || isNaN(d)) return "";
+  if (isNaN(m) || isNaN(d) || m < 1 || m > 12 || d < 1 || d > 31) return "";
   const now = new Date();
   const currentMonth = now.getMonth() + 1;
   const currentYear = now.getFullYear();
@@ -41,6 +52,7 @@ function getEventDayOfWeek(dateStr: string, fullDate?: string): string {
     year = currentYear - 1;
   }
   const dateObj = new Date(year, m - 1, d);
+  if (isNaN(dateObj.getTime()) || dateObj.getMonth() !== m - 1) return "";
   return days[dateObj.getDay()] || "";
 }
 

@@ -451,10 +451,12 @@ export function convertPortfolioToCustomIndexBasket(
     if (existing) {
       existing.marketValue += pos.marketValueJpy ?? pos.marketValue;
     } else {
+      const posName = typeof pos.name === "string" ? pos.name.trim() : "";
+      const posTheme = typeof pos.theme === "string" ? pos.theme.trim() : "";
       grouped.set(normTicker, {
         ticker: normTicker,
-        name: pos.name,
-        theme: pos.theme,
+        name: posName || normTicker,
+        theme: posTheme || "カスタム",
         marketValue: pos.marketValueJpy ?? pos.marketValue,
       });
     }
