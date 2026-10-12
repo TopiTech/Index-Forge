@@ -13,6 +13,19 @@ interface CalendarPageProps {
   onOpenStockDetail: (ticker: string) => void;
 }
 
+function getEventDayOfWeek(dateStr: string): string {
+  const parts = dateStr.split("/");
+  if (parts.length !== 2) return "";
+  const m = parseInt(parts[0], 10);
+  const d = parseInt(parts[1], 10);
+  if (isNaN(m) || isNaN(d)) return "";
+  const now = new Date();
+  const year = m < now.getMonth() + 1 ? now.getFullYear() + 1 : now.getFullYear();
+  const dateObj = new Date(year, m - 1, d);
+  const days = ["日", "月", "火", "水", "木", "金", "土"];
+  return days[dateObj.getDay()] || "";
+}
+
 export function CalendarPage({
   onNavigate,
   onOpenStockDetail,
@@ -139,7 +152,9 @@ export function CalendarPage({
             style={{
               display: "flex",
               alignItems: "center",
-              gap: "8px",
+              justifyContent: "space-between",
+              flexWrap: "wrap",
+              gap: "12px",
               padding: "10px 14px",
               marginBottom: "16px",
               borderRadius: "8px",
@@ -149,10 +164,30 @@ export function CalendarPage({
               color: "var(--text-secondary)",
             }}
           >
-            <AlertTriangle size={14} style={{ color: "#f59e0b", flexShrink: 0 }} />
-            <span>
-              実データの取得に失敗したため、<strong>静的フォールバックデータ</strong>を表示しています。日付・予想値は参考値です。
-            </span>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <AlertTriangle size={14} style={{ color: "#f59e0b", flexShrink: 0 }} />
+              <span>
+                {events.every((evt) => evt.source === "fallback") ? (
+                  <>
+                    実データの取得に失敗したため、<strong>動的フォールバックデータ</strong>を表示しています。日付・予想値は参考値です。
+                  </>
+                ) : (
+                  <>
+                    一部のイベント（「参考値」バッジ付き）は実データ取得不可のため、<strong>動的推計データ</strong>を表示しています。
+                  </>
+                )}
+              </span>
+            </div>
+            <button
+              type="button"
+              className="btn btn-xs btn-outline"
+              onClick={() => void loadEvents(true)}
+              disabled={loading}
+              style={{ borderRadius: "14px", padding: "3px 10px", fontSize: "0.75rem" }}
+            >
+              <RefreshCw size={10} className={loading ? "spin" : ""} style={{ marginRight: "4px" }} />
+              <span>再取得</span>
+            </button>
           </div>
         )}
         {filteredEvents.length === 0 ? (
@@ -227,7 +262,7 @@ export function CalendarPage({
                   <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
                     <div
                       style={{
-                        width: "60px",
+                        width: "68px",
                         textAlign: "center",
                         padding: "8px 0",
                         background: isMacro ? "rgba(56, 189, 248, 0.1)" : "rgba(16, 185, 129, 0.1)",
@@ -237,12 +272,12 @@ export function CalendarPage({
                     >
                       <span
                         className="mono bold"
-                        style={{ fontSize: "1.1rem", color: isMacro ? "var(--accent-text)" : "#10b981" }}
+                        style={{ fontSize: "1.05rem", color: isMacro ? "var(--accent-text)" : "#10b981" }}
                       >
                         {evt.date}
                       </span>
                       <div className="tiny muted mono" style={{ fontSize: "0.68rem" }}>
-                        {isMacro ? "マクロ" : "決算"}
+                        {getEventDayOfWeek(evt.date) ? `(${getEventDayOfWeek(evt.date)}) ` : ""}{isMacro ? "マクロ" : "決算"}
                       </div>
                     </div>
 

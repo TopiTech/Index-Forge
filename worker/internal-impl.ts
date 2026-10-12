@@ -2293,14 +2293,154 @@ export async function fetchLiveScreenerUniverse(
   return universe;
 }
 
-export function fetchLiveMarketCalendar(
-  universe?: StockQuoteFundamentals[],
-): CalendarEvent[] {
-  const current = new Date();
-  const month = current.getMonth() + 1; // 1-12
-  const mStr = (m: number) => String(m).padStart(2, "0");
-  const nextMonth = month === 12 ? 1 : month + 1;
+// 日銀金融政策決定会合 (BOJ) スケジュール公定マスター (2024 - 2027)
+const BOJ_MEETING_SCHEDULE: ReadonlyArray<{ year: number; month: number; day: number }> = [
+  // 2024
+  { year: 2024, month: 1, day: 23 }, { year: 2024, month: 3, day: 19 },
+  { year: 2024, month: 4, day: 26 }, { year: 2024, month: 6, day: 14 },
+  { year: 2024, month: 7, day: 31 }, { year: 2024, month: 9, day: 20 },
+  { year: 2024, month: 10, day: 31 }, { year: 2024, month: 12, day: 19 },
+  // 2025
+  { year: 2025, month: 1, day: 24 }, { year: 2025, month: 3, day: 19 },
+  { year: 2025, month: 5, day: 1 }, { year: 2025, month: 6, day: 13 },
+  { year: 2025, month: 7, day: 31 }, { year: 2025, month: 9, day: 19 },
+  { year: 2025, month: 10, day: 30 }, { year: 2025, month: 12, day: 19 },
+  // 2026
+  { year: 2026, month: 1, day: 23 }, { year: 2026, month: 3, day: 19 },
+  { year: 2026, month: 4, day: 28 }, { year: 2026, month: 6, day: 16 },
+  { year: 2026, month: 7, day: 31 }, { year: 2026, month: 9, day: 18 },
+  { year: 2026, month: 10, day: 30 }, { year: 2026, month: 12, day: 18 },
+  // 2027
+  { year: 2027, month: 1, day: 22 }, { year: 2027, month: 3, day: 19 },
+  { year: 2027, month: 4, day: 28 }, { year: 2027, month: 6, day: 16 },
+  { year: 2027, month: 7, day: 30 }, { year: 2027, month: 9, day: 22 },
+  { year: 2027, month: 10, day: 29 }, { year: 2027, month: 12, day: 17 },
+];
 
+// 米FOMC スケジュール公定マスター (2024 - 2027)
+const FOMC_MEETING_SCHEDULE: ReadonlyArray<{ year: number; month: number; day: number }> = [
+  // 2024
+  { year: 2024, month: 1, day: 31 }, { year: 2024, month: 3, day: 20 },
+  { year: 2024, month: 5, day: 1 }, { year: 2024, month: 6, day: 12 },
+  { year: 2024, month: 7, day: 31 }, { year: 2024, month: 9, day: 18 },
+  { year: 2024, month: 11, day: 7 }, { year: 2024, month: 12, day: 18 },
+  // 2025
+  { year: 2025, month: 1, day: 29 }, { year: 2025, month: 3, day: 19 },
+  { year: 2025, month: 5, day: 7 }, { year: 2025, month: 6, day: 18 },
+  { year: 2025, month: 7, day: 30 }, { year: 2025, month: 9, day: 17 },
+  { year: 2025, month: 10, day: 29 }, { year: 2025, month: 12, day: 10 },
+  // 2026
+  { year: 2026, month: 1, day: 28 }, { year: 2026, month: 3, day: 18 },
+  { year: 2026, month: 5, day: 6 }, { year: 2026, month: 6, day: 17 },
+  { year: 2026, month: 7, day: 29 }, { year: 2026, month: 9, day: 16 },
+  { year: 2026, month: 11, day: 4 }, { year: 2026, month: 12, day: 16 },
+  // 2027
+  { year: 2027, month: 1, day: 27 }, { year: 2027, month: 3, day: 17 },
+  { year: 2027, month: 5, day: 5 }, { year: 2027, month: 6, day: 16 },
+  { year: 2027, month: 7, day: 28 }, { year: 2027, month: 9, day: 22 },
+  { year: 2027, month: 11, day: 3 }, { year: 2027, month: 12, day: 15 },
+];
+
+function adjustToWeekday(d: Date): Date {
+  const res = new Date(d);
+  const day = res.getDay();
+  if (day === 0) res.setDate(res.getDate() + 1); // 日曜 -> 月曜
+  if (day === 6) res.setDate(res.getDate() + 2); // 土曜 -> 月曜
+  return res;
+}
+
+function generateUpcomingMacroEvents(refDate = new Date()): CalendarEvent[] {
+  const mStr = (m: number) => String(m).padStart(2, "0");
+  const dStr = (d: number) => String(d).padStart(2, "0");
+  const fmt = (d: Date) => `${mStr(d.getMonth() + 1)}/${dStr(d.getDate())}`;
+
+  const events: CalendarEvent[] = [];
+  const refTime = refDate.getTime() - 24 * 60 * 60 * 1000; // 過去24時間以内は当日分として保持
+
+  // 1. 日銀会合 (直近2回)
+  let bojCount = 0;
+  for (const item of BOJ_MEETING_SCHEDULE) {
+    const d = new Date(item.year, item.month - 1, item.day);
+    if (d.getTime() >= refTime && bojCount < 2) {
+      events.push({
+        id: `macro-boj-${item.year}-${mStr(item.month)}`,
+        date: fmt(d),
+        type: "MACRO",
+        title: "日銀金融政策決定会合・総裁記者会見",
+        importance: "HIGH",
+        previous: "0.25%",
+        forecast: "0.25%",
+      });
+      bojCount++;
+    }
+  }
+
+  // 2. 米FOMC (直近2回)
+  let fomcCount = 0;
+  for (const item of FOMC_MEETING_SCHEDULE) {
+    const d = new Date(item.year, item.month - 1, item.day);
+    if (d.getTime() >= refTime && fomcCount < 2) {
+      events.push({
+        id: `macro-fomc-${item.year}-${mStr(item.month)}`,
+        date: fmt(d),
+        type: "MACRO",
+        title: "米FOMC 政策金利発表 & パウエル議長記者会見",
+        importance: "HIGH",
+        previous: "5.00%",
+        forecast: "4.75%",
+      });
+      fomcCount++;
+    }
+  }
+
+  // 3. 米雇用統計 (当月または翌月の第1金曜日、直近2回)
+  for (let offset = 0; offset <= 3; offset++) {
+    const targetMonth = new Date(refDate.getFullYear(), refDate.getMonth() + offset, 1);
+    const y = targetMonth.getFullYear();
+    const m = targetMonth.getMonth();
+    const firstDay = new Date(y, m, 1);
+    const dayOfWeek = firstDay.getDay();
+    const diff = (5 - dayOfWeek + 7) % 7;
+    const friday = new Date(y, m, 1 + diff);
+    if (friday.getTime() >= refTime && events.filter((e) => e.id.startsWith("macro-jobs")).length < 2) {
+      events.push({
+        id: `macro-jobs-${y}-${mStr(m + 1)}`,
+        date: fmt(friday),
+        type: "MACRO",
+        title: "米雇用統計 (非農業部門雇用者数・失業率)",
+        importance: "HIGH",
+        previous: "25.4万人",
+        forecast: "12.0万人",
+      });
+    }
+  }
+
+  // 4. 米CPI (毎月中旬12日前後の平日、直近2回)
+  for (let offset = 0; offset <= 3; offset++) {
+    const targetMonth = new Date(refDate.getFullYear(), refDate.getMonth() + offset, 1);
+    const y = targetMonth.getFullYear();
+    const m = targetMonth.getMonth();
+    const cpiDate = adjustToWeekday(new Date(y, m, 12));
+    if (cpiDate.getTime() >= refTime && events.filter((e) => e.id.startsWith("macro-cpi")).length < 2) {
+      events.push({
+        id: `macro-cpi-${y}-${mStr(m + 1)}`,
+        date: fmt(cpiDate),
+        type: "MACRO",
+        title: "米消費者物価指数 (CPI) 発表",
+        importance: "HIGH",
+        previous: "2.4%",
+        forecast: "2.3%",
+      });
+    }
+  }
+
+  return events;
+}
+
+function generateFallbackEarningsEvents(
+  universe?: StockQuoteFundamentals[],
+  refDate = new Date(),
+): CalendarEvent[] {
   const capMap = new Map<string, number>();
   if (universe) {
     for (const u of universe) {
@@ -2308,126 +2448,208 @@ export function fetchLiveMarketCalendar(
     }
   }
 
-  // 静的生成カレンダーは実データではないため、フォールバックであることを明示する
-  const events: CalendarEvent[] = [
-    {
-      id: "macro-boj",
-      date: `${mStr(month)}/18`,
-      type: "MACRO",
-      title: "日銀金融政策決定会合・総裁記者会見",
-      importance: "HIGH",
-      previous: "0.25%",
-      forecast: "0.25%",
-    },
-    {
-      id: "earn-shinetsu",
-      date: `${mStr(month)}/24`,
-      type: "EARNINGS",
-      title: "信越化学工業 (4063) 決算発表",
-      ticker: "4063",
-      companyName: "信越化学工業",
-      importance: "HIGH",
-      marketCap: capMap.get("4063") ?? 115000,
-    },
-    {
-      id: "earn-fanuc",
-      date: `${mStr(month)}/25`,
-      type: "EARNINGS",
-      title: "ファナック (6954) 決算発表",
-      ticker: "6954",
-      companyName: "ファナック",
-      importance: "MEDIUM",
-      marketCap: capMap.get("6954") ?? 41000,
-    },
-    {
-      id: "earn-advantest",
-      date: `${mStr(month)}/30`,
-      type: "EARNINGS",
-      title: "アドバンテスト (6857) 決算発表",
-      ticker: "6857",
-      companyName: "アドバンテスト",
-      importance: "HIGH",
-      marketCap: capMap.get("6857") ?? 300000,
-    },
-    {
-      id: "macro-fomc",
-      date: `${mStr(month)}/31`,
-      type: "MACRO",
-      title: "米FOMC 政策金利発表 & パウエル議長記者会見",
-      importance: "HIGH",
-      previous: "5.00%",
-      forecast: "4.75%",
-    },
-    {
-      id: "earn-toyota",
-      date: `${mStr(nextMonth)}/01`,
-      type: "EARNINGS",
-      title: "トヨタ自動車 (7203) 決算発表",
-      ticker: "7203",
-      companyName: "トヨタ自動車",
-      importance: "HIGH",
-      marketCap: capMap.get("7203") ?? 345000,
-    },
-    {
-      id: "macro-jobs",
-      date: `${mStr(nextMonth)}/01`,
-      type: "MACRO",
-      title: "米雇用統計 (非農業部門雇用者数・失業率)",
-      importance: "HIGH",
-      previous: "25.4万人",
-      forecast: "12.0万人",
-    },
-    {
-      id: "earn-aapl",
-      date: `${mStr(nextMonth)}/05`,
-      type: "EARNINGS",
-      title: "Apple (AAPL) 決算発表",
-      ticker: "AAPL",
-      companyName: "Apple Inc.",
-      importance: "HIGH",
-      marketCap: capMap.get("AAPL") ?? 4900000,
-    },
-    {
-      id: "earn-sbg",
-      date: `${mStr(nextMonth)}/07`,
-      type: "EARNINGS",
-      title: "ソフトバンクグループ (9984) 決算発表",
-      ticker: "9984",
-      companyName: "ソフトバンクグループ",
-      importance: "HIGH",
-      marketCap: capMap.get("9984") ?? 135000,
-    },
-    {
-      id: "earn-tel",
-      date: `${mStr(nextMonth)}/12`,
-      type: "EARNINGS",
-      title: "東京エレクトロン (8035) 決算発表",
-      ticker: "8035",
-      companyName: "東京エレクトロン",
-      importance: "HIGH",
-      marketCap: capMap.get("8035") ?? 290000,
-    },
-    {
-      id: "macro-cpi",
-      date: `${mStr(nextMonth)}/14`,
-      type: "MACRO",
-      title: "米消費者物価指数 (CPI) 発表",
-      importance: "HIGH",
-      previous: "2.4%",
-      forecast: "2.3%",
-    },
-    {
-      id: "earn-nvda",
-      date: `${mStr(nextMonth)}/20`,
-      type: "EARNINGS",
-      title: "NVIDIA (NVDA) 決算発表",
-      ticker: "NVDA",
-      companyName: "NVIDIA Corporation",
-      importance: "HIGH",
-      marketCap: capMap.get("NVDA") ?? 5500000,
-    },
+  const mStr = (m: number) => String(m).padStart(2, "0");
+  const dStr = (d: number) => String(d).padStart(2, "0");
+  const fmt = (d: Date) => `${mStr(d.getMonth() + 1)}/${dStr(d.getDate())}`;
+
+  // 基準日以降の平日に自然に分散配置
+  const addBusinessDays = (start: Date, days: number): Date => {
+    const cur = new Date(start);
+    let added = 0;
+    while (added < days) {
+      cur.setDate(cur.getDate() + 1);
+      const day = cur.getDay();
+      if (day !== 0 && day !== 6) {
+        added++;
+      }
+    }
+    return cur;
+  };
+
+  const corporateList = [
+    { id: "earn-toyota", ticker: "7203", companyName: "トヨタ自動車", title: "トヨタ自動車 (7203) 決算発表", defaultCap: 345000, importance: "HIGH" as const, days: 2 },
+    { id: "earn-shinetsu", ticker: "4063", companyName: "信越化学工業", title: "信越化学工業 (4063) 決算発表", defaultCap: 115000, importance: "HIGH" as const, days: 5 },
+    { id: "earn-fanuc", ticker: "6954", companyName: "ファナック", title: "ファナック (6954) 決算発表", defaultCap: 41000, importance: "MEDIUM" as const, days: 7 },
+    { id: "earn-advantest", ticker: "6857", companyName: "アドバンテスト", title: "アドバンテスト (6857) 決算発表", defaultCap: 300000, importance: "HIGH" as const, days: 10 },
+    { id: "earn-aapl", ticker: "AAPL", companyName: "Apple Inc.", title: "Apple (AAPL) 決算発表", defaultCap: 4900000, importance: "HIGH" as const, days: 13 },
+    { id: "earn-sbg", ticker: "9984", companyName: "ソフトバンクグループ", title: "ソフトバンクグループ (9984) 決算発表", defaultCap: 135000, importance: "HIGH" as const, days: 16 },
+    { id: "earn-tel", ticker: "8035", companyName: "東京エレクトロン", title: "東京エレクトロン (8035) 決算発表", defaultCap: 290000, importance: "HIGH" as const, days: 19 },
+    { id: "earn-nvda", ticker: "NVDA", companyName: "NVIDIA Corporation", title: "NVIDIA (NVDA) 決算発表", defaultCap: 5500000, importance: "HIGH" as const, days: 23 },
   ];
-  return events.map((event) => ({ ...event, source: "fallback" }));
+
+  return corporateList.map((corp) => {
+    const targetDate = addBusinessDays(refDate, corp.days);
+    return {
+      id: corp.id,
+      date: fmt(targetDate),
+      type: "EARNINGS" as const,
+      title: corp.title,
+      ticker: corp.ticker,
+      companyName: corp.companyName,
+      importance: corp.importance,
+      marketCap: capMap.get(corp.ticker) ?? corp.defaultCap,
+      source: "fallback",
+    };
+  });
+}
+
+function sortCalendarEvents(events: CalendarEvent[], refDate = new Date()): CalendarEvent[] {
+  const currentYear = refDate.getFullYear();
+  const currentMonth = refDate.getMonth() + 1;
+
+  const parseTime = (e: CalendarEvent): number => {
+    const parts = e.date.split("/");
+    const m = parseInt(parts[0], 10);
+    const d = parseInt(parts[1], 10);
+    if (isNaN(m) || isNaN(d)) return 0;
+    const y = m < currentMonth ? currentYear + 1 : currentYear;
+    return new Date(y, m - 1, d).getTime();
+  };
+
+  return [...events].sort((a, b) => parseTime(a) - parseTime(b));
+}
+
+export let lastKnownCalendarEvents: CalendarEvent[] | null = null;
+export function resetLastKnownCalendarEvents(): void {
+  lastKnownCalendarEvents = null;
+}
+
+/**
+ * 同期フォールバックカレンダー生成ヘルパー。
+ * 外部通信を行わず、現在日時に適応した確定マクロ日程と平日配置の決算日程を生成する。
+ * 各イベントに source: "fallback" を付与。
+ */
+export function fetchLiveMarketCalendar(
+  universe?: StockQuoteFundamentals[],
+  refDate = new Date(),
+): CalendarEvent[] {
+  const macros = generateUpcomingMacroEvents(refDate).map((m) => ({ ...m, source: "fallback" }));
+  const earnings = generateFallbackEarningsEvents(universe, refDate);
+  return sortCalendarEvents([...macros, ...earnings], refDate);
+}
+
+/**
+ * リアルタイムカレンダー取得（非同期）。
+ * Yahoo Finance から主要企業の最新決算予定日時をライブ取得し、
+ * 公定スケジュールと統合する。通信失敗時は動的フォールバックを返却。
+ */
+export async function fetchLiveMarketCalendarAsync(
+  universe?: StockQuoteFundamentals[],
+  refDate = new Date(),
+): Promise<CalendarEvent[]> {
+  const macroEvents = generateUpcomingMacroEvents(refDate);
+
+  const liveEarnings: CalendarEvent[] = [];
+  const tickersToQuery = [
+    "7203", "6758", "6857", "8035", "9984", "4063", "6954", "9983", "8306", "7974", "AAPL", "NVDA", "MSFT", "AMZN",
+  ];
+
+  try {
+    const auth = await getYahooCrumb();
+    if (auth) {
+      const symbols = tickersToQuery.map(toYahooSymbol);
+      const qUrl = `https://query2.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(symbols.join(","))}&crumb=${encodeURIComponent(auth.crumb)}`;
+      const qRes = await fetch(qUrl, {
+        signal: AbortSignal.timeout(5000),
+        headers: {
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+          Cookie: auth.cookie,
+        },
+      });
+      if (qRes.ok) {
+        const qData = (await qRes.json()) as {
+          quoteResponse?: {
+            result?: Array<{
+              symbol?: string;
+              shortName?: string;
+              longName?: string;
+              displayName?: string;
+              marketCap?: number;
+              earningsTimestamp?: number;
+              earningsTimestampStart?: number;
+              earningsTimestampEnd?: number;
+            }>;
+          };
+        };
+
+        const results = qData.quoteResponse?.result || [];
+        const mStr = (m: number) => String(m).padStart(2, "0");
+        const dStr = (d: number) => String(d).padStart(2, "0");
+        const refTime = refDate.getTime() - 7 * 24 * 60 * 60 * 1000; // 直近7日以内〜未来
+        const maxTime = refDate.getTime() + 90 * 24 * 60 * 60 * 1000; // 向こう90日以内
+
+        for (const q of results) {
+          const rawSymbol = q.symbol || "";
+          const normTicker = rawSymbol.replace(/\.T$/i, "");
+          const rawTimestamp = q.earningsTimestamp || q.earningsTimestampStart;
+          if (typeof rawTimestamp === "number" && rawTimestamp > 0) {
+            const earnDate = new Date(rawTimestamp * 1000);
+            const jstDate = new Date(earnDate.getTime() + 9 * 60 * 60 * 1000);
+            const earnTime = jstDate.getTime();
+            if (earnTime >= refTime && earnTime <= maxTime) {
+              const matchedPreset = POPULAR_STOCKS.find((s) => s.ticker === normTicker);
+              const companyName = matchedPreset?.name || q.displayName || q.shortName || normTicker;
+              const title = `${companyName} (${normTicker}) 決算発表`;
+              const marketCap = q.marketCap ? Math.round(q.marketCap / 100_000_000) : undefined;
+              const dateStr = `${mStr(jstDate.getUTCMonth() + 1)}/${dStr(jstDate.getUTCDate())}`;
+
+              liveEarnings.push({
+                id: `earn-live-${normTicker.toLowerCase()}`,
+                date: dateStr,
+                type: "EARNINGS",
+                title,
+                ticker: normTicker,
+                companyName,
+                marketCap,
+                importance: marketCap && marketCap > 500000 ? "HIGH" : "MEDIUM",
+                // 実データのため source は付与しない (undefined)
+              });
+            }
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn("fetchLiveMarketCalendarAsync: Live quote fetch failed, using fallback:", err);
+  }
+
+  // 実データ決算イベントをフォールバック決算リストと統合
+  const fallbackEarnings = generateFallbackEarningsEvents(universe, refDate);
+  let finalEarnings: CalendarEvent[] = [];
+
+  if (liveEarnings.length >= 4) {
+    // 実データが十分に取得できた場合は実データを優先
+    finalEarnings = liveEarnings;
+  } else {
+    // 取得できた実データがあれば該当銘柄を実データに置換
+    const liveMap = new Map<string, CalendarEvent>();
+    for (const le of liveEarnings) {
+      if (le.ticker) liveMap.set(le.ticker, le);
+    }
+
+    finalEarnings = fallbackEarnings.map((fe) => {
+      if (fe.ticker && liveMap.has(fe.ticker)) {
+        return liveMap.get(fe.ticker)!;
+      }
+      return fe;
+    });
+
+    for (const le of liveEarnings) {
+      if (le.ticker && !fallbackEarnings.some((fe) => fe.ticker === le.ticker)) {
+        finalEarnings.push(le);
+      }
+    }
+  }
+
+  const combined = sortCalendarEvents([...macroEvents, ...finalEarnings], refDate);
+
+  const hasLive = combined.some((e) => e.source !== "fallback");
+  if (hasLive) {
+    lastKnownCalendarEvents = combined;
+  }
+
+  return combined;
 }
 
 export function isAllowedOrigin(origin: string): boolean {
@@ -4207,28 +4429,42 @@ export default {
             return json({ error: "Rate limit exceeded. Please try again later." }, 429, request);
           }
 
+          const forceRefresh =
+            url.searchParams.get("refresh") !== null ||
+            request.headers.get("cache-control")?.includes("no-cache") ||
+            false;
+
           const memKey = "market:calendar";
-          const memCachedEntry = getMemoryCacheEntry<CalendarEvent[]>(memKey);
-          if (memCachedEntry) {
-            const memCached = memCachedEntry.data;
-            const remainingTtl = memCachedEntry.remainingSeconds;
-            const edgeTtl = Math.min(300, remainingTtl);
-            const browserTtl = Math.min(120, remainingTtl);
-            const cacheControl = `public, max-age=${browserTtl}, s-maxage=${edgeTtl}`;
-            const etag = await generateETag(JSON.stringify(memCached));
-            if (matchesIfNoneMatch(request.headers.get("if-none-match"), etag)) {
-              return notModified(request, {
+          if (!forceRefresh) {
+            const memCachedEntry = getMemoryCacheEntry<CalendarEvent[]>(memKey);
+            if (memCachedEntry) {
+              const memCached = memCachedEntry.data;
+              const remainingTtl = memCachedEntry.remainingSeconds;
+              const edgeTtl = Math.min(300, remainingTtl);
+              const browserTtl = Math.min(120, remainingTtl);
+              const cacheControl = `public, max-age=${browserTtl}, s-maxage=${edgeTtl}`;
+              const etag = await generateETag(JSON.stringify(memCached));
+              if (matchesIfNoneMatch(request.headers.get("if-none-match"), etag)) {
+                return notModified(request, {
+                  etag,
+                  "cache-control": cacheControl,
+                });
+              }
+              return json(memCached, 200, request, {
                 etag,
                 "cache-control": cacheControl,
               });
             }
-            return json(memCached, 200, request, {
-              etag,
-              "cache-control": cacheControl,
-            });
           }
 
-          const events = fetchLiveMarketCalendar(lastKnownScreenerUniverse ?? undefined);
+          let events: CalendarEvent[];
+          try {
+            events = await fetchLiveMarketCalendarAsync(lastKnownScreenerUniverse ?? undefined);
+          } catch (liveErr) {
+            console.warn("fetchLiveMarketCalendarAsync failed, falling back:", liveErr);
+            events = lastKnownCalendarEvents || fetchLiveMarketCalendar(lastKnownScreenerUniverse ?? undefined);
+          }
+
           setMemoryCache(memKey, events, 600);
 
           const cacheControl = `public, max-age=120, s-maxage=300`;

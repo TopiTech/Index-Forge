@@ -1166,9 +1166,61 @@ export async function fetchScreenerStocks(
   return runStockScreener(options);
 }
 
+const CALENDAR_CACHE_KEY = "indexforge:calendar:cache:v1";
+
+interface StorageLike {
+  getItem(key: string): string | null;
+  setItem(key: string, value: string): void;
+}
+
+function getSessionStorageSafe(): StorageLike | null {
+  try {
+    const g = globalThis as unknown as {
+      sessionStorage?: StorageLike;
+      window?: { sessionStorage?: StorageLike };
+    };
+    if (typeof g !== "undefined") {
+      if (g.sessionStorage) return g.sessionStorage;
+      if (g.window?.sessionStorage) return g.window.sessionStorage;
+    }
+  } catch {
+    // Ignore
+  }
+  return null;
+}
+
+function saveCalendarCache(events: CalendarEvent[]): void {
+  try {
+    const storage = getSessionStorageSafe();
+    if (storage) {
+      storage.setItem(CALENDAR_CACHE_KEY, JSON.stringify(events));
+    }
+  } catch {
+    // Ignore storage quota/security errors
+  }
+}
+
+function loadCalendarCache(): CalendarEvent[] | null {
+  try {
+    const storage = getSessionStorageSafe();
+    if (storage) {
+      const stored = storage.getItem(CALENDAR_CACHE_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed as CalendarEvent[];
+        }
+      }
+    }
+  } catch {
+    // Ignore
+  }
+  return null;
+}
+
 /**
  * Fetch dynamic financial calendar events from /api/market/calendar,
- * falling back to UPCOMING_EVENTS.
+ * falling back to cached events or UPCOMING_EVENTS.
  */
 export async function fetchUpcomingEvents(
   forceRefresh = false,
@@ -1176,8 +1228,14 @@ export async function fetchUpcomingEvents(
   const isBrowser = typeof globalThis !== "undefined" && "window" in globalThis;
   if (isBrowser) {
     try {
-      const res = await fetch("/api/market/calendar", {
-        headers: { accept: "application/json" },
+      const url = forceRefresh
+        ? `/api/market/calendar?refresh=${Date.now()}`
+        : "/api/market/calendar";
+      const res = await fetch(url, {
+        headers: {
+          accept: "application/json",
+          ...(forceRefresh ? { "cache-control": "no-cache" } : {}),
+        },
         cache: forceRefresh ? "no-cache" : "default",
       });
       if (res.ok) {
@@ -1193,15 +1251,23 @@ export async function fetchUpcomingEvents(
                 typeof e.date === "string" &&
                 typeof e.title === "string",
             );
-            if (valid.length > 0) return valid;
+            if (valid.length > 0) {
+              saveCalendarCache(valid);
+              return valid;
+            }
           }
         }
       }
     } catch {
-      // Graceful fallback
+      // Graceful fallback to client cache or dynamic generator
+    }
+
+    const cached = loadCalendarCache();
+    if (cached && cached.length > 0) {
+      return cached;
     }
   }
-  return UPCOMING_EVENTS;
+  return generateUpcomingEvents();
 }
 
 /**
@@ -1213,125 +1279,144 @@ export async function fetchUpcomingEvents(
  * このメタデータに依存して動作する。
  */
 export function generateUpcomingEvents(referenceDate = new Date()): CalendarEvent[] {
-  const year = referenceDate.getFullYear();
-  const monthIndex = referenceDate.getMonth(); // 0-11
-  const daysInCurrentMonth = new Date(year, monthIndex + 1, 0).getDate();
   const mStr = (m: number) => String(m).padStart(2, "0");
   const dStr = (d: number) => String(d).padStart(2, "0");
-  const currentMonth = monthIndex + 1;
-  const nextMonthDate = new Date(year, monthIndex + 1, 1);
-  const nextMonth = nextMonthDate.getMonth() + 1;
-  const endOfMonthDay = Math.min(28, daysInCurrentMonth);
+  const fmt = (d: Date) => `${mStr(d.getMonth() + 1)}/${dStr(d.getDate())}`;
 
-  return [
-    {
-      id: "macro-boj",
-      date: `${mStr(currentMonth)}/18`,
-      type: "MACRO",
-      title: "日銀金融政策決定会合・総裁記者会見",
-      importance: "HIGH",
-      previous: "0.25%",
-      forecast: "0.25%",
-      source: "fallback",
-    },
-    {
-      id: "earn-shinetsu",
-      date: `${mStr(currentMonth)}/20`,
-      type: "EARNINGS",
-      title: "信越化学工業 (4063) 決算発表",
-      ticker: "4063",
-      companyName: "信越化学工業",
-      importance: "HIGH",
-      marketCap: 115000,
-      source: "fallback",
-    },
-    {
-      id: "earn-fanuc",
-      date: `${mStr(currentMonth)}/22`,
-      type: "EARNINGS",
-      title: "ファナック (6954) 決算発表",
-      ticker: "6954",
-      companyName: "ファナック",
-      importance: "MEDIUM",
-      marketCap: 41000,
-      source: "fallback",
-    },
-    {
-      id: "earn-advantest",
-      date: `${mStr(currentMonth)}/25`,
-      type: "EARNINGS",
-      title: "アドバンテスト (6857) 決算発表",
-      ticker: "6857",
-      companyName: "アドバンテスト",
-      importance: "HIGH",
-      marketCap: 300000,
-      source: "fallback",
-    },
-    {
-      id: "macro-fomc",
-      date: `${mStr(currentMonth)}/${dStr(endOfMonthDay)}`,
-      type: "MACRO",
-      title: "米FOMC 政策金利発表 & パウエル議長会見",
-      importance: "HIGH",
-      previous: "5.00%",
-      forecast: "4.75%",
-      source: "fallback",
-    },
-    {
-      id: "earn-toyota",
-      date: `${mStr(nextMonth)}/01`,
-      type: "EARNINGS",
-      title: "トヨタ自動車 (7203) 決算発表",
-      ticker: "7203",
-      companyName: "トヨタ自動車",
-      importance: "HIGH",
-      marketCap: 345000,
-      source: "fallback",
-    },
-    {
-      id: "macro-jobs",
-      date: `${mStr(nextMonth)}/01`,
-      type: "MACRO",
-      title: "米雇用統計 (非農業部門雇用者数・失業率)",
-      importance: "HIGH",
-      previous: "25.4万人",
-      forecast: "12.0万人",
-      source: "fallback",
-    },
-    {
-      id: "earn-aapl",
-      date: `${mStr(nextMonth)}/05`,
-      type: "EARNINGS",
-      title: "Apple (AAPL) 決算発表",
-      ticker: "AAPL",
-      companyName: "Apple Inc.",
-      importance: "HIGH",
-      marketCap: 4900000,
-      source: "fallback",
-    },
-    {
-      id: "earn-sbg",
-      date: `${mStr(nextMonth)}/07`,
-      type: "EARNINGS",
-      title: "ソフトバンクグループ (9984) 決算発表",
-      ticker: "9984",
-      companyName: "ソフトバンクグループ",
-      importance: "HIGH",
-      marketCap: 135000,
-      source: "fallback",
-    },
-    {
-      id: "earn-tel",
-      date: `${mStr(nextMonth)}/12`,
-      type: "EARNINGS",
-      title: "東京エレクトロン (8035) 決算発表",
-      ticker: "8035",
-      companyName: "東京エレクトロン",
-      importance: "HIGH",
-      marketCap: 290000,
-      source: "fallback",
-    },
+  const addBusinessDays = (start: Date, days: number): Date => {
+    const cur = new Date(start);
+    let added = 0;
+    while (added < days) {
+      cur.setDate(cur.getDate() + 1);
+      const day = cur.getDay();
+      if (day !== 0 && day !== 6) {
+        added++;
+      }
+    }
+    return cur;
+  };
+
+  const adjustToWeekday = (d: Date): Date => {
+    const res = new Date(d);
+    const day = res.getDay();
+    if (day === 0) res.setDate(res.getDate() + 1);
+    if (day === 6) res.setDate(res.getDate() + 2);
+    return res;
+  };
+
+  const events: CalendarEvent[] = [];
+
+  // マクロ: 日銀会合 (直近平日)
+  events.push({
+    id: "macro-boj",
+    date: fmt(adjustToWeekday(addBusinessDays(referenceDate, 4))),
+    type: "MACRO",
+    title: "日銀金融政策決定会合・総裁記者会見",
+    importance: "HIGH",
+    previous: "0.25%",
+    forecast: "0.25%",
+    source: "fallback",
+  });
+
+  // マクロ: 米FOMC (中旬〜月末平日)
+  events.push({
+    id: "macro-fomc",
+    date: fmt(adjustToWeekday(addBusinessDays(referenceDate, 12))),
+    type: "MACRO",
+    title: "米FOMC 政策金利発表 & パウエル議長記者会見",
+    importance: "HIGH",
+    previous: "5.00%",
+    forecast: "4.75%",
+    source: "fallback",
+  });
+
+  // マクロ: 米雇用統計 (第1金曜日)
+  const jobsDate = (() => {
+    for (let offset = 0; offset <= 2; offset++) {
+      const y = referenceDate.getFullYear();
+      const m = referenceDate.getMonth() + offset;
+      const firstDay = new Date(y, m, 1);
+      const dayOfWeek = firstDay.getDay();
+      const diff = (5 - dayOfWeek + 7) % 7;
+      const friday = new Date(y, m, 1 + diff);
+      if (friday.getTime() >= referenceDate.getTime() - 24 * 60 * 60 * 1000) {
+        return friday;
+      }
+    }
+    return addBusinessDays(referenceDate, 6);
+  })();
+
+  events.push({
+    id: "macro-jobs",
+    date: fmt(jobsDate),
+    type: "MACRO",
+    title: "米雇用統計 (非農業部門雇用者数・失業率)",
+    importance: "HIGH",
+    previous: "25.4万人",
+    forecast: "12.0万人",
+    source: "fallback",
+  });
+
+  // マクロ: 米CPI (中旬平日)
+  const cpiDate = (() => {
+    for (let offset = 0; offset <= 2; offset++) {
+      const y = referenceDate.getFullYear();
+      const m = referenceDate.getMonth() + offset;
+      const d = adjustToWeekday(new Date(y, m, 12));
+      if (d.getTime() >= referenceDate.getTime() - 24 * 60 * 60 * 1000) {
+        return d;
+      }
+    }
+    return addBusinessDays(referenceDate, 15);
+  })();
+
+  events.push({
+    id: "macro-cpi",
+    date: fmt(cpiDate),
+    type: "MACRO",
+    title: "米消費者物価指数 (CPI) 発表",
+    importance: "HIGH",
+    previous: "2.4%",
+    forecast: "2.3%",
+    source: "fallback",
+  });
+
+  // 主要企業決算 (平日に分散配置)
+  const corporateList = [
+    { id: "earn-toyota", ticker: "7203", companyName: "トヨタ自動車", title: "トヨタ自動車 (7203) 決算発表", marketCap: 345000, importance: "HIGH" as const, days: 2 },
+    { id: "earn-shinetsu", ticker: "4063", companyName: "信越化学工業", title: "信越化学工業 (4063) 決算発表", marketCap: 115000, importance: "HIGH" as const, days: 5 },
+    { id: "earn-fanuc", ticker: "6954", companyName: "ファナック", title: "ファナック (6954) 決算発表", marketCap: 41000, importance: "MEDIUM" as const, days: 7 },
+    { id: "earn-advantest", ticker: "6857", companyName: "アドバンテスト", title: "アドバンテスト (6857) 決算発表", marketCap: 300000, importance: "HIGH" as const, days: 9 },
+    { id: "earn-aapl", ticker: "AAPL", companyName: "Apple Inc.", title: "Apple (AAPL) 決算発表", marketCap: 4900000, importance: "HIGH" as const, days: 13 },
+    { id: "earn-sbg", ticker: "9984", companyName: "ソフトバンクグループ", title: "ソフトバンクグループ (9984) 決算発表", marketCap: 135000, importance: "HIGH" as const, days: 16 },
+    { id: "earn-tel", ticker: "8035", companyName: "東京エレクトロン", title: "東京エレクトロン (8035) 決算発表", marketCap: 290000, importance: "HIGH" as const, days: 18 },
+    { id: "earn-nvda", ticker: "NVDA", companyName: "NVIDIA Corporation", title: "NVIDIA (NVDA) 決算発表", marketCap: 5500000, importance: "HIGH" as const, days: 22 },
   ];
+
+  for (const corp of corporateList) {
+    events.push({
+      id: corp.id,
+      date: fmt(addBusinessDays(referenceDate, corp.days)),
+      type: "EARNINGS",
+      title: corp.title,
+      ticker: corp.ticker,
+      companyName: corp.companyName,
+      importance: corp.importance,
+      marketCap: corp.marketCap,
+      source: "fallback",
+    });
+  }
+
+  // 日付順にソート
+  const currentYear = referenceDate.getFullYear();
+  const currentMonth = referenceDate.getMonth() + 1;
+  return events.sort((a, b) => {
+    const [ma, da] = a.date.split("/").map(Number);
+    const [mb, db] = b.date.split("/").map(Number);
+    const ya = ma < currentMonth ? currentYear + 1 : currentYear;
+    const yb = mb < currentMonth ? currentYear + 1 : currentYear;
+    return new Date(ya, ma - 1, da).getTime() - new Date(yb, mb - 1, db).getTime();
+  });
 }
 
 export const UPCOMING_EVENTS: CalendarEvent[] = generateUpcomingEvents();

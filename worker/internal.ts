@@ -56,6 +56,8 @@ export {
   fetchLiveStockFundamentals,
   fetchLiveScreenerUniverse,
   fetchLiveMarketCalendar,
+  fetchLiveMarketCalendarAsync,
+  resetLastKnownCalendarEvents,
   resetLastKnownScreenerUniverse,
   getYahooCrumb,
   resetYahooCrumbCache,
