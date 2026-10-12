@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { motion } from "framer-motion";
-import { ArrowRight, Calendar as CalendarIcon, RefreshCw } from "lucide-react";
+import { AlertTriangle, ArrowRight, Calendar as CalendarIcon, RefreshCw } from "lucide-react";
 import {
   fetchUpcomingEvents,
   UPCOMING_EVENTS,
@@ -133,6 +133,28 @@ export function CalendarPage({
 
       {/* Events Timeline List */}
       <div className="card" style={{ padding: "20px" }}>
+        {events.some((evt) => evt.source === "fallback") && (
+          <div
+            role="note"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              padding: "10px 14px",
+              marginBottom: "16px",
+              borderRadius: "8px",
+              background: "rgba(245, 158, 11, 0.08)",
+              border: "1px solid rgba(245, 158, 11, 0.3)",
+              fontSize: "0.85rem",
+              color: "var(--text-secondary)",
+            }}
+          >
+            <AlertTriangle size={14} style={{ color: "#f59e0b", flexShrink: 0 }} />
+            <span>
+              実データの取得に失敗したため、<strong>静的フォールバックデータ</strong>を表示しています。日付・予想値は参考値です。
+            </span>
+          </div>
+        )}
         {filteredEvents.length === 0 ? (
           <div
             role="status"
@@ -164,100 +186,113 @@ export function CalendarPage({
           </div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-          {filteredEvents.map((evt) => {
-            const isMacro = evt.type === "MACRO";
-            const ticker = evt.ticker;
-            return (
-              <div
-                key={evt.id}
-                role={ticker ? "button" : undefined}
-                tabIndex={ticker ? 0 : undefined}
-                aria-label={ticker ? `${evt.title} (${ticker}) の詳細を見る` : undefined}
-                style={{
-                  padding: "16px",
-                  borderRadius: "10px",
-                  background: "var(--bg-card-hover)",
-                  border: "1px solid var(--border-subtle)",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  flexWrap: "wrap",
-                  gap: "14px",
-                  cursor: ticker ? "pointer" : "default",
-                  transition: "border-color 0.15s ease",
-                }}
-                onClick={() => {
-                  if (ticker) {
-                    onOpenStockDetail(ticker);
-                  }
-                }}
-                onKeyDown={
-                  ticker
-                    ? (e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        onOpenStockDetail(ticker);
-                      }
+            {filteredEvents.map((evt) => {
+              const isMacro = evt.type === "MACRO";
+              const ticker = evt.ticker;
+              return (
+                <div
+                  key={evt.id}
+                  role={ticker ? "button" : undefined}
+                  tabIndex={ticker ? 0 : undefined}
+                  aria-label={ticker ? `${evt.title} (${ticker}) の詳細を見る` : undefined}
+                  style={{
+                    padding: "16px",
+                    borderRadius: "10px",
+                    background: "var(--bg-card-hover)",
+                    border: "1px solid var(--border-subtle)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    flexWrap: "wrap",
+                    gap: "14px",
+                    cursor: ticker ? "pointer" : "default",
+                    transition: "border-color 0.15s ease",
+                  }}
+                  onClick={() => {
+                    if (ticker) {
+                      onOpenStockDetail(ticker);
                     }
-                    : undefined
-                }
-              >
-                <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
-                  <div
-                    style={{
-                      width: "60px",
-                      textAlign: "center",
-                      padding: "8px 0",
-                      background: isMacro ? "rgba(56, 189, 248, 0.1)" : "rgba(16, 185, 129, 0.1)",
-                      borderRadius: "8px",
-                      border: `1px solid ${isMacro ? "var(--accent-border)" : "rgba(16, 185, 129, 0.3)"}`,
-                    }}
-                  >
-                    <span
-                      className="mono bold"
-                      style={{ fontSize: "1.1rem", color: isMacro ? "var(--accent-text)" : "#10b981" }}
+                  }}
+                  onKeyDown={
+                    ticker
+                      ? (e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          onOpenStockDetail(ticker);
+                        }
+                      }
+                      : undefined
+                  }
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
+                    <div
+                      style={{
+                        width: "60px",
+                        textAlign: "center",
+                        padding: "8px 0",
+                        background: isMacro ? "rgba(56, 189, 248, 0.1)" : "rgba(16, 185, 129, 0.1)",
+                        borderRadius: "8px",
+                        border: `1px solid ${isMacro ? "var(--accent-border)" : "rgba(16, 185, 129, 0.3)"}`,
+                      }}
                     >
-                      {evt.date}
-                    </span>
-                    <div className="tiny muted mono" style={{ fontSize: "0.68rem" }}>
-                      {isMacro ? "マクロ" : "決算"}
-                    </div>
-                  </div>
-
-                  <div>
-                    <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "3px" }}>
-                      <span className="badge badge-default mono tiny">{evt.importance} 重要度</span>
-                      {evt.ticker && <span className="badge badge-accent mono tiny">{evt.ticker}</span>}
-                    </div>
-                    <h3 style={{ fontSize: "1.05rem", fontWeight: 600, margin: 0 }}>
-                      {evt.title}
-                    </h3>
-                  </div>
-                </div>
-
-                <div style={{ display: "flex", alignItems: "center", gap: "20px" }}>
-                  {evt.previous && (
-                    <div className="tiny muted">
-                      前回: <strong className="mono">{evt.previous}</strong>
-                    </div>
-                  )}
-                  {evt.forecast && (
-                    <div className="tiny muted">
-                      市場予想: <strong className="mono" style={{ color: "var(--accent-text)" }}>{evt.forecast}</strong>
-                    </div>
-                  )}
-                  {evt.ticker && (
-                    <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-                      <span className="tiny mono" style={{ color: "var(--accent-text)" }}>
-                        銘柄分析
+                      <span
+                        className="mono bold"
+                        style={{ fontSize: "1.1rem", color: isMacro ? "var(--accent-text)" : "#10b981" }}
+                      >
+                        {evt.date}
                       </span>
-                      <ArrowRight size={14} style={{ color: "var(--accent-text)" }} />
+                      <div className="tiny muted mono" style={{ fontSize: "0.68rem" }}>
+                        {isMacro ? "マクロ" : "決算"}
+                      </div>
                     </div>
-                  )}
+
+                    <div>
+                      <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "3px" }}>
+                        <span className="badge badge-default mono tiny">{evt.importance} 重要度</span>
+                        {evt.ticker && <span className="badge badge-accent mono tiny">{evt.ticker}</span>}
+                        {evt.source === "fallback" && (
+                          <span
+                            className="badge mono tiny"
+                            title="このイベントは実データではなく静的フォールバックです"
+                            style={{
+                              background: "rgba(245, 158, 11, 0.12)",
+                              border: "1px solid rgba(245, 158, 11, 0.35)",
+                              color: "#f59e0b",
+                            }}
+                          >
+                            参考値
+                          </span>
+                        )}
+                      </div>
+                      <h3 style={{ fontSize: "1.05rem", fontWeight: 600, margin: 0 }}>
+                        {evt.title}
+                      </h3>
+                    </div>
+                  </div>
+
+                  <div style={{ display: "flex", alignItems: "center", gap: "20px" }}>
+                    {evt.previous && (
+                      <div className="tiny muted">
+                        前回: <strong className="mono">{evt.previous}</strong>
+                      </div>
+                    )}
+                    {evt.forecast && (
+                      <div className="tiny muted">
+                        市場予想: <strong className="mono" style={{ color: "var(--accent-text)" }}>{evt.forecast}</strong>
+                      </div>
+                    )}
+                    {evt.ticker && (
+                      <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                        <span className="tiny mono" style={{ color: "var(--accent-text)" }}>
+                          銘柄分析
+                        </span>
+                        <ArrowRight size={14} style={{ color: "var(--accent-text)" }} />
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
           </div>
         )}
       </div>

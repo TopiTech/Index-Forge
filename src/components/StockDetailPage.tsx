@@ -185,7 +185,16 @@ export function StockDetailPage({
         >
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "6px" }}>
-              <span className="badge badge-accent mono tiny">LIVE</span>
+              {stock.isDemoData ? (
+                <span
+                  className="badge badge-default mono tiny"
+                  title="この銘柄の数値は実データではなくティッカー名から擬似生成した参考値 (デモ) です"
+                >
+                  参考値 (デモ)
+                </span>
+              ) : (
+                <span className="badge badge-accent mono tiny">LIVE</span>
+              )}
               <span className="badge badge-default mono tiny">{stock.market}</span>
               <span className="badge badge-default mono tiny">{stock.sector}</span>
               <span className="tiny muted mono">THEME: {stock.theme}</span>

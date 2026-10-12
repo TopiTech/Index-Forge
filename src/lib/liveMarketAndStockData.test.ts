@@ -262,7 +262,13 @@ describe("Live Market and Stock Data Endpoints & Services", () => {
     it("fetchMarketOverview returns baseline and supports probe reset", async () => {
       resetMarketOverviewEndpointProbe();
       const overview = await fetchMarketOverview();
-      expect(overview).toEqual(DEFAULT_MARKET_OVERVIEW);
+      // The baseline payload is returned with fallback metadata disclosing
+      // that live data could not be fetched (data authenticity requirement).
+      expect(overview).toEqual({
+        ...DEFAULT_MARKET_OVERVIEW,
+        dataSource: "fallback",
+        dataAsOf: expect.any(String),
+      });
       expect(overview.indices.length).toBeGreaterThan(0);
       expect(overview.forex.length).toBeGreaterThan(0);
       expect(overview.marketBreadth.gainers).toBeGreaterThan(0);

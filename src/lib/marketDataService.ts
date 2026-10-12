@@ -44,6 +44,13 @@ export interface MarketOverviewData {
     url?: string;
     relatedTicker?: string;
   }>;
+  /**
+   * データ出所のメタデータ (後方互換のためオプショナル)。
+   * "fallback" の場合は実データ取得に失敗し、静的ベースラインを表示していることを示す。
+   */
+  dataSource?: "fallback" | "live";
+  /** データ生成時刻 (ISO 8601)。フォールバック表示時の鮮度確認に使用。 */
+  dataAsOf?: string;
 }
 
 export interface StockQuoteFundamentals {
@@ -71,6 +78,11 @@ export interface StockQuoteFundamentals {
   dps: number | null;
   sparkline?: number[];
   technicalSignal: "STRONG_BUY" | "BUY" | "NEUTRAL" | "SELL" | "STRONG_SELL";
+  /**
+   * true の場合、実データではなくティッカー名から擬似生成した参考値 (デモ) であることを示す。
+   * 既知銘柄アンカー (KNOWN_STOCK_ANCHORS) が存在しない未知ティッカーに付与される。
+   */
+  isDemoData?: boolean;
   historicalFinances: Array<{
     fiscalYear: string;
     revenue: number;
@@ -94,6 +106,11 @@ export interface CalendarEvent {
   previous?: string;
   forecast?: string;
   importance: "HIGH" | "MEDIUM" | "LOW";
+  /**
+   * データの出所。実データ取得に失敗して静的フォールバックを返した場合は "fallback"。
+   * 未設定の場合は実データ (または従来どおりの生成データ) を意味する。
+   */
+  source?: string;
 }
 
 // Default Global Market Quotes Baseline (Updated with actual market values)
@@ -704,6 +721,8 @@ export function getStockFundamentals(ticker: string): StockQuoteFundamentals {
     sparkline,
     technicalSignal,
     historicalFinances,
+    // 未知ティッカー (アンカー未定義) の場合は擬似生成データであることを明示
+    ...(anchor ? {} : { isDemoData: true }),
   };
 }
 
@@ -800,30 +819,30 @@ export function normalizeMarketOverview(raw: unknown): MarketOverviewData | null
         : fallback.marketBreadth,
     news: Array.isArray(record.news)
       ? record.news
-          .filter(
-            (item): item is Record<string, unknown> =>
-              !!item &&
-              typeof item === "object" &&
-              typeof (item as { id?: unknown }).id === "string" &&
-              typeof (item as { title?: unknown }).title === "string" &&
-              typeof (item as { source?: unknown }).source === "string" &&
-              typeof (item as { publishedAt?: unknown }).publishedAt === "string",
-          )
-          .map((item) => {
-            const rawUrl = typeof item.url === "string" ? item.url : undefined;
-            const safeUrl = rawUrl && /^https?:\/\//i.test(rawUrl) ? rawUrl : undefined;
-            return {
-              id: item.id as string,
-              title: item.title as string,
-              source: item.source as string,
-              publishedAt: item.publishedAt as string,
-              url: safeUrl,
-              relatedTicker:
-                typeof item.relatedTicker === "string" && item.relatedTicker
-                  ? (item.relatedTicker as string)
-                  : undefined,
-            };
-          })
+        .filter(
+          (item): item is Record<string, unknown> =>
+            !!item &&
+            typeof item === "object" &&
+            typeof (item as { id?: unknown }).id === "string" &&
+            typeof (item as { title?: unknown }).title === "string" &&
+            typeof (item as { source?: unknown }).source === "string" &&
+            typeof (item as { publishedAt?: unknown }).publishedAt === "string",
+        )
+        .map((item) => {
+          const rawUrl = typeof item.url === "string" ? item.url : undefined;
+          const safeUrl = rawUrl && /^https?:\/\//i.test(rawUrl) ? rawUrl : undefined;
+          return {
+            id: item.id as string,
+            title: item.title as string,
+            source: item.source as string,
+            publishedAt: item.publishedAt as string,
+            url: safeUrl,
+            relatedTicker:
+              typeof item.relatedTicker === "string" && item.relatedTicker
+                ? (item.relatedTicker as string)
+                : undefined,
+          };
+        })
       : fallback.news,
   };
 }
@@ -852,7 +871,7 @@ export async function fetchMarketOverview(forceRefresh = false): Promise<MarketO
       });
       if (res.status === 404) {
         overviewEndpointConfirmedMissing = true;
-        return DEFAULT_MARKET_OVERVIEW;
+        return withFallbackMetadata(DEFAULT_MARKET_OVERVIEW);
       }
       if (res.ok) {
         const contentType = res.headers.get("content-type") || "";
@@ -860,17 +879,25 @@ export async function fetchMarketOverview(forceRefresh = false): Promise<MarketO
         // that is not JSON means the route does not exist.
         if (!contentType.includes("json")) {
           overviewEndpointConfirmedMissing = true;
-          return DEFAULT_MARKET_OVERVIEW;
+          return withFallbackMetadata(DEFAULT_MARKET_OVERVIEW);
         }
         const normalized = normalizeMarketOverview(await res.json());
-        if (normalized) return normalized;
+        if (normalized) return { ...normalized, dataSource: "live" };
       }
     } catch {
       // Graceful fallback to rich local baseline; a network error may be
       // transient, so the endpoint probe stays armed.
     }
   }
-  return DEFAULT_MARKET_OVERVIEW;
+  return withFallbackMetadata(DEFAULT_MARKET_OVERVIEW);
+}
+
+/**
+ * 静的ベースライン (フォールバック) データに出所と鮮度のメタデータを付与する。
+ * 既存のオブジェクトは変更せず、新しいオブジェクトを返す (イミュータブル)。
+ */
+function withFallbackMetadata(data: MarketOverviewData): MarketOverviewData {
+  return { ...data, dataSource: "fallback", dataAsOf: new Date().toISOString() };
 }
 
 /** Cache for stock fundamentals fetched from the backend API. */
@@ -982,16 +1009,16 @@ export interface ScreenerFilterOptions {
   minRoe?: number;
   searchQuery?: string;
   sortBy?:
-    | "changePercent"
-    | "dividendYield"
-    | "per"
-    | "pbr"
-    | "volume"
-    | "marketCap"
-    | "price"
-    | "roe"
-    | "name"
-    | "ticker";
+  | "changePercent"
+  | "dividendYield"
+  | "per"
+  | "pbr"
+  | "volume"
+  | "marketCap"
+  | "price"
+  | "roe"
+  | "name"
+  | "ticker";
   sortOrder?: "asc" | "desc";
 }
 
@@ -1167,6 +1194,11 @@ export async function fetchUpcomingEvents(
 
 /**
  * Generates financial calendar events dynamically relative to the reference date.
+ *
+ * 生成されるイベントは静的テンプレート由来の参考値であるため、
+ * 各イベントに source: "fallback" を付与する。
+ * CalendarPage のフォールバック表示 (バナー + 「参考値」バッジ) は
+ * このメタデータに依存して動作する。
  */
 export function generateUpcomingEvents(referenceDate = new Date()): CalendarEvent[] {
   const year = referenceDate.getFullYear();
@@ -1188,6 +1220,7 @@ export function generateUpcomingEvents(referenceDate = new Date()): CalendarEven
       importance: "HIGH",
       previous: "0.25%",
       forecast: "0.25%",
+      source: "fallback",
     },
     {
       id: "earn-shinetsu",
@@ -1198,6 +1231,7 @@ export function generateUpcomingEvents(referenceDate = new Date()): CalendarEven
       companyName: "信越化学工業",
       importance: "HIGH",
       marketCap: 115000,
+      source: "fallback",
     },
     {
       id: "earn-fanuc",
@@ -1208,6 +1242,7 @@ export function generateUpcomingEvents(referenceDate = new Date()): CalendarEven
       companyName: "ファナック",
       importance: "MEDIUM",
       marketCap: 41000,
+      source: "fallback",
     },
     {
       id: "earn-advantest",
@@ -1218,6 +1253,7 @@ export function generateUpcomingEvents(referenceDate = new Date()): CalendarEven
       companyName: "アドバンテスト",
       importance: "HIGH",
       marketCap: 300000,
+      source: "fallback",
     },
     {
       id: "macro-fomc",
@@ -1227,6 +1263,7 @@ export function generateUpcomingEvents(referenceDate = new Date()): CalendarEven
       importance: "HIGH",
       previous: "5.00%",
       forecast: "4.75%",
+      source: "fallback",
     },
     {
       id: "earn-toyota",
@@ -1237,6 +1274,7 @@ export function generateUpcomingEvents(referenceDate = new Date()): CalendarEven
       companyName: "トヨタ自動車",
       importance: "HIGH",
       marketCap: 345000,
+      source: "fallback",
     },
     {
       id: "macro-jobs",
@@ -1246,6 +1284,7 @@ export function generateUpcomingEvents(referenceDate = new Date()): CalendarEven
       importance: "HIGH",
       previous: "25.4万人",
       forecast: "12.0万人",
+      source: "fallback",
     },
     {
       id: "earn-aapl",
@@ -1256,6 +1295,7 @@ export function generateUpcomingEvents(referenceDate = new Date()): CalendarEven
       companyName: "Apple Inc.",
       importance: "HIGH",
       marketCap: 4900000,
+      source: "fallback",
     },
     {
       id: "earn-sbg",
@@ -1266,6 +1306,7 @@ export function generateUpcomingEvents(referenceDate = new Date()): CalendarEven
       companyName: "ソフトバンクグループ",
       importance: "HIGH",
       marketCap: 135000,
+      source: "fallback",
     },
     {
       id: "earn-tel",
@@ -1276,6 +1317,7 @@ export function generateUpcomingEvents(referenceDate = new Date()): CalendarEven
       companyName: "東京エレクトロン",
       importance: "HIGH",
       marketCap: 290000,
+      source: "fallback",
     },
   ];
 }

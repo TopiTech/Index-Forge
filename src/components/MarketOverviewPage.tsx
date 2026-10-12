@@ -98,9 +98,28 @@ export function MarketOverviewPage({
         }}
       >
         <div>
-          <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px", flexWrap: "wrap" }}>
             <span className="badge badge-accent mono tiny">MARKET INTELLIGENCE</span>
-            <span className="tiny muted mono">GLOBAL & TSE REAL-TIME MONITOR</span>
+            {data.dataSource === "fallback" ? (
+              <span
+                className="badge mono tiny"
+                title="実データの取得に失敗したため、静的ベースラインデータを表示しています"
+                style={{
+                  background: "rgba(245, 158, 11, 0.12)",
+                  border: "1px solid rgba(245, 158, 11, 0.35)",
+                  color: "#f59e0b",
+                }}
+              >
+                参考値 (フォールバック)
+              </span>
+            ) : (
+              <span className="tiny muted mono">GLOBAL & TSE REAL-TIME MONITOR</span>
+            )}
+            {data.dataAsOf && (
+              <span className="tiny muted mono" title="データ生成時刻">
+                DATA AS OF: {new Date(data.dataAsOf).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })}
+              </span>
+            )}
           </div>
           <h2 className="page-header-title">グローバル市場概況</h2>
           <p className="muted tiny" style={{ margin: "4px 0 0" }}>

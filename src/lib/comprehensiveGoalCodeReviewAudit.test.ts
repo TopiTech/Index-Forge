@@ -97,13 +97,15 @@ describe("comprehensiveGoalCodeReviewAudit", () => {
       expect(getClientIp(req)).toBe("2.2.2.2");
     });
 
-    it("falls back to the first IP of x-forwarded-for when direct headers are absent", () => {
+    it("interprets x-forwarded-for as a trusted proxy chain (right-most hop)", () => {
       const req = new Request("http://localhost/api/test", {
         headers: {
           "x-forwarded-for": "  3.3.3.3 , 4.4.4.4  ",
         },
       });
-      expect(getClientIp(req)).toBe("3.3.3.3");
+      // The left-most entry is client-controlled and spoofable; the right-most
+      // entry is the one appended by the closest trusted proxy.
+      expect(getClientIp(req)).toBe("4.4.4.4");
     });
 
     it("returns unknown when no client IP header is present", () => {

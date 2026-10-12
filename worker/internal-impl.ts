@@ -686,12 +686,26 @@ export async function upgradeLegacyPasswordHash(
     )
       .bind(upgradedHash, Math.floor(Date.now() / 1000), id)
       .run();
+    // Migration visibility (P3): legacy unsalted SHA-256 hashes are upgraded
+    // lazily on successful login. Emitting one log line per upgrade lets
+    // operators watch the migration progress in Worker logs; once no more
+    // "upgraded legacy password hash" lines appear, every active account has
+    // been migrated to PBKDF2 and the legacy verification path is dormant.
+    console.info(`Upgraded legacy password hash to PBKDF2 for account: ${id}`);
   } catch (err) {
     // A successful login must not fail just because a best-effort migration
     // could not be persisted. The next login can retry the upgrade.
     console.error("Failed to upgrade legacy password hash:", err);
   }
 }
+
+/**
+ * Upper bound on full PBKDF2 verifications performed by a single
+ * findPasswordCollision call. Each verification runs ~100k SHA-256 iterations,
+ * so this cap keeps admin operations (password create/update) well inside the
+ * Workers CPU limit even when the access_passwords table grows large.
+ */
+export const MAX_PASSWORD_COLLISION_VERIFICATIONS = 25;
 
 export interface PasswordCollisionCheckResult {
   hasCollision: boolean;
@@ -755,9 +769,22 @@ export async function findPasswordCollision(
     const stmt = excludeId ? env.DB.prepare(query).bind(excludeId) : env.DB.prepare(query);
     const { results } = await stmt.all();
 
+    // Each PBKDF2 verification costs ~100k SHA-256 iterations. Verifying every
+    // row unbounded would push admin operations past the Workers CPU limit as
+    // the user count grows, so cap the number of full verifications per call.
+    let verified = 0;
     for (const row of results || []) {
       const r = row as { id: string; name: string; role?: "admin" | "user"; password_hash: string };
-      if (r.password_hash && (await verifyPasswordHash(candidatePassword, r.password_hash))) {
+      if (!r.password_hash) continue;
+      if (verified >= MAX_PASSWORD_COLLISION_VERIFICATIONS) {
+        console.warn(
+          `findPasswordCollision: verification cap (${MAX_PASSWORD_COLLISION_VERIFICATIONS}) reached; ` +
+          "remaining rows were not checked for password collisions",
+        );
+        break;
+      }
+      verified += 1;
+      if (await verifyPasswordHash(candidatePassword, r.password_hash)) {
         const isAdmin = r.role === "admin";
         return {
           hasCollision: true,
@@ -793,11 +820,11 @@ export async function authenticatePassword(
     (explicitPassword !== undefined && explicitPassword !== null)
       ? (typeof explicitPassword === "string" ? explicitPassword.trim() : "")
       : (request.headers.get("x-auth-password")?.trim() ||
-         request.headers.get("x-admin-key")?.trim() ||
-         (request.headers.get("authorization")?.startsWith("Bearer ")
-           ? request.headers.get("authorization")!.slice(7).trim()
-           : null) ||
-         "");
+        request.headers.get("x-admin-key")?.trim() ||
+        (request.headers.get("authorization")?.startsWith("Bearer ")
+          ? request.headers.get("authorization")!.slice(7).trim()
+          : null) ||
+        "");
 
   if (!pwd) {
     return { authenticated: false, error: "パスワードが指定されていません" };
@@ -852,13 +879,13 @@ export async function authenticatePassword(
 
     const masterRow = (adminMasterRows || []).find((r: D1Row) => r.id === "admin-master") as
       | {
-          id: string;
-          name: string;
-          password_hash: string;
-          role: "admin";
-          max_stocks: number | null;
-          is_active: number;
-        }
+        id: string;
+        name: string;
+        password_hash: string;
+        role: "admin";
+        max_stocks: number | null;
+        is_active: number;
+      }
       | undefined;
 
     if (masterRow) {
@@ -1511,11 +1538,11 @@ export async function fetchLiveMarketOverview(
     const live = quotesMap.get(def.querySymbol);
     const prevQuote = prevOverview
       ? [
-          ...prevOverview.indices,
-          ...prevOverview.forex,
-          ...prevOverview.commodities,
-          ...prevOverview.crypto,
-        ].find((a) => a.symbol === def.symbol)
+        ...prevOverview.indices,
+        ...prevOverview.forex,
+        ...prevOverview.commodities,
+        ...prevOverview.crypto,
+      ].find((a) => a.symbol === def.symbol)
       : undefined;
 
     const price = live?.price ?? prevQuote?.price ?? def.defaultPrice;
@@ -1802,16 +1829,16 @@ export async function fetchLiveStockFundamentals(
     const [summaryRes, chartRes] = await Promise.all([
       auth
         ? fetch(
-            `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(yahooSymbol)}?modules=financialData,defaultKeyStatistics,summaryDetail,earnings,price&crumb=${encodeURIComponent(auth.crumb)}`,
-            {
-              signal: AbortSignal.timeout(6000),
-              headers: {
-                "User-Agent":
-                  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                Cookie: auth.cookie,
-              },
+          `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(yahooSymbol)}?modules=financialData,defaultKeyStatistics,summaryDetail,earnings,price&crumb=${encodeURIComponent(auth.crumb)}`,
+          {
+            signal: AbortSignal.timeout(6000),
+            headers: {
+              "User-Agent":
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+              Cookie: auth.cookie,
             },
-          )
+          },
+        )
         : Promise.resolve(null),
       fetch(
         `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?interval=1d&range=1mo`,
@@ -1877,8 +1904,8 @@ export async function fetchLiveStockFundamentals(
       typeof priceObj.regularMarketPreviousClose?.raw === "number"
         ? priceObj.regularMarketPreviousClose.raw
         : typeof chartMeta.chartPreviousClose === "number"
-        ? chartMeta.chartPreviousClose
-        : Number((currentPrice - change).toFixed(2));
+          ? chartMeta.chartPreviousClose
+          : Number((currentPrice - change).toFixed(2));
 
     volume = priceObj.regularMarketVolume?.raw || detail.volume?.raw || chartMeta.regularMarketVolume || volume;
     dayHigh = detail.dayHigh?.raw || priceObj.regularMarketDayHigh?.raw || chartMeta.regularMarketDayHigh || currentPrice;
@@ -2261,7 +2288,8 @@ export function fetchLiveMarketCalendar(
     }
   }
 
-  return [
+  // 静的生成カレンダーは実データではないため、フォールバックであることを明示する
+  const events: CalendarEvent[] = [
     {
       id: "macro-boj",
       date: `${mStr(month)}/18`,
@@ -2379,6 +2407,7 @@ export function fetchLiveMarketCalendar(
       marketCap: capMap.get("NVDA") ?? 5500000,
     },
   ];
+  return events.map((event) => ({ ...event, source: "fallback" }));
 }
 
 export function isAllowedOrigin(origin: string): boolean {
@@ -2492,16 +2521,33 @@ export function matchesIfNoneMatch(
 }
 
 /**
- * Extracts client IP address with fallback from cf-connecting-ip to x-real-ip
- * and x-forwarded-for to ensure rate limiting operates correctly across environments.
+ * Extracts the client IP address for rate limiting.
+ *
+ * Trust order:
+ * 1. `CF-Connecting-IP` — set by Cloudflare's edge from the actual TCP peer and
+ *    therefore the only authoritative source inside a Cloudflare Worker.
+ * 2. `X-Real-IP` — only honored when CF-Connecting-IP is absent (non-CF
+ *    environments such as local dev behind a single trusted proxy).
+ * 3. `X-Forwarded-For` — spoofable by the client, so it is used last and
+ *    interpreted as a trusted proxy chain: the right-most entry is the address
+ *    appended by the closest trusted proxy, not the client-supplied left-most
+ *    entry.
+ *
+ * This ordering prevents direct clients from bypassing rate limits by sending
+ * forged `X-Real-IP` / `X-Forwarded-For` headers.
  */
 export function getClientIp(request: Request): string {
   const cf = request.headers.get("cf-connecting-ip")?.trim();
   if (cf) return cf;
   const real = request.headers.get("x-real-ip")?.trim();
   if (real) return real;
-  const forwarded = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
-  if (forwarded) return forwarded;
+  const forwardedHeader = request.headers.get("x-forwarded-for")?.trim();
+  if (forwardedHeader) {
+    // Trusted-proxy-chain interpretation: the right-most hop is the one added
+    // by the infrastructure we control; the left-most is client-controlled.
+    const hops = forwardedHeader.split(",").map((h) => h.trim()).filter(Boolean);
+    if (hops.length > 0) return hops[hops.length - 1];
+  }
   return "unknown";
 }
 
@@ -2636,7 +2682,7 @@ export async function checkRateLimit(
       const purgePromise = env.DB.prepare("DELETE FROM rate_limits WHERE window_start < ?")
         .bind(now - 3600)
         .run()
-        .catch(() => {});
+        .catch(() => { });
       if (ctx && typeof ctx.waitUntil === "function") {
         ctx.waitUntil(purgePromise);
       }
@@ -3370,10 +3416,10 @@ export default {
                   auth.id === existingCreatorId
                     ? { max_stocks: auth.maxStocks }
                     : ((
-                        await env.DB.prepare("SELECT max_stocks FROM access_passwords WHERE id = ?")
-                          .bind(existingCreatorId)
-                          .all()
-                      ).results?.[0] as { max_stocks?: unknown } | undefined);
+                      await env.DB.prepare("SELECT max_stocks FROM access_passwords WHERE id = ?")
+                        .bind(existingCreatorId)
+                        .all()
+                    ).results?.[0] as { max_stocks?: unknown } | undefined);
                 if (!creatorRow) {
                   return json(
                     { error: "作成者の銘柄数上限を確認できないため、後で再試行してください" },
@@ -4552,10 +4598,10 @@ export default {
                 auth.id === existingCreatorId
                   ? { max_stocks: auth.maxStocks }
                   : ((
-                      await env.DB.prepare("SELECT max_stocks FROM access_passwords WHERE id = ?")
-                        .bind(existingCreatorId)
-                        .all()
-                    ).results?.[0] as { max_stocks?: unknown } | undefined);
+                    await env.DB.prepare("SELECT max_stocks FROM access_passwords WHERE id = ?")
+                      .bind(existingCreatorId)
+                      .all()
+                  ).results?.[0] as { max_stocks?: unknown } | undefined);
               if (!creatorRow) {
                 return json(
                   { error: "作成者の銘柄数上限を確認できないため、後で再試行してください" },
@@ -4599,9 +4645,9 @@ export default {
           const isUserCreatingIndex = !isExisting && auth.authenticated && auth.role === "user";
           const userIndexLimit =
             isUserCreatingIndex &&
-            typeof auth.maxIndices === "number" &&
-            Number.isSafeInteger(auth.maxIndices) &&
-            auth.maxIndices > 0
+              typeof auth.maxIndices === "number" &&
+              Number.isSafeInteger(auth.maxIndices) &&
+              auth.maxIndices > 0
               ? auth.maxIndices
               : null;
 
@@ -4771,7 +4817,7 @@ export default {
             createdAt: hasOwnerTokenHashColumn,
             sortOrder: true,
           };
-          for (;;) {
+          for (; ;) {
             try {
               const batchResults = await env.DB.batch(buildIndexStatements(indexWriteColumns));
               if (userIndexLimit !== null) {
