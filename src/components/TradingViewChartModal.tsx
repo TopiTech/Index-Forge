@@ -341,6 +341,50 @@ export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModal
     notifyTradingViewResize();
   }, [dimensions, saveDimensions, notifyTradingViewResize]);
 
+  // Keyboard resize: the corner grip is pointer-only by default, so
+  // keyboard users had no way to resize the card. Arrow keys adjust
+  // width/height (Shift accelerates); bounds mirror the pointer drag.
+  const handleResizeKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLDivElement>) => {
+      if (isMaximized) return;
+      const isMobile =
+        typeof window !== "undefined" && window.innerWidth <= 640;
+      const minW = isMobile
+        ? Math.min(320, Math.floor(window.innerWidth * 0.94))
+        : Math.min(480, Math.floor(window.innerWidth * 0.94));
+      const minH = isMobile
+        ? Math.min(300, Math.floor(window.innerHeight * 0.8))
+        : Math.min(380, Math.floor(window.innerHeight * 0.88));
+      const maxW = Math.max(minW, Math.floor(window.innerWidth * 0.96));
+      const maxH = Math.max(minH, Math.floor(window.innerHeight * 0.94));
+      const step = e.shiftKey ? 80 : 24;
+      let { width, height } = dimensions;
+      switch (e.key) {
+        case "ArrowRight":
+          width = Math.min(maxW, width + step);
+          break;
+        case "ArrowLeft":
+          width = Math.max(minW, width - step);
+          break;
+        case "ArrowUp":
+          height = Math.min(maxH, height + step);
+          break;
+        case "ArrowDown":
+          height = Math.max(minH, height - step);
+          break;
+        default:
+          return;
+      }
+      e.preventDefault();
+      e.stopPropagation();
+      const next = { width, height };
+      setDimensions(next);
+      saveDimensions(next);
+      notifyTradingViewResize();
+    },
+    [dimensions, isMaximized, saveDimensions, notifyTradingViewResize],
+  );
+
   // Safe backdrop click handlers
   const handleBackdropMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     isBackdropMouseDownRef.current = e.target === e.currentTarget;
@@ -635,7 +679,7 @@ export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModal
                   marginTop: 10,
                   padding: "12px 16px",
                   borderRadius: 8,
-                  background: "rgba(255, 255, 255, 0.04)",
+                  background: "var(--surface-neutral)",
                   border: "1px solid var(--border-subtle)",
                   width: "100%",
                   maxWidth: 380,
@@ -695,16 +739,19 @@ export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModal
           </a>
         </div>
 
-        {/* Corner Resize Grip Handle */}
+        {/* Corner Resize Grip Handle (pointer drag + arrow keys) */}
         {!isMaximized && (
           <div
             className="tv-resize-handle"
+            role="separator"
+            tabIndex={0}
             onPointerDown={handleResizePointerDown}
             onPointerMove={handleResizePointerMove}
             onPointerUp={handleResizePointerUp}
             onPointerCancel={handleResizePointerUp}
+            onKeyDown={handleResizeKeyDown}
             title="ドラッグして表示枠サイズを調整"
-            aria-label="枠のサイズを調整"
+            aria-label="枠のサイズを調整 (方向キーでも調整できます)"
           >
             <svg
               width="12"

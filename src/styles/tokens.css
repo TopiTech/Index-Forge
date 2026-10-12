@@ -77,8 +77,17 @@
     --neon-green: #10b981;
     --neon-amber: #f59e0b;
 
+    /* Gain/loss semantic aliases. Components reference these by role; the
+       [data-theme="light"] block below swaps --neon-*, so the aliases
+       follow the active theme automatically. Every var(--color-positive/
+       negative) reference in the codebase resolves through these two. */
+    --color-positive: var(--neon-green);
+    --color-negative: var(--neon-red);
+
     /* Backgrounds & Surfaces (Deep Obsidian & Slate Dark Mode) */
     --bg-dark: var(--c-ink-900);
+    /* App-level canvas background alias; --bg-dark is theme-swapped. */
+    --bg-app: var(--bg-dark);
     --bg-surface: var(--c-ink-800);
     --bg-card: rgba(14, 21, 37, 0.72);
     --bg-card-hover: rgba(19, 28, 50, 0.88);

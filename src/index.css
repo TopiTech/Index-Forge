@@ -410,6 +410,25 @@ h3 {
   white-space: nowrap;
 }
 
+/* Brand wordmark. Rendered as a span (not h1) so each route page
+   owns the single h1 in its outline; styling mirrors the h1 display
+   treatment exactly to preserve the previous appearance. */
+.header-brand-name {
+  font-family: var(--display-font);
+  font-size: var(--fs-display);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin: 0;
+  background: linear-gradient(180deg, #ffffff 30%, #cbd5e1 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
 .header-inner-row {
   display: flex;
   align-items: center;
@@ -440,7 +459,7 @@ h3 {
 
 .header-search-btn:hover {
   border-color: var(--accent-border);
-  color: var(--text-color);
+  color: var(--text-heading);
   background: var(--bg-card-hover);
 }
 
@@ -1577,6 +1596,14 @@ h3 {
 }
 
 [data-theme="light"] h1 {
+  background: linear-gradient(135deg, #0f172a 0%, var(--accent-color) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  filter: none;
+}
+
+[data-theme="light"] .header-brand-name {
   background: linear-gradient(135deg, #0f172a 0%, var(--accent-color) 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -4680,7 +4707,7 @@ a.footer-creator-note:hover .footer-icon-accent {
   max-width: none !important;
   margin: 0 !important;
   padding: 12px 16px !important;
-  background: var(--bg-primary) !important;
+  background: var(--bg-app) !important;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -5200,6 +5227,13 @@ a.footer-creator-note:hover .footer-icon-accent {
 .tv-resize-handle:active {
   color: var(--accent-text);
   transform: scale(1.15);
+}
+
+.tv-resize-handle:focus-visible {
+  outline: 2px solid var(--accent-color);
+  outline-offset: 2px;
+  border-radius: 4px;
+  color: var(--accent-text);
 }
 
 @media (max-width: 640px) {
@@ -6447,7 +6481,7 @@ a.footer-creator-note:hover .footer-icon-accent {
   .header-brand .header-desc {
     display: none !important;
   }
-  .header-brand-text h1 {
+  .header-brand-text .header-brand-name {
     font-size: 1.12rem !important;
   }
   .top-header {

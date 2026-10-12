@@ -92,7 +92,7 @@ export function Header({
               <TrendingUp size={16} strokeWidth={2.2} />
             </div>
             <div className="header-brand-text">
-              <h1>IndexForge</h1>
+              <span className="header-brand-name">IndexForge</span>
               <p className="muted header-desc">統合投資情報プラットフォーム</p>
             </div>
           </a>

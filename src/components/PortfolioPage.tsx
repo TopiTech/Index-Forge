@@ -209,7 +209,7 @@ export function PortfolioPage({ onNavigate }: PortfolioPageProps) {
 
             <div className="skill-card">
               <div className="skill-card-icon">
-                <Cpu size={20} style={{ color: "#a855f7" }} />
+                <Cpu size={20} style={{ color: "var(--neon-magenta)" }} />
               </div>
               <h3 className="skill-card-title">Serverless & Edge</h3>
               <p className="skill-card-desc tiny muted">
@@ -219,7 +219,7 @@ export function PortfolioPage({ onNavigate }: PortfolioPageProps) {
 
             <div className="skill-card">
               <div className="skill-card-icon">
-                <TrendingUp size={20} style={{ color: "#10b981" }} />
+                <TrendingUp size={20} style={{ color: "var(--neon-green)" }} />
               </div>
               <h3 className="skill-card-title">Financial & Analytics</h3>
               <p className="skill-card-desc tiny muted">

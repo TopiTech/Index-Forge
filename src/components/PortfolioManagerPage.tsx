@@ -623,7 +623,7 @@ export function PortfolioManagerPage({
                     padding: "8px",
                     borderRadius: "8px",
                     background: "rgba(168, 85, 247, 0.12)",
-                    color: "#a855f7",
+                    color: "var(--neon-magenta)",
                     display: "flex",
                   }}
                 >
@@ -648,7 +648,7 @@ export function PortfolioManagerPage({
                     padding: "8px",
                     borderRadius: "8px",
                     background: "rgba(16, 185, 129, 0.12)",
-                    color: "#10b981",
+                    color: "var(--neon-green)",
                     display: "flex",
                   }}
                 >
@@ -820,7 +820,7 @@ export function PortfolioManagerPage({
 
         <div className="card" style={{ padding: "16px 18px" }}>
           <span className="tiny muted mono uppercase">年間予想配当金合計</span>
-          <div className="mono bold" style={{ fontSize: "1.6rem", marginTop: 4, color: "#10b981" }}>
+          <div className="mono bold" style={{ fontSize: "1.6rem", marginTop: 4, color: "var(--neon-green)" }}>
             ¥{summary.totalAnnualDividend.toLocaleString()}
           </div>
           <span className="tiny muted mono" style={{ color: "var(--accent-text)" }}>
@@ -873,7 +873,7 @@ export function PortfolioManagerPage({
               style={{
                 height: "10px",
                 width: "100%",
-                background: "rgba(255, 255, 255, 0.05)",
+                background: "var(--surface-control)",
                 borderRadius: "5px",
                 overflow: "hidden",
                 display: "flex",
@@ -945,7 +945,7 @@ export function PortfolioManagerPage({
               }}
             >
               <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                <Coins size={16} style={{ color: "#10b981" }} />
+                <Coins size={16} style={{ color: "var(--neon-green)" }} />
                 <span className="tiny bold uppercase">インカム & 年間配当受取予測</span>
               </div>
               <span className="tiny mono" style={{ color: "var(--accent-text)" }}>
@@ -956,7 +956,7 @@ export function PortfolioManagerPage({
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "12px" }}>
               <div style={{ padding: "10px", background: "var(--bg-input)", borderRadius: "8px" }}>
                 <div className="tiny muted uppercase mono">年間予想受取総額</div>
-                <div className="mono bold tabular-nums" style={{ fontSize: "1.25rem", color: "#10b981", marginTop: "2px" }}>
+                <div className="mono bold tabular-nums" style={{ fontSize: "1.25rem", color: "var(--neon-green)", marginTop: "2px" }}>
                   ¥{summary.totalAnnualDividend.toLocaleString()}
                 </div>
               </div>

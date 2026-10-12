@@ -107,7 +107,7 @@ export function MarketOverviewPage({
                 style={{
                   background: "rgba(245, 158, 11, 0.12)",
                   border: "1px solid rgba(245, 158, 11, 0.35)",
-                  color: "#f59e0b",
+                  color: "var(--neon-amber)",
                 }}
               >
                 参考値 (フォールバック)
@@ -128,7 +128,7 @@ export function MarketOverviewPage({
               </span>
             )}
           </div>
-          <h2 className="page-header-title">グローバル市場概況</h2>
+          <h1 className="page-header-title">グローバル市場概況</h1>
           <p className="muted tiny" style={{ margin: "4px 0 0" }}>
             日米主要株価指数、為替、商品、暗号資産、東証業種別騰落率のリアルタイム統合サマリー
           </p>
@@ -183,7 +183,7 @@ export function MarketOverviewPage({
             style={{
               height: "6px",
               width: "100%",
-              background: "rgba(255, 255, 255, 0.08)",
+              background: "var(--surface-control)",
               borderRadius: "3px",
               marginTop: "8px",
               overflow: "hidden",
@@ -431,7 +431,7 @@ export function MarketOverviewPage({
                     style={{
                       flex: 1,
                       height: "8px",
-                      background: "rgba(255, 255, 255, 0.06)",
+                      background: "var(--surface-control)",
                       borderRadius: "4px",
                       position: "relative",
                       overflow: "hidden",
@@ -478,13 +478,6 @@ export function MarketOverviewPage({
             {data.news.map((item) => (
               <div
                 key={item.id}
-                role={item.relatedTicker ? "button" : undefined}
-                tabIndex={item.relatedTicker ? 0 : undefined}
-                aria-label={
-                  item.relatedTicker
-                    ? `${item.title} (${item.relatedTicker}の銘柄分析を開く)`
-                    : undefined
-                }
                 style={{
                   padding: "12px",
                   borderRadius: "8px",
@@ -492,19 +485,6 @@ export function MarketOverviewPage({
                   display: "flex",
                   flexDirection: "column",
                   gap: "6px",
-                  cursor: item.relatedTicker ? "pointer" : "default",
-                  transition: "transform 0.1s ease",
-                }}
-                onClick={() => {
-                  if (item.relatedTicker) {
-                    onOpenStockDetail(item.relatedTicker);
-                  }
-                }}
-                onKeyDown={(e) => {
-                  if (item.relatedTicker && (e.key === "Enter" || e.key === " ")) {
-                    e.preventDefault();
-                    onOpenStockDetail(item.relatedTicker);
-                  }
                 }}
               >
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -519,7 +499,6 @@ export function MarketOverviewPage({
                         rel="noopener noreferrer"
                         className="tiny muted"
                         style={{ display: "inline-flex", alignItems: "center", gap: "2px", textDecoration: "none" }}
-                        onClick={(e) => e.stopPropagation()}
                         aria-label={`${item.source} の記事原文を新しいタブで開く`}
                       >
                         <ExternalLink size={11} />
@@ -529,9 +508,34 @@ export function MarketOverviewPage({
                   </div>
                   <span className="tiny muted mono">{item.publishedAt}</span>
                 </div>
-                <div style={{ fontSize: "0.92rem", fontWeight: 600, lineHeight: 1.4 }}>
-                  {item.title}
-                </div>
+                {item.relatedTicker ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (item.relatedTicker) onOpenStockDetail(item.relatedTicker);
+                    }}
+                    aria-label={`${item.title} (${item.relatedTicker}の銘柄分析を開く)`}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      padding: 0,
+                      margin: 0,
+                      fontFamily: "inherit",
+                      color: "inherit",
+                      textAlign: "left",
+                      cursor: "pointer",
+                      fontSize: "0.92rem",
+                      fontWeight: 600,
+                      lineHeight: 1.4,
+                    }}
+                  >
+                    {item.title}
+                  </button>
+                ) : (
+                  <div style={{ fontSize: "0.92rem", fontWeight: 600, lineHeight: 1.4 }}>
+                    {item.title}
+                  </div>
+                )}
                 {item.relatedTicker && (
                   <div style={{ display: "flex", alignItems: "center", gap: "4px", marginTop: "2px" }}>
                     <span className="mono tiny bold" style={{ color: "var(--accent-text)" }}>

@@ -904,7 +904,7 @@ export default function App({
         />
       }
     >
-      <div className="mobile-dashboard-toolbar" aria-label="ダッシュボード操作">
+      <div className="mobile-dashboard-toolbar" role="toolbar" aria-label="ダッシュボード操作">
         <div className="mobile-current-index">
           <span className="mono tiny uppercase muted">CURRENT INDEX</span>
           <strong title={selectedIndex?.name}>

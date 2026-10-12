@@ -551,7 +551,7 @@ export function ScreenerPage({
             onClick={() => applyPreset("LOW_PBR")}
             style={{ borderRadius: "20px" }}
           >
-            <ShieldCheck size={13} style={{ color: "#818cf8" }} />
+            <ShieldCheck size={13} style={{ color: "var(--neon-cyan)" }} />
             <span>低PBRバリュー (1倍割れ)</span>
           </button>
           <button

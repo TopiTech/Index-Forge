@@ -54,17 +54,27 @@ describe("Goal Platform Integration & Accessibility Verification", () => {
   });
 
   describe("MarketOverviewPage News Item Accessibility", () => {
-    it("adds role='button', tabIndex={0}, and aria-label to news items with relatedTicker", () => {
-      expect(marketOverviewSource).toContain('role={item.relatedTicker ? "button" : undefined}');
-      expect(marketOverviewSource).toContain("tabIndex={item.relatedTicker ? 0 : undefined}");
+    it("renders the news title as a native button when a related ticker exists", () => {
+      // The card is a plain container and the title is a real <button>, so the
+      // "open stock detail" action is keyboard-operable without a manual
+      // role="button"/tabIndex/onKeyDown, and the "記事を開く" link is never
+      // nested inside an interactive element.
+      expect(marketOverviewSource).toMatch(/\{item\.relatedTicker \? \(\s*<button/);
       expect(marketOverviewSource).toContain(
-        "aria-label={\n                  item.relatedTicker\n                    ? `${item.title} (${item.relatedTicker}の銘柄分析を開く)`\n                    : undefined\n                }",
+        "aria-label={`${item.title} (${item.relatedTicker}の銘柄分析を開く)`}",
       );
+      expect(marketOverviewSource).toContain("onOpenStockDetail(item.relatedTicker)");
+      // The card itself must not be an interactive role="button": that would
+      // nest the article link inside a button (invalid interactive nesting).
+      expect(marketOverviewSource).not.toContain(
+        'role={item.relatedTicker ? "button" : undefined}',
+      );
+      expect(marketOverviewSource).not.toContain("tabIndex={item.relatedTicker ? 0 : undefined}");
     });
 
-    it("handles Enter and Space key activation for keyboard accessibility", () => {
-      expect(marketOverviewSource).toMatch(
-        /onKeyDown=\{\(e\) => \{\s*if \(item\.relatedTicker && \(e\.key === "Enter" \|\| e\.key === " "\)\) \{\s*e\.preventDefault\(\);\s*onOpenStockDetail\(item\.relatedTicker\);/,
+    it("keeps the article link reachable as a sibling of the title button", () => {
+      expect(marketOverviewSource).toContain(
+        "aria-label={`${item.source} の記事原文を新しいタブで開く`}",
       );
     });
   });

@@ -288,7 +288,7 @@ export function StockDetailPage({
           <div
             style={{
               height: "8px",
-              background: "rgba(255, 255, 255, 0.08)",
+              background: "var(--surface-control)",
               borderRadius: "4px",
               position: "relative",
             }}
@@ -334,7 +334,7 @@ export function StockDetailPage({
 
         <div className="card" style={{ padding: "14px 16px" }}>
           <span className="tiny muted mono uppercase">予想配当利回り</span>
-          <div className="mono bold" style={{ fontSize: "1.3rem", marginTop: 4, color: "#10b981" }}>
+          <div className="mono bold" style={{ fontSize: "1.3rem", marginTop: 4, color: "var(--neon-green)" }}>
             {stock.dividendYield ? `${stock.dividendYield.toFixed(2)}%` : "--"}
           </div>
           <span className="tiny muted">
@@ -498,7 +498,7 @@ export function StockDetailPage({
                       <td style={{ textAlign: "right" }} className="mono">
                         {f.eps}
                       </td>
-                      <td style={{ textAlign: "right", color: "#10b981" }} className="mono bold">
+                      <td style={{ textAlign: "right", color: "var(--neon-green)" }} className="mono bold">
                         {f.dps}
                       </td>
                     </tr>

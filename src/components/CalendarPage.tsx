@@ -183,7 +183,7 @@ export function CalendarPage({
             }}
           >
             <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-              <AlertTriangle size={14} style={{ color: "#f59e0b", flexShrink: 0 }} />
+              <AlertTriangle size={14} style={{ color: "var(--neon-amber)", flexShrink: 0 }} />
               <span>
                 {events.every((evt) => evt.source === "fallback") ? (
                   <>
@@ -311,7 +311,7 @@ export function CalendarPage({
                             style={{
                               background: "rgba(245, 158, 11, 0.12)",
                               border: "1px solid rgba(245, 158, 11, 0.35)",
-                              color: "#f59e0b",
+                              color: "var(--neon-amber)",
                             }}
                           >
                             参考値
