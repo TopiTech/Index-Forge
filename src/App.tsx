@@ -122,6 +122,15 @@ function PageLayout({
     return () => mediaQuery.removeEventListener("change", handleLayoutChange);
   }, []);
 
+  useEffect(() => {
+    if (!isNavOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [isNavOpen]);
+
   return (
     <>
       <div className="site-wrapper">
@@ -474,9 +483,13 @@ export default function App({
         if (isBenchmarkSymbol(params.benchmark)) {
           setSelectedBenchmark(params.benchmark);
         }
-        if (params.indexId && indices) {
-          const match = indices.find((idx) => idx.id === params.indexId);
-          if (match) selectIndex(match);
+        if (params.indexId) {
+          const match = indices?.find((idx) => idx.id === params.indexId);
+          if (match) {
+            selectIndex(match);
+          } else {
+            pendingIndexIdRef.current = params.indexId;
+          }
         }
       }
       try {
@@ -566,9 +579,10 @@ export default function App({
         averageCost: currentPrice,
         acquiredAt: new Date().toISOString().split("T")[0],
       });
+      toastSuccess(`「${fund.name}」をポートフォリオに追加しました`);
       navigateTo("portfolio");
     },
-    [isAuthenticated, navigateTo, toastInfo],
+    [isAuthenticated, navigateTo, toastInfo, toastSuccess],
   );
 
 

@@ -1,3 +1,4 @@
+export const MAX_AUTH_ROW_VERIFICATIONS = 15;
 import { calculateCustomIndex } from "../src/lib/indexEngine";
 import { SYSTEM_INDICES as SHARED_SYSTEM_INDICES } from "../src/data/indices";
 import { POPULAR_STOCKS } from "../src/data/popularStocks";
@@ -942,6 +943,7 @@ export async function authenticatePassword(
       passwordRows = dbRes.results;
     }
 
+    let checkedCount = 0;
     for (const row of passwordRows || []) {
       const user = row as {
         id: string;
@@ -952,10 +954,14 @@ export async function authenticatePassword(
         is_active: number;
         password_hash: string;
       };
-      if (
-        typeof user.password_hash !== "string" ||
-        !(await verifyPasswordHash(pwd, user.password_hash))
-      ) {
+      if (typeof user.password_hash !== "string") {
+        continue;
+      }
+      checkedCount++;
+      if (!(await verifyPasswordHash(pwd, user.password_hash))) {
+        if (checkedCount >= MAX_AUTH_ROW_VERIFICATIONS) {
+          break;
+        }
         continue;
       }
       await upgradeLegacyPasswordHash(env, user.id, pwd, user.password_hash);
@@ -1350,10 +1356,14 @@ export async function getYahooCrumb(forceRefresh = false): Promise<{ crumb: stri
       redirect: "manual",
       signal: AbortSignal.timeout(4000),
     });
-    const cookie =
+    const rawCookies: string[] =
       typeof (res1.headers as unknown as { getSetCookie?: () => string[] }).getSetCookie === "function"
-        ? (res1.headers as unknown as { getSetCookie: () => string[] }).getSetCookie().join("; ")
-        : res1.headers.get("set-cookie") || "";
+        ? (res1.headers as unknown as { getSetCookie: () => string[] }).getSetCookie()
+        : res1.headers.get("set-cookie") ? [res1.headers.get("set-cookie")!] : [];
+    const cookie = rawCookies
+      .map((c) => c.split(";")[0]?.trim())
+      .filter((c): c is string => Boolean(c && c.includes("=")))
+      .join("; ");
     const res2 = await fetch("https://query2.finance.yahoo.com/v1/test/getcrumb", {
       headers: {
         "User-Agent":
@@ -1953,8 +1963,13 @@ export async function fetchLiveStockFundamentals(
       roe = Number((rawRoe * 100).toFixed(1));
     }
     const debtEquity = stats.debtToEquity?.raw;
-    if (typeof debtEquity === "number") {
-      equityRatio = Number((100 / (1 + debtEquity / 100)).toFixed(1));
+    if (typeof debtEquity === "number" && Number.isFinite(debtEquity)) {
+      const denom = 1 + debtEquity / 100;
+      if (denom > 0) {
+        equityRatio = Number((100 / denom).toFixed(1));
+      } else {
+        equityRatio = null;
+      }
     }
 
     if (fin.recommendationKey === "strong_buy") technicalSignal = "STRONG_BUY";
@@ -2738,6 +2753,7 @@ export function json(
     const isMutation =
       request.method !== "GET" && request.method !== "HEAD" && request.method !== "OPTIONS";
     if (
+      status >= 400 ||
       pathname.startsWith("/api/auth/") ||
       pathname.startsWith("/api/admin/") ||
       isMutation
@@ -3285,7 +3301,11 @@ export default {
                 }
                 if (env.ADMIN_PASSWORD) {
                   const trimmed = env.ADMIN_PASSWORD.trim();
-                  if (trimmed && existingRow.password_hash === (await hashToken(trimmed))) {
+                  if (
+                    trimmed &&
+                    (existingRow.password_hash === (await hashToken(trimmed)) ||
+                      (await verifyPasswordHash(trimmed, existingRow.password_hash)))
+                  ) {
                     return json(
                       { error: "管理者アカウントと同一のパスワードは設定できません" },
                       400,

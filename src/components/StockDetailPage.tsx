@@ -19,7 +19,6 @@ import {
   type StockQuoteFundamentals,
 } from "../lib/marketDataService";
 import type { PageView } from "../lib/navigation";
-import { useToast } from "./Toast";
 
 interface StockDetailPageProps {
   ticker?: string;
@@ -41,7 +40,6 @@ export function StockDetailPage({
   );
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<"CHART" | "FINANCIALS">("CHART");
-  const { success } = useToast();
 
   const mountedRef = useRef(true);
   const requestIdRef = useRef(0);
@@ -154,7 +152,6 @@ export function StockDetailPage({
               className="btn btn-sm btn-outline"
               onClick={() => {
                 onAddToPortfolio(stock.ticker, stock.price);
-                success(`「${stock.name}」をポートフォリオ登録へ転送`);
               }}
             >
               <Briefcase size={14} />
@@ -478,7 +475,13 @@ export function StockDetailPage({
             </p>
           </div>
 
-          <div style={{ overflowX: "auto" }}>
+          <div
+            tabIndex={0}
+            role="region"
+            aria-label="業績・財務ハイライト推移テーブル"
+            className="financials-table-container"
+            style={{ overflowX: "auto" }}
+          >
             <table className="constituents-table" style={{ width: "100%" }}>
               <thead>
                 <tr>

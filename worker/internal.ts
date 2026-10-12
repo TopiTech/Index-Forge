@@ -30,6 +30,7 @@ export {
   authenticatePassword,
   findPasswordCollision,
   MAX_PASSWORD_COLLISION_VERIFICATIONS,
+  MAX_AUTH_ROW_VERIFICATIONS,
   ensurePasswordTable,
   resetPasswordTableEnsured,
   clearAuthCache,

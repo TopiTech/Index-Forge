@@ -4,6 +4,7 @@
  */
 
 import { getStockFundamentals } from "./marketDataService";
+import { getStockCurrency } from "./currency";
 import { allocateIntegerWeights } from "./weights";
 import type { BasketItem } from "../types";
 
@@ -13,6 +14,7 @@ export interface PortfolioPosition {
   name: string;
   shares: number; // 保有株数
   averageCost: number; // 取得単価
+  currentPrice?: number;
   acquiredAt?: string;
   notes?: string;
 }
@@ -26,6 +28,12 @@ export interface PositionCalculation extends PortfolioPosition {
   dailyChange: number; // 前日比損益
   weightPercent: number; // ポートフォリオ内構成比率 (%)
   annualDividend: number; // 年間予想配当金
+  currency?: string;
+  fxRate?: number;
+  marketValueJpy?: number;
+  totalCostJpy?: number;
+  dailyChangeJpy?: number;
+  annualDividendJpy?: number;
   theme: string;
   sector: string;
 }
@@ -239,8 +247,18 @@ export function saveWatchlist(tickers: string[]): void {
 // Calculate entire portfolio financials and breakdown
 export function calculatePortfolioSummary(
   positions: PortfolioPosition[],
-  liveQuotesMap?: Map<string, { price: number; change?: number; dps?: number | null; name?: string }>,
+  liveQuotesMap?: Map<string, { price: number; change?: number; dps?: number | null; name?: string }> | number,
+  usdJpyRate?: number,
 ): PortfolioSummary {
+  let quotesMap: Map<string, { price: number; change?: number; dps?: number | null; name?: string }> | undefined;
+  let effectiveUsdJpyRate = usdJpyRate;
+
+  if (typeof liveQuotesMap === "number") {
+    effectiveUsdJpyRate = liveQuotesMap;
+    quotesMap = undefined;
+  } else {
+    quotesMap = liveQuotesMap;
+  }
   if (!positions || positions.length === 0) {
     return {
       totalMarketValue: 0,
@@ -256,9 +274,17 @@ export function calculatePortfolioSummary(
 
   // 1. Calculate each position
   const enriched = positions.map((pos) => {
-    const live = liveQuotesMap?.get(pos.ticker.toUpperCase());
+    const live = quotesMap && typeof quotesMap.get === "function" ? quotesMap.get(pos.ticker.toUpperCase()) : undefined;
     const fund = getStockFundamentals(pos.ticker);
-    const currentPrice = live?.price && live.price > 0 ? live.price : fund.price;
+    const curr = getStockCurrency(pos.ticker);
+    const isUSD = curr === "$";
+    const defaultRate = quotesMap?.get?.("USDJPY=X")?.price || 158.25;
+    const fxRate = isUSD ? (effectiveUsdJpyRate ?? defaultRate) : 1;
+
+    const currentPrice =
+      live?.price && live.price > 0
+        ? live.price
+        : (pos.currentPrice && pos.currentPrice > 0 ? pos.currentPrice : fund.price);
     const marketValue = Math.round(pos.shares * currentPrice);
     const totalCost = Math.round(pos.shares * pos.averageCost);
     const unrealizedProfit = marketValue - totalCost;
@@ -269,9 +295,16 @@ export function calculatePortfolioSummary(
     const dps = live?.dps ?? fund.dps ?? 0;
     const annualDividend = Math.round(pos.shares * dps);
 
+    const marketValueJpy = Math.round(marketValue * fxRate);
+    const totalCostJpy = Math.round(totalCost * fxRate);
+    const dailyChangeJpy = Math.round(dailyChange * fxRate);
+    const annualDividendJpy = Math.round(annualDividend * fxRate);
+
     return {
       ...pos,
       name: live?.name || fund.name,
+      currency: curr,
+      fxRate,
       currentPrice,
       marketValue,
       totalCost,
@@ -279,20 +312,24 @@ export function calculatePortfolioSummary(
       unrealizedProfitPercent,
       dailyChange,
       annualDividend,
+      marketValueJpy,
+      totalCostJpy,
+      dailyChangeJpy,
+      annualDividendJpy,
       theme: fund.theme,
       sector: fund.sector,
       weightPercent: 0, // will compute below
     };
   });
 
-  // 2. Compute aggregate totals
-  const totalMarketValue = enriched.reduce((sum, p) => sum + p.marketValue, 0);
-  const totalCost = enriched.reduce((sum, p) => sum + p.totalCost, 0);
+  // 2. Compute aggregate totals (converted to JPY base)
+  const totalMarketValue = enriched.reduce((sum, p) => sum + p.marketValueJpy, 0);
+  const totalCost = enriched.reduce((sum, p) => sum + p.totalCostJpy, 0);
   const totalProfit = totalMarketValue - totalCost;
   const totalProfitPercent =
     totalCost > 0 ? Number(((totalProfit / totalCost) * 100).toFixed(2)) : 0;
-  const dailyTotalChange = enriched.reduce((sum, p) => sum + p.dailyChange, 0);
-  const totalAnnualDividend = enriched.reduce((sum, p) => sum + p.annualDividend, 0);
+  const dailyTotalChange = enriched.reduce((sum, p) => sum + p.dailyChangeJpy, 0);
+  const totalAnnualDividend = enriched.reduce((sum, p) => sum + p.annualDividendJpy, 0);
   const dividendYield =
     totalMarketValue > 0
       ? Number(((totalAnnualDividend / totalMarketValue) * 100).toFixed(2))
@@ -303,7 +340,7 @@ export function calculatePortfolioSummary(
     ...p,
     weightPercent:
       totalMarketValue > 0
-        ? Number(((p.marketValue / totalMarketValue) * 100).toFixed(1))
+        ? Number(((p.marketValueJpy / totalMarketValue) * 100).toFixed(1))
         : 0,
   }));
 
@@ -325,8 +362,9 @@ export function calculatePortfolioSummary(
  */
 export function convertPortfolioToCustomIndexBasket(
   positions: PortfolioPosition[],
+  usdJpyRate?: number,
 ): BasketItem[] {
-  const summary = calculatePortfolioSummary(positions);
+  const summary = calculatePortfolioSummary(positions, undefined, usdJpyRate);
   if (summary.positions.length === 0) return [];
 
   // Group by ticker to prevent duplicate constituents in the index basket
@@ -337,13 +375,13 @@ export function convertPortfolioToCustomIndexBasket(
   for (const pos of summary.positions) {
     const existing = grouped.get(pos.ticker);
     if (existing) {
-      existing.marketValue += pos.marketValue;
+      existing.marketValue += (pos.marketValueJpy ?? pos.marketValue);
     } else {
       grouped.set(pos.ticker, {
         ticker: pos.ticker,
         name: pos.name,
         theme: pos.theme,
-        marketValue: pos.marketValue,
+        marketValue: (pos.marketValueJpy ?? pos.marketValue),
       });
     }
   }

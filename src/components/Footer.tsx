@@ -229,7 +229,6 @@ export function Footer({ onNavigate, currentView = "dashboard" }: FooterProps) {
                 >
                   <User size={14} />
                   <span>開発者自己紹介</span>
-                  <ExternalLink size={11} className="footer-ext-icon" style={{ opacity: 0.6 }} />
                 </a>
               </li>
               <li>

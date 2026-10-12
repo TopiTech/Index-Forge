@@ -625,29 +625,37 @@ export function getStockFundamentals(ticker: string): StockQuoteFundamentals {
     (input ? POPULAR_STOCKS.find((s) => s.name === input) : undefined);
   const normTicker = matchedPreset ? matchedPreset.ticker.toUpperCase() : input;
 
-  const name = matchedPreset ? matchedPreset.name : `銘柄 ${normTicker}`;
-  const theme = matchedPreset ? matchedPreset.theme : "株式";
+  const allOverviewAssets = [
+    ...DEFAULT_MARKET_OVERVIEW.indices,
+    ...DEFAULT_MARKET_OVERVIEW.forex,
+    ...DEFAULT_MARKET_OVERVIEW.commodities,
+    ...DEFAULT_MARKET_OVERVIEW.crypto,
+  ];
+  const overviewAsset = !matchedPreset ? allOverviewAssets.find((a) => a.symbol === normTicker) : undefined;
+
+  const name = matchedPreset ? matchedPreset.name : (overviewAsset ? overviewAsset.name : `銘柄 ${normTicker}`);
+  const theme = matchedPreset ? matchedPreset.theme : (overviewAsset ? (overviewAsset.category === "FX" ? "為替" : overviewAsset.category === "COMMODITY" ? "コモディティ" : overviewAsset.category === "BOND" ? "債券" : overviewAsset.category === "CRYPTO" ? "暗号資産" : "株価指数") : "株式");
   const isUS = !/^\d/.test(normTicker);
 
   const anchor = KNOWN_STOCK_ANCHORS[normTicker];
 
   // Seed fallback for tickers without explicit anchor
   const seed = normTicker.split("").reduce((acc, c) => acc + c.charCodeAt(0), 0);
-  const basePrice = anchor ? anchor.price : isUS ? 120 + (seed % 350) : 1800 + (seed % 6500);
-  const changePct = anchor ? anchor.changePercent : Number((((seed % 60) - 28) / 10).toFixed(2));
-  const change = anchor ? anchor.change : Number(((basePrice * changePct) / 100).toFixed(2));
+  const basePrice = overviewAsset ? overviewAsset.price : (anchor ? anchor.price : isUS ? 120 + (seed % 350) : 1800 + (seed % 6500));
+  const changePct = overviewAsset ? overviewAsset.changePercent : (anchor ? anchor.changePercent : Number((((seed % 60) - 28) / 10).toFixed(2)));
+  const change = overviewAsset ? overviewAsset.change : (anchor ? anchor.change : Number(((basePrice * changePct) / 100).toFixed(2)));
   const prevClose = Number((basePrice - change).toFixed(2));
 
-  const per = anchor ? anchor.per : isUS ? 22 + (seed % 35) : 12 + (seed % 20);
-  const pbr = anchor ? anchor.pbr : Number((0.8 + ((seed % 35) / 10)).toFixed(2));
-  const dividendYield = anchor ? anchor.dividendYield : Number((1.5 + ((seed % 30) / 10)).toFixed(2));
-  const roe = anchor ? anchor.roe : Number((8 + (seed % 14)).toFixed(1));
-  const equityRatio = anchor ? anchor.equityRatio : 40 + (seed % 45);
-  const marketCap = anchor ? anchor.marketCap : isUS ? 45000 + (seed * 850) : 12000 + (seed * 280);
+  const per = overviewAsset ? null : (anchor ? anchor.per : isUS ? 22 + (seed % 35) : 12 + (seed % 20));
+  const pbr = overviewAsset ? null : (anchor ? anchor.pbr : Number((0.8 + ((seed % 35) / 10)).toFixed(2)));
+  const dividendYield = overviewAsset ? null : (anchor ? anchor.dividendYield : Number((1.5 + ((seed % 30) / 10)).toFixed(2)));
+  const roe = overviewAsset ? null : (anchor ? anchor.roe : Number((8 + (seed % 14)).toFixed(1)));
+  const equityRatio = overviewAsset ? null : (anchor ? anchor.equityRatio : 40 + (seed % 45));
+  const marketCap = overviewAsset ? 0 : (anchor ? anchor.marketCap : isUS ? 45000 + (seed * 850) : 12000 + (seed * 280));
 
-  const eps = anchor ? anchor.eps : Number((basePrice / per).toFixed(1));
-  const dps = anchor ? anchor.dps : Number(((basePrice * dividendYield) / 100).toFixed(1));
-  const sector = anchor?.sector ?? (isUS ? "Information Tech" : "電気機器・精密");
+  const eps = overviewAsset ? null : (anchor ? anchor.eps : (per ? Number((basePrice / per).toFixed(1)) : null));
+  const dps = overviewAsset ? null : (anchor ? anchor.dps : (dividendYield ? Number(((basePrice * dividendYield) / 100).toFixed(1)) : null));
+  const sector = overviewAsset ? overviewAsset.category : (anchor?.sector ?? (isUS ? "Information Tech" : "電気機器・精密"));
 
   let technicalSignal: StockQuoteFundamentals["technicalSignal"] = "BUY";
   if (changePct > 2.0) technicalSignal = "STRONG_BUY";
@@ -657,38 +665,40 @@ export function getStockFundamentals(ticker: string): StockQuoteFundamentals {
 
   // 4 years historical financial performance
   const currentYear = new Date().getFullYear();
+  const safeEps = eps ?? 0;
+  const safeDps = dps ?? 0;
   const historicalFinances = [
     {
       fiscalYear: `${currentYear - 3}/3`,
       revenue: Math.round(marketCap * 0.72),
       operatingIncome: Math.round(marketCap * 0.08),
       netIncome: Math.round(marketCap * 0.055),
-      eps: Math.round(eps * 0.75),
-      dps: Math.round(dps * 0.8),
+      eps: Math.round(safeEps * 0.75),
+      dps: Math.round(safeDps * 0.8),
     },
     {
       fiscalYear: `${currentYear - 2}/3`,
       revenue: Math.round(marketCap * 0.81),
       operatingIncome: Math.round(marketCap * 0.095),
       netIncome: Math.round(marketCap * 0.065),
-      eps: Math.round(eps * 0.88),
-      dps: Math.round(dps * 0.9),
+      eps: Math.round(safeEps * 0.88),
+      dps: Math.round(safeDps * 0.9),
     },
     {
       fiscalYear: `${currentYear - 1}/3`,
       revenue: Math.round(marketCap * 0.92),
       operatingIncome: Math.round(marketCap * 0.11),
       netIncome: Math.round(marketCap * 0.078),
-      eps: Math.round(eps * 0.96),
-      dps: Math.round(dps * 0.95),
+      eps: Math.round(safeEps * 0.96),
+      dps: Math.round(safeDps * 0.95),
     },
     {
       fiscalYear: `${currentYear}/3 (予)`,
       revenue: Math.round(marketCap * 1.04),
       operatingIncome: Math.round(marketCap * 0.125),
       netIncome: Math.round(marketCap * 0.088),
-      eps: eps,
-      dps: dps,
+      eps: safeEps,
+      dps: safeDps,
     },
   ];
 
@@ -697,6 +707,8 @@ export function getStockFundamentals(ticker: string): StockQuoteFundamentals {
   const s3 = Number((prevClose * (1 - ((seed % 11) - 5) / 200)).toFixed(2));
   const sparkline = [s1, s2, s3, prevClose, basePrice];
 
+  const finalFinances = overviewAsset ? [] : historicalFinances;
+  const finalSparkline = overviewAsset?.sparkline ?? sparkline;
   return {
     ticker: normTicker,
     name,
@@ -720,9 +732,9 @@ export function getStockFundamentals(ticker: string): StockQuoteFundamentals {
     equityRatio,
     eps,
     dps,
-    sparkline,
+    sparkline: finalSparkline,
     technicalSignal,
-    historicalFinances,
+    historicalFinances: finalFinances,
     // 未知ティッカー (アンカー未定義) の場合は擬似生成データであることを明示
     ...(anchor ? {} : { isDemoData: true }),
   };
