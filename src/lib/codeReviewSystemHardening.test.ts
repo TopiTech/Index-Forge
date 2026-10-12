@@ -81,7 +81,7 @@ describe("System Hardening & Comprehensive Code Review Tests", () => {
   describe("2. US vs JP Market Cap and Importance Determination", () => {
     it("calculates marketCap in million USD for US stocks and 億円 for JP stocks", async () => {
       const refDate = new Date(2026, 9, 12);
-      const earnTimestamp = Math.floor(new Date(2026, 9, 28, 15, 0).getTime() / 1000);
+      const earnTimestamp = Math.floor(Date.UTC(2026, 9, 28, 6, 0) / 1000);
 
       // 3.5T USD Apple, 35T JPY Toyota
       const mockQuoteResponse = {

@@ -90,8 +90,8 @@ describe("Calendar Enhancements & Live Data Fetching", () => {
     it("fetches live earnings timestamps from Yahoo and marks them as live (source: undefined)", async () => {
       const refDate = new Date(2026, 9, 12); // 2026-10-12
 
-      // Mock crumb & quote response
-      const earnTimestamp = Math.floor(new Date(2026, 9, 28, 15, 0).getTime() / 1000);
+      // Mock crumb & quote response (Toyota announces at 15:00 JST on 2026-10-28 => 06:00 UTC)
+      const earnTimestamp = Math.floor(Date.UTC(2026, 9, 28, 6, 0) / 1000);
       const mockQuoteResponse = {
         quoteResponse: {
           result: [
