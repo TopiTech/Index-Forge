@@ -1350,7 +1350,10 @@ export async function getYahooCrumb(forceRefresh = false): Promise<{ crumb: stri
       redirect: "manual",
       signal: AbortSignal.timeout(4000),
     });
-    const cookie = res1.headers.get("set-cookie") || "";
+    const cookie =
+      typeof (res1.headers as unknown as { getSetCookie?: () => string[] }).getSetCookie === "function"
+        ? (res1.headers as unknown as { getSetCookie: () => string[] }).getSetCookie().join("; ")
+        : res1.headers.get("set-cookie") || "";
     const res2 = await fetch("https://query2.finance.yahoo.com/v1/test/getcrumb", {
       headers: {
         "User-Agent":
@@ -1686,6 +1689,8 @@ export async function fetchLiveMarketOverview(
   }
 
   return {
+    dataSource: quotesMap.size > 0 ? "live" : "fallback",
+    dataAsOf: new Date().toISOString(),
     indices,
     forex,
     commodities,
@@ -1705,6 +1710,8 @@ interface YahooQuoteSummaryResponse {
   quoteSummary?: {
     result?: Array<{
       price?: {
+        shortName?: string;
+        longName?: string;
         regularMarketPrice?: { raw?: number };
         regularMarketChange?: { raw?: number };
         regularMarketChangePercent?: { raw?: number };
@@ -1761,7 +1768,7 @@ export async function fetchLiveStockFundamentals(
     POPULAR_STOCKS.find((s) => s.ticker.toUpperCase() === input) ??
     (input ? POPULAR_STOCKS.find((s) => s.name === input) : undefined);
   const normTicker = matchedPreset ? matchedPreset.ticker.toUpperCase() : input;
-  const name = matchedPreset ? matchedPreset.name : `銘柄 ${normTicker}`;
+  let name = matchedPreset ? matchedPreset.name : `銘柄 ${normTicker}`;
   const theme = matchedPreset ? matchedPreset.theme : "株式";
   const isUS = !/^\d/.test(normTicker);
   const market: StockQuoteFundamentals["market"] = isUS ? "US" : "PRIME";
@@ -1787,6 +1794,7 @@ export async function fetchLiveStockFundamentals(
   let sparkline: number[] = [];
   let technicalSignal: StockQuoteFundamentals["technicalSignal"] = "BUY";
   let sector = isUS ? "Information Technology" : "電気機器・精密";
+  let hasLivePrice = false;
 
   const currentYear = new Date().getFullYear();
   let historicalFinances = [
@@ -1878,12 +1886,23 @@ export async function fetchLiveStockFundamentals(
     const detail = result.summaryDetail || {};
     const earnings = result.earnings || {};
 
+    hasLivePrice = false;
     if (typeof priceObj.regularMarketPrice?.raw === "number") {
       currentPrice = priceObj.regularMarketPrice.raw;
+      hasLivePrice = true;
     } else if (typeof chartMeta.regularMarketPrice === "number") {
       currentPrice = chartMeta.regularMarketPrice;
+      hasLivePrice = true;
     } else if (chartCloses.length > 0) {
       currentPrice = chartCloses[chartCloses.length - 1];
+      hasLivePrice = true;
+    }
+
+    if (!matchedPreset) {
+      const companyName = priceObj.shortName || priceObj.longName;
+      if (typeof companyName === "string" && companyName.trim().length > 0) {
+        name = companyName.trim();
+      }
     }
 
     if (typeof priceObj.regularMarketChange?.raw === "number") {
@@ -2004,6 +2023,7 @@ export async function fetchLiveStockFundamentals(
     dps,
     sparkline: sparkline.length > 0 ? sparkline : [prevClose * 0.99, prevClose, currentPrice],
     technicalSignal,
+    ...(!hasLivePrice ? { isDemoData: true } : {}),
     historicalFinances,
   };
 }
@@ -2615,6 +2635,10 @@ export const HIGH_FREQUENCY_RATE_LIMIT_ENDPOINTS = new Set([
   "snapshot",
   "ticker-prices",
   "calculate",
+  "market-overview",
+  "stock-fundamentals",
+  "stocks-screener",
+  "market-calendar",
 ]);
 
 export interface MemoryRateLimitRecord {

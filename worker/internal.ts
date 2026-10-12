@@ -64,8 +64,10 @@ export {
   OVERVIEW_ASSET_DEFS,
   SECTOR_SAMPLE_DEFINITIONS,
   // In-memory rate limiting and client IP
+  HIGH_FREQUENCY_RATE_LIMIT_ENDPOINTS,
   MAX_MEMORY_RATE_LIMIT_ENTRIES,
   checkMemoryRateLimit,
+  checkRateLimit,
   clearMemoryRateLimits,
   getClientIp,
 } from "./internal-impl";

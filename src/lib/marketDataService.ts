@@ -789,8 +789,15 @@ export function normalizeMarketOverview(raw: unknown): MarketOverviewData | null
 
   const breadth = record.marketBreadth as Record<string, unknown> | undefined;
   const fallback = DEFAULT_MARKET_OVERVIEW;
+  const dataSource =
+    record.dataSource === "fallback" || record.dataSource === "live"
+      ? record.dataSource
+      : undefined;
+  const dataAsOf = typeof record.dataAsOf === "string" ? record.dataAsOf : undefined;
 
   return {
+    ...(dataSource ? { dataSource } : {}),
+    ...(dataAsOf ? { dataAsOf } : {}),
     indices: sanitizeQuotes(record.indices),
     forex: sanitizeQuotes(record.forex),
     commodities: sanitizeQuotes(record.commodities),
@@ -882,7 +889,12 @@ export async function fetchMarketOverview(forceRefresh = false): Promise<MarketO
           return withFallbackMetadata(DEFAULT_MARKET_OVERVIEW);
         }
         const normalized = normalizeMarketOverview(await res.json());
-        if (normalized) return { ...normalized, dataSource: "live" };
+        if (normalized) {
+          return {
+            ...normalized,
+            dataSource: normalized.dataSource || "live",
+          };
+        }
       }
     } catch {
       // Graceful fallback to rich local baseline; a network error may be
