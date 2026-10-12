@@ -78,8 +78,8 @@ export function parseStockParams(search: string = ""): StockQueryParams {
 
 // Tickers arrive from the URL (deep links, back/forward), so only accept a
 // short, known-safe symbol shape instead of echoing arbitrary path text into
-// the detail view.
-const STOCK_TICKER_PATTERN = /^[A-Za-z0-9.^=&-]{1,16}$/;
+// the detail view. Aligned with worker's /api/stock/fundamentals validation.
+const STOCK_TICKER_PATTERN = /^[A-Za-z0-9.^=&_-]{1,20}$/;
 
 function normalizeTicker(raw: string | null | undefined): string | undefined {
   if (!raw) return undefined;
@@ -90,7 +90,7 @@ function normalizeTicker(raw: string | null | undefined): string | undefined {
     // Malformed percent-encoding: keep the raw text for the shape check below.
   }
   if (!STOCK_TICKER_PATTERN.test(decoded)) return undefined;
-  return decoded;
+  return decoded.toUpperCase();
 }
 
 /**

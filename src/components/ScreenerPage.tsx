@@ -873,6 +873,11 @@ export function ScreenerPage({
                           e.stopPropagation();
                           handleToggleSelect(stock.ticker, e);
                         }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.stopPropagation();
+                          }
+                        }}
                       >
                         <button
                           type="button"
@@ -899,9 +904,20 @@ export function ScreenerPage({
                       </td>
 
                       <td>
-                        <span style={{ fontWeight: 600, color: "var(--accent-text)" }}>
-                          {stock.name}
-                        </span>
+                        <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+                          <span style={{ fontWeight: 600, color: "var(--accent-text)" }}>
+                            {stock.name}
+                          </span>
+                          {stock.isDemoData && (
+                            <span
+                              className="badge badge-default mono tiny"
+                              style={{ fontSize: "0.62rem", padding: "1px 5px" }}
+                              title="実データ未取得のため推計デモ値を表示しています"
+                            >
+                              参考値
+                            </span>
+                          )}
+                        </div>
                         <div className="tiny muted mono">
                           {stock.ticker} · {stock.theme}
                         </div>

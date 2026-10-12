@@ -1227,8 +1227,8 @@ function loadCalendarCache(): CalendarEvent[] | null {
 export async function fetchUpcomingEvents(
   forceRefresh = false,
 ): Promise<CalendarEvent[]> {
-  const isBrowser = typeof globalThis !== "undefined" && "window" in globalThis;
-  if (isBrowser) {
+  const canFetch = typeof globalThis !== "undefined" && typeof globalThis.fetch === "function";
+  if (canFetch) {
     try {
       const url = forceRefresh
         ? `/api/market/calendar?refresh=${Date.now()}`

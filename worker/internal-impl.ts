@@ -2101,6 +2101,8 @@ export async function fetchLiveScreenerUniverse(
     let equityRatio: number | null = null;
     let sector = preset.theme;
 
+    let isDemo = false;
+
     if (q && typeof q.regularMarketPrice === "number" && Number.isFinite(q.regularMarketPrice) && q.regularMarketPrice > 0) {
       price = q.regularMarketPrice;
       change = typeof q.regularMarketChange === "number" && Number.isFinite(q.regularMarketChange) ? q.regularMarketChange : 0;
@@ -2189,6 +2191,7 @@ export async function fetchLiveScreenerUniverse(
       roe = prev.roe;
       equityRatio = prev.equityRatio;
       sector = prev.sector;
+      isDemo = Boolean(prev.isDemoData);
     } else {
       // Fallback via getStockFundamentals
       const fallback = getStockFundamentals(preset.ticker);
@@ -2210,6 +2213,7 @@ export async function fetchLiveScreenerUniverse(
       roe = fallback.roe;
       equityRatio = fallback.equityRatio;
       sector = fallback.sector;
+      isDemo = fallback.isDemoData ?? true;
     }
 
     let technicalSignal: StockQuoteFundamentals["technicalSignal"] = "BUY";
@@ -2286,6 +2290,7 @@ export async function fetchLiveScreenerUniverse(
       dps,
       sparkline,
       technicalSignal,
+      ...(isDemo ? { isDemoData: true } : {}),
       historicalFinances,
     });
   }

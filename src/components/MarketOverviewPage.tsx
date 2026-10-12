@@ -282,6 +282,16 @@ export function MarketOverviewPage({
             <div
               key={asset.symbol}
               className="card interactive-card"
+              role="button"
+              tabIndex={0}
+              aria-label={`${asset.name} (${asset.symbol}) の詳細・チャートを開く`}
+              onClick={() => onOpenStockDetail(asset.symbol)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  onOpenStockDetail(asset.symbol);
+                }
+              }}
               style={{
                 padding: "16px 18px",
                 display: "flex",
@@ -291,6 +301,7 @@ export function MarketOverviewPage({
                 border: "1px solid var(--border-subtle)",
                 borderRadius: "10px",
                 background: "var(--bg-card)",
+                cursor: "pointer",
               }}
             >
               <div>
