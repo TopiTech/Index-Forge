@@ -4,6 +4,7 @@
  */
 
 import { POPULAR_STOCKS } from "../data/popularStocks";
+import { BASELINE_ASSET_QUOTES, type BaselineAssetQuote } from "../data/marketConstants";
 
 export interface MarketAssetQuote {
   symbol: string;
@@ -115,170 +116,48 @@ export interface CalendarEvent {
   source?: string;
 }
 
-// Default Global Market Quotes Baseline (Updated with actual market values)
+function buildDefaultMarketQuotes(
+  filterFn: (q: BaselineAssetQuote) => boolean,
+): MarketAssetQuote[] {
+  return BASELINE_ASSET_QUOTES.filter(filterFn).map((q) => {
+    const updatedAt =
+      q.category === "INDEX"
+        ? q.currency === "JPY"
+          ? "15:00 JST"
+          : "05:00 JST"
+        : q.category === "CRYPTO"
+          ? "24h リアルタイム"
+          : "リアルタイム";
+    const p = q.baselinePrice;
+    const sparkline = [
+      Number((p * 0.995).toFixed(2)),
+      Number((p * 0.997).toFixed(2)),
+      Number((p * 0.998).toFixed(2)),
+      Number((p * 1.001).toFixed(2)),
+      Number(p.toFixed(2)),
+    ];
+    return {
+      symbol: q.symbol,
+      name: q.name,
+      category: q.category,
+      price: q.baselinePrice,
+      change: q.baselineChange,
+      changePercent: q.baselineChangePercent,
+      currency: q.currency,
+      sparkline,
+      updatedAt,
+    };
+  });
+}
+
+// Default Global Market Quotes Baseline (Derived from shared marketConstants BASELINE_ASSET_QUOTES)
 export const DEFAULT_MARKET_OVERVIEW: MarketOverviewData = {
-  indices: [
-    {
-      symbol: "^N225",
-      name: "日経平均株価",
-      category: "INDEX",
-      price: 69030.92,
-      change: -11.19,
-      changePercent: -0.02,
-      currency: "JPY",
-      sparkline: [68980, 69010, 69025, 69045, 69039, 69030.92],
-      updatedAt: "15:00 JST",
-    },
-    {
-      symbol: "^TOPX",
-      name: "TOPIX (東証株価指数)",
-      category: "INDEX",
-      price: 4138.5,
-      change: 33.5,
-      changePercent: 0.82,
-      currency: "JPY",
-      sparkline: [4105, 4112, 4120, 4128, 4135, 4138.5],
-      updatedAt: "15:00 JST",
-    },
-    {
-      symbol: "^TOPIXG",
-      name: "東証グロース250",
-      category: "INDEX",
-      price: 639.0,
-      change: 7.1,
-      changePercent: 1.12,
-      currency: "JPY",
-      sparkline: [632, 634, 636, 638, 640, 639],
-      updatedAt: "15:00 JST",
-    },
-    {
-      symbol: "^GSPC",
-      name: "S&P 500",
-      category: "INDEX",
-      price: 7811.54,
-      change: 46.18,
-      changePercent: 0.59,
-      currency: "USD",
-      sparkline: [7765, 7780, 7795, 7805, 7812, 7811.54],
-      updatedAt: "05:00 JST",
-    },
-    {
-      symbol: "^IXIC",
-      name: "NASDAQ 総合",
-      category: "INDEX",
-      price: 27366.17,
-      change: 172.83,
-      changePercent: 0.64,
-      currency: "USD",
-      sparkline: [27190, 27240, 27280, 27340, 27360, 27366.17],
-      updatedAt: "05:00 JST",
-    },
-    {
-      symbol: "^DJI",
-      name: "NYダウ平均",
-      category: "INDEX",
-      price: 51654.95,
-      change: 423.31,
-      changePercent: 0.83,
-      currency: "USD",
-      sparkline: [51230, 51350, 51480, 51580, 51640, 51654.95],
-      updatedAt: "05:00 JST",
-    },
-  ],
-  forex: [
-    {
-      symbol: "USDJPY=X",
-      name: "米ドル / 円",
-      category: "FX",
-      price: 158.25,
-      change: 0.45,
-      changePercent: 0.29,
-      currency: "JPY",
-      sparkline: [157.8, 157.95, 158.1, 158.2, 158.24, 158.25],
-      updatedAt: "リアルタイム",
-    },
-    {
-      symbol: "EURJPY=X",
-      name: "ユーロ / 円",
-      category: "FX",
-      price: 177.1,
-      change: 0.28,
-      changePercent: 0.16,
-      currency: "JPY",
-      sparkline: [176.8, 176.9, 177.0, 177.05, 177.08, 177.1],
-      updatedAt: "リアルタイム",
-    },
-    {
-      symbol: "EURUSD=X",
-      name: "ユーロ / ドル",
-      category: "FX",
-      price: 1.1206,
-      change: -0.001,
-      changePercent: -0.09,
-      currency: "USD",
-      sparkline: [1.1215, 1.1212, 1.121, 1.1208, 1.1207, 1.1206],
-      updatedAt: "リアルタイム",
-    },
-  ],
-  commodities: [
-    {
-      symbol: "CL=F",
-      name: "WTI 原油先物",
-      category: "COMMODITY",
-      price: 91.85,
-      change: 0.36,
-      changePercent: 0.39,
-      currency: "USD",
-      sparkline: [91.2, 91.4, 91.6, 91.75, 91.8, 91.85],
-      updatedAt: "リアルタイム",
-    },
-    {
-      symbol: "GC=F",
-      name: "金先物 (Gold)",
-      category: "COMMODITY",
-      price: 4216.3,
-      change: 59.3,
-      changePercent: 1.43,
-      currency: "USD",
-      sparkline: [4155, 4170, 4185, 4200, 4210, 4216.3],
-      updatedAt: "リアルタイム",
-    },
-    {
-      symbol: "^TNX",
-      name: "米国10年債利回り",
-      category: "BOND",
-      price: 5.244,
-      change: 0.013,
-      changePercent: 0.25,
-      currency: "%",
-      sparkline: [5.23, 5.235, 5.24, 5.242, 5.244],
-      updatedAt: "リアルタイム",
-    },
-  ],
-  crypto: [
-    {
-      symbol: "BTC-USD",
-      name: "ビットコイン (BTC)",
-      category: "CRYPTO",
-      price: 82945.58,
-      change: 168.89,
-      changePercent: 0.2,
-      currency: "USD",
-      sparkline: [82600, 82750, 82820, 82900, 82930, 82945.58],
-      updatedAt: "24h リアルタイム",
-    },
-    {
-      symbol: "ETH-USD",
-      name: "イーサリアム (ETH)",
-      category: "CRYPTO",
-      price: 2499.26,
-      change: 4.9,
-      changePercent: 0.2,
-      currency: "USD",
-      sparkline: [2485, 2490, 2492, 2496, 2498, 2499.26],
-      updatedAt: "24h リアルタイム",
-    },
-  ],
+  indices: buildDefaultMarketQuotes((q) => q.category === "INDEX"),
+  forex: buildDefaultMarketQuotes((q) => q.category === "FX"),
+  commodities: buildDefaultMarketQuotes(
+    (q) => q.category === "COMMODITY" || q.category === "BOND",
+  ),
+  crypto: buildDefaultMarketQuotes((q) => q.category === "CRYPTO"),
   sectors: [
     { name: "電気機器・半導体", changePercent: 2.09, market: "TSE" },
     { name: "精密機器", changePercent: 1.35, market: "TSE" },

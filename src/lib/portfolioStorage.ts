@@ -445,12 +445,14 @@ export function convertPortfolioToCustomIndexBasket(
     { ticker: string; name: string; theme: string; marketValue: number }
   >();
   for (const pos of summary.positions) {
-    const existing = grouped.get(pos.ticker);
+    const normTicker = (pos.ticker || "").trim().toUpperCase();
+    if (!normTicker) continue;
+    const existing = grouped.get(normTicker);
     if (existing) {
       existing.marketValue += pos.marketValueJpy ?? pos.marketValue;
     } else {
-      grouped.set(pos.ticker, {
-        ticker: pos.ticker,
+      grouped.set(normTicker, {
+        ticker: normTicker,
         name: pos.name,
         theme: pos.theme,
         marketValue: pos.marketValueJpy ?? pos.marketValue,

@@ -108,11 +108,12 @@ export function serializeIndexToJson(index: CustomIndex): string {
  * JSON文字列をパースし、有効なCustomIndexオブジェクトか厳密に検証します。
  */
 export function deserializeIndexFromJson(jsonStr: string): SerializationResult<CustomIndex> {
-  if (!jsonStr || !jsonStr.trim()) {
+  const stripped = typeof jsonStr === "string" ? jsonStr.replace(/^\uFEFF/, "") : "";
+  if (!stripped || !stripped.trim()) {
     return { ok: false, error: "JSONデータが空です" };
   }
   try {
-    const parsed = JSON.parse(jsonStr) as Record<string, unknown>;
+    const parsed = JSON.parse(stripped) as Record<string, unknown>;
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
       return { ok: false, error: "不正なJSON形式です" };
     }
@@ -196,11 +197,12 @@ export function serializeBasketToCsv(basket: readonly BasketItem[]): string {
  * CSV文字列から構成銘柄バスケットを読み込みパースします。
  */
 export function deserializeBasketFromCsv(csvStr: string): SerializationResult<BasketItem[]> {
-  if (!csvStr || !csvStr.trim()) {
+  const stripped = typeof csvStr === "string" ? csvStr.replace(/^\uFEFF/, "") : "";
+  if (!stripped || !stripped.trim()) {
     return { ok: false, error: "CSVデータが空です" };
   }
 
-  const lines = csvStr
+  const lines = stripped
     .split(/\r?\n/)
     .map((l) => l.trim())
     .filter((l) => l.length > 0);
@@ -310,11 +312,12 @@ export function serializePortfolioToCsv(positions: readonly PortfolioPosition[])
 export function deserializePortfolioFromCsv(
   csvStr: string,
 ): SerializationResult<PortfolioPosition[]> {
-  if (!csvStr || !csvStr.trim()) {
+  const stripped = typeof csvStr === "string" ? csvStr.replace(/^\uFEFF/, "") : "";
+  if (!stripped || !stripped.trim()) {
     return { ok: false, error: "CSVデータが空です" };
   }
 
-  const lines = csvStr
+  const lines = stripped
     .split(/\r?\n/)
     .map((l) => l.trim())
     .filter((l) => l.length > 0);

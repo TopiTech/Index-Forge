@@ -951,7 +951,7 @@ export default function App({
           aria-hidden={isMobileLayout ? !isSidebarOpen : !isDesktopSidebarOpen}
           role={isMobileLayout ? "dialog" : undefined}
           aria-modal={isMobileLayout ? isSidebarOpen : undefined}
-          inert={isMobileLayout && !isSidebarOpen ? true : undefined}
+          inert={(isMobileLayout ? !isSidebarOpen : !isDesktopSidebarOpen) ? true : undefined}
           tabIndex={isMobileLayout ? -1 : undefined}
         >
           <div className="sidebar-drawer-header">

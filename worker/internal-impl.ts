@@ -1177,13 +1177,10 @@ export function clearMemoryCache(prefix?: string): void {
     calcMemoryCache.clear();
     return;
   }
-  if (prefix === "calc:" || prefix.startsWith("calc:")) {
-    for (const key of Array.from(calcMemoryCache.keys())) {
-      if (key.startsWith(prefix)) {
-        calcMemoryCache.delete(key);
-      }
+  for (const key of Array.from(calcMemoryCache.keys())) {
+    if (key.startsWith(prefix)) {
+      calcMemoryCache.delete(key);
     }
-    return;
   }
   for (const key of Array.from(memoryCache.keys())) {
     if (key.startsWith(prefix)) {
@@ -1505,148 +1502,16 @@ export interface OverviewAssetDef {
   defaultChangePercent: number;
 }
 
-export const OVERVIEW_ASSET_DEFS: OverviewAssetDef[] = [
-  {
-    symbol: "^N225",
-    querySymbol: "^N225",
-    name: "日経平均株価",
-    category: "INDEX",
-    currency: "JPY",
-    defaultPrice: 69030.92,
-    defaultChange: -11.19,
-    defaultChangePercent: -0.02,
-  },
-  {
-    symbol: "^TOPX",
-    querySymbol: "TPY=F",
-    name: "TOPIX (東証株価指数)",
-    category: "INDEX",
-    currency: "JPY",
-    defaultPrice: 4138.5,
-    defaultChange: 33.5,
-    defaultChangePercent: 0.82,
-  },
-  {
-    symbol: "^TOPIXG",
-    querySymbol: "2516.T",
-    name: "東証グロース250",
-    category: "INDEX",
-    currency: "JPY",
-    defaultPrice: 639.0,
-    defaultChange: 7.1,
-    defaultChangePercent: 1.12,
-  },
-  {
-    symbol: "^GSPC",
-    querySymbol: "^GSPC",
-    name: "S&P 500",
-    category: "INDEX",
-    currency: "USD",
-    defaultPrice: 7811.54,
-    defaultChange: 46.18,
-    defaultChangePercent: 0.59,
-  },
-  {
-    symbol: "^IXIC",
-    querySymbol: "^IXIC",
-    name: "NASDAQ 総合",
-    category: "INDEX",
-    currency: "USD",
-    defaultPrice: 27366.17,
-    defaultChange: 172.83,
-    defaultChangePercent: 0.64,
-  },
-  {
-    symbol: "^DJI",
-    querySymbol: "^DJI",
-    name: "NYダウ平均",
-    category: "INDEX",
-    currency: "USD",
-    defaultPrice: 51654.95,
-    defaultChange: 423.31,
-    defaultChangePercent: 0.83,
-  },
-  {
-    symbol: "USDJPY=X",
-    querySymbol: "USDJPY=X",
-    name: "米ドル / 円",
-    category: "FX",
-    currency: "JPY",
-    defaultPrice: 158.25,
-    defaultChange: 0.45,
-    defaultChangePercent: 0.29,
-  },
-  {
-    symbol: "EURJPY=X",
-    querySymbol: "EURJPY=X",
-    name: "ユーロ / 円",
-    category: "FX",
-    currency: "JPY",
-    defaultPrice: 177.1,
-    defaultChange: 0.28,
-    defaultChangePercent: 0.16,
-  },
-  {
-    symbol: "EURUSD=X",
-    querySymbol: "EURUSD=X",
-    name: "ユーロ / ドル",
-    category: "FX",
-    currency: "USD",
-    defaultPrice: 1.1206,
-    defaultChange: -0.001,
-    defaultChangePercent: -0.09,
-  },
-  {
-    symbol: "CL=F",
-    querySymbol: "CL=F",
-    name: "WTI 原油先物",
-    category: "COMMODITY",
-    currency: "USD",
-    defaultPrice: 91.85,
-    defaultChange: 0.36,
-    defaultChangePercent: 0.39,
-  },
-  {
-    symbol: "GC=F",
-    querySymbol: "GC=F",
-    name: "金先物 (Gold)",
-    category: "COMMODITY",
-    currency: "USD",
-    defaultPrice: 4216.3,
-    defaultChange: 59.3,
-    defaultChangePercent: 1.43,
-  },
-  {
-    symbol: "^TNX",
-    querySymbol: "^TNX",
-    name: "米国10年債利回り",
-    category: "BOND",
-    currency: "%",
-    defaultPrice: 5.244,
-    defaultChange: 0.013,
-    defaultChangePercent: 0.25,
-  },
-  {
-    symbol: "BTC-USD",
-    querySymbol: "BTC-USD",
-    name: "ビットコイン (BTC)",
-    category: "CRYPTO",
-    currency: "USD",
-    defaultPrice: 82945.58,
-    defaultChange: 168.89,
-    defaultChangePercent: 0.2,
-  },
-  {
-    symbol: "ETH-USD",
-    querySymbol: "ETH-USD",
-    name: "イーサリアム (ETH)",
-    category: "CRYPTO",
-    currency: "USD",
-    defaultPrice: 2499.26,
-    defaultChange: 4.9,
-    defaultChangePercent: 0.2,
-  },
-];
+export const OVERVIEW_ASSET_DEFS: OverviewAssetDef[] = BASELINE_ASSET_QUOTES.map((quote) => ({
+  symbol: quote.symbol,
+  querySymbol: quote.querySymbol,
+  name: quote.name,
+  category: quote.category,
+  currency: quote.currency,
+  defaultPrice: quote.baselinePrice,
+  defaultChange: quote.baselineChange,
+  defaultChangePercent: quote.baselineChangePercent,
+}));
 
 export const SECTOR_SAMPLE_DEFINITIONS: Array<{ name: string; market: "TSE"; tickers: string[] }> =
   [

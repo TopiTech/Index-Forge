@@ -38,6 +38,7 @@ import {
   deserializeBasketFromCsv,
   calculateDiversificationScore,
 } from "../lib/indexSerialization";
+import { toSafeDownloadFileName } from "../lib/downloadFileName";
 
 export interface StrategyPreset {
   id: string;
@@ -370,20 +371,27 @@ export function IndexBuilderContent({
     const blobUrl = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = blobUrl;
-    a.download = `indexforge-${name ? name.replace(/\s+/g, "_") : "custom"}.json`;
+    const baseName = name ? `indexforge-${name.replace(/\s+/g, "_")}` : "indexforge-custom";
+    a.download = toSafeDownloadFileName(`${baseName}.json`, "indexforge-custom.json");
+    document.body.appendChild(a);
     a.click();
+    document.body.removeChild(a);
     URL.revokeObjectURL(blobUrl);
     toastSuccess("指数定義(JSON)をエクスポートしました");
   };
 
   const handleExportCsv = () => {
     const csvStr = serializeBasketToCsv(basket);
-    const blob = new Blob([csvStr], { type: "text/csv;charset=utf-8;" });
+    // Excelでの文字化け防止のためUTF-8 BOMを付与
+    const blob = new Blob(["\uFEFF" + csvStr], { type: "text/csv;charset=utf-8;" });
     const blobUrl = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = blobUrl;
-    a.download = `indexforge-${name ? name.replace(/\s+/g, "_") : "custom"}-basket.csv`;
+    const baseName = name ? `indexforge-${name.replace(/\s+/g, "_")}-basket` : "indexforge-custom-basket";
+    a.download = toSafeDownloadFileName(`${baseName}.csv`, "indexforge-custom-basket.csv");
+    document.body.appendChild(a);
     a.click();
+    document.body.removeChild(a);
     URL.revokeObjectURL(blobUrl);
     toastSuccess("構成銘柄(CSV)をエクスポートしました");
   };

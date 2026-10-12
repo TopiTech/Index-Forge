@@ -58,7 +58,7 @@ describe("review regressions: dashboard styles", () => {
     const app = readFileSync(resolve("src/App.tsx"), "utf8");
     const indicesHook = readFileSync(resolve("src/hooks/useIndices.ts"), "utf8");
 
-    expect(app).toContain('inert={isMobileLayout && !isSidebarOpen ? true : undefined}');
+    expect(app).toContain('inert={(isMobileLayout ? !isSidebarOpen : !isDesktopSidebarOpen) ? true : undefined}');
     // Ownership tokens persist only via resolvePersistedOwnerToken (server
     // echo or stored value); the caller-supplied token must never be saved.
     expect(indicesHook).toContain("resolvePersistedOwnerToken(data, storedToken)");
