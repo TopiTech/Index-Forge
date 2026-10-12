@@ -35,7 +35,7 @@ export const BASELINE_ASSET_QUOTES: readonly BaselineAssetQuote[] = [
   },
   {
     symbol: "^TOPX",
-    querySymbol: "TPY=F",
+    querySymbol: "1308.T",
     name: "TOPIX (東証株価指数)",
     category: "INDEX",
     currency: "JPY",

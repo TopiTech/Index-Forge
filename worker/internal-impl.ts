@@ -1776,33 +1776,40 @@ export async function fetchLiveMarketOverview(
   }
 
   if (newsList.length === 0) {
+    const nowJst = new Date(Date.now() + 9 * 60 * 60 * 1000);
+    const getJstTimeStr = (offsetMinutes: number) => {
+      const d = new Date(nowJst.getTime() - offsetMinutes * 60 * 1000);
+      const hh = String(d.getUTCHours()).padStart(2, "0");
+      const mm = String(d.getUTCMinutes()).padStart(2, "0");
+      return `${hh}:${mm}`;
+    };
     newsList = [
       {
         id: "news-live-1",
         title: "日経平均は高水準推移、主要ハイテク・半導体関連株に実需買い",
         source: "市場速報",
-        publishedAt: "最新",
+        publishedAt: getJstTimeStr(5),
         relatedTicker: "8035",
       },
       {
         id: "news-live-2",
         title: "米ドル円は158円台で推移、日米金利動向と実需フローを見極め",
         source: "為替市況",
-        publishedAt: "最新",
+        publishedAt: getJstTimeStr(15),
         relatedTicker: "USDJPY=X",
       },
       {
         id: "news-live-3",
         title: "米ハイテク株と主要指数が堅調推移、インフラ・生成AI需要が下支え",
         source: "グローバル金融",
-        publishedAt: "1時間前",
+        publishedAt: getJstTimeStr(45),
         relatedTicker: "NVDA",
       },
       {
         id: "news-live-4",
         title: "東証プライム騰落レシオは良好、好業績バリュー銘柄に見直し買いが継続",
         source: "株式ニュース",
-        publishedAt: "2時間前",
+        publishedAt: getJstTimeStr(120),
       },
     ];
   }
@@ -1883,15 +1890,22 @@ export async function fetchLiveStockFundamentals(ticker: string): Promise<StockQ
     POPULAR_STOCKS.find((s) => s.ticker.toUpperCase() === input) ??
     (input ? POPULAR_STOCKS.find((s) => s.name === input) : undefined);
   const normTicker = matchedPreset ? matchedPreset.ticker.toUpperCase() : input;
-  let name = matchedPreset ? matchedPreset.name : `銘柄 ${normTicker}`;
-  const theme = matchedPreset ? matchedPreset.theme : "株式";
-  const isUS = !/^\d/.test(normTicker);
+  const baselineAsset = BASELINE_ASSET_QUOTES.find(
+    (a) => a.symbol.toUpperCase() === normTicker || a.querySymbol.toUpperCase() === normTicker,
+  );
+  let name = baselineAsset
+    ? baselineAsset.name
+    : matchedPreset
+      ? matchedPreset.name
+      : `銘柄 ${normTicker}`;
+  const theme = matchedPreset ? matchedPreset.theme : baselineAsset ? "指数・ETF" : "株式";
+  const isUS = baselineAsset ? baselineAsset.currency === "USD" : !/^\d/.test(normTicker);
   const market: StockQuoteFundamentals["market"] = isUS ? "US" : "PRIME";
-  const yahooSymbol = toYahooSymbol(normTicker);
+  const yahooSymbol = baselineAsset ? baselineAsset.querySymbol : toYahooSymbol(normTicker);
 
-  let currentPrice = isUS ? 180 : 3000;
-  let change = 0;
-  let changePct = 0;
+  let currentPrice = baselineAsset ? baselineAsset.baselinePrice : isUS ? 180 : 3000;
+  let change = baselineAsset ? baselineAsset.baselineChange : 0;
+  let changePct = baselineAsset ? baselineAsset.baselineChangePercent : 0;
   let prevClose = currentPrice;
   let volume = 1500000;
   let dayHigh = currentPrice * 1.01;
@@ -2013,7 +2027,7 @@ export async function fetchLiveStockFundamentals(ticker: string): Promise<StockQ
       hasLivePrice = true;
     }
 
-    if (!matchedPreset) {
+    if (!matchedPreset && !baselineAsset) {
       const companyName = priceObj.shortName || priceObj.longName;
       if (typeof companyName === "string" && companyName.trim().length > 0) {
         name = companyName.trim();
@@ -4423,7 +4437,9 @@ export default {
           }
 
           // Cache miss or stale — fetch from Yahoo Finance
-          const series = await fetchYahooFinance(symbol, "1y");
+          const querySym =
+            BASELINE_ASSET_QUOTES.find((a) => a.symbol === symbol)?.querySymbol ?? symbol;
+          const series = await fetchYahooFinance(querySym, "1y");
           const latest = series[series.length - 1];
           const prev = series[series.length - 2];
 

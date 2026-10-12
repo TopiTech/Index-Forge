@@ -307,9 +307,29 @@ export function MarketOverviewPage({
               <div>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
                   <span className="mono tiny muted">{asset.symbol}</span>
-                  <span className="badge badge-default mono tiny" style={{ fontSize: "0.68rem" }}>
-                    {asset.category}
-                  </span>
+                  <div style={{ display: "flex", gap: "4px", alignItems: "center" }}>
+                    {asset.symbol === "^TOPX" && (
+                      <span
+                        className="badge badge-accent mono tiny"
+                        style={{ fontSize: "0.62rem", padding: "1px 5px" }}
+                        title="東証指数ライセンス回避のため 1308.T ETF連動値を参照"
+                      >
+                        1308連動
+                      </span>
+                    )}
+                    {asset.symbol === "^TOPIXG" && (
+                      <span
+                        className="badge badge-accent mono tiny"
+                        style={{ fontSize: "0.62rem", padding: "1px 5px" }}
+                        title="東証指数ライセンス回避のため 2516.T ETF連動値を参照"
+                      >
+                        2516連動
+                      </span>
+                    )}
+                    <span className="badge badge-default mono tiny" style={{ fontSize: "0.68rem" }}>
+                      {asset.category}
+                    </span>
+                  </div>
                 </div>
                 <h3 style={{ fontSize: "1.05rem", fontWeight: 600, margin: 0 }}>
                   {asset.name}
