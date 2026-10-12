@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect } from "vitest";
 import { BASELINE_ASSET_QUOTES } from "../data/marketConstants";
 import { OVERVIEW_ASSET_DEFS, fetchLiveStockFundamentals } from "../../worker/internal-impl";
 

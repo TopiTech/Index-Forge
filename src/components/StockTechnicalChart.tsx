@@ -15,15 +15,11 @@ import {
   ExternalLink,
   RefreshCw,
   AlertCircle,
-  TrendingUp,
-  TrendingDown,
   BarChart2,
-  Calendar,
-  Layers,
   Sliders,
 } from "lucide-react";
 import type { StockQuoteFundamentals } from "../lib/marketDataService";
-import { detectStockCurrency, formatStockPrice, formatStockChange } from "../lib/currency";
+import { detectStockCurrency, formatStockPrice } from "../lib/currency";
 
 export interface StockTechnicalChartProps {
   stock: StockQuoteFundamentals;
@@ -100,7 +96,7 @@ function generateDeterministicHistory(
 
   // Build calendar business dates
   const businessDates: Date[] = [];
-  let cur = new Date(now);
+  const cur = new Date(now);
   while (businessDates.length < totalDays) {
     const day = cur.getDay();
     if (day !== 0 && day !== 6) {
@@ -269,6 +265,7 @@ export function StockTechnicalChart({
     if (!container) return;
 
     let isCancelled = false;
+    let scriptLoaded = false;
     setTvLoaded(false);
     setTvError(false);
     setTvTimedOut(false);
@@ -277,7 +274,7 @@ export function StockTechnicalChart({
     // 6-second timeout monitor for adblocker/CSP/offline failure
     if (timeoutTimerRef.current) clearTimeout(timeoutTimerRef.current);
     timeoutTimerRef.current = setTimeout(() => {
-      if (!isCancelled && !tvLoaded) {
+      if (!isCancelled && !scriptLoaded) {
         setTvTimedOut(true);
       }
     }, 6000);
@@ -317,6 +314,7 @@ export function StockTechnicalChart({
     });
 
     script.onload = () => {
+      scriptLoaded = true;
       if (!isCancelled) {
         setTvLoaded(true);
         if (timeoutTimerRef.current) clearTimeout(timeoutTimerRef.current);
