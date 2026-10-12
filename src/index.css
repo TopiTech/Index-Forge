@@ -190,9 +190,18 @@ body::before {
     width: min(320px, 86vw);
     max-height: none;
     overflow-y: auto;
-    padding: 14px;
-    border-radius: 0 12px 12px 0;
+    padding: 16px 14px;
+    border-radius: 0 16px 16px 0;
+    background: #080d19; /* Solid opaque surface preventing text pass-through */
+    border: 1px solid var(--border-subtle);
+    border-left: none;
+    box-shadow: 8px 0 40px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.05);
     z-index: var(--z-sidebar);
+  }
+
+  [data-theme="light"] .global-sidebar-drawer {
+    background: #ffffff;
+    box-shadow: 8px 0 32px rgba(0, 0, 0, 0.16);
   }
 
   .global-sidebar-drawer .sidebar-drawer-header {
@@ -217,7 +226,8 @@ body::before {
     display: block;
     position: fixed;
     inset: 0;
-    background: var(--surface-overlay);
+    background: rgba(4, 7, 14, 0.82);
+    backdrop-filter: blur(4px);
     border: none;
     padding: 0;
     z-index: var(--z-sidebar-backdrop);
@@ -6379,4 +6389,68 @@ a.footer-creator-note:hover .footer-icon-accent {
   background: rgba(245, 158, 11, 0.15);
   color: #f59e0b;
   border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+/* ==========================================================================
+   PORTRAIT / MOBILE RESPONSIVE ENHANCEMENTS
+   ========================================================================== */
+@media (max-width: 640px) {
+  /* Header brand compaction */
+  .header-brand .header-desc {
+    display: none !important;
+  }
+  .header-brand-text h1 {
+    font-size: 1.12rem !important;
+  }
+  .top-header {
+    padding: 8px 12px !important;
+  }
+
+  /* StockDetailPage portrait layout */
+  .stock-detail-actions-bar {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 8px !important;
+  }
+  .stock-detail-actions-bar > div {
+    width: 100% !important;
+    justify-content: flex-start !important;
+  }
+  .stock-hero-inner {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 14px !important;
+  }
+  .stock-hero-price {
+    text-align: left !important;
+  }
+  .stock-metrics-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 8px !important;
+  }
+
+  /* Performance Chart height optimization in portrait */
+  .chart-container,
+  .chart-wrapper {
+    min-height: 290px !important;
+    height: 310px !important;
+  }
+
+  /* StatsGrid & BenchmarkSelector portrait optimization */
+  .stats-grid {
+    grid-template-columns: 1fr !important;
+    gap: 10px !important;
+  }
+  .benchmark-toolbar {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 10px !important;
+  }
+  .benchmark-selector {
+    width: 100% !important;
+    justify-content: space-between !important;
+  }
+  .benchmark-options {
+    flex-wrap: wrap !important;
+  }
 }

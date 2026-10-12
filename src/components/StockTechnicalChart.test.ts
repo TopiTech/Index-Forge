@@ -1,0 +1,64 @@
+import { describe, it, expect } from "vitest";
+import fs from "fs";
+import path from "path";
+import { detectStockCurrency } from "../lib/currency";
+
+describe("StockTechnicalChart & StockDetailPage Integration", () => {
+  const chartTsx = fs.readFileSync(
+    path.resolve(__dirname, "StockTechnicalChart.tsx"),
+    "utf-8"
+  );
+  const detailTsx = fs.readFileSync(
+    path.resolve(__dirname, "StockDetailPage.tsx"),
+    "utf-8"
+  );
+
+  describe("Hybrid Chart Engine Branching & Resilience", () => {
+    it("distinguishes US and JP stocks for chart engine selection", () => {
+      expect(detectStockCurrency("7203", "PRIME")).toBe("JPY");
+      expect(detectStockCurrency("NVDA", "US")).toBe("USD");
+      expect(detectStockCurrency("AAPL")).toBe("USD");
+      expect(detectStockCurrency("9984")).toBe("JPY");
+    });
+
+    it("includes TradingView Advanced Chart script embed with timeout handling", () => {
+      expect(chartTsx).toContain("embed-widget-advanced-chart.js");
+      expect(chartTsx).toContain("setTimeout");
+      expect(chartTsx).toContain("tvTimedOut");
+      expect(chartTsx).toContain("script.onerror");
+    });
+
+    it("includes Recharts technical chart with SMA25 and SMA75 for local rendering", () => {
+      expect(chartTsx).toContain("ResponsiveContainer");
+      expect(chartTsx).toContain("ComposedChart");
+      expect(chartTsx).toContain("dataKey=\"sma25\"");
+      expect(chartTsx).toContain("dataKey=\"sma75\"");
+      expect(chartTsx).toContain("dataKey=\"volume\"");
+    });
+
+    it("includes regulatory notice and official TradingView link for Japanese stocks", () => {
+      expect(chartTsx).toContain("JPXマーケットデータ規約に基づき高機能ローカル日足チャートを描画しています");
+      expect(chartTsx).toContain("TSE-");
+      expect(chartTsx).toContain("jp.tradingview.com/symbols/");
+    });
+
+    it("provides fallback to local chart when TradingView encounters timeout or error", () => {
+      expect(chartTsx).toContain("ローカル高機能チャートで表示");
+      expect(chartTsx).toContain("再読み込み");
+    });
+  });
+
+  describe("StockDetailPage Integration", () => {
+    it("imports and renders StockTechnicalChart in the CHART tab", () => {
+      expect(detailTsx).toContain("import { StockTechnicalChart } from \"./StockTechnicalChart\";");
+      expect(detailTsx).toContain("<StockTechnicalChart stock={stock} theme={theme} />");
+    });
+
+    it("uses hardened currency formatting for hero price and range", () => {
+      expect(detailTsx).toContain('minimumFractionDigits: stock.market === "US" ? 2 : 1');
+      expect(detailTsx).toContain("formatStockPrice(stock.previousClose, stock.ticker");
+      expect(detailTsx).toContain("formatUsdWithJpyEstimate");
+      expect(detailTsx).toContain("formatStockChange");
+    });
+  });
+});

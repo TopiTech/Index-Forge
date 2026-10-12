@@ -18,6 +18,14 @@ import {
   formatMarketCapDisplay,
   type StockQuoteFundamentals,
 } from "../lib/marketDataService";
+import { useTheme } from "../lib/theme";
+import {
+  formatStockPrice,
+  formatStockChange,
+  formatUsdWithJpyEstimate,
+  getCurrencyMeta,
+} from "../lib/currency";
+import { StockTechnicalChart } from "./StockTechnicalChart";
 import type { PageView } from "../lib/navigation";
 
 interface StockDetailPageProps {
@@ -35,6 +43,7 @@ export function StockDetailPage({
   onAddToWatchlist,
   onAddToPortfolio,
 }: StockDetailPageProps) {
+  const { theme } = useTheme();
   const [stock, setStock] = useState<StockQuoteFundamentals>(() =>
     getCachedStockFundamentals(ticker),
   );
@@ -71,6 +80,7 @@ export function StockDetailPage({
   }, [ticker, loadStockData]);
 
   const isPositive = stock.changePercent >= 0;
+  const currencyMeta = getCurrencyMeta(stock.ticker, stock.market);
 
   // Calculate 52-week price position percentage
   const yearRange = stock.yearHigh - stock.yearLow || 1;
@@ -116,6 +126,18 @@ export function StockDetailPage({
             <RefreshCw size={13} className={loading ? "spin animate-spin" : ""} />
             <span>更新</span>
           </button>
+
+          <a
+            href={`https://jp.tradingview.com/symbols/${stock.market === "US" ? stock.ticker : `TSE-${stock.ticker}`}/`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="btn btn-sm btn-outline"
+            style={{ display: "inline-flex", alignItems: "center", gap: "6px", textDecoration: "none" }}
+            title="TradingView公式ページを開く（新規タブ）"
+          >
+            <span>TradingView公式</span>
+            <ExternalLink size={13} />
+          </a>
 
           {onAddToIndex && (
             <button
@@ -206,14 +228,22 @@ export function StockDetailPage({
 
           <div className="stock-hero-price" style={{ textAlign: "right" }}>
             <div style={{ fontSize: "2.2rem", fontWeight: 800 }} className="mono">
+              {currencyMeta.symbol}
               {stock.price.toLocaleString("en-US", {
                 minimumFractionDigits: stock.market === "US" ? 2 : 1,
                 maximumFractionDigits: stock.market === "US" ? 2 : 1,
               })}
               <span className="tiny muted" style={{ fontSize: "1rem", marginLeft: "6px", fontWeight: 400 }}>
-                {stock.market === "US" ? "USD" : "JPY"}
+                {currencyMeta.code}
               </span>
             </div>
+
+            {currencyMeta.isUSD && (
+              <div className="tiny muted mono" style={{ fontSize: "0.82rem", marginTop: 2, marginBottom: 4 }}>
+                {formatUsdWithJpyEstimate(stock.price)}
+              </div>
+            )}
+
             <div
               style={{
                 display: "inline-flex",
@@ -227,21 +257,17 @@ export function StockDetailPage({
             >
               {isPositive ? <TrendingUp size={16} /> : <TrendingDown size={16} />}
               <span>
-                {isPositive ? "+" : ""}
-                {stock.market === "US" ? stock.change.toFixed(2) : stock.change.toFixed(1)} ({isPositive ? "+" : ""}
+                {formatStockChange(stock.change, stock.ticker, { market: stock.market })} ({isPositive ? "+" : ""}
                 {stock.changePercent.toFixed(2)}%)
               </span>
               <span className="tiny muted" style={{ fontWeight: 400, marginLeft: 4 }}>
-                前日終値: {stock.previousClose.toLocaleString("en-US", {
-                  minimumFractionDigits: stock.market === "US" ? 2 : 0,
-                  maximumFractionDigits: stock.market === "US" ? 2 : 1,
-                })}
+                前日終値: {formatStockPrice(stock.previousClose, stock.ticker, { market: stock.market })}
               </span>
             </div>
             {stock.dayHigh > 0 && stock.dayLow > 0 && (
               <div className="tiny muted mono" style={{ marginTop: 4 }}>
-                当日レンジ: {stock.dayLow.toLocaleString()} - {stock.dayHigh.toLocaleString()}
-                {stock.volume > 0 && ` | 出来高: ${stock.market === "US" ? (stock.volume / 1000000).toFixed(1) + "M" : (stock.volume / 10000).toFixed(0) + "万株"}`}
+                当日レンジ: {formatStockPrice(stock.dayLow, stock.ticker, { market: stock.market })} - {formatStockPrice(stock.dayHigh, stock.ticker, { market: stock.market })}
+                {stock.volume > 0 && ` | 出来高: ${currencyMeta.isUSD ? (stock.volume / 1000000).toFixed(1) + "M" : (stock.volume / 10000).toFixed(0) + "万株"}`}
               </div>
             )}
           </div>
@@ -249,10 +275,10 @@ export function StockDetailPage({
 
         {/* 52-Week Range Bar */}
         <div style={{ marginTop: "24px", paddingTop: "18px", borderTop: "1px solid var(--border-subtle)" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.78rem", color: "var(--text-muted)", marginBottom: "6px" }}>
-            <span>52週安値: <strong className="mono">{stock.yearLow.toLocaleString()}</strong></span>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.78rem", color: "var(--text-muted)", marginBottom: "6px", flexWrap: "wrap", gap: "4px" }}>
+            <span>52週安値: <strong className="mono">{formatStockPrice(stock.yearLow, stock.ticker, { market: stock.market })}</strong></span>
             <span>現在位置: <strong className="mono" style={{ color: "var(--accent-text)" }}>{yearPositionPct.toFixed(0)}% レンジ</strong></span>
-            <span>52週高値: <strong className="mono">{stock.yearHigh.toLocaleString()}</strong></span>
+            <span>52週高値: <strong className="mono">{formatStockPrice(stock.yearHigh, stock.ticker, { market: stock.market })}</strong></span>
           </div>
           <div
             style={{
@@ -307,7 +333,7 @@ export function StockDetailPage({
             {stock.dividendYield ? `${stock.dividendYield.toFixed(2)}%` : "--"}
           </div>
           <span className="tiny muted">
-            1株配当: {stock.dps !== null && stock.dps !== undefined ? `${stock.dps}${stock.market === "US" ? " USD" : "円"}` : "--"}
+            1株配当: {stock.dps !== null && stock.dps !== undefined ? `${stock.dps} ${currencyMeta.code}` : "--"}
           </span>
         </div>
 
@@ -392,68 +418,14 @@ export function StockDetailPage({
         </button>
       </div>
 
-      {/* Tab 1: Interactive Chart Placeholder with TradingView Widget Container */}
+      {/* Tab 1: Interactive Hybrid Technical Chart Engine */}
       {activeTab === "CHART" && (
         <div
           role="tabpanel"
           id="stock-tabpanel-chart"
           aria-labelledby="stock-tab-chart"
-          className="card"
-          style={{ padding: "20px", minHeight: "450px" }}
         >
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-              <span className="badge badge-accent mono tiny">TRADINGVIEW ENGINE</span>
-              <h3 style={{ fontSize: "1.1rem", fontWeight: 600, margin: 0 }}>
-                {stock.name} 日足・移動平均線チャート
-              </h3>
-            </div>
-            <span className="tiny muted mono">25日 / 75日 / 200日 SMA</span>
-          </div>
-
-          {/* Fallback chart visual container */}
-          <div
-            style={{
-              height: "360px",
-              background: "var(--bg-app)",
-              borderRadius: "8px",
-              border: "1px solid var(--border-subtle)",
-              display: "flex",
-              flexDirection: "column",
-              justifyContent: "center",
-              alignItems: "center",
-              position: "relative",
-              overflow: "hidden",
-            }}
-          >
-            <div
-              style={{
-                position: "absolute",
-                inset: 0,
-                opacity: 0.25,
-                background: "repeating-linear-gradient(0deg, var(--border-subtle) 0px, var(--border-subtle) 1px, transparent 1px, transparent 40px)",
-              }}
-            />
-            <div style={{ textAlign: "center", zIndex: 1, padding: "20px" }}>
-              <BarChart2 size={36} className="muted" style={{ marginBottom: 12 }} />
-              <div style={{ fontWeight: 600, fontSize: "1.1rem" }}>
-                TradingView リアルタイム高機能チャート
-              </div>
-              <p className="tiny muted" style={{ maxWidth: 420, margin: "6px auto 16px" }}>
-                ヘッダーのティッカーまたは構成銘柄クリックで、ポップアップ詳細TradingViewチャートをフル画面展開してインジケーター描画・オシレーター分析が可能です。
-              </p>
-              <a
-                href={`https://jp.tradingview.com/symbols/${stock.market === "US" ? stock.ticker : `TSE-${stock.ticker}`}/`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="btn btn-sm btn-outline"
-                style={{ display: "inline-flex", alignItems: "center", gap: "6px", textDecoration: "none" }}
-              >
-                <span>TradingView 公式で開く</span>
-                <ExternalLink size={13} />
-              </a>
-            </div>
-          </div>
+          <StockTechnicalChart stock={stock} theme={theme} />
         </div>
       )}
 
