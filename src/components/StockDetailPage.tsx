@@ -116,7 +116,10 @@ export function StockDetailPage({
           <span>ダッシュボードへ戻る</span>
         </button>
 
-        <div style={{ display: "flex", gap: "8px" }}>
+        <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+          <div className="sr-only" role="status" aria-live="polite">
+            {loading ? "銘柄データを読み込み中..." : `${stock.name} の最新データを表示中`}
+          </div>
           <button
             type="button"
             className="btn btn-sm btn-outline"

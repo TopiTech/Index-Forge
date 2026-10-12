@@ -196,13 +196,14 @@ export function loadPortfolioPositions(): PortfolioPosition[] {
 }
 
 // Save positions to localStorage
-export function savePortfolioPositions(positions: PortfolioPosition[]): void {
+export function savePortfolioPositions(positions: PortfolioPosition[]): boolean {
   const storage = getLocalStorage();
-  if (!storage) return;
+  if (!storage) return false;
   try {
     storage.setItem(STORAGE_KEY_PORTFOLIO, JSON.stringify(positions));
+    return true;
   } catch {
-    // Ignore storage write error
+    return false;
   }
 }
 
@@ -260,8 +261,7 @@ export function addPortfolioPosition(
   const sanitized = sanitizePosition({ ...position, id });
   if (!sanitized) return false;
   const current = loadPersistedPositions();
-  savePortfolioPositions([...current, sanitized]);
-  return true;
+  return savePortfolioPositions([...current, sanitized]);
 }
 
 // Load watchlist from localStorage
@@ -288,8 +288,8 @@ export function loadWatchlist(): string[] {
 }
 
 /**
- * Appends a ticker to the watchlist. Returns `true` when the list changed,
- * `false` when it was already present, so callers can report the difference
+ * Appends a ticker to the watchlist. Returns `true` when the list changed and was saved,
+ * `false` when it was already present or storage failed, so callers can report the difference
  * instead of always claiming success.
  */
 export function addWatchlistTicker(ticker: string): boolean {
@@ -298,18 +298,18 @@ export function addWatchlistTicker(ticker: string): boolean {
 
   const watchlist = loadPersistedWatchlist();
   if (watchlist.includes(normalized[0])) return false;
-  saveWatchlist([...watchlist, normalized[0]]);
-  return true;
+  return saveWatchlist([...watchlist, normalized[0]]);
 }
 
 // Save watchlist to localStorage
-export function saveWatchlist(tickers: string[]): void {
+export function saveWatchlist(tickers: string[]): boolean {
   const storage = getLocalStorage();
-  if (!storage) return;
+  if (!storage) return false;
   try {
     storage.setItem(STORAGE_KEY_WATCHLIST, JSON.stringify(tickers));
+    return true;
   } catch {
-    // Ignore storage write error
+    return false;
   }
 }
 

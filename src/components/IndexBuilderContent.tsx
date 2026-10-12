@@ -692,7 +692,7 @@ export function IndexBuilderContent({
                 <Sparkles size={11} style={{ color: "var(--accent-text)" }} /> 戦略プリセット（ワンクリック適用）
               </span>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+            <div role="group" aria-label="戦略プリセット一覧" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
               {STRATEGY_PRESETS.map((preset) => (
                 <button
                   key={preset.id}

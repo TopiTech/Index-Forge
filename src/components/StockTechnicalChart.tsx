@@ -507,6 +507,8 @@ export function StockTechnicalChart({
               ref={tvContainerRef}
               className="tradingview-widget-container"
               style={{ width: "100%", height: "100%", minHeight: isMobile ? "320px" : "390px" }}
+              role="region"
+              aria-label={`${stock.name} TradingViewチャート`}
             />
 
             {/* Loading / Timeout / Error overlay */}

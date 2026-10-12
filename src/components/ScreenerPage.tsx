@@ -860,6 +860,8 @@ export function ScreenerPage({
                   <th style={{ width: "38px", textAlign: "center" }}>
                     <button
                       type="button"
+                      role="checkbox"
+                      aria-checked={isAllSelected ? "true" : isPartiallySelected ? "mixed" : "false"}
                       className="btn btn-ghost tiny"
                       style={{ padding: 0, color: "var(--text-muted)" }}
                       onClick={handleToggleSelectAll}
@@ -919,6 +921,8 @@ export function ScreenerPage({
                       >
                         <button
                           type="button"
+                          role="checkbox"
+                          aria-checked={isSelected ? "true" : "false"}
                           className="btn btn-ghost tiny"
                           style={{ padding: 0 }}
                           onClick={(e) => {

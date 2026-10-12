@@ -281,12 +281,13 @@ export function useCalculation(selectedIndex: CustomIndex | null, enabled = true
                   body: JSON.stringify({ tickers: chunk, force: syncForce }),
                   signal: controller.signal,
                 });
-                if (controller.signal.aborted) return;
+                if (controller.signal.aborted || activeCalculationKeyRef.current !== basketKey) return;
 
                 if (!syncRes.ok) {
                   warnings.push(`同期バッチ ${Math.floor(i / BATCH_SIZE) + 1} が失敗しました`);
                 } else {
                   const syncData = await syncRes.json();
+                  if (controller.signal.aborted || activeCalculationKeyRef.current !== basketKey) return;
                   if (syncData.results) {
                     for (const r of syncData.results) {
                       if (r.status === "synced" || r.status === "cached") {

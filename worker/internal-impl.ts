@@ -2932,10 +2932,9 @@ export async function fetchLiveMarketCalendarAsync(
           const normTicker = rawSymbol.replace(/\.T$/i, "");
           const rawTimestamp = q.earningsTimestamp || q.earningsTimestampStart;
           if (typeof rawTimestamp === "number" && rawTimestamp > 0) {
-            const earnDate = new Date(rawTimestamp * 1000);
-            const jstDate = new Date(earnDate.getTime() + 9 * 60 * 60 * 1000);
-            const earnTime = jstDate.getTime();
+            const earnTime = rawTimestamp * 1000;
             if (earnTime >= refTime && earnTime <= maxTime) {
+              const jstDate = new Date(earnTime + 9 * 60 * 60 * 1000);
               const matchedPreset = POPULAR_STOCKS.find((s) => s.ticker === normTicker);
               const companyName = matchedPreset?.name || q.displayName || q.shortName || normTicker;
               const title = `${companyName} (${normTicker}) 決算発表`;
@@ -2977,11 +2976,8 @@ export async function fetchLiveMarketCalendarAsync(
   let finalEarnings: CalendarEvent[] = [];
   let finalMacros = macroEvents;
 
-  if (liveEarnings.length >= 4) {
-    // 実データが十分に取得できた場合は実データを優先
-    finalEarnings = liveEarnings;
-  } else if (liveEarnings.length > 0) {
-    // 取得できた実データがあれば該当銘柄を実データに置換
+  if (liveEarnings.length > 0) {
+    // 取得できた実データがあれば該当銘柄を実データに置換し、新規実データ銘柄を追加 (日本企業イベントの脱落を防止)
     const liveMap = new Map<string, CalendarEvent>();
     for (const le of liveEarnings) {
       if (le.ticker) liveMap.set(le.ticker, le);
@@ -4974,7 +4970,7 @@ export default {
             });
           }
 
-          let results: D1Row[] | undefined;
+          let results: D1Row[] = [];
           try {
             const dbRes = await env.DB.prepare(
               `
@@ -4989,7 +4985,33 @@ export default {
               b.ticker
           `,
             ).all();
-            results = dbRes.results;
+            results = (dbRes.results || []) as D1Row[];
+            // D1 has a hard ceiling of 1,000 rows returned per query. If the initial
+            // result hit the ceiling, fetch subsequent pages to prevent silent constituent truncation.
+            let offset = results.length;
+            while (results.length > 0 && offset % 1000 === 0) {
+              const pageRes = await env.DB.prepare(
+                `
+              SELECT
+                i.id, i.name, i.description, i.base_value, COALESCE(i.sort_order, 99) AS sort_order,
+                b.ticker, b.name as stock_name, COALESCE(b.weight, 0) AS weight, b.theme
+              FROM indices i
+              LEFT JOIN basket_items b ON i.id = b.index_id
+              ORDER BY
+                COALESCE(i.sort_order, 99),
+                i.name,
+                b.ticker
+              LIMIT 1000 OFFSET ?
+            `,
+              )
+                .bind(offset)
+                .all();
+              const pageRows = (pageRes.results || []) as D1Row[];
+              if (pageRows.length === 0) break;
+              results.push(...pageRows);
+              offset += pageRows.length;
+              if (pageRows.length < 1000) break;
+            }
           } catch (lookupErr: unknown) {
             if (!isMissingColumnError(lookupErr, "sort_order")) throw lookupErr;
             const dbRes = await env.DB.prepare(
@@ -5004,7 +5026,30 @@ export default {
               b.ticker
           `,
             ).all();
-            results = dbRes.results;
+            results = (dbRes.results || []) as D1Row[];
+            let offset = results.length;
+            while (results.length > 0 && offset % 1000 === 0) {
+              const pageRes = await env.DB.prepare(
+                `
+              SELECT
+                i.id, i.name, i.description, i.base_value, 50 AS sort_order,
+                b.ticker, b.name as stock_name, COALESCE(b.weight, 0) AS weight, b.theme
+              FROM indices i
+              LEFT JOIN basket_items b ON i.id = b.index_id
+              ORDER BY
+                i.name,
+                b.ticker
+              LIMIT 1000 OFFSET ?
+            `,
+              )
+                .bind(offset)
+                .all();
+              const pageRows = (pageRes.results || []) as D1Row[];
+              if (pageRows.length === 0) break;
+              results.push(...pageRows);
+              offset += pageRows.length;
+              if (pageRows.length < 1000) break;
+            }
           }
 
           const indicesMap = new Map<
@@ -6298,7 +6343,9 @@ export default {
           );
           headers.set("Permissions-Policy", "camera=(), geolocation=(), microphone=()");
 
-          return new Response(assetRes.body, {
+          const isNullBodyStatus =
+            assetRes.status === 204 || assetRes.status === 205 || assetRes.status === 304;
+          return new Response(isNullBodyStatus ? null : assetRes.body, {
             status: assetRes.status,
             statusText: assetRes.statusText,
             headers,
