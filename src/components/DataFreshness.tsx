@@ -52,7 +52,7 @@ export function DataFreshness({
           LIVE
         </span>
       ) : null}
-      <span>
+      <span className="data-freshness-text">
         {isUpdating
           ? "データ更新中"
           : stale

@@ -220,6 +220,43 @@ body::before {
     background: var(--surface-control);
     border: 1px solid var(--border-subtle);
     border-radius: 8px;
+    max-width: 100%;
+    overflow: hidden;
+    box-sizing: border-box;
+  }
+
+  .global-sidebar-drawer .sidebar-utility .data-freshness {
+    width: 100%;
+    max-width: 100%;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    white-space: normal;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+    box-sizing: border-box;
+    padding: 6px 8px;
+    gap: 6px;
+    font-size: 9.5px;
+    line-height: 1.4;
+    border-radius: 6px;
+    overflow: hidden;
+  }
+
+  .global-sidebar-drawer .sidebar-utility .data-freshness .data-freshness-text {
+    min-width: 0;
+    flex: 1 1 auto;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  .global-sidebar-drawer .sidebar-utility .data-freshness .data-freshness-type {
+    margin-left: auto;
+    padding-left: 6px;
+    border-left: 1px solid var(--border-subtle);
+    font-size: 9px;
+    white-space: nowrap;
+    flex-shrink: 0;
   }
 
   .global-sidebar-backdrop {
@@ -3101,8 +3138,19 @@ textarea:focus-visible {
 @media (max-width: 768px) {
   .data-freshness {
     width: 100%;
-    justify-content: center;
+    max-width: 100%;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+    white-space: normal;
+    word-break: break-word;
+    box-sizing: border-box;
     order: 3;
+  }
+
+  .data-freshness-text {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    word-break: break-word;
   }
 
   .empty-state {
@@ -6453,4 +6501,42 @@ a.footer-creator-note:hover .footer-icon-accent {
   .benchmark-options {
     flex-wrap: wrap !important;
   }
+
+  /* Stock Technical Chart & TradingView portrait optimization */
+  .stock-technical-chart-container {
+    min-height: 420px !important;
+  }
+  .stock-technical-chart-canvas-area {
+    height: 380px !important;
+    min-height: 340px !important;
+  }
+  .stock-technical-chart-canvas-area .tradingview-widget-container,
+  .stock-technical-chart-canvas-area .tradingview-widget-container__widget,
+  .stock-technical-chart-canvas-area .tradingview-widget-container iframe {
+    min-height: 340px !important;
+  }
+}
+
+/* ==========================================================================
+   STOCK TECHNICAL CHART & TRADINGVIEW FULL-HEIGHT FIX
+   ========================================================================== */
+.stock-technical-chart-container {
+  min-height: 520px;
+}
+
+.stock-technical-chart-canvas-area {
+  width: 100%;
+  height: 500px;
+  min-height: 460px;
+  position: relative;
+}
+
+.stock-technical-chart-canvas-area .tradingview-widget-container,
+.stock-technical-chart-canvas-area .tradingview-widget-container__widget,
+.stock-technical-chart-canvas-area .tradingview-widget-container iframe {
+  width: 100% !important;
+  height: 100% !important;
+  min-height: 460px !important;
+  display: block;
+  border: none;
 }

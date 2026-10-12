@@ -371,9 +371,17 @@ export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModal
     if (!container) return;
 
     let isCancelled = false;
+    let scriptLoaded = false;
     setIsLoading(true);
     setScriptError(false);
     container.innerHTML = "";
+
+    const timeoutId = setTimeout(() => {
+      if (!isCancelled && !scriptLoaded) {
+        setIsLoading(false);
+        setScriptError(true);
+      }
+    }, 5000);
 
     const widgetInner = document.createElement("div");
     widgetInner.className = "tradingview-widget-container__widget";
@@ -386,7 +394,9 @@ export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModal
     script.type = "text/javascript";
     script.async = true;
     script.onload = () => {
+      scriptLoaded = true;
       if (!isCancelled) {
+        clearTimeout(timeoutId);
         setIsLoading(false);
         setScriptError(false);
         setTimeout(notifyTradingViewResize, 100);
@@ -394,6 +404,7 @@ export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModal
     };
     script.onerror = () => {
       if (!isCancelled) {
+        clearTimeout(timeoutId);
         setIsLoading(false);
         setScriptError(true);
       }
@@ -434,6 +445,7 @@ export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModal
 
     return () => {
       isCancelled = true;
+      clearTimeout(timeoutId);
       container.innerHTML = "";
     };
   }, [symbol, theme, reloadKey, notifyTradingViewResize]);
@@ -615,6 +627,39 @@ export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModal
                   <span>公式サイトで開く</span>
                   <ExternalLink size={12} />
                 </a>
+              </div>
+
+              {/* Automatic Fallback Summary Card */}
+              <div
+                style={{
+                  marginTop: 10,
+                  padding: "12px 16px",
+                  borderRadius: 8,
+                  background: "rgba(255, 255, 255, 0.04)",
+                  border: "1px solid var(--border-subtle)",
+                  width: "100%",
+                  maxWidth: 380,
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 6,
+                  textAlign: "left",
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span style={{ fontWeight: 600, fontSize: 13 }}>{symbol.title} ({symbol.proName})</span>
+                  {symbol.price && <span className="mono" style={{ fontWeight: 700, fontSize: 13 }}>{symbol.price}</span>}
+                </div>
+                {(symbol.change || symbol.changePercent) && (
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 11 }}>
+                    <span className="muted">変動情報</span>
+                    <span className={`mono ${symbol.isPositive ? "positive" : "negative"}`}>
+                      {symbol.change} ({symbol.changePercent})
+                    </span>
+                  </div>
+                )}
+                <div className="tiny muted" style={{ fontSize: 10, marginTop: 4 }}>
+                  ※外部ウィジェットの接続制限を検知したため、銘柄サマリーの自動フォールバックを表示しています。
+                </div>
               </div>
             </div>
           )}

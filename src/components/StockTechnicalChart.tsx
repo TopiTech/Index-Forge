@@ -158,10 +158,23 @@ export function StockTechnicalChart({
     stock.market === "US" || detectStockCurrency(stock.ticker, stock.market) === "USD";
   const isDemo = Boolean(stock.isDemoData);
 
+  // Responsive mobile width detection (even if isMobile prop is omitted)
+  const [internalIsMobile, setInternalIsMobile] = useState(() =>
+    typeof window !== "undefined" ? window.innerWidth <= 640 : false,
+  );
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handleResize = () => setInternalIsMobile(window.innerWidth <= 640);
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+  const activeIsMobile = isMobile || internalIsMobile;
+
   // States for TradingView widget loading & fault tolerance
   const [tvLoaded, setTvLoaded] = useState(false);
   const [tvError, setTvError] = useState(false);
   const [tvTimedOut, setTvTimedOut] = useState(false);
+  const [tvFallbackActive, setTvFallbackActive] = useState(false);
   const [userSelectedMode, setUserSelectedMode] = useState<"AUTO" | "LOCAL" | "TRADINGVIEW">(
     "AUTO",
   );
@@ -175,14 +188,16 @@ export function StockTechnicalChart({
 
   // Decide effective active engine
   const effectiveMode = useMemo<"TRADINGVIEW" | "LOCAL">(() => {
+    // If fallback is triggered due to error/timeout, automatically fall back to LOCAL
+    if (tvFallbackActive || tvError || tvTimedOut) return "LOCAL";
     if (userSelectedMode === "LOCAL") return "LOCAL";
     if (userSelectedMode === "TRADINGVIEW") return "TRADINGVIEW";
     // AUTO: US stock gets TradingView (unless error/timeout or demo)
-    if (isUS && !isDemo && !tvError && !tvTimedOut) {
+    if (isUS && !isDemo) {
       return "TRADINGVIEW";
     }
     return "LOCAL";
-  }, [userSelectedMode, isUS, isDemo, tvError, tvTimedOut]);
+  }, [userSelectedMode, isUS, isDemo, tvError, tvTimedOut, tvFallbackActive]);
 
   // Load /api/sync-prices or generate deterministic series for local chart
   useEffect(() => {
@@ -271,18 +286,20 @@ export function StockTechnicalChart({
     setTvTimedOut(false);
     container.innerHTML = "";
 
-    // 6-second timeout monitor for adblocker/CSP/offline failure
+    // 4-second timeout monitor for adblocker/CSP/offline failure -> automatically fallback
     if (timeoutTimerRef.current) clearTimeout(timeoutTimerRef.current);
     timeoutTimerRef.current = setTimeout(() => {
       if (!isCancelled && !scriptLoaded) {
         setTvTimedOut(true);
+        setTvFallbackActive(true);
       }
-    }, 6000);
+    }, 4000);
 
     const widgetInner = document.createElement("div");
     widgetInner.className = "tradingview-widget-container__widget";
     widgetInner.style.width = "100%";
     widgetInner.style.height = "100%";
+    widgetInner.style.minHeight = activeIsMobile ? "340px" : "460px";
     container.appendChild(widgetInner);
 
     const script = document.createElement("script");
@@ -291,10 +308,17 @@ export function StockTechnicalChart({
     script.async = true;
 
     // Sanitize symbol for TradingView embed
-    const cleanTicker = stock.ticker.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
-    const tvSymbol = cleanTicker.startsWith("NASDAQ") || cleanTicker.startsWith("NYSE")
-      ? cleanTicker
-      : `${cleanTicker}`;
+    const cleanTicker = stock.ticker.trim().toUpperCase();
+    const isUSStock = isUS;
+    const tvSymbol = cleanTicker.startsWith("NASDAQ:") ||
+      cleanTicker.startsWith("NYSE:") ||
+      cleanTicker.startsWith("AMEX:") ||
+      cleanTicker.startsWith("CBOE:") ||
+      cleanTicker.startsWith("TSE:")
+        ? cleanTicker
+        : isUSStock
+          ? cleanTicker
+          : `TSE:${cleanTicker.replace(/[^0-9A-Za-z]/g, "")}`;
 
     script.textContent = JSON.stringify({
       autosize: true,
@@ -317,13 +341,26 @@ export function StockTechnicalChart({
       scriptLoaded = true;
       if (!isCancelled) {
         setTvLoaded(true);
+        setTvFallbackActive(false);
         if (timeoutTimerRef.current) clearTimeout(timeoutTimerRef.current);
+        // Dispatch resize event so TradingView canvas recalculates to full container height
+        setTimeout(() => {
+          if (typeof window !== "undefined") {
+            window.dispatchEvent(new Event("resize"));
+          }
+        }, 120);
+        setTimeout(() => {
+          if (typeof window !== "undefined") {
+            window.dispatchEvent(new Event("resize"));
+          }
+        }, 350);
       }
     };
 
     script.onerror = () => {
       if (!isCancelled) {
         setTvError(true);
+        setTvFallbackActive(true);
         if (timeoutTimerRef.current) clearTimeout(timeoutTimerRef.current);
       }
     };
@@ -335,7 +372,7 @@ export function StockTechnicalChart({
       if (timeoutTimerRef.current) clearTimeout(timeoutTimerRef.current);
       if (container) container.innerHTML = "";
     };
-  }, [effectiveMode, stock.ticker, theme, retryKey]);
+  }, [effectiveMode, stock.ticker, isUS, theme, retryKey, activeIsMobile]);
 
   // Filter local series based on selected period
   const displaySeries = useMemo(() => {
@@ -348,6 +385,8 @@ export function StockTechnicalChart({
   const handleRetryTV = useCallback(() => {
     setTvError(false);
     setTvTimedOut(false);
+    setTvFallbackActive(false);
+    setUserSelectedMode("TRADINGVIEW");
     setRetryKey((k) => k + 1);
   }, []);
 
@@ -359,8 +398,8 @@ export function StockTechnicalChart({
     <div
       className="card stock-technical-chart-container"
       style={{
-        padding: isMobile ? "14px" : "20px",
-        minHeight: isMobile ? "380px" : "460px",
+        padding: activeIsMobile ? "14px" : "20px",
+        minHeight: activeIsMobile ? "420px" : "540px",
         display: "flex",
         flexDirection: "column",
         gap: "12px",
@@ -382,11 +421,13 @@ export function StockTechnicalChart({
           >
             {effectiveMode === "TRADINGVIEW"
               ? "TRADINGVIEW LIVE ENGINE"
-              : isUS
-                ? "LOCAL QUANT ENGINE (US)"
-                : "LOCAL QUANT ENGINE (東証 日足・SMA)"}
+              : tvFallbackActive
+                ? "LOCAL QUANT ENGINE (US・自動フォールバック)"
+                : isUS
+                  ? "LOCAL QUANT ENGINE (US)"
+                  : "LOCAL QUANT ENGINE (東証 日足・SMA)"}
           </span>
-          <h3 style={{ fontSize: isMobile ? "1rem" : "1.15rem", fontWeight: 600, margin: 0 }}>
+          <h3 style={{ fontSize: activeIsMobile ? "1rem" : "1.15rem", fontWeight: 600, margin: 0 }}>
             {stock.name} テクニカルチャート
           </h3>
         </div>
@@ -398,14 +439,18 @@ export function StockTechnicalChart({
             <button
               type="button"
               className="btn btn-xs btn-outline"
-              onClick={() =>
-                setUserSelectedMode(effectiveMode === "TRADINGVIEW" ? "LOCAL" : "TRADINGVIEW")
-              }
+              onClick={() => {
+                if (effectiveMode === "TRADINGVIEW") {
+                  setUserSelectedMode("LOCAL");
+                } else {
+                  handleRetryTV();
+                }
+              }}
               title="チャート描画エンジンを切り替え"
             >
               <Sliders size={12} />
               <span>
-                {effectiveMode === "TRADINGVIEW" ? "ローカル描画へ" : "TradingViewへ"}
+                {effectiveMode === "TRADINGVIEW" ? "ローカル高機能チャートで表示" : "TradingViewへ"}
               </span>
             </button>
           )}
@@ -446,6 +491,71 @@ export function StockTechnicalChart({
           </a>
         </div>
       </div>
+
+      {/* TradingView Automatic Fallback Notice Banner */}
+      {tvFallbackActive && (
+        <div
+          className="tv-fallback-alert-banner"
+          role="alert"
+          style={{
+            background: "rgba(245, 158, 11, 0.12)",
+            border: "1px solid rgba(245, 158, 11, 0.3)",
+            borderRadius: "8px",
+            padding: "10px 14px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: "10px",
+            flexWrap: "wrap",
+            fontSize: "0.82rem",
+            color: "var(--neon-amber, #f59e0b)",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: "8px", flex: "1 1 280px" }}>
+            <AlertCircle size={16} style={{ flexShrink: 0, color: "var(--neon-amber, #f59e0b)" }} />
+            <div>
+              <div style={{ fontWeight: 600 }}>TradingView自動フォールバック稼働中</div>
+              <div className="tiny" style={{ opacity: 0.9 }}>
+                接続制限または待機タイムアウトを検知したため、ローカル高機能チャートで表示しています（日足終値・移動平均線・出来高）。
+              </div>
+            </div>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+            <button
+              type="button"
+              className="btn btn-xs btn-outline"
+              onClick={handleRetryTV}
+              style={{
+                borderColor: "rgba(245, 158, 11, 0.4)",
+                color: "var(--text-primary)",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "4px",
+              }}
+              title="TradingViewの再読み込みを試行"
+            >
+              <RefreshCw size={11} />
+              <span>再読み込み</span>
+            </button>
+            <a
+              href={tradingViewWebUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn btn-xs btn-ghost text-muted"
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "4px",
+                textDecoration: "none",
+              }}
+              title="公式TradingViewで表示（新規タブ）"
+            >
+              <span>TV公式</span>
+              <ExternalLink size={11} />
+            </a>
+          </div>
+        </div>
+      )}
 
       {/* Japanese Market Regulatory Notice Bar */}
       {!isUS && (
@@ -488,10 +598,11 @@ export function StockTechnicalChart({
 
       {/* Chart Canvas Area */}
       <div
+        className="stock-technical-chart-canvas-area"
         style={{
-          flex: 1,
           width: "100%",
-          minHeight: isMobile ? "320px" : "390px",
+          height: activeIsMobile ? "380px" : "500px",
+          minHeight: activeIsMobile ? "340px" : "460px",
           position: "relative",
           background: "var(--bg-app)",
           borderRadius: "8px",
@@ -506,13 +617,17 @@ export function StockTechnicalChart({
             <div
               ref={tvContainerRef}
               className="tradingview-widget-container"
-              style={{ width: "100%", height: "100%", minHeight: isMobile ? "320px" : "390px" }}
+              style={{
+                width: "100%",
+                height: "100%",
+                minHeight: activeIsMobile ? "340px" : "460px",
+              }}
               role="region"
               aria-label={`${stock.name} TradingViewチャート`}
             />
 
-            {/* Loading / Timeout / Error overlay */}
-            {(!tvLoaded || tvError || tvTimedOut) && (
+            {/* Connecting Spinner while TradingView loads */}
+            {!tvLoaded && (
               <div
                 style={{
                   position: "absolute",
@@ -527,40 +642,8 @@ export function StockTechnicalChart({
                   textAlign: "center",
                 }}
               >
-                {tvError || tvTimedOut ? (
-                  <>
-                    <AlertCircle size={32} style={{ color: "var(--neon-amber)", marginBottom: 12 }} />
-                    <h4 style={{ margin: "0 0 6px", fontSize: "1rem" }}>
-                      TradingViewウィジェットの接続制限または待機タイムアウト
-                    </h4>
-                    <p className="tiny muted" style={{ maxWidth: 420, margin: "0 0 16px" }}>
-                      アドブロッカーまたはネットワーク制限により外部チャートが読み込めないか、接続が遅延しています。
-                    </p>
-                    <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", justifyContent: "center" }}>
-                      <button
-                        type="button"
-                        className="btn btn-sm btn-accent"
-                        onClick={() => setUserSelectedMode("LOCAL")}
-                      >
-                        <BarChart2 size={13} />
-                        <span>ローカル高機能チャートで表示</span>
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-sm btn-outline"
-                        onClick={handleRetryTV}
-                      >
-                        <RefreshCw size={13} />
-                        <span>再読み込み</span>
-                      </button>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <RefreshCw size={26} className="spin animate-spin muted" style={{ marginBottom: 12 }} />
-                    <div className="tiny muted mono">TradingView リアルタイムチャート接続中...</div>
-                  </>
-                )}
+                <RefreshCw size={26} className="spin animate-spin muted" style={{ marginBottom: 12 }} />
+                <div className="tiny muted mono">TradingView リアルタイムチャート接続中...</div>
               </div>
             )}
           </>
@@ -568,12 +651,12 @@ export function StockTechnicalChart({
 
         {/* Mode 2: Recharts Local Quant Technical Chart (JP Stocks or Fallback) */}
         {effectiveMode === "LOCAL" && (
-          <div style={{ width: "100%", height: "100%", padding: "10px 4px 0 0" }}>
+          <div style={{ width: "100%", height: "100%", padding: "10px 4px 0 0", boxSizing: "border-box" }}>
             {localDataLoading && displaySeries.length === 0 ? (
               <div
                 style={{
                   height: "100%",
-                  minHeight: "320px",
+                  minHeight: activeIsMobile ? "340px" : "460px",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
@@ -582,10 +665,10 @@ export function StockTechnicalChart({
                 <RefreshCw size={22} className="spin animate-spin muted" />
               </div>
             ) : (
-              <ResponsiveContainer width="100%" height={isMobile ? 320 : 390}>
+              <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart
                   data={displaySeries}
-                  margin={{ top: 12, right: isMobile ? 8 : 16, left: isMobile ? -16 : 8, bottom: 4 }}
+                  margin={{ top: 12, right: activeIsMobile ? 8 : 16, left: activeIsMobile ? -16 : 8, bottom: 4 }}
                 >
                   <defs>
                     <linearGradient id="stockPriceAreaGrad" x1="0" y1="0" x2="0" y2="1">
@@ -666,7 +749,7 @@ export function StockTechnicalChart({
                     dataKey="volume"
                     name="volume"
                     fill="rgba(6, 182, 212, 0.2)"
-                    barSize={isMobile ? 3 : 6}
+                    barSize={activeIsMobile ? 3 : 6}
                   />
 
                   <Area
