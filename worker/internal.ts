@@ -45,6 +45,7 @@ export {
   isPriceCacheFresh,
   generateETag,
   matchesIfNoneMatch,
+  requestsFreshCalculation,
   // Ticker formatting and fetching
   formatTickerChange,
   formatTickerChangePercent,

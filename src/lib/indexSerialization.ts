@@ -390,7 +390,7 @@ export function deserializePortfolioFromCsv(
     const shares = Number.isFinite(rawShares) && rawShares > 0 ? rawShares : 100;
 
     const rawCost = costIdx < fields.length ? parseFloat(fields[costIdx]) : NaN;
-    const averageCost = Number.isFinite(rawCost) && rawCost >= 0 ? rawCost : 1000;
+    const averageCost = Number.isFinite(rawCost) && rawCost > 0 ? rawCost : 1000;
 
     const acquiredAt = dateIdx < fields.length ? fields[dateIdx] : undefined;
     const notes = notesIdx < fields.length ? fields[notesIdx] : undefined;

@@ -67,6 +67,8 @@ export const DEFAULT_INDICES: CustomIndex[] = [
       { ticker: "8058", name: "三菱商事", weight: 10, theme: "商社" },
       { ticker: "6861", name: "キーエンス", weight: 10, theme: "自動化" },
       { ticker: "7974", name: "任天堂", weight: 10, theme: "娯楽" },
+      { ticker: "8031", name: "三井物産", weight: 7.5, theme: "商社" },
+      { ticker: "8316", name: "三井住友FG", weight: 7.5, theme: "金融" },
     ],
   },
   {

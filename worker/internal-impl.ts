@@ -3160,7 +3160,7 @@ export function matchesIfNoneMatch(
 
   const normalizeTag = (tag: string) => {
     let t = tag.trim();
-    if (t.startsWith("W/")) t = t.slice(2).trim();
+    if (t.startsWith("W/") || t.startsWith("w/")) t = t.slice(2).trim();
     if (t.startsWith('"') && t.endsWith('"') && t.length >= 2) {
       t = t.slice(1, -1);
     }
@@ -3319,9 +3319,16 @@ export function checkMemoryRateLimit(
 }
 
 export function requestsFreshCalculation(request: Request): boolean {
+  const pragma = (request.headers.get("pragma") || "").toLowerCase().trim();
+  if (pragma.split(",").some((directive) => directive.trim() === "no-cache")) {
+    return true;
+  }
   return (request.headers.get("cache-control") || "")
     .split(",")
-    .some((directive) => directive.trim().toLowerCase() === "no-cache");
+    .some((directive) => {
+      const d = directive.trim().toLowerCase();
+      return d === "no-cache" || d === "no-store" || d === "max-age=0";
+    });
 }
 
 export async function checkRateLimit(
@@ -4932,8 +4939,7 @@ export default {
 
           const forceRefresh =
             url.searchParams.get("refresh") !== null ||
-            request.headers.get("cache-control")?.includes("no-cache") ||
-            false;
+            requestsFreshCalculation(request);
 
           const memKey = "market:calendar";
           if (!forceRefresh) {
