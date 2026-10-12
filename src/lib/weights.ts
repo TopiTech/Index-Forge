@@ -61,3 +61,41 @@ export function allocateIntegerWeights(
 export function allocateEvenWeights(count: number, total: number = 100): number[] {
     return allocateIntegerWeights(new Array(Math.max(0, count)).fill(1), total);
 }
+
+/**
+ * Distributes `total` proportionally to market capitalizations (時価総額加重).
+ * Non-positive values fall back to an equal share of the remaining pool.
+ */
+export function allocateMarketCapWeights(
+    marketCaps: readonly number[],
+    total: number = 100,
+): number[] {
+    return allocateIntegerWeights(marketCaps, total);
+}
+
+/**
+ * Distributes `total` proportionally to dividend yields (高配当加重).
+ * Non-positive yields receive the guaranteed minimum 1% unit.
+ */
+export function allocateDividendYieldWeights(
+    yields: readonly number[],
+    total: number = 100,
+): number[] {
+    return allocateIntegerWeights(yields, total);
+}
+
+/**
+ * Distributes `total` inversely proportional to volatility (リスクパリティ/リスク抑制加重).
+ * Lower volatility stocks receive higher weights. Non-positive or infinite values
+ * receive an equal baseline share.
+ */
+export function allocateInverseVolatilityWeights(
+    volatilities: readonly number[],
+    total: number = 100,
+): number[] {
+    const inverse = volatilities.map((v) =>
+        Number.isFinite(v) && v > 0 ? 1 / v : 0,
+    );
+    return allocateIntegerWeights(inverse, total);
+}
+

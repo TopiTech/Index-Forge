@@ -9,6 +9,7 @@ export const MAX_AUTH_ROW_VERIFICATIONS = 200;
 import { calculateCustomIndex } from "../src/lib/indexEngine";
 import { SYSTEM_INDICES as SHARED_SYSTEM_INDICES } from "../src/data/indices";
 import { POPULAR_STOCKS } from "../src/data/popularStocks";
+import { BASELINE_ASSET_QUOTES } from "../src/data/marketConstants";
 import {
   getStockFundamentals,
   type MarketOverviewData,
@@ -4480,7 +4481,7 @@ export default {
           if (memCachedEntry) {
             const memCached = memCachedEntry.data;
             const remainingTtl = Math.max(10, memCachedEntry.remainingSeconds);
-            const cacheControl = `public, max-age=${Math.min(60, remainingTtl)}, s-maxage=${Math.min(remainingTtl, 1800)}`;
+            const cacheControl = `public, max-age=${Math.min(60, remainingTtl)}, s-maxage=${Math.min(remainingTtl, 1800)}, stale-while-revalidate=600, stale-if-error=86400`;
             const etag = await generateETag(JSON.stringify(memCached));
             if (matchesIfNoneMatch(request.headers.get("if-none-match"), etag)) {
               return notModified(request, {
@@ -4544,12 +4545,12 @@ export default {
               if (matchesIfNoneMatch(request.headers.get("if-none-match"), etag)) {
                 return notModified(request, {
                   etag: etag,
-                  "cache-control": `public, max-age=${Math.min(60, remainingTtl)}, s-maxage=${Math.min(remainingTtl, 1800)}`,
+                  "cache-control": `public, max-age=${Math.min(60, remainingTtl)}, s-maxage=${Math.min(remainingTtl, 1800)}, stale-while-revalidate=600, stale-if-error=86400`,
                 });
               }
               return json(parsedData, 200, request, {
                 etag: etag,
-                "cache-control": `public, max-age=${Math.min(60, remainingTtl)}, s-maxage=${Math.min(remainingTtl, 1800)}`,
+                "cache-control": `public, max-age=${Math.min(60, remainingTtl)}, s-maxage=${Math.min(remainingTtl, 1800)}, stale-while-revalidate=600, stale-if-error=86400`,
               });
             } catch {
               // Malformed cache, proceed to fresh fetch
@@ -4576,11 +4577,42 @@ export default {
                 if (!staleData) throw new Error("Invalid snapshot cache payload");
                 return json({ ...staleData, stale: true }, 200, request, {
                   "x-data-stale": "true",
-                  "cache-control": "public, max-age=30",
+                  "cache-control":
+                    "public, max-age=30, s-maxage=60, stale-while-revalidate=300, stale-if-error=86400",
                 });
               } catch {
-                // Corrupted cache, continue to 502 error
+                // Corrupted cache, must return 502 error to protect against exposing malformed state
+                return json(
+                  { error: `No data available from Yahoo Finance for ${symbol}` },
+                  502,
+                  request,
+                );
               }
+            }
+            // Graceful degradation when both fresh fetch and D1 cache are unavailable
+            const baselineAsset = BASELINE_ASSET_QUOTES.find((a) => a.symbol === symbol);
+            if (baselineAsset || benchInfo) {
+              const currentPrice = baselineAsset ? baselineAsset.baselinePrice : 1000;
+              const changeVal = baselineAsset ? baselineAsset.baselineChange : 0;
+              const changePctVal = baselineAsset ? baselineAsset.baselineChangePercent : 0;
+              const todayStr = new Date().toISOString().slice(0, 10);
+              const baselineData: SnapshotResponseData = {
+                snapshot: {
+                  symbol,
+                  label: benchInfo?.label || baselineAsset?.name || symbol,
+                  current: currentPrice,
+                  change: changeVal,
+                  changePct: changePctVal,
+                  updatedAt: new Date().toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" }),
+                  description: benchInfo?.desc || baselineAsset?.name || "基準参考値",
+                },
+                series: [{ date: todayStr, close: currentPrice }],
+              };
+              return json({ ...baselineData, stale: true }, 200, request, {
+                "x-data-stale": "true",
+                "cache-control":
+                  "public, max-age=30, s-maxage=60, stale-while-revalidate=300, stale-if-error=86400",
+              });
             }
             return json(
               { error: `No data available from Yahoo Finance for ${symbol}` },
@@ -4677,12 +4709,12 @@ export default {
           if (matchesIfNoneMatch(request.headers.get("if-none-match"), freshEtag)) {
             return notModified(request, {
               etag: freshEtag,
-              "cache-control": `public, max-age=60, s-maxage=${freshSMaxAge}`,
+              "cache-control": `public, max-age=60, s-maxage=${freshSMaxAge}, stale-while-revalidate=300, stale-if-error=86400`,
             });
           }
           return json(responseData, 200, request, {
             etag: freshEtag,
-            "cache-control": `public, max-age=60, s-maxage=${freshSMaxAge}`,
+            "cache-control": `public, max-age=60, s-maxage=${freshSMaxAge}, stale-while-revalidate=300, stale-if-error=86400`,
           });
         } catch (err) {
           console.error("API Error [snapshot]:", err);
@@ -4718,7 +4750,7 @@ export default {
             const isStale = Boolean(memCached.allStale);
             const edgeTtl = isStale ? Math.min(10, remainingTtl) : Math.min(60, remainingTtl);
             const browserTtl = isStale ? Math.min(5, remainingTtl) : Math.min(30, remainingTtl);
-            const cacheControl = `public, max-age=${browserTtl}, s-maxage=${edgeTtl}`;
+            const cacheControl = `public, max-age=${browserTtl}, s-maxage=${edgeTtl}, stale-while-revalidate=120, stale-if-error=86400`;
             const etag = await generateETag(JSON.stringify(memCached));
             if (matchesIfNoneMatch(request.headers.get("if-none-match"), etag)) {
               return notModified(request, {
@@ -4751,7 +4783,7 @@ export default {
           setMemoryCache(memKey, responseData, allStale ? 10 : 45);
           const edgeTtl = allStale ? 10 : 60;
           const browserTtl = allStale ? 5 : 30;
-          const cacheControl = `public, max-age=${browserTtl}, s-maxage=${edgeTtl}`;
+          const cacheControl = `public, max-age=${browserTtl}, s-maxage=${edgeTtl}, stale-while-revalidate=120, stale-if-error=86400`;
           const etag = await generateETag(JSON.stringify(responseData));
           if (matchesIfNoneMatch(request.headers.get("if-none-match"), etag)) {
             return notModified(request, {
@@ -4793,7 +4825,7 @@ export default {
             const remainingTtl = memCachedEntry.remainingSeconds;
             const edgeTtl = Math.min(60, remainingTtl);
             const browserTtl = Math.min(30, remainingTtl);
-            const cacheControl = `public, max-age=${browserTtl}, s-maxage=${edgeTtl}`;
+            const cacheControl = `public, max-age=${browserTtl}, s-maxage=${edgeTtl}, stale-while-revalidate=300, stale-if-error=86400`;
             const etag = await generateETag(JSON.stringify(memCached));
             if (matchesIfNoneMatch(request.headers.get("if-none-match"), etag)) {
               return notModified(request, {
@@ -4811,7 +4843,7 @@ export default {
           lastKnownMarketOverview = liveData;
 
           setMemoryCache(memKey, liveData, 45);
-          const cacheControl = `public, max-age=30, s-maxage=60`;
+          const cacheControl = `public, max-age=30, s-maxage=60, stale-while-revalidate=300, stale-if-error=86400`;
           const etag = await generateETag(JSON.stringify(liveData));
           if (matchesIfNoneMatch(request.headers.get("if-none-match"), etag)) {
             return notModified(request, {
@@ -4863,7 +4895,7 @@ export default {
             const remainingTtl = memCachedEntry.remainingSeconds;
             const edgeTtl = Math.min(180, remainingTtl);
             const browserTtl = Math.min(60, remainingTtl);
-            const cacheControl = `public, max-age=${browserTtl}, s-maxage=${edgeTtl}`;
+            const cacheControl = `public, max-age=${browserTtl}, s-maxage=${edgeTtl}, stale-while-revalidate=600, stale-if-error=86400`;
             const etag = await generateETag(JSON.stringify(memCached));
             if (matchesIfNoneMatch(request.headers.get("if-none-match"), etag)) {
               return notModified(request, {
@@ -4879,7 +4911,7 @@ export default {
 
           const stockData = await fetchLiveStockFundamentals(norm);
           setMemoryCache(memKey, stockData, 300);
-          const cacheControl = `public, max-age=60, s-maxage=180`;
+          const cacheControl = `public, max-age=60, s-maxage=180, stale-while-revalidate=600, stale-if-error=86400`;
           const etag = await generateETag(JSON.stringify(stockData));
           if (matchesIfNoneMatch(request.headers.get("if-none-match"), etag)) {
             return notModified(request, {
@@ -4921,7 +4953,7 @@ export default {
             const remainingTtl = memCachedEntry.remainingSeconds;
             const edgeTtl = Math.min(120, remainingTtl);
             const browserTtl = Math.min(60, remainingTtl);
-            const cacheControl = `public, max-age=${browserTtl}, s-maxage=${edgeTtl}`;
+            const cacheControl = `public, max-age=${browserTtl}, s-maxage=${edgeTtl}, stale-while-revalidate=600, stale-if-error=86400`;
             const etag = await generateETag(JSON.stringify(memCached));
             if (matchesIfNoneMatch(request.headers.get("if-none-match"), etag)) {
               return notModified(request, {
@@ -4939,7 +4971,7 @@ export default {
           lastKnownScreenerUniverse = universeData;
           setMemoryCache(memKey, universeData, 180);
 
-          const cacheControl = `public, max-age=60, s-maxage=120`;
+          const cacheControl = `public, max-age=60, s-maxage=120, stale-while-revalidate=600, stale-if-error=86400`;
           const etag = await generateETag(JSON.stringify(universeData));
           if (matchesIfNoneMatch(request.headers.get("if-none-match"), etag)) {
             return notModified(request, {
@@ -4987,7 +5019,7 @@ export default {
               const remainingTtl = memCachedEntry.remainingSeconds;
               const edgeTtl = Math.min(300, remainingTtl);
               const browserTtl = Math.min(120, remainingTtl);
-              const cacheControl = `public, max-age=${browserTtl}, s-maxage=${edgeTtl}`;
+              const cacheControl = `public, max-age=${browserTtl}, s-maxage=${edgeTtl}, stale-while-revalidate=3600, stale-if-error=86400`;
               const etag = await generateETag(JSON.stringify(memCached));
               if (matchesIfNoneMatch(request.headers.get("if-none-match"), etag)) {
                 return notModified(request, {
@@ -5016,7 +5048,7 @@ export default {
           const memTtl = isAllFallback ? 60 : 600;
           setMemoryCache(memKey, events, memTtl);
 
-          const cacheControl = `public, max-age=120, s-maxage=300`;
+          const cacheControl = `public, max-age=120, s-maxage=300, stale-while-revalidate=3600, stale-if-error=86400`;
           const etag = await generateETag(JSON.stringify(events));
           if (matchesIfNoneMatch(request.headers.get("if-none-match"), etag)) {
             return notModified(request, {
@@ -6371,6 +6403,8 @@ export default {
             headers.set("Cache-Control", "no-cache, no-store, must-revalidate");
           } else if (pathname.startsWith("/assets/")) {
             headers.set("Cache-Control", "public, max-age=31536000, immutable");
+          } else {
+            headers.set("Cache-Control", "public, max-age=86400, stale-while-revalidate=604800");
           }
 
           headers.set("X-Content-Type-Options", "nosniff");

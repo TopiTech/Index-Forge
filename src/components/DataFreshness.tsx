@@ -41,6 +41,17 @@ export function DataFreshness({
       ) : (
         <Clock3 size={13} aria-hidden="true" />
       )}
+      {stale ? (
+        <span className="provenance-pill provenance-pill-standby" style={{ fontSize: "10px", padding: "1px 6px" }}>
+          <span className="pulse-indicator" style={{ width: "4px", height: "4px" }} />
+          STANDBY
+        </span>
+      ) : latestUpdatedAt && !isUpdating ? (
+        <span className="provenance-pill provenance-pill-live" style={{ fontSize: "10px", padding: "1px 6px" }}>
+          <span className="pulse-indicator" style={{ width: "4px", height: "4px" }} />
+          LIVE
+        </span>
+      ) : null}
       <span>
         {isUpdating
           ? "データ更新中"

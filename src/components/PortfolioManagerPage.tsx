@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { motion } from "framer-motion";
 import {
   Briefcase,
@@ -16,6 +16,10 @@ import {
   ArrowLeft,
   AlertCircle,
   RefreshCw,
+  Download,
+  Upload,
+  PieChart,
+  Coins,
 } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
 import { ModalBase } from "./ModalBase";
@@ -30,6 +34,11 @@ import {
   convertPortfolioToCustomIndexBasket,
   type PortfolioPosition,
 } from "../lib/portfolioStorage";
+import {
+  serializePortfolioToCsv,
+  deserializePortfolioFromCsv,
+  calculateDiversificationScore,
+} from "../lib/indexSerialization";
 import {
   getStockFundamentals,
   fetchStockFundamentals,
@@ -47,6 +56,19 @@ interface PortfolioManagerPageProps {
     basket: { ticker: string; name: string; theme: string; weight: number }[],
   ) => void;
 }
+
+const SECTOR_COLORS = [
+  "#00e5ff",
+  "#a855f7",
+  "#10b981",
+  "#f59e0b",
+  "#ec4899",
+  "#3b82f6",
+  "#14b8a6",
+  "#8b5cf6",
+  "#f97316",
+  "#64748b",
+];
 
 export function PortfolioManagerPage({
   onNavigate,
@@ -73,6 +95,7 @@ export function PortfolioManagerPage({
   const positionsPersistedRef = useRef(hasPersistedPortfolio());
   const watchlistPersistedRef = useRef(hasPersistedWatchlist());
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const { success, info } = useToast();
 
   // Auth gate inline login state
@@ -267,6 +290,80 @@ export function PortfolioManagerPage({
     }
     success(`保有ポートフォリオ（${basket.length}銘柄）を指数ビルダーに一括エクスポートしました！`);
   };
+
+  const handleExportCsv = () => {
+    if (positions.length === 0) {
+      info("エクスポートする保有銘柄がありません");
+      return;
+    }
+    const csv = serializePortfolioToCsv(positions);
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `indexforge_portfolio_${new Date().toISOString().split("T")[0]}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    success("ポートフォリオ（CSV形式）をダウンロードしました");
+  };
+
+  const handleImportCsv = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const content = event.target?.result as string;
+      if (!content) return;
+      try {
+        const res = deserializePortfolioFromCsv(content);
+        if (!res.ok) {
+          info(res.error || "有効な保有銘柄データが見つかりませんでした");
+          return;
+        }
+        if (res.data.length === 0) {
+          info("有効な保有銘柄データが見つかりませんでした");
+          return;
+        }
+        positionsPersistedRef.current = true;
+        setPositions(res.data);
+        success(`${res.data.length}件の保有銘柄をCSVからインポートしました`);
+      } catch {
+        info("CSVファイルの読み込みまたは解析に失敗しました");
+      } finally {
+        if (fileInputRef.current) {
+          fileInputRef.current.value = "";
+        }
+      }
+    };
+    reader.readAsText(file, "UTF-8");
+  };
+
+  const sectorAllocation = useMemo(() => {
+    if (summary.positions.length === 0 || summary.totalMarketValue === 0) return [];
+    const sectorMap = new Map<string, { name: string; valueJpy: number; count: number }>();
+    for (const pos of summary.positions) {
+      const sec = pos.sector?.trim() || pos.theme?.trim() || "その他";
+      const existing = sectorMap.get(sec) || { name: sec, valueJpy: 0, count: 0 };
+      existing.valueJpy += pos.marketValueJpy ?? pos.marketValue;
+      existing.count += 1;
+      sectorMap.set(sec, existing);
+    }
+    const total = summary.totalMarketValue;
+    return Array.from(sectorMap.values())
+      .map((item) => ({
+        ...item,
+        percent: Number(((item.valueJpy / total) * 100).toFixed(1)),
+      }))
+      .sort((a, b) => b.valueJpy - a.valueJpy);
+  }, [summary.positions, summary.totalMarketValue]);
+
+  const diversification = useMemo(() => {
+    return calculateDiversificationScore(
+      summary.positions.map((p) => p.weightPercent),
+    );
+  }, [summary.positions]);
 
   if (!isAuthenticated) {
     return (
@@ -595,7 +692,7 @@ export function PortfolioManagerPage({
           </p>
         </div>
 
-        <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+        <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
           <button
             type="button"
             className="btn btn-sm btn-outline"
@@ -606,6 +703,33 @@ export function PortfolioManagerPage({
             <RefreshCw size={13} className={refreshing ? "spin" : ""} />
             <span>更新</span>
           </button>
+          <button
+            type="button"
+            className="btn btn-sm btn-outline"
+            onClick={handleExportCsv}
+            disabled={positions.length === 0}
+            title="ポートフォリオ保有銘柄をCSV形式でダウンロード"
+          >
+            <Download size={13} />
+            <span>CSV出力</span>
+          </button>
+          <button
+            type="button"
+            className="btn btn-sm btn-outline"
+            onClick={() => fileInputRef.current?.click()}
+            title="CSV形式のポートフォリオファイルをインポート"
+          >
+            <Upload size={13} />
+            <span>CSV取込</span>
+          </button>
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleImportCsv}
+            accept=".csv,text/csv"
+            style={{ display: "none" }}
+            aria-label="ポートフォリオCSVファイルをアップロード"
+          />
           <button
             type="button"
             className="btn btn-sm btn-accent"
@@ -700,6 +824,152 @@ export function PortfolioManagerPage({
         </div>
       </div>
 
+      {/* Sector Allocation & Diversification Overview */}
+      {positions.length > 0 && (
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
+            gap: "12px",
+            marginBottom: "24px",
+          }}
+        >
+          {/* Sector Allocation Card */}
+          <div className="card" style={{ padding: "16px 18px" }}>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                marginBottom: "12px",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <PieChart size={16} style={{ color: "var(--accent-text)" }} />
+                <span className="tiny bold uppercase">業種・セクター配分比率</span>
+              </div>
+              <div
+                className={`mono tiny ${
+                  diversification.level === "HIGH"
+                    ? "badge-diversification-high"
+                    : diversification.level === "MODERATE"
+                      ? "badge-diversification-mod"
+                      : "badge-diversification-conc"
+                }`}
+                style={{ padding: "2px 8px", borderRadius: "12px" }}
+                title={`HHI指数: ${diversification.hhi} - ${diversification.label}`}
+              >
+                HHI: {diversification.hhi} · {diversification.label}
+              </div>
+            </div>
+
+            {/* Stacked Percentage Bar */}
+            <div
+              style={{
+                height: "10px",
+                width: "100%",
+                background: "rgba(255, 255, 255, 0.05)",
+                borderRadius: "5px",
+                overflow: "hidden",
+                display: "flex",
+                marginBottom: "12px",
+              }}
+            >
+              {sectorAllocation.map((sec, idx) => (
+                <div
+                  key={sec.name}
+                  style={{
+                    width: `${sec.percent}%`,
+                    backgroundColor: SECTOR_COLORS[idx % SECTOR_COLORS.length],
+                  }}
+                  title={`${sec.name}: ${sec.percent}% (¥${sec.valueJpy.toLocaleString()})`}
+                />
+              ))}
+            </div>
+
+            {/* Sector Tags Grid */}
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                gap: "8px",
+              }}
+            >
+              {sectorAllocation.map((sec, idx) => (
+                <div
+                  key={sec.name}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "6px",
+                    background: "var(--bg-input)",
+                    padding: "4px 8px",
+                    borderRadius: "6px",
+                    fontSize: "12px",
+                  }}
+                >
+                  <span
+                    style={{
+                      width: "8px",
+                      height: "8px",
+                      borderRadius: "50%",
+                      backgroundColor: SECTOR_COLORS[idx % SECTOR_COLORS.length],
+                      flexShrink: 0,
+                    }}
+                  />
+                  <span style={{ fontWeight: 500 }}>{sec.name}</span>
+                  <span className="mono bold tabular-nums" style={{ color: "var(--accent-text)" }}>
+                    {sec.percent}%
+                  </span>
+                  <span className="tiny muted mono tabular-nums">
+                    (¥{sec.valueJpy.toLocaleString()})
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Dividend Projection Card */}
+          <div className="card" style={{ padding: "16px 18px" }}>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                marginBottom: "12px",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <Coins size={16} style={{ color: "#10b981" }} />
+                <span className="tiny bold uppercase">インカム & 年間配当受取予測</span>
+              </div>
+              <span className="tiny mono" style={{ color: "var(--accent-text)" }}>
+                利回り: {summary.dividendYield.toFixed(2)}%
+              </span>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "12px" }}>
+              <div style={{ padding: "10px", background: "var(--bg-input)", borderRadius: "8px" }}>
+                <div className="tiny muted uppercase mono">年間予想受取総額</div>
+                <div className="mono bold tabular-nums" style={{ fontSize: "1.25rem", color: "#10b981", marginTop: "2px" }}>
+                  ¥{summary.totalAnnualDividend.toLocaleString()}
+                </div>
+              </div>
+              <div style={{ padding: "10px", background: "var(--bg-input)", borderRadius: "8px" }}>
+                <div className="tiny muted uppercase mono">月平均換算 (目安)</div>
+                <div className="mono bold tabular-nums" style={{ fontSize: "1.25rem", marginTop: "2px" }}>
+                  ¥{Math.round(summary.totalAnnualDividend / 12).toLocaleString()}
+                </div>
+              </div>
+            </div>
+
+            <div className="tiny muted" style={{ lineHeight: 1.5 }}>
+              ※ 保有株数と直近配当（DPS）実績に基づく年間税引前受取概算です。為替レート（USD/JPY）はリアルタイム取得値に連動します。
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Tabs */}
       <div
         style={{
@@ -749,14 +1019,14 @@ export function PortfolioManagerPage({
               <table className="constituents-table" style={{ width: "100%" }}>
                 <thead>
                   <tr>
-                    <th style={{ textAlign: "left" }}>銘柄</th>
-                    <th style={{ textAlign: "right" }}>保有株数</th>
-                    <th style={{ textAlign: "right" }}>取得単価</th>
-                    <th style={{ textAlign: "right" }}>現在値</th>
-                    <th style={{ textAlign: "right" }}>評価額</th>
-                    <th style={{ textAlign: "right" }}>含み損益</th>
-                    <th style={{ textAlign: "right" }}>損益率</th>
-                    <th style={{ textAlign: "right" }}>構成比</th>
+                    <th style={{ textAlign: "left" }} className="table-sticky-col">銘柄</th>
+                    <th style={{ textAlign: "right" }} className="tabular-nums">保有株数</th>
+                    <th style={{ textAlign: "right" }} className="tabular-nums">取得単価</th>
+                    <th style={{ textAlign: "right" }} className="tabular-nums">現在値</th>
+                    <th style={{ textAlign: "right" }} className="tabular-nums">評価額</th>
+                    <th style={{ textAlign: "right" }} className="tabular-nums">含み損益</th>
+                    <th style={{ textAlign: "right" }} className="tabular-nums">損益率</th>
+                    <th style={{ textAlign: "right" }} className="tabular-nums">構成比</th>
                     <th style={{ textAlign: "center" }}>操作</th>
                   </tr>
                 </thead>
@@ -766,7 +1036,7 @@ export function PortfolioManagerPage({
                     const curr = getStockCurrency(p.ticker);
                     return (
                       <tr key={p.id}>
-                        <td>
+                        <td className="table-sticky-col">
                           <div
                             role="button"
                             tabIndex={0}
@@ -789,24 +1059,24 @@ export function PortfolioManagerPage({
                             </div>
                           </div>
                         </td>
-                        <td style={{ textAlign: "right" }} className="mono">
+                        <td style={{ textAlign: "right" }} className="mono tabular-nums">
                           {p.shares.toLocaleString()}株
                         </td>
-                        <td style={{ textAlign: "right" }} className="mono">
+                        <td style={{ textAlign: "right" }} className="mono tabular-nums">
                           {curr}
                           {p.averageCost.toLocaleString("en-US", {
                             minimumFractionDigits: curr === "$" ? 2 : 0,
                             maximumFractionDigits: 2,
                           })}
                         </td>
-                        <td style={{ textAlign: "right" }} className="mono bold">
+                        <td style={{ textAlign: "right" }} className="mono bold tabular-nums">
                           {curr}
                           {p.currentPrice.toLocaleString("en-US", {
                             minimumFractionDigits: curr === "$" ? 2 : 0,
                             maximumFractionDigits: 2,
                           })}
                         </td>
-                        <td style={{ textAlign: "right" }} className="mono bold">
+                        <td style={{ textAlign: "right" }} className="mono bold tabular-nums">
                           {curr}
                           {p.marketValue.toLocaleString("en-US", {
                             minimumFractionDigits: curr === "$" ? 2 : 0,
@@ -818,7 +1088,7 @@ export function PortfolioManagerPage({
                             textAlign: "right",
                             color: isProfit ? "var(--color-positive)" : "var(--color-negative)",
                           }}
-                          className="mono bold"
+                          className="mono bold tabular-nums"
                         >
                           {isProfit ? "+" : ""}
                           {curr}
@@ -832,12 +1102,12 @@ export function PortfolioManagerPage({
                             textAlign: "right",
                             color: isProfit ? "var(--color-positive)" : "var(--color-negative)",
                           }}
-                          className="mono bold"
+                          className="mono bold tabular-nums"
                         >
                           {isProfit ? "+" : ""}
                           {p.unrealizedProfitPercent.toFixed(2)}%
                         </td>
-                        <td style={{ textAlign: "right" }} className="mono">
+                        <td style={{ textAlign: "right" }} className="mono tabular-nums">
                           <span className="badge badge-default tiny">{p.weightPercent}%</span>
                         </td>
                         <td style={{ textAlign: "center" }}>

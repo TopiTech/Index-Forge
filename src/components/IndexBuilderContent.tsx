@@ -11,6 +11,10 @@ import {
   Zap,
   Copy,
   ExternalLink,
+  Download,
+  Upload,
+  PieChart,
+  Coins,
 } from "lucide-react";
 import type { BasketItem } from "../types";
 import type { CustomIndex } from "../data/indices";
@@ -22,6 +26,18 @@ import { searchPopularStocks, PRESET_STOCKS, type PopularStock } from "../data/p
 import { toFiniteNumberOr } from "../lib/downloadFileName";
 import { useSimulation } from "../hooks/useSimulation";
 import { SimulationPreview } from "./SimulationPreview";
+import {
+  allocateMarketCapWeights,
+  allocateDividendYieldWeights,
+} from "../lib/weights";
+import { getStockFundamentals } from "../lib/marketDataService";
+import {
+  serializeIndexToJson,
+  deserializeIndexFromJson,
+  serializeBasketToCsv,
+  deserializeBasketFromCsv,
+  calculateDiversificationScore,
+} from "../lib/indexSerialization";
 
 export interface StrategyPreset {
   id: string;
@@ -311,6 +327,97 @@ export function IndexBuilderContent({
   const handleNormalizeWeights = () => {
     if (basket.length === 0) return;
     setBasket(redistributeWeightsExact(basket));
+  };
+
+  const handleMarketCapWeight = () => {
+    if (basket.length === 0) return;
+    const caps = basket.map((b) => {
+      const fund = getStockFundamentals(b.ticker);
+      return fund.marketCap > 0 ? fund.marketCap : 1000;
+    });
+    const weights = allocateMarketCapWeights(caps, 100);
+    setBasket(basket.map((b, idx) => ({ ...b, weight: weights[idx] })));
+    toastInfo("時価総額比率に基づいてウェイトを自動配分しました");
+  };
+
+  const handleDividendYieldWeight = () => {
+    if (basket.length === 0) return;
+    const yields = basket.map((b) => {
+      const fund = getStockFundamentals(b.ticker);
+      return (fund.dividendYield ?? 0) > 0 ? fund.dividendYield! : 0.5;
+    });
+    const weights = allocateDividendYieldWeights(yields, 100);
+    setBasket(basket.map((b, idx) => ({ ...b, weight: weights[idx] })));
+    toastInfo("配当利回り比率に基づいてウェイトを自動配分しました");
+  };
+
+  const diversification = useMemo(() => {
+    return calculateDiversificationScore(basket.map((b) => b.weight));
+  }, [basket]);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleExportJson = () => {
+    const currentIndex: CustomIndex = {
+      id: `custom-export-${Date.now()}`,
+      name: name || "カスタム指数",
+      description: description || "",
+      baseValue,
+      basket,
+    };
+    const jsonStr = serializeIndexToJson(currentIndex);
+    const blob = new Blob([jsonStr], { type: "application/json;charset=utf-8;" });
+    const blobUrl = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = blobUrl;
+    a.download = `indexforge-${name ? name.replace(/\s+/g, "_") : "custom"}.json`;
+    a.click();
+    URL.revokeObjectURL(blobUrl);
+    toastSuccess("指数定義(JSON)をエクスポートしました");
+  };
+
+  const handleExportCsv = () => {
+    const csvStr = serializeBasketToCsv(basket);
+    const blob = new Blob([csvStr], { type: "text/csv;charset=utf-8;" });
+    const blobUrl = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = blobUrl;
+    a.download = `indexforge-${name ? name.replace(/\s+/g, "_") : "custom"}-basket.csv`;
+    a.click();
+    URL.revokeObjectURL(blobUrl);
+    toastSuccess("構成銘柄(CSV)をエクスポートしました");
+  };
+
+  const handleImportFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const text = event.target?.result;
+      if (typeof text !== "string") return;
+      if (file.name.endsWith(".json") || text.trim().startsWith("{")) {
+        const res = deserializeIndexFromJson(text);
+        if (res.ok && res.data) {
+          setName(res.data.name);
+          setDescription(res.data.description);
+          setBaseValue(res.data.baseValue);
+          setBasket(res.data.basket);
+          toastSuccess(`JSONから指数「${res.data.name}」を取り込みました`);
+        } else {
+          setError(res.error || "JSONインポートに失敗しました");
+        }
+      } else {
+        const res = deserializeBasketFromCsv(text);
+        if (res.ok && res.data) {
+          setBasket(res.data);
+          toastSuccess(`CSVから${res.data.length}銘柄を取り込みました`);
+        } else {
+          setError(res.error || "CSVインポートに失敗しました");
+        }
+      }
+    };
+    reader.readAsText(file);
+    if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
   const totalWeight = basket.reduce((sum, b) => sum + b.weight, 0);
@@ -800,6 +907,73 @@ export function IndexBuilderContent({
 
           {/* Basket List & Weight Sliders */}
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {/* Export / Import & Diversification Header */}
+            <div
+              className="row space-between flex-wrap"
+              style={{
+                gap: 6,
+                padding: "6px 8px",
+                background: "var(--surface-control)",
+                borderRadius: 6,
+              }}
+            >
+              <div className="row flex-wrap" style={{ gap: 6, alignItems: "center" }}>
+                <span className="mono tiny muted" style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10 }}>
+                  <Download size={11} /> 定義バックアップ:
+                </span>
+                <button
+                  type="button"
+                  onClick={handleExportJson}
+                  className="btn btn-sm btn-outline"
+                  style={{ fontSize: 10, padding: "2px 6px", height: 20 }}
+                  title="指数定義をJSON形式でローカル保存"
+                >
+                  JSON
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExportCsv}
+                  className="btn btn-sm btn-outline"
+                  style={{ fontSize: 10, padding: "2px 6px", height: 20 }}
+                  title="構成銘柄をCSV形式でローカル保存"
+                >
+                  CSV
+                </button>
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="btn btn-sm btn-outline"
+                  style={{ fontSize: 10, padding: "2px 6px", height: 20 }}
+                  title="JSONまたはCSVから定義を読み込み"
+                >
+                  <Upload size={10} /> インポート
+                </button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".json,.csv"
+                  style={{ display: "none" }}
+                  onChange={handleImportFile}
+                />
+              </div>
+
+              {basket.length > 0 && (
+                <span
+                  className={`provenance-pill ${
+                    diversification.level === "HIGH"
+                      ? "provenance-pill-live"
+                      : diversification.level === "MODERATE"
+                        ? "provenance-pill-cached"
+                        : "provenance-pill-standby"
+                  }`}
+                  style={{ fontSize: "10px", padding: "1px 8px" }}
+                  title={`HHIスコア: ${diversification.hhi} (有効銘柄数: 約${diversification.effectiveConstituentCount}銘柄相当)`}
+                >
+                  HHI {diversification.hhi}・{diversification.label}
+                </span>
+              )}
+            </div>
+
             <div className="row space-between flex-wrap" style={{ gap: 6 }}>
               <span className="mono tiny bold uppercase" style={{ color: "var(--accent-text)" }}>
                 構成銘柄 & ウェイト ({basket.length} 銘柄 / 合計:{" "}
@@ -817,16 +991,7 @@ export function IndexBuilderContent({
                 </span>
                 {Math.abs(totalWeight - 100) > 0.05 ? " ※自動正規化" : ""})
               </span>
-              <div className="row" style={{ gap: 4 }}>
-                <button
-                  type="button"
-                  onClick={handleNormalizeWeights}
-                  className="btn btn-sm btn-outline"
-                  style={{ fontSize: 10, padding: "2px 6px", height: 22 }}
-                  title="比率バランスを保ち100%に再配分"
-                >
-                  <Scale size={10} /> 100%に再配分
-                </button>
+              <div className="row flex-wrap" style={{ gap: 4 }}>
                 <button
                   type="button"
                   onClick={handleEqualWeight}
@@ -834,7 +999,34 @@ export function IndexBuilderContent({
                   style={{ fontSize: 10, padding: "2px 6px", height: 22 }}
                   title="全銘柄を均等配分"
                 >
-                  均等配分
+                  <Scale size={10} /> 均等
+                </button>
+                <button
+                  type="button"
+                  onClick={handleMarketCapWeight}
+                  className="btn btn-sm btn-outline"
+                  style={{ fontSize: 10, padding: "2px 6px", height: 22 }}
+                  title="銘柄の時価総額に応じて加重配分"
+                >
+                  <PieChart size={10} /> 時価総額
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDividendYieldWeight}
+                  className="btn btn-sm btn-outline"
+                  style={{ fontSize: 10, padding: "2px 6px", height: 22 }}
+                  title="予想配当利回りに応じて加重配分"
+                >
+                  <Coins size={10} /> 高配当
+                </button>
+                <button
+                  type="button"
+                  onClick={handleNormalizeWeights}
+                  className="btn btn-sm btn-outline"
+                  style={{ fontSize: 10, padding: "2px 6px", height: 22 }}
+                  title="比率バランスを保ち100%に再配分"
+                >
+                  100%再配分
                 </button>
               </div>
             </div>

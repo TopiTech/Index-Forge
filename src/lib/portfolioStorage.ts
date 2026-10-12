@@ -6,6 +6,7 @@
 import { getStockFundamentals } from "./marketDataService";
 import { getStockCurrency } from "./currency";
 import { allocateIntegerWeights } from "./weights";
+import { DEFAULT_USD_JPY_RATE } from "../data/marketConstants";
 import type { BasketItem } from "../types";
 
 export interface PortfolioPosition {
@@ -351,7 +352,7 @@ export function calculatePortfolioSummary(
     const fund = getStockFundamentals(pos.ticker);
     const curr = getStockCurrency(pos.ticker);
     const isUSD = curr === "$";
-    const defaultRate = quotesMap?.get?.("USDJPY=X")?.price || 158.25;
+    const defaultRate = quotesMap?.get?.("USDJPY=X")?.price || DEFAULT_USD_JPY_RATE;
     const fxRate = isUSD ? (effectiveUsdJpyRate ?? defaultRate) : 1;
 
     const currentPrice =
