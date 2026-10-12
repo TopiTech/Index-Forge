@@ -281,7 +281,7 @@ export function PortfolioManagerPage({
   };
 
   const handleConvertToCustomIndex = () => {
-    const basket = convertPortfolioToCustomIndexBasket(positions);
+    const basket = convertPortfolioToCustomIndexBasket(positions, usdJpyRate);
     if (basket.length === 0) return;
 
     if (onConvertAndCreateCustomIndex) {

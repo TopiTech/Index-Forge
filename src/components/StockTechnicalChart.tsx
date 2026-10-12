@@ -212,54 +212,88 @@ export function StockTechnicalChart({
 
     async function fetchHistoricalPrices() {
       try {
-        const res = await fetch("/api/sync-prices", {
+        // Preflight sync to ensure stock prices are refreshed into D1 cache
+        try {
+          await fetch("/api/sync-prices", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ tickers: [stock.ticker] }),
+          });
+        } catch {
+          // Preflight sync is best-effort; proceed to query /api/calculate
+        }
+
+        const calcRes = await fetch("/api/calculate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ tickers: [stock.ticker] }),
+          body: JSON.stringify({
+            basket: [
+              {
+                ticker: stock.ticker,
+                name: stock.name,
+                theme: stock.theme || "その他",
+                weight: 100,
+              },
+            ],
+            baseValue: 1000,
+          }),
         });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = (await res.json()) as { series?: Array<{ ticker: string; dates: string[]; prices: number[] }> };
-        const found = data.series?.find((s) => s.ticker.toUpperCase() === stock.ticker.toUpperCase());
-        if (found && Array.isArray(found.prices) && found.prices.length >= 5) {
-          const total = found.prices.length;
-          const points: PriceDataPoint[] = [];
-          for (let i = 0; i < total; i++) {
-            const rawP = found.prices[i];
-            const p = Number.isFinite(rawP) && rawP > 0 ? rawP : stock.price;
-            const dt = found.dates[i] ? new Date(found.dates[i]) : new Date();
-            const dateStr = found.dates[i] || dt.toISOString().split("T")[0];
-            const displayDate = `${dt.getMonth() + 1}/${dt.getDate()}`;
 
-            let sma25: number | null = null;
-            if (i >= 24) {
-              let sum = 0;
-              for (let k = i - 24; k <= i; k++) sum += found.prices[k] || p;
-              sma25 = Math.round((sum / 25) * 100) / 100;
+        if (calcRes.ok) {
+          const calcData = (await calcRes.json()) as {
+            stockUniverse?: Array<{
+              ticker: string;
+              series?: Array<{ date: string; close: number }>;
+            }>;
+          };
+          const found = calcData.stockUniverse?.find(
+            (s) => s.ticker.toUpperCase() === stock.ticker.toUpperCase(),
+          );
+          const rawSeries = found?.series;
+
+          if (Array.isArray(rawSeries) && rawSeries.length >= 5) {
+            const total = rawSeries.length;
+            const points: PriceDataPoint[] = [];
+            for (let i = 0; i < total; i++) {
+              const rawP = rawSeries[i].close;
+              const p = Number.isFinite(rawP) && rawP > 0 ? rawP : stock.price;
+              const dateStr = rawSeries[i].date;
+              const dt = dateStr ? new Date(dateStr) : new Date();
+              const displayDate = Number.isNaN(dt.getTime())
+                ? dateStr
+                : `${dt.getMonth() + 1}/${dt.getDate()}`;
+
+              let sma25: number | null = null;
+              if (i >= 24) {
+                let sum = 0;
+                for (let k = i - 24; k <= i; k++) sum += rawSeries[k]?.close || p;
+                sma25 = Math.round((sum / 25) * 100) / 100;
+              }
+
+              let sma75: number | null = null;
+              if (i >= 74) {
+                let sum = 0;
+                for (let k = i - 74; k <= i; k++) sum += rawSeries[k]?.close || p;
+                sma75 = Math.round((sum / 75) * 100) / 100;
+              }
+
+              points.push({
+                date: dateStr,
+                displayDate,
+                close: p,
+                open: i > 0 ? rawSeries[i - 1].close : p,
+                high: p * 1.008,
+                low: p * 0.992,
+                volume: stock.volume || 100000,
+                sma25,
+                sma75,
+              });
             }
-
-            let sma75: number | null = null;
-            if (i >= 74) {
-              let sum = 0;
-              for (let k = i - 74; k <= i; k++) sum += found.prices[k] || p;
-              sma75 = Math.round((sum / 75) * 100) / 100;
+            if (!isCancelled) {
+              setLocalSeries(points);
+              setLocalDataLoading(false);
+              return;
             }
-
-            points.push({
-              date: dateStr,
-              displayDate,
-              close: p,
-              open: i > 0 ? found.prices[i - 1] : p,
-              high: p * 1.008,
-              low: p * 0.992,
-              volume: stock.volume || 100000,
-              sma25,
-              sma75,
-            });
-          }
-          if (!isCancelled) {
-            setLocalSeries(points);
-            setLocalDataLoading(false);
-            return;
           }
         }
       } catch {
@@ -490,6 +524,7 @@ export function StockTechnicalChart({
                   className={`btn btn-xs ${selectedRange === rng ? "btn-accent" : "btn-ghost"}`}
                   onClick={() => setSelectedRange(rng)}
                   style={{ padding: "3px 8px", fontSize: "11px" }}
+                  aria-pressed={selectedRange === rng}
                 >
                   {rng}
                 </button>

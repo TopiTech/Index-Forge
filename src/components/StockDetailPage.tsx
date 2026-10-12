@@ -67,6 +67,8 @@ export function StockDetailPage({
       const data = await fetchStockFundamentals(targetTicker, forceRefresh);
       if (!mountedRef.current || requestId !== requestIdRef.current) return;
       setStock(data);
+    } catch {
+      // Gracefully retain existing cached data on unexpected network error
     } finally {
       if (mountedRef.current && requestId === requestIdRef.current) {
         setLoading(false);
