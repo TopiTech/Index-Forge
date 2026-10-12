@@ -1,4 +1,11 @@
-export const MAX_AUTH_ROW_VERIFICATIONS = 15;
+// Per-attempt budget for PBKDF2 password verifications during login. This is a
+// CPU safety valve, NOT an account limit: it must stay far above any realistic
+// number of active accounts. A previous value of 15 silently rejected the
+// correct password of every account past the 15th row (they were told the
+// password was wrong, which is undiagnosable). At ~10-20ms per PBKDF2
+// verification the full budget still fits comfortably inside the Workers CPU
+// limit, and login attempts are separately rate limited per IP.
+export const MAX_AUTH_ROW_VERIFICATIONS = 200;
 import { calculateCustomIndex } from "../src/lib/indexEngine";
 import { SYSTEM_INDICES as SHARED_SYSTEM_INDICES } from "../src/data/indices";
 import { POPULAR_STOCKS } from "../src/data/popularStocks";
@@ -348,15 +355,69 @@ export interface TickerMappingItem {
 }
 
 export const TICKER_MAPPINGS: TickerMappingItem[] = [
-  { proName: "INDEX:NKY", symbol: "^N225", defaultPrice: 38980.5, defaultChange: 145.2, defaultChangePercent: 0.37 },
-  { proName: "FOREXCOM:DJI", symbol: "^DJI", defaultPrice: 43825.1, defaultChange: 210.4, defaultChangePercent: 0.48 },
-  { proName: "FOREXCOM:SPXUSD", symbol: "^GSPC", defaultPrice: 5860.25, defaultChange: 18.9, defaultChangePercent: 0.32 },
-  { proName: "FOREXCOM:NSXUSD", symbol: "^NDX", defaultPrice: 20410.8, defaultChange: 95.3, defaultChangePercent: 0.47 },
-  { proName: "FX_IDC:USDJPY", symbol: "USDJPY=X", defaultPrice: 155.2, defaultChange: 0.15, defaultChangePercent: 0.1 },
-  { proName: "FX_IDC:XAUUSD", symbol: "GC=F", defaultPrice: 2680.5, defaultChange: -8.4, defaultChangePercent: -0.31 },
-  { proName: "TVC:USOIL", symbol: "CL=F", defaultPrice: 71.45, defaultChange: -0.65, defaultChangePercent: -0.9 },
-  { proName: "BITSTAMP:BTCUSD", symbol: "BTC-USD", defaultPrice: 91240.0, defaultChange: 1250.0, defaultChangePercent: 1.39 },
-  { proName: "BITSTAMP:ETHUSD", symbol: "ETH-USD", defaultPrice: 3340.5, defaultChange: 45.2, defaultChangePercent: 1.37 },
+  {
+    proName: "INDEX:NKY",
+    symbol: "^N225",
+    defaultPrice: 38980.5,
+    defaultChange: 145.2,
+    defaultChangePercent: 0.37,
+  },
+  {
+    proName: "FOREXCOM:DJI",
+    symbol: "^DJI",
+    defaultPrice: 43825.1,
+    defaultChange: 210.4,
+    defaultChangePercent: 0.48,
+  },
+  {
+    proName: "FOREXCOM:SPXUSD",
+    symbol: "^GSPC",
+    defaultPrice: 5860.25,
+    defaultChange: 18.9,
+    defaultChangePercent: 0.32,
+  },
+  {
+    proName: "FOREXCOM:NSXUSD",
+    symbol: "^NDX",
+    defaultPrice: 20410.8,
+    defaultChange: 95.3,
+    defaultChangePercent: 0.47,
+  },
+  {
+    proName: "FX_IDC:USDJPY",
+    symbol: "USDJPY=X",
+    defaultPrice: 155.2,
+    defaultChange: 0.15,
+    defaultChangePercent: 0.1,
+  },
+  {
+    proName: "FX_IDC:XAUUSD",
+    symbol: "GC=F",
+    defaultPrice: 2680.5,
+    defaultChange: -8.4,
+    defaultChangePercent: -0.31,
+  },
+  {
+    proName: "TVC:USOIL",
+    symbol: "CL=F",
+    defaultPrice: 71.45,
+    defaultChange: -0.65,
+    defaultChangePercent: -0.9,
+  },
+  {
+    proName: "BITSTAMP:BTCUSD",
+    symbol: "BTC-USD",
+    defaultPrice: 91240.0,
+    defaultChange: 1250.0,
+    defaultChangePercent: 1.39,
+  },
+  {
+    proName: "BITSTAMP:ETHUSD",
+    symbol: "ETH-USD",
+    defaultPrice: 3340.5,
+    defaultChange: 45.2,
+    defaultChangePercent: 1.37,
+  },
 ];
 
 // Upper bound for a single index basket. The save path chunks basket writes so
@@ -660,6 +721,11 @@ export interface AuthCacheEntry {
 }
 export const authCache = new Map<string, AuthCacheEntry>();
 export const MAX_AUTH_CACHE_SIZE = 200;
+// Incremented whenever the cache is cleared so a verification that started
+// before a password change cannot re-populate the cache with the previous
+// password's result afterwards (that would keep the old password valid for
+// the full cache TTL).
+let authCacheGeneration = 0;
 
 export function setAuthCache(key: string, entry: AuthCacheEntry): void {
   if (authCache.size >= MAX_AUTH_CACHE_SIZE) {
@@ -671,6 +737,7 @@ export function setAuthCache(key: string, entry: AuthCacheEntry): void {
 
 export function clearAuthCache(): void {
   authCache.clear();
+  authCacheGeneration += 1;
 }
 
 export async function upgradeLegacyPasswordHash(
@@ -682,10 +749,14 @@ export async function upgradeLegacyPasswordHash(
   if (isModernPasswordHash(storedHash)) return;
   try {
     const upgradedHash = await hashPassword(password);
+    // Guard the write with the verified hash: if the password was rotated
+    // concurrently, this upgrade must not overwrite the new hash with one
+    // derived from the previous password (which would silently revert the
+    // rotation).
     await env.DB.prepare(
-      "UPDATE access_passwords SET password_hash = ?, updated_at = ? WHERE id = ?",
+      "UPDATE access_passwords SET password_hash = ?, updated_at = ? WHERE id = ? AND password_hash = ?",
     )
-      .bind(upgradedHash, Math.floor(Date.now() / 1000), id)
+      .bind(upgradedHash, Math.floor(Date.now() / 1000), id, storedHash)
       .run();
     // Migration visibility (P3): legacy unsalted SHA-256 hashes are upgraded
     // lazily on successful login. Emitting one log line per upgrade lets
@@ -705,8 +776,13 @@ export async function upgradeLegacyPasswordHash(
  * findPasswordCollision call. Each verification runs ~100k SHA-256 iterations,
  * so this cap keeps admin operations (password create/update) well inside the
  * Workers CPU limit even when the access_passwords table grows large.
+ *
+ * The cap must stay far above any realistic account count: it is a CPU guard,
+ * and reaching it degrades collision detection (a collision beyond the cap is
+ * reported as "no collision"). At ~10-20ms per verification, 200 checks still
+ * complete in a few seconds.
  */
-export const MAX_PASSWORD_COLLISION_VERIFICATIONS = 25;
+export const MAX_PASSWORD_COLLISION_VERIFICATIONS = 200;
 
 export interface PasswordCollisionCheckResult {
   hasCollision: boolean;
@@ -730,8 +806,7 @@ export async function findPasswordCollision(
         "SELECT id, name, password_hash FROM access_passwords WHERE id = 'admin-master'",
       ).all();
       masterRow = (adminMasterRows.results || []).find((r: D1Row) => r.id === "admin-master") as
-        | { id: string; name: string; password_hash: string }
-        | undefined;
+        { id: string; name: string; password_hash: string } | undefined;
     } catch {
       // Table may not exist or query error; fallback to env check below
     }
@@ -749,7 +824,10 @@ export async function findPasswordCollision(
       }
     } else if (env.ADMIN_PASSWORD) {
       const trimmedEnvAdmin = env.ADMIN_PASSWORD.trim();
-      if (trimmedEnvAdmin && timingSafeEqual(await hashToken(trimmedEnvAdmin), await hashToken(candidatePassword))) {
+      if (
+        trimmedEnvAdmin &&
+        timingSafeEqual(await hashToken(trimmedEnvAdmin), await hashToken(candidatePassword))
+      ) {
         return {
           hasCollision: true,
           isMasterAdminCollision: true,
@@ -780,7 +858,7 @@ export async function findPasswordCollision(
       if (verified >= MAX_PASSWORD_COLLISION_VERIFICATIONS) {
         console.warn(
           `findPasswordCollision: verification cap (${MAX_PASSWORD_COLLISION_VERIFICATIONS}) reached; ` +
-          "remaining rows were not checked for password collisions",
+            "remaining rows were not checked for password collisions",
         );
         break;
       }
@@ -818,14 +896,16 @@ export async function authenticatePassword(
   ctx?: ExecutionContext,
 ): Promise<AuthResult> {
   const pwd =
-    (explicitPassword !== undefined && explicitPassword !== null)
-      ? (typeof explicitPassword === "string" ? explicitPassword.trim() : "")
-      : (request.headers.get("x-auth-password")?.trim() ||
+    explicitPassword !== undefined && explicitPassword !== null
+      ? typeof explicitPassword === "string"
+        ? explicitPassword.trim()
+        : ""
+      : request.headers.get("x-auth-password")?.trim() ||
         request.headers.get("x-admin-key")?.trim() ||
         (request.headers.get("authorization")?.startsWith("Bearer ")
           ? request.headers.get("authorization")!.slice(7).trim()
           : null) ||
-        "");
+        "";
 
   if (!pwd) {
     return { authenticated: false, error: "パスワードが指定されていません" };
@@ -850,6 +930,10 @@ export async function authenticatePassword(
   if (cachedAuth && Date.now() < cachedAuth.expiresAt && cachedAuth.result.id === "admin-master") {
     return cachedAuth.result;
   }
+  // Snapshot the generation before verifying: if a password change clears the
+  // cache while this verification is in flight, the result must not be cached
+  // (the old password would otherwise keep authenticating for the TTL).
+  const cacheGenerationAtStart = authCacheGeneration;
 
   // Schema bootstrap must happen BEFORE the fail-closed rate-limit check. On a
   // fresh, unmigrated database the rate_limits INSERT inside checkRateLimit
@@ -880,13 +964,13 @@ export async function authenticatePassword(
 
     const masterRow = (adminMasterRows || []).find((r: D1Row) => r.id === "admin-master") as
       | {
-        id: string;
-        name: string;
-        password_hash: string;
-        role: "admin";
-        max_stocks: number | null;
-        is_active: number;
-      }
+          id: string;
+          name: string;
+          password_hash: string;
+          role: "admin";
+          max_stocks: number | null;
+          is_active: number;
+        }
       | undefined;
 
     if (masterRow) {
@@ -907,7 +991,9 @@ export async function authenticatePassword(
           maxIndices: null,
           id: "admin-master",
         };
-        setAuthCache(pwdHash, { result: res, expiresAt: Date.now() + 60 * 1000 });
+        if (cacheGenerationAtStart === authCacheGeneration) {
+          setAuthCache(pwdHash, { result: res, expiresAt: Date.now() + 60 * 1000 });
+        }
         return res;
       }
     } else {
@@ -923,7 +1009,9 @@ export async function authenticatePassword(
           maxIndices: null,
           id: "admin-master",
         };
-        setAuthCache(pwdHash, { result: res, expiresAt: Date.now() + 60 * 1000 });
+        if (cacheGenerationAtStart === authCacheGeneration) {
+          setAuthCache(pwdHash, { result: res, expiresAt: Date.now() + 60 * 1000 });
+        }
         return res;
       }
     }
@@ -944,6 +1032,7 @@ export async function authenticatePassword(
     }
 
     let checkedCount = 0;
+    let scanTruncated = false;
     for (const row of passwordRows || []) {
       const user = row as {
         id: string;
@@ -960,6 +1049,11 @@ export async function authenticatePassword(
       checkedCount++;
       if (!(await verifyPasswordHash(pwd, user.password_hash))) {
         if (checkedCount >= MAX_AUTH_ROW_VERIFICATIONS) {
+          // The budget ran out before every active account was checked. Report
+          // a distinct error so the operator can see the cause; reporting
+          // "wrong password" here permanently locked out the remaining
+          // accounts with no way to diagnose why.
+          scanTruncated = true;
           break;
         }
         continue;
@@ -982,6 +1076,13 @@ export async function authenticatePassword(
         id: user.id,
       };
       return res;
+    }
+    if (scanTruncated) {
+      return {
+        authenticated: false,
+        error:
+          "アカウント数が認証の検証上限を超えているため認証できません。管理者にお問い合わせください",
+      };
     }
   } catch (err) {
     console.error("Auth DB error:", err);
@@ -1343,7 +1444,9 @@ export function resetYahooCrumbCache(): void {
   yahooCrumbExpiresAt = 0;
 }
 
-export async function getYahooCrumb(forceRefresh = false): Promise<{ crumb: string; cookie: string } | null> {
+export async function getYahooCrumb(
+  forceRefresh = false,
+): Promise<{ crumb: string; cookie: string } | null> {
   if (!forceRefresh && cachedYahooCrumb && cachedYahooCookie && Date.now() < yahooCrumbExpiresAt) {
     return { crumb: cachedYahooCrumb, cookie: cachedYahooCookie };
   }
@@ -1357,9 +1460,12 @@ export async function getYahooCrumb(forceRefresh = false): Promise<{ crumb: stri
       signal: AbortSignal.timeout(4000),
     });
     const rawCookies: string[] =
-      typeof (res1.headers as unknown as { getSetCookie?: () => string[] }).getSetCookie === "function"
+      typeof (res1.headers as unknown as { getSetCookie?: () => string[] }).getSetCookie ===
+      "function"
         ? (res1.headers as unknown as { getSetCookie: () => string[] }).getSetCookie()
-        : res1.headers.get("set-cookie") ? [res1.headers.get("set-cookie")!] : [];
+        : res1.headers.get("set-cookie")
+          ? [res1.headers.get("set-cookie")!]
+          : [];
     const cookie = rawCookies
       .map((c) => c.split(";")[0]?.trim())
       .filter((c): c is string => Boolean(c && c.includes("=")))
@@ -1399,34 +1505,161 @@ export interface OverviewAssetDef {
 }
 
 export const OVERVIEW_ASSET_DEFS: OverviewAssetDef[] = [
-  { symbol: "^N225", querySymbol: "^N225", name: "日経平均株価", category: "INDEX", currency: "JPY", defaultPrice: 69030.92, defaultChange: -11.19, defaultChangePercent: -0.02 },
-  { symbol: "^TOPX", querySymbol: "TPY=F", name: "TOPIX (東証株価指数)", category: "INDEX", currency: "JPY", defaultPrice: 4138.5, defaultChange: 33.5, defaultChangePercent: 0.82 },
-  { symbol: "^TOPIXG", querySymbol: "2516.T", name: "東証グロース250", category: "INDEX", currency: "JPY", defaultPrice: 639.0, defaultChange: 7.1, defaultChangePercent: 1.12 },
-  { symbol: "^GSPC", querySymbol: "^GSPC", name: "S&P 500", category: "INDEX", currency: "USD", defaultPrice: 7811.54, defaultChange: 46.18, defaultChangePercent: 0.59 },
-  { symbol: "^IXIC", querySymbol: "^IXIC", name: "NASDAQ 総合", category: "INDEX", currency: "USD", defaultPrice: 27366.17, defaultChange: 172.83, defaultChangePercent: 0.64 },
-  { symbol: "^DJI", querySymbol: "^DJI", name: "NYダウ平均", category: "INDEX", currency: "USD", defaultPrice: 51654.95, defaultChange: 423.31, defaultChangePercent: 0.83 },
-  { symbol: "USDJPY=X", querySymbol: "USDJPY=X", name: "米ドル / 円", category: "FX", currency: "JPY", defaultPrice: 158.25, defaultChange: 0.45, defaultChangePercent: 0.29 },
-  { symbol: "EURJPY=X", querySymbol: "EURJPY=X", name: "ユーロ / 円", category: "FX", currency: "JPY", defaultPrice: 177.1, defaultChange: 0.28, defaultChangePercent: 0.16 },
-  { symbol: "EURUSD=X", querySymbol: "EURUSD=X", name: "ユーロ / ドル", category: "FX", currency: "USD", defaultPrice: 1.1206, defaultChange: -0.001, defaultChangePercent: -0.09 },
-  { symbol: "CL=F", querySymbol: "CL=F", name: "WTI 原油先物", category: "COMMODITY", currency: "USD", defaultPrice: 91.85, defaultChange: 0.36, defaultChangePercent: 0.39 },
-  { symbol: "GC=F", querySymbol: "GC=F", name: "金先物 (Gold)", category: "COMMODITY", currency: "USD", defaultPrice: 4216.3, defaultChange: 59.3, defaultChangePercent: 1.43 },
-  { symbol: "^TNX", querySymbol: "^TNX", name: "米国10年債利回り", category: "BOND", currency: "%", defaultPrice: 5.244, defaultChange: 0.013, defaultChangePercent: 0.25 },
-  { symbol: "BTC-USD", querySymbol: "BTC-USD", name: "ビットコイン (BTC)", category: "CRYPTO", currency: "USD", defaultPrice: 82945.58, defaultChange: 168.89, defaultChangePercent: 0.2 },
-  { symbol: "ETH-USD", querySymbol: "ETH-USD", name: "イーサリアム (ETH)", category: "CRYPTO", currency: "USD", defaultPrice: 2499.26, defaultChange: 4.9, defaultChangePercent: 0.2 },
+  {
+    symbol: "^N225",
+    querySymbol: "^N225",
+    name: "日経平均株価",
+    category: "INDEX",
+    currency: "JPY",
+    defaultPrice: 69030.92,
+    defaultChange: -11.19,
+    defaultChangePercent: -0.02,
+  },
+  {
+    symbol: "^TOPX",
+    querySymbol: "TPY=F",
+    name: "TOPIX (東証株価指数)",
+    category: "INDEX",
+    currency: "JPY",
+    defaultPrice: 4138.5,
+    defaultChange: 33.5,
+    defaultChangePercent: 0.82,
+  },
+  {
+    symbol: "^TOPIXG",
+    querySymbol: "2516.T",
+    name: "東証グロース250",
+    category: "INDEX",
+    currency: "JPY",
+    defaultPrice: 639.0,
+    defaultChange: 7.1,
+    defaultChangePercent: 1.12,
+  },
+  {
+    symbol: "^GSPC",
+    querySymbol: "^GSPC",
+    name: "S&P 500",
+    category: "INDEX",
+    currency: "USD",
+    defaultPrice: 7811.54,
+    defaultChange: 46.18,
+    defaultChangePercent: 0.59,
+  },
+  {
+    symbol: "^IXIC",
+    querySymbol: "^IXIC",
+    name: "NASDAQ 総合",
+    category: "INDEX",
+    currency: "USD",
+    defaultPrice: 27366.17,
+    defaultChange: 172.83,
+    defaultChangePercent: 0.64,
+  },
+  {
+    symbol: "^DJI",
+    querySymbol: "^DJI",
+    name: "NYダウ平均",
+    category: "INDEX",
+    currency: "USD",
+    defaultPrice: 51654.95,
+    defaultChange: 423.31,
+    defaultChangePercent: 0.83,
+  },
+  {
+    symbol: "USDJPY=X",
+    querySymbol: "USDJPY=X",
+    name: "米ドル / 円",
+    category: "FX",
+    currency: "JPY",
+    defaultPrice: 158.25,
+    defaultChange: 0.45,
+    defaultChangePercent: 0.29,
+  },
+  {
+    symbol: "EURJPY=X",
+    querySymbol: "EURJPY=X",
+    name: "ユーロ / 円",
+    category: "FX",
+    currency: "JPY",
+    defaultPrice: 177.1,
+    defaultChange: 0.28,
+    defaultChangePercent: 0.16,
+  },
+  {
+    symbol: "EURUSD=X",
+    querySymbol: "EURUSD=X",
+    name: "ユーロ / ドル",
+    category: "FX",
+    currency: "USD",
+    defaultPrice: 1.1206,
+    defaultChange: -0.001,
+    defaultChangePercent: -0.09,
+  },
+  {
+    symbol: "CL=F",
+    querySymbol: "CL=F",
+    name: "WTI 原油先物",
+    category: "COMMODITY",
+    currency: "USD",
+    defaultPrice: 91.85,
+    defaultChange: 0.36,
+    defaultChangePercent: 0.39,
+  },
+  {
+    symbol: "GC=F",
+    querySymbol: "GC=F",
+    name: "金先物 (Gold)",
+    category: "COMMODITY",
+    currency: "USD",
+    defaultPrice: 4216.3,
+    defaultChange: 59.3,
+    defaultChangePercent: 1.43,
+  },
+  {
+    symbol: "^TNX",
+    querySymbol: "^TNX",
+    name: "米国10年債利回り",
+    category: "BOND",
+    currency: "%",
+    defaultPrice: 5.244,
+    defaultChange: 0.013,
+    defaultChangePercent: 0.25,
+  },
+  {
+    symbol: "BTC-USD",
+    querySymbol: "BTC-USD",
+    name: "ビットコイン (BTC)",
+    category: "CRYPTO",
+    currency: "USD",
+    defaultPrice: 82945.58,
+    defaultChange: 168.89,
+    defaultChangePercent: 0.2,
+  },
+  {
+    symbol: "ETH-USD",
+    querySymbol: "ETH-USD",
+    name: "イーサリアム (ETH)",
+    category: "CRYPTO",
+    currency: "USD",
+    defaultPrice: 2499.26,
+    defaultChange: 4.9,
+    defaultChangePercent: 0.2,
+  },
 ];
 
-export const SECTOR_SAMPLE_DEFINITIONS: Array<{ name: string; market: "TSE"; tickers: string[] }> = [
-  { name: "電気機器・半導体", market: "TSE", tickers: ["8035.T", "6857.T", "6758.T", "6861.T"] },
-  { name: "精密機器", market: "TSE", tickers: ["7735.T", "6146.T"] },
-  { name: "輸送用機器", market: "TSE", tickers: ["7203.T", "7267.T", "6902.T"] },
-  { name: "銀行業", market: "TSE", tickers: ["8306.T", "8316.T", "8411.T"] },
-  { name: "卸売業 (商社)", market: "TSE", tickers: ["8058.T", "8001.T", "8031.T"] },
-  { name: "情報・通信業", market: "TSE", tickers: ["9984.T", "9432.T", "9433.T"] },
-  { name: "医薬品", market: "TSE", tickers: ["4502.T", "4503.T", "4519.T"] },
-  { name: "化学・素材", market: "TSE", tickers: ["4063.T", "4188.T", "5401.T"] },
-  { name: "食料品・小売", market: "TSE", tickers: ["2914.T", "9983.T", "3382.T"] },
-  { name: "鉱業・エネルギー", market: "TSE", tickers: ["1605.T", "5020.T"] },
-];
+export const SECTOR_SAMPLE_DEFINITIONS: Array<{ name: string; market: "TSE"; tickers: string[] }> =
+  [
+    { name: "電気機器・半導体", market: "TSE", tickers: ["8035.T", "6857.T", "6758.T", "6861.T"] },
+    { name: "精密機器", market: "TSE", tickers: ["7735.T", "6146.T"] },
+    { name: "輸送用機器", market: "TSE", tickers: ["7203.T", "7267.T", "6902.T"] },
+    { name: "銀行業", market: "TSE", tickers: ["8306.T", "8316.T", "8411.T"] },
+    { name: "卸売業 (商社)", market: "TSE", tickers: ["8058.T", "8001.T", "8031.T"] },
+    { name: "情報・通信業", market: "TSE", tickers: ["9984.T", "9432.T", "9433.T"] },
+    { name: "医薬品", market: "TSE", tickers: ["4502.T", "4503.T", "4519.T"] },
+    { name: "化学・素材", market: "TSE", tickers: ["4063.T", "4188.T", "5401.T"] },
+    { name: "食料品・小売", market: "TSE", tickers: ["2914.T", "9983.T", "3382.T"] },
+    { name: "鉱業・エネルギー", market: "TSE", tickers: ["1605.T", "5020.T"] },
+  ];
 
 export let lastKnownMarketOverview: MarketOverviewData | null = null;
 export function resetLastKnownMarketOverview(): void {
@@ -1437,12 +1670,13 @@ export async function fetchLiveMarketOverview(
   prevOverview?: MarketOverviewData | null,
 ): Promise<MarketOverviewData> {
   const querySymbols = OVERVIEW_ASSET_DEFS.map((d) => d.querySymbol);
-  const sectorTickers = Array.from(
-    new Set(SECTOR_SAMPLE_DEFINITIONS.flatMap((s) => s.tickers)),
-  );
+  const sectorTickers = Array.from(new Set(SECTOR_SAMPLE_DEFINITIONS.flatMap((s) => s.tickers)));
   const allSymbolsToFetch = Array.from(new Set([...querySymbols, ...sectorTickers]));
 
-  const quotesMap = new Map<string, { price: number; change: number; changePercent: number; prevClose?: number }>();
+  const quotesMap = new Map<
+    string,
+    { price: number; change: number; changePercent: number; prevClose?: number }
+  >();
   const sparkMap = new Map<string, number[]>();
 
   // 1. Fetch sparklines for major overview assets
@@ -1471,7 +1705,9 @@ export async function fetchLiveMarketOverview(
       for (const item of sparkJson.spark?.result || []) {
         const rawCloses = item.response?.[0]?.indicators?.quote?.[0]?.close;
         if (Array.isArray(rawCloses)) {
-          const valid = rawCloses.filter((c): c is number => typeof c === "number" && Number.isFinite(c) && c > 0);
+          const valid = rawCloses.filter(
+            (c): c is number => typeof c === "number" && Number.isFinite(c) && c > 0,
+          );
           if (valid.length > 0) {
             sparkMap.set(item.symbol, valid);
           }
@@ -1510,8 +1746,15 @@ export async function fetchLiveMarketOverview(
         for (const q of qJson.quoteResponse?.result || []) {
           if (typeof q.regularMarketPrice === "number" && Number.isFinite(q.regularMarketPrice)) {
             const price = q.regularMarketPrice;
-            const change = typeof q.regularMarketChange === "number" && Number.isFinite(q.regularMarketChange) ? q.regularMarketChange : 0;
-            const changePercent = typeof q.regularMarketChangePercent === "number" && Number.isFinite(q.regularMarketChangePercent) ? q.regularMarketChangePercent : 0;
+            const change =
+              typeof q.regularMarketChange === "number" && Number.isFinite(q.regularMarketChange)
+                ? q.regularMarketChange
+                : 0;
+            const changePercent =
+              typeof q.regularMarketChangePercent === "number" &&
+              Number.isFinite(q.regularMarketChangePercent)
+                ? q.regularMarketChangePercent
+                : 0;
             quotesMap.set(q.symbol, {
               price,
               change,
@@ -1551,16 +1794,17 @@ export async function fetchLiveMarketOverview(
     const live = quotesMap.get(def.querySymbol);
     const prevQuote = prevOverview
       ? [
-        ...prevOverview.indices,
-        ...prevOverview.forex,
-        ...prevOverview.commodities,
-        ...prevOverview.crypto,
-      ].find((a) => a.symbol === def.symbol)
+          ...prevOverview.indices,
+          ...prevOverview.forex,
+          ...prevOverview.commodities,
+          ...prevOverview.crypto,
+        ].find((a) => a.symbol === def.symbol)
       : undefined;
 
     const price = live?.price ?? prevQuote?.price ?? def.defaultPrice;
     const change = live?.change ?? prevQuote?.change ?? def.defaultChange;
-    const changePercent = live?.changePercent ?? prevQuote?.changePercent ?? def.defaultChangePercent;
+    const changePercent =
+      live?.changePercent ?? prevQuote?.changePercent ?? def.defaultChangePercent;
     let spark = sparkMap.get(def.querySymbol) ?? prevQuote?.sparkline;
     if (!spark || spark.length === 0) {
       const prevClose = live?.prevClose ?? price - change;
@@ -1587,7 +1831,9 @@ export async function fetchLiveMarketOverview(
 
   const indices = OVERVIEW_ASSET_DEFS.filter((d) => d.category === "INDEX").map(buildAssetQuote);
   const forex = OVERVIEW_ASSET_DEFS.filter((d) => d.category === "FX").map(buildAssetQuote);
-  const commodities = OVERVIEW_ASSET_DEFS.filter((d) => d.category === "COMMODITY" || d.category === "BOND").map(buildAssetQuote);
+  const commodities = OVERVIEW_ASSET_DEFS.filter(
+    (d) => d.category === "COMMODITY" || d.category === "BOND",
+  ).map(buildAssetQuote);
   const crypto = OVERVIEW_ASSET_DEFS.filter((d) => d.category === "CRYPTO").map(buildAssetQuote);
 
   // 3. Compute Sectors and Breadth from real sampled quotes
@@ -1606,10 +1852,7 @@ export async function fetchLiveMarketOverview(
         else totalSampleUnchanged++;
       }
     }
-    const avgChange =
-      changes.length > 0
-        ? changes.reduce((a, b) => a + b, 0) / changes.length
-        : 0;
+    const avgChange = changes.length > 0 ? changes.reduce((a, b) => a + b, 0) / changes.length : 0;
     return {
       name: secDef.name,
       changePercent: Number(avgChange.toFixed(2)),
@@ -1768,11 +2011,7 @@ interface YahooQuoteSummaryResponse {
   };
 }
 
-
-
-export async function fetchLiveStockFundamentals(
-  ticker: string,
-): Promise<StockQuoteFundamentals> {
+export async function fetchLiveStockFundamentals(ticker: string): Promise<StockQuoteFundamentals> {
   const input = ticker.trim().toUpperCase();
   const matchedPreset =
     POPULAR_STOCKS.find((s) => s.ticker.toUpperCase() === input) ??
@@ -1847,16 +2086,16 @@ export async function fetchLiveStockFundamentals(
     const [summaryRes, chartRes] = await Promise.all([
       auth
         ? fetch(
-          `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(yahooSymbol)}?modules=financialData,defaultKeyStatistics,summaryDetail,earnings,price&crumb=${encodeURIComponent(auth.crumb)}`,
-          {
-            signal: AbortSignal.timeout(6000),
-            headers: {
-              "User-Agent":
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-              Cookie: auth.cookie,
+            `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(yahooSymbol)}?modules=financialData,defaultKeyStatistics,summaryDetail,earnings,price&crumb=${encodeURIComponent(auth.crumb)}`,
+            {
+              signal: AbortSignal.timeout(6000),
+              headers: {
+                "User-Agent":
+                  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                Cookie: auth.cookie,
+              },
             },
-          },
-        )
+          )
         : Promise.resolve(null),
       fetch(
         `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?interval=1d&range=1mo`,
@@ -1936,9 +2175,21 @@ export async function fetchLiveStockFundamentals(
           ? chartMeta.chartPreviousClose
           : Number((currentPrice - change).toFixed(2));
 
-    volume = priceObj.regularMarketVolume?.raw || detail.volume?.raw || chartMeta.regularMarketVolume || volume;
-    dayHigh = detail.dayHigh?.raw || priceObj.regularMarketDayHigh?.raw || chartMeta.regularMarketDayHigh || currentPrice;
-    dayLow = detail.dayLow?.raw || priceObj.regularMarketDayLow?.raw || chartMeta.regularMarketDayLow || currentPrice;
+    volume =
+      priceObj.regularMarketVolume?.raw ||
+      detail.volume?.raw ||
+      chartMeta.regularMarketVolume ||
+      volume;
+    dayHigh =
+      detail.dayHigh?.raw ||
+      priceObj.regularMarketDayHigh?.raw ||
+      chartMeta.regularMarketDayHigh ||
+      currentPrice;
+    dayLow =
+      detail.dayLow?.raw ||
+      priceObj.regularMarketDayLow?.raw ||
+      chartMeta.regularMarketDayLow ||
+      currentPrice;
     yearHigh = detail.fiftyTwoWeekHigh?.raw || chartMeta.fiftyTwoWeekHigh || currentPrice * 1.25;
     yearLow = detail.fiftyTwoWeekLow?.raw || chartMeta.fiftyTwoWeekLow || currentPrice * 0.75;
 
@@ -1956,8 +2207,13 @@ export async function fetchLiveStockFundamentals(
     if (typeof rawDiv === "number") {
       dividendYield = Number((rawDiv * 100).toFixed(2));
     }
-    dps = detail.dividendRate?.raw || stats.lastDividendValue?.raw || (dividendYield ? Number(((currentPrice * dividendYield) / 100).toFixed(1)) : null);
-    eps = stats.trailingEps?.raw || (per && currentPrice ? Number((currentPrice / per).toFixed(1)) : null);
+    dps =
+      detail.dividendRate?.raw ||
+      stats.lastDividendValue?.raw ||
+      (dividendYield ? Number(((currentPrice * dividendYield) / 100).toFixed(1)) : null);
+    eps =
+      stats.trailingEps?.raw ||
+      (per && currentPrice ? Number((currentPrice / per).toFixed(1)) : null);
     const rawRoe = fin.returnOnEquity?.raw;
     if (typeof rawRoe === "number") {
       roe = Number((rawRoe * 100).toFixed(1));
@@ -1994,7 +2250,9 @@ export async function fetchLiveStockFundamentals(
         const net = Math.round((y.earnings?.raw || 0) / (isUS ? 1_000_000 : 100_000_000));
         const opInc = Math.round(net * 1.3);
         const earningsRatio =
-          typeof baseEarningsRaw === "number" && baseEarningsRaw > 0 && typeof y.earnings?.raw === "number"
+          typeof baseEarningsRaw === "number" &&
+          baseEarningsRaw > 0 &&
+          typeof y.earnings?.raw === "number"
             ? y.earnings.raw / baseEarningsRaw
             : 1;
         const yEps = eps ? Math.round(eps * earningsRatio) : 0;
@@ -2077,7 +2335,9 @@ export async function fetchLiveScreenerUniverse(
         },
       });
       if (qRes.ok) {
-        const qData = (await qRes.json()) as { quoteResponse?: { result?: Array<Record<string, unknown>> } };
+        const qData = (await qRes.json()) as {
+          quoteResponse?: { result?: Array<Record<string, unknown>> };
+        };
         for (const q of qData.quoteResponse?.result || []) {
           if (typeof q.symbol === "string") {
             quotesMap.set(q.symbol, q);
@@ -2118,22 +2378,50 @@ export async function fetchLiveScreenerUniverse(
 
     let isDemo = false;
 
-    if (q && typeof q.regularMarketPrice === "number" && Number.isFinite(q.regularMarketPrice) && q.regularMarketPrice > 0) {
+    if (
+      q &&
+      typeof q.regularMarketPrice === "number" &&
+      Number.isFinite(q.regularMarketPrice) &&
+      q.regularMarketPrice > 0
+    ) {
       price = q.regularMarketPrice;
-      change = typeof q.regularMarketChange === "number" && Number.isFinite(q.regularMarketChange) ? q.regularMarketChange : 0;
-      changePct = typeof q.regularMarketChangePercent === "number" && Number.isFinite(q.regularMarketChangePercent)
-        ? Number(q.regularMarketChangePercent.toFixed(2))
-        : 0;
-      prevClose = typeof q.regularMarketPreviousClose === "number" && Number.isFinite(q.regularMarketPreviousClose)
-        ? q.regularMarketPreviousClose
-        : Number((price - change).toFixed(2));
-      volume = typeof q.regularMarketVolume === "number" && Number.isFinite(q.regularMarketVolume) ? q.regularMarketVolume : 1000000;
-      dayHigh = typeof q.regularMarketDayHigh === "number" && Number.isFinite(q.regularMarketDayHigh) ? q.regularMarketDayHigh : price;
-      dayLow = typeof q.regularMarketDayLow === "number" && Number.isFinite(q.regularMarketDayLow) ? q.regularMarketDayLow : price;
-      yearHigh = typeof q.fiftyTwoWeekHigh === "number" && Number.isFinite(q.fiftyTwoWeekHigh) ? q.fiftyTwoWeekHigh : price * 1.25;
-      yearLow = typeof q.fiftyTwoWeekLow === "number" && Number.isFinite(q.fiftyTwoWeekLow) ? q.fiftyTwoWeekLow : price * 0.75;
+      change =
+        typeof q.regularMarketChange === "number" && Number.isFinite(q.regularMarketChange)
+          ? q.regularMarketChange
+          : 0;
+      changePct =
+        typeof q.regularMarketChangePercent === "number" &&
+        Number.isFinite(q.regularMarketChangePercent)
+          ? Number(q.regularMarketChangePercent.toFixed(2))
+          : 0;
+      prevClose =
+        typeof q.regularMarketPreviousClose === "number" &&
+        Number.isFinite(q.regularMarketPreviousClose)
+          ? q.regularMarketPreviousClose
+          : Number((price - change).toFixed(2));
+      volume =
+        typeof q.regularMarketVolume === "number" && Number.isFinite(q.regularMarketVolume)
+          ? q.regularMarketVolume
+          : 1000000;
+      dayHigh =
+        typeof q.regularMarketDayHigh === "number" && Number.isFinite(q.regularMarketDayHigh)
+          ? q.regularMarketDayHigh
+          : price;
+      dayLow =
+        typeof q.regularMarketDayLow === "number" && Number.isFinite(q.regularMarketDayLow)
+          ? q.regularMarketDayLow
+          : price;
+      yearHigh =
+        typeof q.fiftyTwoWeekHigh === "number" && Number.isFinite(q.fiftyTwoWeekHigh)
+          ? q.fiftyTwoWeekHigh
+          : price * 1.25;
+      yearLow =
+        typeof q.fiftyTwoWeekLow === "number" && Number.isFinite(q.fiftyTwoWeekLow)
+          ? q.fiftyTwoWeekLow
+          : price * 0.75;
 
-      const rawCap = typeof q.marketCap === "number" && Number.isFinite(q.marketCap) ? q.marketCap : 0;
+      const rawCap =
+        typeof q.marketCap === "number" && Number.isFinite(q.marketCap) ? q.marketCap : 0;
       if (rawCap > 0) {
         marketCap = isUS ? Math.round(rawCap / 1_000_000) : Math.round(rawCap / 100_000_000);
       } else {
@@ -2142,13 +2430,21 @@ export async function fetchLiveScreenerUniverse(
 
       if (typeof q.trailingPE === "number" && Number.isFinite(q.trailingPE) && q.trailingPE > 0) {
         per = Number(q.trailingPE.toFixed(1));
-      } else if (typeof q.forwardPE === "number" && Number.isFinite(q.forwardPE) && q.forwardPE > 0) {
+      } else if (
+        typeof q.forwardPE === "number" &&
+        Number.isFinite(q.forwardPE) &&
+        q.forwardPE > 0
+      ) {
         per = Number(q.forwardPE.toFixed(1));
       } else {
         per = prev?.per ?? null;
       }
 
-      if (typeof q.priceToBook === "number" && Number.isFinite(q.priceToBook) && q.priceToBook > 0) {
+      if (
+        typeof q.priceToBook === "number" &&
+        Number.isFinite(q.priceToBook) &&
+        q.priceToBook > 0
+      ) {
         pbr = Number(q.priceToBook.toFixed(2));
       } else {
         pbr = prev?.pbr ?? null;
@@ -2156,7 +2452,10 @@ export async function fetchLiveScreenerUniverse(
 
       if (typeof q.dividendYield === "number" && Number.isFinite(q.dividendYield)) {
         dividendYield = Number(q.dividendYield.toFixed(2));
-      } else if (typeof q.trailingAnnualDividendYield === "number" && Number.isFinite(q.trailingAnnualDividendYield)) {
+      } else if (
+        typeof q.trailingAnnualDividendYield === "number" &&
+        Number.isFinite(q.trailingAnnualDividendYield)
+      ) {
         dividendYield = Number((q.trailingAnnualDividendYield * 100).toFixed(2));
       } else {
         dividendYield = prev?.dividendYield ?? null;
@@ -2164,7 +2463,10 @@ export async function fetchLiveScreenerUniverse(
 
       if (typeof q.dividendRate === "number" && Number.isFinite(q.dividendRate)) {
         dps = Number(q.dividendRate.toFixed(1));
-      } else if (typeof q.trailingAnnualDividendRate === "number" && Number.isFinite(q.trailingAnnualDividendRate)) {
+      } else if (
+        typeof q.trailingAnnualDividendRate === "number" &&
+        Number.isFinite(q.trailingAnnualDividendRate)
+      ) {
         dps = Number(q.trailingAnnualDividendRate.toFixed(1));
       } else if (dividendYield && dividendYield > 0) {
         dps = Number(((price * dividendYield) / 100).toFixed(1));
@@ -2172,7 +2474,10 @@ export async function fetchLiveScreenerUniverse(
         dps = prev?.dps ?? null;
       }
 
-      if (typeof q.epsTrailingTwelveMonths === "number" && Number.isFinite(q.epsTrailingTwelveMonths)) {
+      if (
+        typeof q.epsTrailingTwelveMonths === "number" &&
+        Number.isFinite(q.epsTrailingTwelveMonths)
+      ) {
         eps = Number(q.epsTrailingTwelveMonths.toFixed(1));
       } else if (per && per > 0) {
         eps = Number((price / per).toFixed(1));
@@ -2180,7 +2485,12 @@ export async function fetchLiveScreenerUniverse(
         eps = prev?.eps ?? null;
       }
 
-      if (typeof q.bookValue === "number" && Number.isFinite(q.bookValue) && q.bookValue > 0 && eps) {
+      if (
+        typeof q.bookValue === "number" &&
+        Number.isFinite(q.bookValue) &&
+        q.bookValue > 0 &&
+        eps
+      ) {
         roe = Number(((eps / q.bookValue) * 100).toFixed(1));
       } else {
         roe = prev?.roe ?? (per && pbr ? Number(((pbr / per) * 100).toFixed(1)) : null);
@@ -2316,49 +2626,81 @@ export async function fetchLiveScreenerUniverse(
 // 日銀金融政策決定会合 (BOJ) スケジュール公定マスター (2024 - 2027)
 const BOJ_MEETING_SCHEDULE: ReadonlyArray<{ year: number; month: number; day: number }> = [
   // 2024
-  { year: 2024, month: 1, day: 23 }, { year: 2024, month: 3, day: 19 },
-  { year: 2024, month: 4, day: 26 }, { year: 2024, month: 6, day: 14 },
-  { year: 2024, month: 7, day: 31 }, { year: 2024, month: 9, day: 20 },
-  { year: 2024, month: 10, day: 31 }, { year: 2024, month: 12, day: 19 },
+  { year: 2024, month: 1, day: 23 },
+  { year: 2024, month: 3, day: 19 },
+  { year: 2024, month: 4, day: 26 },
+  { year: 2024, month: 6, day: 14 },
+  { year: 2024, month: 7, day: 31 },
+  { year: 2024, month: 9, day: 20 },
+  { year: 2024, month: 10, day: 31 },
+  { year: 2024, month: 12, day: 19 },
   // 2025
-  { year: 2025, month: 1, day: 24 }, { year: 2025, month: 3, day: 19 },
-  { year: 2025, month: 5, day: 1 }, { year: 2025, month: 6, day: 13 },
-  { year: 2025, month: 7, day: 31 }, { year: 2025, month: 9, day: 19 },
-  { year: 2025, month: 10, day: 30 }, { year: 2025, month: 12, day: 19 },
+  { year: 2025, month: 1, day: 24 },
+  { year: 2025, month: 3, day: 19 },
+  { year: 2025, month: 5, day: 1 },
+  { year: 2025, month: 6, day: 13 },
+  { year: 2025, month: 7, day: 31 },
+  { year: 2025, month: 9, day: 19 },
+  { year: 2025, month: 10, day: 30 },
+  { year: 2025, month: 12, day: 19 },
   // 2026
-  { year: 2026, month: 1, day: 23 }, { year: 2026, month: 3, day: 19 },
-  { year: 2026, month: 4, day: 28 }, { year: 2026, month: 6, day: 16 },
-  { year: 2026, month: 7, day: 31 }, { year: 2026, month: 9, day: 18 },
-  { year: 2026, month: 10, day: 30 }, { year: 2026, month: 12, day: 18 },
+  { year: 2026, month: 1, day: 23 },
+  { year: 2026, month: 3, day: 19 },
+  { year: 2026, month: 4, day: 28 },
+  { year: 2026, month: 6, day: 16 },
+  { year: 2026, month: 7, day: 31 },
+  { year: 2026, month: 9, day: 18 },
+  { year: 2026, month: 10, day: 30 },
+  { year: 2026, month: 12, day: 18 },
   // 2027
-  { year: 2027, month: 1, day: 22 }, { year: 2027, month: 3, day: 19 },
-  { year: 2027, month: 4, day: 28 }, { year: 2027, month: 6, day: 16 },
-  { year: 2027, month: 7, day: 30 }, { year: 2027, month: 9, day: 22 },
-  { year: 2027, month: 10, day: 29 }, { year: 2027, month: 12, day: 17 },
+  { year: 2027, month: 1, day: 22 },
+  { year: 2027, month: 3, day: 19 },
+  { year: 2027, month: 4, day: 28 },
+  { year: 2027, month: 6, day: 16 },
+  { year: 2027, month: 7, day: 30 },
+  { year: 2027, month: 9, day: 22 },
+  { year: 2027, month: 10, day: 29 },
+  { year: 2027, month: 12, day: 17 },
 ];
 
 // 米FOMC スケジュール公定マスター (2024 - 2027)
 const FOMC_MEETING_SCHEDULE: ReadonlyArray<{ year: number; month: number; day: number }> = [
   // 2024
-  { year: 2024, month: 1, day: 31 }, { year: 2024, month: 3, day: 20 },
-  { year: 2024, month: 5, day: 1 }, { year: 2024, month: 6, day: 12 },
-  { year: 2024, month: 7, day: 31 }, { year: 2024, month: 9, day: 18 },
-  { year: 2024, month: 11, day: 7 }, { year: 2024, month: 12, day: 18 },
+  { year: 2024, month: 1, day: 31 },
+  { year: 2024, month: 3, day: 20 },
+  { year: 2024, month: 5, day: 1 },
+  { year: 2024, month: 6, day: 12 },
+  { year: 2024, month: 7, day: 31 },
+  { year: 2024, month: 9, day: 18 },
+  { year: 2024, month: 11, day: 7 },
+  { year: 2024, month: 12, day: 18 },
   // 2025
-  { year: 2025, month: 1, day: 29 }, { year: 2025, month: 3, day: 19 },
-  { year: 2025, month: 5, day: 7 }, { year: 2025, month: 6, day: 18 },
-  { year: 2025, month: 7, day: 30 }, { year: 2025, month: 9, day: 17 },
-  { year: 2025, month: 10, day: 29 }, { year: 2025, month: 12, day: 10 },
+  { year: 2025, month: 1, day: 29 },
+  { year: 2025, month: 3, day: 19 },
+  { year: 2025, month: 5, day: 7 },
+  { year: 2025, month: 6, day: 18 },
+  { year: 2025, month: 7, day: 30 },
+  { year: 2025, month: 9, day: 17 },
+  { year: 2025, month: 10, day: 29 },
+  { year: 2025, month: 12, day: 10 },
   // 2026
-  { year: 2026, month: 1, day: 28 }, { year: 2026, month: 3, day: 18 },
-  { year: 2026, month: 5, day: 6 }, { year: 2026, month: 6, day: 17 },
-  { year: 2026, month: 7, day: 29 }, { year: 2026, month: 9, day: 16 },
-  { year: 2026, month: 11, day: 4 }, { year: 2026, month: 12, day: 16 },
+  { year: 2026, month: 1, day: 28 },
+  { year: 2026, month: 3, day: 18 },
+  { year: 2026, month: 5, day: 6 },
+  { year: 2026, month: 6, day: 17 },
+  { year: 2026, month: 7, day: 29 },
+  { year: 2026, month: 9, day: 16 },
+  { year: 2026, month: 11, day: 4 },
+  { year: 2026, month: 12, day: 16 },
   // 2027
-  { year: 2027, month: 1, day: 27 }, { year: 2027, month: 3, day: 17 },
-  { year: 2027, month: 5, day: 5 }, { year: 2027, month: 6, day: 16 },
-  { year: 2027, month: 7, day: 28 }, { year: 2027, month: 9, day: 22 },
-  { year: 2027, month: 11, day: 3 }, { year: 2027, month: 12, day: 15 },
+  { year: 2027, month: 1, day: 27 },
+  { year: 2027, month: 3, day: 17 },
+  { year: 2027, month: 5, day: 5 },
+  { year: 2027, month: 6, day: 16 },
+  { year: 2027, month: 7, day: 28 },
+  { year: 2027, month: 9, day: 22 },
+  { year: 2027, month: 11, day: 3 },
+  { year: 2027, month: 12, day: 15 },
 ];
 
 function adjustToWeekday(d: Date): Date {
@@ -2425,7 +2767,10 @@ function generateUpcomingMacroEvents(refDate = new Date()): CalendarEvent[] {
     const dayOfWeek = firstDay.getDay();
     const diff = (5 - dayOfWeek + 7) % 7;
     const friday = new Date(y, m, 1 + diff);
-    if (friday.getTime() >= refTime && events.filter((e) => e.id.startsWith("macro-jobs")).length < 2) {
+    if (
+      friday.getTime() >= refTime &&
+      events.filter((e) => e.id.startsWith("macro-jobs")).length < 2
+    ) {
       events.push({
         id: `macro-jobs-${y}-${mStr(m + 1)}`,
         date: fmt(friday),
@@ -2445,7 +2790,10 @@ function generateUpcomingMacroEvents(refDate = new Date()): CalendarEvent[] {
     const y = targetMonth.getFullYear();
     const m = targetMonth.getMonth();
     const cpiDate = adjustToWeekday(new Date(y, m, 12));
-    if (cpiDate.getTime() >= refTime && events.filter((e) => e.id.startsWith("macro-cpi")).length < 2) {
+    if (
+      cpiDate.getTime() >= refTime &&
+      events.filter((e) => e.id.startsWith("macro-cpi")).length < 2
+    ) {
       events.push({
         id: `macro-cpi-${y}-${mStr(m + 1)}`,
         date: fmt(cpiDate),
@@ -2493,14 +2841,78 @@ function generateFallbackEarningsEvents(
   };
 
   const corporateList = [
-    { id: "earn-toyota", ticker: "7203", companyName: "トヨタ自動車", title: "トヨタ自動車 (7203) 決算発表", defaultCap: 345000, importance: "HIGH" as const, days: 2 },
-    { id: "earn-shinetsu", ticker: "4063", companyName: "信越化学工業", title: "信越化学工業 (4063) 決算発表", defaultCap: 115000, importance: "HIGH" as const, days: 5 },
-    { id: "earn-fanuc", ticker: "6954", companyName: "ファナック", title: "ファナック (6954) 決算発表", defaultCap: 41000, importance: "MEDIUM" as const, days: 7 },
-    { id: "earn-advantest", ticker: "6857", companyName: "アドバンテスト", title: "アドバンテスト (6857) 決算発表", defaultCap: 300000, importance: "HIGH" as const, days: 10 },
-    { id: "earn-aapl", ticker: "AAPL", companyName: "Apple Inc.", title: "Apple (AAPL) 決算発表", defaultCap: 4900000, importance: "HIGH" as const, days: 13 },
-    { id: "earn-sbg", ticker: "9984", companyName: "ソフトバンクグループ", title: "ソフトバンクグループ (9984) 決算発表", defaultCap: 135000, importance: "HIGH" as const, days: 16 },
-    { id: "earn-tel", ticker: "8035", companyName: "東京エレクトロン", title: "東京エレクトロン (8035) 決算発表", defaultCap: 290000, importance: "HIGH" as const, days: 19 },
-    { id: "earn-nvda", ticker: "NVDA", companyName: "NVIDIA Corporation", title: "NVIDIA (NVDA) 決算発表", defaultCap: 5500000, importance: "HIGH" as const, days: 23 },
+    {
+      id: "earn-toyota",
+      ticker: "7203",
+      companyName: "トヨタ自動車",
+      title: "トヨタ自動車 (7203) 決算発表",
+      defaultCap: 345000,
+      importance: "HIGH" as const,
+      days: 2,
+    },
+    {
+      id: "earn-shinetsu",
+      ticker: "4063",
+      companyName: "信越化学工業",
+      title: "信越化学工業 (4063) 決算発表",
+      defaultCap: 115000,
+      importance: "HIGH" as const,
+      days: 5,
+    },
+    {
+      id: "earn-fanuc",
+      ticker: "6954",
+      companyName: "ファナック",
+      title: "ファナック (6954) 決算発表",
+      defaultCap: 41000,
+      importance: "MEDIUM" as const,
+      days: 7,
+    },
+    {
+      id: "earn-advantest",
+      ticker: "6857",
+      companyName: "アドバンテスト",
+      title: "アドバンテスト (6857) 決算発表",
+      defaultCap: 300000,
+      importance: "HIGH" as const,
+      days: 10,
+    },
+    {
+      id: "earn-aapl",
+      ticker: "AAPL",
+      companyName: "Apple Inc.",
+      title: "Apple (AAPL) 決算発表",
+      defaultCap: 4900000,
+      importance: "HIGH" as const,
+      days: 13,
+    },
+    {
+      id: "earn-sbg",
+      ticker: "9984",
+      companyName: "ソフトバンクグループ",
+      title: "ソフトバンクグループ (9984) 決算発表",
+      defaultCap: 135000,
+      importance: "HIGH" as const,
+      days: 16,
+    },
+    {
+      id: "earn-tel",
+      ticker: "8035",
+      companyName: "東京エレクトロン",
+      title: "東京エレクトロン (8035) 決算発表",
+      defaultCap: 290000,
+      importance: "HIGH" as const,
+      days: 19,
+    },
+    {
+      id: "earn-nvda",
+      ticker: "NVDA",
+      companyName: "NVIDIA Corporation",
+      title: "NVIDIA (NVDA) 決算発表",
+      defaultCap: 5500000,
+      importance: "HIGH" as const,
+      days: 23,
+    },
   ];
 
   return corporateList.map((corp) => {
@@ -2584,7 +2996,20 @@ export async function fetchLiveMarketCalendarAsync(
 
   const liveEarnings: CalendarEvent[] = [];
   const tickersToQuery = [
-    "7203", "6758", "6857", "8035", "9984", "4063", "6954", "9983", "8306", "7974", "AAPL", "NVDA", "MSFT", "AMZN",
+    "7203",
+    "6758",
+    "6857",
+    "8035",
+    "9984",
+    "4063",
+    "6954",
+    "9983",
+    "8306",
+    "7974",
+    "AAPL",
+    "NVDA",
+    "MSFT",
+    "AMZN",
   ];
 
   try {
@@ -2713,11 +3138,7 @@ export async function fetchLiveMarketCalendarAsync(
 export function isAllowedOrigin(origin: string): boolean {
   try {
     const url = new URL(origin);
-    return (
-      url.hostname === "localhost" ||
-      url.hostname === "127.0.0.1" ||
-      url.hostname === "[::1]"
-    );
+    return url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname === "[::1]";
   } catch {
     return false;
   }
@@ -2746,8 +3167,13 @@ export function json(
       headers["access-control-allow-headers"] =
         "content-type,x-owner-token,x-admin-key,x-auth-password,authorization,cache-control,if-none-match";
       headers["access-control-expose-headers"] = "etag, x-data-stale, x-cache";
-      headers["vary"] = "Origin";
     }
+    // The CORS headers above are selected by the request Origin, so the
+    // response must always declare Vary: Origin (RFC 9110 §12.5.5). Emitting
+    // it only for allowed origins let a shared cache store a response without
+    // CORS headers (or with headers for a different origin) and reuse it for a
+    // later cross-origin request.
+    headers["vary"] = "Origin";
 
     const pathname = new URL(request.url).pathname;
     const isMutation =
@@ -2784,8 +3210,10 @@ export function notModified(request?: Request, customHeaders?: Record<string, st
       headers["access-control-allow-headers"] =
         "content-type,x-owner-token,x-admin-key,x-auth-password,authorization,cache-control,if-none-match";
       headers["access-control-expose-headers"] = "etag, x-data-stale, x-cache";
-      headers["vary"] = "Origin";
     }
+    // See json(): Vary must be declared whenever CORS headers are selected by
+    // the Origin header, even when this particular request is not allowed.
+    headers["vary"] = "Origin";
   }
   return new Response(null, {
     status: 304,
@@ -2846,7 +3274,10 @@ export function getClientIp(request: Request): string {
   if (forwardedHeader) {
     // Trusted-proxy-chain interpretation: the right-most hop is the one added
     // by the infrastructure we control; the left-most is client-controlled.
-    const hops = forwardedHeader.split(",").map((h) => h.trim()).filter(Boolean);
+    const hops = forwardedHeader
+      .split(",")
+      .map((h) => h.trim())
+      .filter(Boolean);
     if (hops.length > 0) return hops[hops.length - 1];
   }
   return "unknown";
@@ -2920,6 +3351,10 @@ export const HIGH_FREQUENCY_RATE_LIMIT_ENDPOINTS = new Set([
   "stock-fundamentals",
   "stocks-screener",
   "market-calendar",
+  // The index list is the only read endpoint the UI refetches after every
+  // mutation; an unauthenticated client could otherwise loop it without any
+  // per-IP limit (each request costs JSON.stringify + SHA-256 for the ETag).
+  "indices-list",
 ]);
 
 export interface MemoryRateLimitRecord {
@@ -2987,7 +3422,7 @@ export async function checkRateLimit(
       const purgePromise = env.DB.prepare("DELETE FROM rate_limits WHERE window_start < ?")
         .bind(now - 3600)
         .run()
-        .catch(() => { });
+        .catch(() => {});
       if (ctx && typeof ctx.waitUntil === "function") {
         ctx.waitUntil(purgePromise);
       }
@@ -3267,80 +3702,52 @@ export default {
             // Reject overlong names symmetrically with the create endpoint
             // (which 400s above 100 chars) instead of silently truncating.
             if (name.trim().length > 100) {
-              return json({ error: "ユーザー名/ラベルは1〜100文字で入力してください" }, 400, request);
+              return json(
+                { error: "ユーザー名/ラベルは1〜100文字で入力してください" },
+                400,
+                request,
+              );
             }
             updates.push("name = ?");
             params.push(name.trim());
           }
-          // Collision prevention when promoting or maintaining admin role
-          if (role === "admin" && (!password || typeof password !== "string" || password.trim().length === 0)) {
+          // Collision prevention when promoting to admin without a new password.
+          // Stored hashes are salted PBKDF2, so two accounts sharing a password
+          // never have equal hash strings; the previous hash-string comparisons
+          // could not detect a collision for any account created through this
+          // API (or upgraded on login). Since uniqueness cannot be verified
+          // without the plaintext, a promotion must supply a new password so
+          // findPasswordCollision() can enforce the invariant.
+          if (
+            role === "admin" &&
+            (!password || typeof password !== "string" || password.trim().length === 0)
+          ) {
+            let existingRow: { role?: string; password_hash?: string } | undefined;
             try {
               const { results: existingRows } = await env.DB.prepare(
                 "SELECT role, password_hash FROM access_passwords WHERE id = ?",
               )
                 .bind(id)
                 .all();
-              const existingRow = existingRows?.[0] as { role?: string; password_hash?: string } | undefined;
-              if (existingRow && existingRow.role !== "admin" && existingRow.password_hash) {
-                // Check if existing password_hash collides with master admin
-                let masterHash: string | undefined;
-                try {
-                  const masterRes = await env.DB.prepare(
-                    "SELECT password_hash FROM access_passwords WHERE id = 'admin-master'",
-                  ).all();
-                  masterHash = (masterRes.results?.[0] as { password_hash?: string } | undefined)?.password_hash;
-                } catch {
-                  // ignore
-                }
-                if (masterHash && existingRow.password_hash === masterHash) {
-                  return json(
-                    { error: "管理者アカウントと同一のパスワードは設定できません" },
-                    400,
-                    request,
-                  );
-                }
-                if (env.ADMIN_PASSWORD) {
-                  const trimmed = env.ADMIN_PASSWORD.trim();
-                  if (
-                    trimmed &&
-                    (existingRow.password_hash === (await hashToken(trimmed)) ||
-                      (await verifyPasswordHash(trimmed, existingRow.password_hash)))
-                  ) {
-                    return json(
-                      { error: "管理者アカウントと同一のパスワードは設定できません" },
-                      400,
-                      request,
-                    );
-                  }
-                }
-
-                // Check if existing password_hash collides with any other account in access_passwords
-                const otherRowsRes = await env.DB.prepare(
-                  "SELECT id, role, password_hash FROM access_passwords WHERE id != 'admin-master'",
-                ).all();
-                const otherRows = (
-                  (otherRowsRes.results || []) as Array<{
-                    id: string;
-                    role?: string;
-                    password_hash?: string;
-                  }>
-                ).filter((r) => r.id !== id);
-                const hasDuplicate = otherRows.some(
-                  (r) => r.password_hash === existingRow.password_hash,
-                );
-                if (hasDuplicate) {
-                  return json(
-                    {
-                      error:
-                        "既存のアカウントと同一のパスワードが設定されているため管理者に昇格できません。新しいパスワードを指定してください",
-                    },
-                    400,
-                    request,
-                  );
-                }
-              }
+              existingRow = existingRows?.[0] as
+                { role?: string; password_hash?: string } | undefined;
             } catch {
-              // Backward-compatible fallback
+              // Fail closed: without the current role we cannot tell a promotion
+              // (which must be guarded) from a rename of an existing admin.
+              return json(
+                { error: "アカウント情報を確認できないため、しばらくしてから再試行してください" },
+                503,
+                request,
+              );
+            }
+            if (existingRow && existingRow.role !== "admin") {
+              return json(
+                {
+                  error: "一般ユーザーから管理者へ昇格する場合は新しいパスワードを指定してください",
+                },
+                400,
+                request,
+              );
             }
           }
 
@@ -3388,7 +3795,12 @@ export default {
             }
           }
           if (maxIndices !== undefined) {
-            if (maxIndices === null || maxIndices === 0 || maxIndices === "" || maxIndices === "0") {
+            if (
+              maxIndices === null ||
+              maxIndices === 0 ||
+              maxIndices === "" ||
+              maxIndices === "0"
+            ) {
               updates.push("max_indices = NULL");
             } else {
               const num = Number(maxIndices);
@@ -3420,10 +3832,12 @@ export default {
 
           params.push(id);
           const updateQuery = `UPDATE access_passwords SET ${updates.join(", ")} WHERE id = ?`;
+          let updatedChanges: number | undefined;
           try {
-            await env.DB.prepare(updateQuery)
+            const updateResult = await env.DB.prepare(updateQuery)
               .bind(...params)
               .run();
+            updatedChanges = (updateResult as { meta?: { changes?: number } }).meta?.changes;
           } catch (updateErr: unknown) {
             if (!includesMaxIndicesUpdate || !isMissingColumnError(updateErr, "max_indices")) {
               throw updateErr;
@@ -3442,9 +3856,16 @@ export default {
             }
             const legacyUpdates = updates.filter((update) => update !== "max_indices = NULL");
             const legacyQuery = `UPDATE access_passwords SET ${legacyUpdates.join(", ")} WHERE id = ?`;
-            await env.DB.prepare(legacyQuery)
+            const legacyResult = await env.DB.prepare(legacyQuery)
               .bind(...params)
               .run();
+            updatedChanges = (legacyResult as { meta?: { changes?: number } }).meta?.changes;
+          }
+          if (updatedChanges === 0) {
+            // The UPDATE matched no row: report the missing account instead of
+            // returning success for a no-op (the admin UI closed the modal and
+            // toasted success even though nothing changed).
+            return json({ error: "指定されたIDのアカウントが見つかりません" }, 404, request);
           }
           clearAuthCache();
 
@@ -3470,14 +3891,24 @@ export default {
             return json({ error: "マスター管理者パスワードは削除できません" }, 403, request);
           }
           await ensurePasswordTable(env);
+          let deleteChanges: number | undefined;
           try {
-            await env.DB.batch([
+            const batchResults = await env.DB.batch([
               env.DB.prepare("UPDATE indices SET creator_id = NULL WHERE creator_id = ?").bind(id),
               env.DB.prepare("DELETE FROM access_passwords WHERE id = ?").bind(id),
             ]);
+            deleteChanges = (
+              batchResults as Array<{ meta?: { changes?: number } }> | undefined
+            )?.[1]?.meta?.changes;
           } catch (deleteBatchErr: unknown) {
             if (!isMissingColumnError(deleteBatchErr, "creator_id")) throw deleteBatchErr;
-            await env.DB.prepare("DELETE FROM access_passwords WHERE id = ?").bind(id).run();
+            const legacyDelete = await env.DB.prepare("DELETE FROM access_passwords WHERE id = ?")
+              .bind(id)
+              .run();
+            deleteChanges = (legacyDelete as { meta?: { changes?: number } }).meta?.changes;
+          }
+          if (deleteChanges === 0) {
+            return json({ error: "指定されたIDのアカウントが見つかりません" }, 404, request);
           }
           clearAuthCache();
           return json({ ok: true }, 200, request);
@@ -3505,7 +3936,9 @@ export default {
           const collision = await findPasswordCollision(env, newPassword, "admin-master");
           if (collision.hasCollision) {
             return json(
-              { error: "既存のユーザーアカウントで使用されているパスワードは管理者に設定できません" },
+              {
+                error: "既存のユーザーアカウントで使用されているパスワードは管理者に設定できません",
+              },
               400,
               request,
             );
@@ -3530,7 +3963,14 @@ export default {
       if (url.pathname === "/api/indices/stock" && request.method === "POST") {
         try {
           const ip = getClientIp(request);
-          const allowed = await checkRateLimit(env, ip, "indices-stock", RATE_LIMIT_MAX, false, ctx);
+          const allowed = await checkRateLimit(
+            env,
+            ip,
+            "indices-stock",
+            RATE_LIMIT_MAX,
+            false,
+            ctx,
+          );
           if (!allowed) {
             return json({ error: "Rate limit exceeded. Please try again later." }, 429, request);
           }
@@ -3725,10 +4165,10 @@ export default {
                   auth.id === existingCreatorId
                     ? { max_stocks: auth.maxStocks }
                     : ((
-                      await env.DB.prepare("SELECT max_stocks FROM access_passwords WHERE id = ?")
-                        .bind(existingCreatorId)
-                        .all()
-                    ).results?.[0] as { max_stocks?: unknown } | undefined);
+                        await env.DB.prepare("SELECT max_stocks FROM access_passwords WHERE id = ?")
+                          .bind(existingCreatorId)
+                          .all()
+                      ).results?.[0] as { max_stocks?: unknown } | undefined);
                 if (!creatorRow) {
                   return json(
                     { error: "作成者の銘柄数上限を確認できないため、後で再試行してください" },
@@ -3856,7 +4296,14 @@ export default {
       if (url.pathname === "/api/indices/stock" && request.method === "DELETE") {
         try {
           const ip = getClientIp(request);
-          const allowed = await checkRateLimit(env, ip, "indices-stock", RATE_LIMIT_MAX, false, ctx);
+          const allowed = await checkRateLimit(
+            env,
+            ip,
+            "indices-stock",
+            RATE_LIMIT_MAX,
+            false,
+            ctx,
+          );
           if (!allowed) {
             return json({ error: "Rate limit exceeded. Please try again later." }, 429, request);
           }
@@ -3976,22 +4423,26 @@ export default {
             .run();
           const deletedChanges = (deleteResult as { meta?: { changes?: number } }).meta?.changes;
           if (deletedChanges === 0) {
-            // Distinguish the invariant violation from a missing ticker after
-            // the atomic DELETE has already ruled out the race condition.
-            const { results: countRes } = await env.DB.prepare(
-              "SELECT COUNT(*) as cnt FROM basket_items WHERE index_id = ?",
+            // Distinguish a missing ticker from the minimum-one-constituent
+            // invariant. Checking the invariant first misreported "the index
+            // must keep one constituent" when the ticker was simply absent on
+            // a single-constituent index.
+            const { results: targetRes } = await env.DB.prepare(
+              "SELECT COUNT(*) as cnt FROM basket_items WHERE index_id = ? AND UPPER(ticker) = ?",
             )
-              .bind(indexId)
+              .bind(indexId, ticker)
               .all();
-            const count = Number((countRes?.[0] as { cnt?: unknown } | undefined)?.cnt);
-            if (Number.isFinite(count) && count <= 1) {
-              return json(
-                { error: "構成銘柄が1件のみのため削除できません（指数には最低1銘柄必要です）" },
-                400,
-                request,
-              );
+            const targetCount = Number((targetRes?.[0] as { cnt?: unknown } | undefined)?.cnt);
+            if (!Number.isFinite(targetCount) || targetCount <= 0) {
+              return json({ error: "指定された銘柄が見つかりません" }, 404, request);
             }
-            return json({ error: "指定された銘柄が見つかりません" }, 404, request);
+            // The ticker exists and the guarded DELETE still matched nothing:
+            // the atomic guard blocked removing the final constituent.
+            return json(
+              { error: "構成銘柄が1件のみのため削除できません(指数には最低1銘柄必要です)" },
+              400,
+              request,
+            );
           }
 
           clearMemoryCache("api:indices");
@@ -4218,13 +4669,9 @@ export default {
           }
 
           const freshMemTtl =
-            symbol === "^N225"
-              ? Math.max(60, Math.min(getMarketAwareCacheDuration(), 300))
-              : 60;
+            symbol === "^N225" ? Math.max(60, Math.min(getMarketAwareCacheDuration(), 300)) : 60;
           const freshSMaxAge =
-            symbol === "^N225"
-              ? Math.max(300, Math.min(getMarketAwareCacheDuration(), 1800))
-              : 300;
+            symbol === "^N225" ? Math.max(300, Math.min(getMarketAwareCacheDuration(), 1800)) : 300;
           setMemoryCache(memKey, responseData, freshMemTtl);
           const freshEtag = await generateETag(JSON.stringify(responseData));
           if (matchesIfNoneMatch(request.headers.get("if-none-match"), freshEtag)) {
@@ -4247,7 +4694,14 @@ export default {
       if (url.pathname === "/api/ticker-prices" && request.method === "GET") {
         try {
           const ip = getClientIp(request);
-          const allowed = await checkRateLimit(env, ip, "ticker-prices", RATE_LIMIT_MAX, false, ctx);
+          const allowed = await checkRateLimit(
+            env,
+            ip,
+            "ticker-prices",
+            RATE_LIMIT_MAX,
+            false,
+            ctx,
+          );
           if (!allowed) {
             return json({ error: "Rate limit exceeded. Please try again later." }, 429, request);
           }
@@ -4320,7 +4774,14 @@ export default {
       if (url.pathname === "/api/market/overview" && request.method === "GET") {
         try {
           const ip = getClientIp(request);
-          const allowed = await checkRateLimit(env, ip, "market-overview", RATE_LIMIT_MAX, false, ctx);
+          const allowed = await checkRateLimit(
+            env,
+            ip,
+            "market-overview",
+            RATE_LIMIT_MAX,
+            false,
+            ctx,
+          );
           if (!allowed) {
             return json({ error: "Rate limit exceeded. Please try again later." }, 429, request);
           }
@@ -4383,7 +4844,14 @@ export default {
           }
 
           const ip = getClientIp(request);
-          const allowed = await checkRateLimit(env, ip, "stock-fundamentals", RATE_LIMIT_MAX, false, ctx);
+          const allowed = await checkRateLimit(
+            env,
+            ip,
+            "stock-fundamentals",
+            RATE_LIMIT_MAX,
+            false,
+            ctx,
+          );
           if (!allowed) {
             return json({ error: "Rate limit exceeded. Please try again later." }, 429, request);
           }
@@ -4434,7 +4902,14 @@ export default {
       if (url.pathname === "/api/stocks/screener" && request.method === "GET") {
         try {
           const ip = getClientIp(request);
-          const allowed = await checkRateLimit(env, ip, "stocks-screener", RATE_LIMIT_MAX, false, ctx);
+          const allowed = await checkRateLimit(
+            env,
+            ip,
+            "stocks-screener",
+            RATE_LIMIT_MAX,
+            false,
+            ctx,
+          );
           if (!allowed) {
             return json({ error: "Rate limit exceeded. Please try again later." }, 429, request);
           }
@@ -4487,7 +4962,14 @@ export default {
       if (url.pathname === "/api/market/calendar" && request.method === "GET") {
         try {
           const ip = getClientIp(request);
-          const allowed = await checkRateLimit(env, ip, "market-calendar", RATE_LIMIT_MAX, false, ctx);
+          const allowed = await checkRateLimit(
+            env,
+            ip,
+            "market-calendar",
+            RATE_LIMIT_MAX,
+            false,
+            ctx,
+          );
           if (!allowed) {
             return json({ error: "Rate limit exceeded. Please try again later." }, 429, request);
           }
@@ -4525,7 +5007,9 @@ export default {
             events = await fetchLiveMarketCalendarAsync(lastKnownScreenerUniverse ?? undefined);
           } catch (liveErr) {
             console.warn("fetchLiveMarketCalendarAsync failed, falling back:", liveErr);
-            events = lastKnownCalendarEvents || fetchLiveMarketCalendar(lastKnownScreenerUniverse ?? undefined);
+            events =
+              lastKnownCalendarEvents ||
+              fetchLiveMarketCalendar(lastKnownScreenerUniverse ?? undefined);
           }
 
           const isAllFallback = events.every((e) => e.source === "fallback");
@@ -4554,6 +5038,11 @@ export default {
       // 登録されている指数一覧の取得 (D1から取得、sort_order使用、インメモリ&HTTPキャッシュ付き)
       if (url.pathname === "/api/indices" && request.method === "GET") {
         try {
+          const ip = getClientIp(request);
+          if (!(await checkRateLimit(env, ip, "indices-list", RATE_LIMIT_MAX, false, ctx))) {
+            return json({ error: "Rate limit exceeded. Please try again later." }, 429, request);
+          }
+
           const cachedIndices = getMemoryCache<unknown>("api:indices");
           if (cachedIndices) {
             const etag = await generateETag(JSON.stringify(cachedIndices));
@@ -4923,10 +5412,10 @@ export default {
                 auth.id === existingCreatorId
                   ? { max_stocks: auth.maxStocks }
                   : ((
-                    await env.DB.prepare("SELECT max_stocks FROM access_passwords WHERE id = ?")
-                      .bind(existingCreatorId)
-                      .all()
-                  ).results?.[0] as { max_stocks?: unknown } | undefined);
+                      await env.DB.prepare("SELECT max_stocks FROM access_passwords WHERE id = ?")
+                        .bind(existingCreatorId)
+                        .all()
+                    ).results?.[0] as { max_stocks?: unknown } | undefined);
               if (!creatorRow) {
                 return json(
                   { error: "作成者の銘柄数上限を確認できないため、後で再試行してください" },
@@ -4970,9 +5459,9 @@ export default {
           const isUserCreatingIndex = !isExisting && auth.authenticated && auth.role === "user";
           const userIndexLimit =
             isUserCreatingIndex &&
-              typeof auth.maxIndices === "number" &&
-              Number.isSafeInteger(auth.maxIndices) &&
-              auth.maxIndices > 0
+            typeof auth.maxIndices === "number" &&
+            Number.isSafeInteger(auth.maxIndices) &&
+            auth.maxIndices > 0
               ? auth.maxIndices
               : null;
 
@@ -5142,7 +5631,7 @@ export default {
             createdAt: hasOwnerTokenHashColumn,
             sortOrder: true,
           };
-          for (; ;) {
+          for (;;) {
             try {
               const batchResults = await env.DB.batch(buildIndexStatements(indexWriteColumns));
               if (userIndexLimit !== null) {
@@ -5169,7 +5658,12 @@ export default {
                 isMissingColumnError(batchErr, "created_at") ||
                 isMissingColumnError(batchErr, "creator_id") ||
                 isMissingColumnError(batchErr, "sort_order");
-              if (!hasOwnerTokenHashColumn || !mentionsMissingColumn) {
+              // Retry whenever the failure names one of the optional columns we
+              // can drop. Gating this on hasOwnerTokenHashColumn made the
+              // sort_order retry unreachable on a legacy schema that lacks
+              // owner_token_hash: the "no such column: sort_order" error was
+              // rethrown as a 500 instead of retrying without sort_order.
+              if (!mentionsMissingColumn) {
                 throw batchErr;
               }
 

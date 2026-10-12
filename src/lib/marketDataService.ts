@@ -133,8 +133,8 @@ export const DEFAULT_MARKET_OVERVIEW: MarketOverviewData = {
       symbol: "^TOPX",
       name: "TOPIX (東証株価指数)",
       category: "INDEX",
-      price: 4138.50,
-      change: 33.50,
+      price: 4138.5,
+      change: 33.5,
       changePercent: 0.82,
       currency: "JPY",
       sparkline: [4105, 4112, 4120, 4128, 4135, 4138.5],
@@ -144,8 +144,8 @@ export const DEFAULT_MARKET_OVERVIEW: MarketOverviewData = {
       symbol: "^TOPIXG",
       name: "東証グロース250",
       category: "INDEX",
-      price: 639.00,
-      change: 7.10,
+      price: 639.0,
+      change: 7.1,
       changePercent: 1.12,
       currency: "JPY",
       sparkline: [632, 634, 636, 638, 640, 639],
@@ -201,7 +201,7 @@ export const DEFAULT_MARKET_OVERVIEW: MarketOverviewData = {
       symbol: "EURJPY=X",
       name: "ユーロ / 円",
       category: "FX",
-      price: 177.10,
+      price: 177.1,
       change: 0.28,
       changePercent: 0.16,
       currency: "JPY",
@@ -213,7 +213,7 @@ export const DEFAULT_MARKET_OVERVIEW: MarketOverviewData = {
       name: "ユーロ / ドル",
       category: "FX",
       price: 1.1206,
-      change: -0.0010,
+      change: -0.001,
       changePercent: -0.09,
       currency: "USD",
       sparkline: [1.1215, 1.1212, 1.121, 1.1208, 1.1207, 1.1206],
@@ -236,8 +236,8 @@ export const DEFAULT_MARKET_OVERVIEW: MarketOverviewData = {
       symbol: "GC=F",
       name: "金先物 (Gold)",
       category: "COMMODITY",
-      price: 4216.30,
-      change: 59.30,
+      price: 4216.3,
+      change: 59.3,
       changePercent: 1.43,
       currency: "USD",
       sparkline: [4155, 4170, 4185, 4200, 4210, 4216.3],
@@ -262,7 +262,7 @@ export const DEFAULT_MARKET_OVERVIEW: MarketOverviewData = {
       category: "CRYPTO",
       price: 82945.58,
       change: 168.89,
-      changePercent: 0.20,
+      changePercent: 0.2,
       currency: "USD",
       sparkline: [82600, 82750, 82820, 82900, 82930, 82945.58],
       updatedAt: "24h リアルタイム",
@@ -272,8 +272,8 @@ export const DEFAULT_MARKET_OVERVIEW: MarketOverviewData = {
       name: "イーサリアム (ETH)",
       category: "CRYPTO",
       price: 2499.26,
-      change: 4.90,
-      changePercent: 0.20,
+      change: 4.9,
+      changePercent: 0.2,
       currency: "USD",
       sparkline: [2485, 2490, 2492, 2496, 2498, 2499.26],
       updatedAt: "24h リアルタイム",
@@ -558,7 +558,7 @@ const KNOWN_STOCK_ANCHORS: Record<string, KnownStockAnchor> = {
     dps: 425.0,
     sector: "小売業 (アパレル)",
   },
-  "NVDA": {
+  NVDA: {
     price: 229.28,
     change: -1.2,
     changePercent: -0.52,
@@ -577,7 +577,7 @@ const KNOWN_STOCK_ANCHORS: Record<string, KnownStockAnchor> = {
     dps: 1.0,
     sector: "Semiconductors / AI",
   },
-  "AAPL": {
+  AAPL: {
     price: 236.4,
     change: 1.15,
     changePercent: 0.49,
@@ -596,7 +596,7 @@ const KNOWN_STOCK_ANCHORS: Record<string, KnownStockAnchor> = {
     dps: 1.0,
     sector: "Consumer Electronics",
   },
-  "MSFT": {
+  MSFT: {
     price: 428.15,
     change: 2.45,
     changePercent: 0.58,
@@ -631,31 +631,97 @@ export function getStockFundamentals(ticker: string): StockQuoteFundamentals {
     ...DEFAULT_MARKET_OVERVIEW.commodities,
     ...DEFAULT_MARKET_OVERVIEW.crypto,
   ];
-  const overviewAsset = !matchedPreset ? allOverviewAssets.find((a) => a.symbol === normTicker) : undefined;
+  const overviewAsset = !matchedPreset
+    ? allOverviewAssets.find((a) => a.symbol === normTicker)
+    : undefined;
 
-  const name = matchedPreset ? matchedPreset.name : (overviewAsset ? overviewAsset.name : `銘柄 ${normTicker}`);
-  const theme = matchedPreset ? matchedPreset.theme : (overviewAsset ? (overviewAsset.category === "FX" ? "為替" : overviewAsset.category === "COMMODITY" ? "コモディティ" : overviewAsset.category === "BOND" ? "債券" : overviewAsset.category === "CRYPTO" ? "暗号資産" : "株価指数") : "株式");
+  const name = matchedPreset
+    ? matchedPreset.name
+    : overviewAsset
+      ? overviewAsset.name
+      : `銘柄 ${normTicker}`;
+  const theme = matchedPreset
+    ? matchedPreset.theme
+    : overviewAsset
+      ? overviewAsset.category === "FX"
+        ? "為替"
+        : overviewAsset.category === "COMMODITY"
+          ? "コモディティ"
+          : overviewAsset.category === "BOND"
+            ? "債券"
+            : overviewAsset.category === "CRYPTO"
+              ? "暗号資産"
+              : "株価指数"
+      : "株式";
   const isUS = !/^\d/.test(normTicker);
 
   const anchor = KNOWN_STOCK_ANCHORS[normTicker];
 
   // Seed fallback for tickers without explicit anchor
   const seed = normTicker.split("").reduce((acc, c) => acc + c.charCodeAt(0), 0);
-  const basePrice = overviewAsset ? overviewAsset.price : (anchor ? anchor.price : isUS ? 120 + (seed % 350) : 1800 + (seed % 6500));
-  const changePct = overviewAsset ? overviewAsset.changePercent : (anchor ? anchor.changePercent : Number((((seed % 60) - 28) / 10).toFixed(2)));
-  const change = overviewAsset ? overviewAsset.change : (anchor ? anchor.change : Number(((basePrice * changePct) / 100).toFixed(2)));
+  const basePrice = overviewAsset
+    ? overviewAsset.price
+    : anchor
+      ? anchor.price
+      : isUS
+        ? 120 + (seed % 350)
+        : 1800 + (seed % 6500);
+  const changePct = overviewAsset
+    ? overviewAsset.changePercent
+    : anchor
+      ? anchor.changePercent
+      : Number((((seed % 60) - 28) / 10).toFixed(2));
+  const change = overviewAsset
+    ? overviewAsset.change
+    : anchor
+      ? anchor.change
+      : Number(((basePrice * changePct) / 100).toFixed(2));
   const prevClose = Number((basePrice - change).toFixed(2));
 
-  const per = overviewAsset ? null : (anchor ? anchor.per : isUS ? 22 + (seed % 35) : 12 + (seed % 20));
-  const pbr = overviewAsset ? null : (anchor ? anchor.pbr : Number((0.8 + ((seed % 35) / 10)).toFixed(2)));
-  const dividendYield = overviewAsset ? null : (anchor ? anchor.dividendYield : Number((1.5 + ((seed % 30) / 10)).toFixed(2)));
-  const roe = overviewAsset ? null : (anchor ? anchor.roe : Number((8 + (seed % 14)).toFixed(1)));
-  const equityRatio = overviewAsset ? null : (anchor ? anchor.equityRatio : 40 + (seed % 45));
-  const marketCap = overviewAsset ? 0 : (anchor ? anchor.marketCap : isUS ? 45000 + (seed * 850) : 12000 + (seed * 280));
+  const per = overviewAsset
+    ? null
+    : anchor
+      ? anchor.per
+      : isUS
+        ? 22 + (seed % 35)
+        : 12 + (seed % 20);
+  const pbr = overviewAsset
+    ? null
+    : anchor
+      ? anchor.pbr
+      : Number((0.8 + (seed % 35) / 10).toFixed(2));
+  const dividendYield = overviewAsset
+    ? null
+    : anchor
+      ? anchor.dividendYield
+      : Number((1.5 + (seed % 30) / 10).toFixed(2));
+  const roe = overviewAsset ? null : anchor ? anchor.roe : Number((8 + (seed % 14)).toFixed(1));
+  const equityRatio = overviewAsset ? null : anchor ? anchor.equityRatio : 40 + (seed % 45);
+  const marketCap = overviewAsset
+    ? 0
+    : anchor
+      ? anchor.marketCap
+      : isUS
+        ? 45000 + seed * 850
+        : 12000 + seed * 280;
 
-  const eps = overviewAsset ? null : (anchor ? anchor.eps : (per ? Number((basePrice / per).toFixed(1)) : null));
-  const dps = overviewAsset ? null : (anchor ? anchor.dps : (dividendYield ? Number(((basePrice * dividendYield) / 100).toFixed(1)) : null));
-  const sector = overviewAsset ? overviewAsset.category : (anchor?.sector ?? (isUS ? "Information Tech" : "電気機器・精密"));
+  const eps = overviewAsset
+    ? null
+    : anchor
+      ? anchor.eps
+      : per
+        ? Number((basePrice / per).toFixed(1))
+        : null;
+  const dps = overviewAsset
+    ? null
+    : anchor
+      ? anchor.dps
+      : dividendYield
+        ? Number(((basePrice * dividendYield) / 100).toFixed(1))
+        : null;
+  const sector = overviewAsset
+    ? overviewAsset.category
+    : (anchor?.sector ?? (isUS ? "Information Tech" : "電気機器・精密"));
 
   let technicalSignal: StockQuoteFundamentals["technicalSignal"] = "BUY";
   if (changePct > 2.0) technicalSignal = "STRONG_BUY";
@@ -718,7 +784,7 @@ export function getStockFundamentals(ticker: string): StockQuoteFundamentals {
     price: basePrice,
     change,
     changePercent: changePct,
-    volume: anchor ? anchor.volume : 1250000 + (seed * 8500),
+    volume: anchor ? anchor.volume : 1250000 + seed * 8500,
     previousClose: prevClose,
     dayHigh: anchor ? anchor.dayHigh : Number((basePrice * 1.015).toFixed(2)),
     dayLow: anchor ? anchor.dayLow : Number((basePrice * 0.985).toFixed(2)),
@@ -752,22 +818,18 @@ function sanitizeQuote(raw: unknown): MarketAssetQuote | null {
   if (!isFiniteNumber(record.price)) return null;
 
   const change = isFiniteNumber(record.change) ? record.change : 0;
-  const changePercent = isFiniteNumber(record.changePercent)
-    ? record.changePercent
-    : 0;
-  const sparkline = Array.isArray(record.sparkline)
-    ? record.sparkline.filter(isFiniteNumber)
-    : [];
+  const changePercent = isFiniteNumber(record.changePercent) ? record.changePercent : 0;
+  const sparkline = Array.isArray(record.sparkline) ? record.sparkline.filter(isFiniteNumber) : [];
 
   return {
     symbol: record.symbol,
     name: record.name,
     category:
       record.category === "FX" ||
-        record.category === "COMMODITY" ||
-        record.category === "CRYPTO" ||
-        record.category === "BOND" ||
-        record.category === "INDEX"
+      record.category === "COMMODITY" ||
+      record.category === "CRYPTO" ||
+      record.category === "BOND" ||
+      record.category === "INDEX"
         ? record.category
         : "INDEX",
     price: record.price,
@@ -775,18 +837,13 @@ function sanitizeQuote(raw: unknown): MarketAssetQuote | null {
     changePercent,
     currency: typeof record.currency === "string" && record.currency ? record.currency : "USD",
     ...(sparkline.length > 0 ? { sparkline } : {}),
-    updatedAt:
-      typeof record.updatedAt === "string" && record.updatedAt
-        ? record.updatedAt
-        : "-",
+    updatedAt: typeof record.updatedAt === "string" && record.updatedAt ? record.updatedAt : "-",
   };
 }
 
 function sanitizeQuotes(raw: unknown): MarketAssetQuote[] {
   if (!Array.isArray(raw)) return [];
-  return raw
-    .map(sanitizeQuote)
-    .filter((quote): quote is MarketAssetQuote => quote !== null);
+  return raw.map(sanitizeQuote).filter((quote): quote is MarketAssetQuote => quote !== null);
 }
 
 /**
@@ -818,52 +875,52 @@ export function normalizeMarketOverview(raw: unknown): MarketOverviewData | null
     crypto: sanitizeQuotes(record.crypto),
     sectors: Array.isArray(record.sectors)
       ? record.sectors.filter(
-        (sector): sector is MarketOverviewData["sectors"][number] =>
-          !!sector &&
-          typeof sector === "object" &&
-          typeof (sector as { name?: unknown }).name === "string" &&
-          isFiniteNumber((sector as { changePercent?: unknown }).changePercent),
-      )
+          (sector): sector is MarketOverviewData["sectors"][number] =>
+            !!sector &&
+            typeof sector === "object" &&
+            typeof (sector as { name?: unknown }).name === "string" &&
+            isFiniteNumber((sector as { changePercent?: unknown }).changePercent),
+        )
       : fallback.sectors,
     marketBreadth:
       breadth &&
-        isFiniteNumber(breadth.gainers) &&
-        isFiniteNumber(breadth.losers) &&
-        isFiniteNumber(breadth.unchanged) &&
-        isFiniteNumber(breadth.sentimentScore)
+      isFiniteNumber(breadth.gainers) &&
+      isFiniteNumber(breadth.losers) &&
+      isFiniteNumber(breadth.unchanged) &&
+      isFiniteNumber(breadth.sentimentScore)
         ? {
-          gainers: breadth.gainers,
-          losers: breadth.losers,
-          unchanged: breadth.unchanged,
-          sentimentScore: Math.max(0, Math.min(100, breadth.sentimentScore)),
-        }
+            gainers: breadth.gainers,
+            losers: breadth.losers,
+            unchanged: breadth.unchanged,
+            sentimentScore: Math.max(0, Math.min(100, breadth.sentimentScore)),
+          }
         : fallback.marketBreadth,
     news: Array.isArray(record.news)
       ? record.news
-        .filter(
-          (item): item is Record<string, unknown> =>
-            !!item &&
-            typeof item === "object" &&
-            typeof (item as { id?: unknown }).id === "string" &&
-            typeof (item as { title?: unknown }).title === "string" &&
-            typeof (item as { source?: unknown }).source === "string" &&
-            typeof (item as { publishedAt?: unknown }).publishedAt === "string",
-        )
-        .map((item) => {
-          const rawUrl = typeof item.url === "string" ? item.url : undefined;
-          const safeUrl = rawUrl && /^https?:\/\//i.test(rawUrl) ? rawUrl : undefined;
-          return {
-            id: item.id as string,
-            title: item.title as string,
-            source: item.source as string,
-            publishedAt: item.publishedAt as string,
-            url: safeUrl,
-            relatedTicker:
-              typeof item.relatedTicker === "string" && item.relatedTicker
-                ? (item.relatedTicker as string)
-                : undefined,
-          };
-        })
+          .filter(
+            (item): item is Record<string, unknown> =>
+              !!item &&
+              typeof item === "object" &&
+              typeof (item as { id?: unknown }).id === "string" &&
+              typeof (item as { title?: unknown }).title === "string" &&
+              typeof (item as { source?: unknown }).source === "string" &&
+              typeof (item as { publishedAt?: unknown }).publishedAt === "string",
+          )
+          .map((item) => {
+            const rawUrl = typeof item.url === "string" ? item.url : undefined;
+            const safeUrl = rawUrl && /^https?:\/\//i.test(rawUrl) ? rawUrl : undefined;
+            return {
+              id: item.id as string,
+              title: item.title as string,
+              source: item.source as string,
+              publishedAt: item.publishedAt as string,
+              url: safeUrl,
+              relatedTicker:
+                typeof item.relatedTicker === "string" && item.relatedTicker
+                  ? (item.relatedTicker as string)
+                  : undefined,
+            };
+          })
       : fallback.news,
   };
 }
@@ -964,7 +1021,10 @@ export function formatMarketCapDisplay(marketCap: number, market: string): strin
     if (marketCap >= 1_000_000) {
       return `${(marketCap / 1_000_000).toFixed(2)} 兆ドル`;
     } else if (marketCap >= 1_000) {
-      return `${(marketCap / 1_000).toFixed(0)} 億ドル`;
+      // marketCap is stored in millions of USD, so 1 億ドル = 100 $M.
+      // Dividing by 1,000 understated US market caps by 10x (e.g. $45B was
+      // rendered as "45 億ドル" = $4.5B).
+      return `${(marketCap / 100).toFixed(0)} 億ドル`;
     }
     return `${marketCap.toLocaleString()} 百万ドル`;
   }
@@ -1035,16 +1095,16 @@ export interface ScreenerFilterOptions {
   minRoe?: number;
   searchQuery?: string;
   sortBy?:
-  | "changePercent"
-  | "dividendYield"
-  | "per"
-  | "pbr"
-  | "volume"
-  | "marketCap"
-  | "price"
-  | "roe"
-  | "name"
-  | "ticker";
+    | "changePercent"
+    | "dividendYield"
+    | "per"
+    | "pbr"
+    | "volume"
+    | "marketCap"
+    | "price"
+    | "roe"
+    | "name"
+    | "ticker";
   sortOrder?: "asc" | "desc";
 }
 
@@ -1074,7 +1134,10 @@ export function runStockScreener(
       return false;
     }
 
-    if (minDividendYield !== undefined && (stock.dividendYield === null || stock.dividendYield < minDividendYield)) {
+    if (
+      minDividendYield !== undefined &&
+      (stock.dividendYield === null || stock.dividendYield < minDividendYield)
+    ) {
       return false;
     }
     if (maxPer !== undefined && (stock.per === null || stock.per > maxPer)) {
@@ -1120,7 +1183,7 @@ export function runStockScreener(
     const numA = valA as number;
     const numB = valB as number;
     if (numA === numB) return 0;
-    return sortOrder === "asc" ? (numA > numB ? 1 : -1) : (numA < numB ? 1 : -1);
+    return sortOrder === "asc" ? (numA > numB ? 1 : -1) : numA < numB ? 1 : -1;
   });
 }
 
@@ -1214,6 +1277,22 @@ function saveCalendarCache(events: CalendarEvent[]): void {
   }
 }
 
+/**
+ * Per-item validation for calendar events. Applied to both API responses and
+ * cached JSON: CalendarPage reads `importance`, `type` and `date` directly, so
+ * a stale or hand-edited cache entry with a malformed shape would render blank
+ * or broken rows instead of falling back to the generated calendar.
+ */
+function isValidCalendarEvent(e: unknown): e is CalendarEvent {
+  if (!e || typeof e !== "object") return false;
+  const record = e as { id?: unknown; date?: unknown; title?: unknown };
+  return (
+    typeof record.id === "string" &&
+    typeof record.date === "string" &&
+    typeof record.title === "string"
+  );
+}
+
 function loadCalendarCache(): CalendarEvent[] | null {
   try {
     const storage = getSessionStorageSafe();
@@ -1221,8 +1300,11 @@ function loadCalendarCache(): CalendarEvent[] | null {
       const stored = storage.getItem(CALENDAR_CACHE_KEY);
       if (stored) {
         const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed as CalendarEvent[];
+        if (Array.isArray(parsed)) {
+          const valid = parsed.filter(isValidCalendarEvent);
+          if (valid.length > 0) {
+            return valid;
+          }
         }
       }
     }
@@ -1236,9 +1318,7 @@ function loadCalendarCache(): CalendarEvent[] | null {
  * Fetch dynamic financial calendar events from /api/market/calendar,
  * falling back to cached events or UPCOMING_EVENTS.
  */
-export async function fetchUpcomingEvents(
-  forceRefresh = false,
-): Promise<CalendarEvent[]> {
+export async function fetchUpcomingEvents(forceRefresh = false): Promise<CalendarEvent[]> {
   const canFetch = typeof globalThis !== "undefined" && typeof globalThis.fetch === "function";
   if (canFetch) {
     try {
@@ -1257,14 +1337,7 @@ export async function fetchUpcomingEvents(
         if (contentType.includes("json")) {
           const raw = await res.json();
           if (Array.isArray(raw) && raw.length > 0) {
-            const valid = raw.filter(
-              (e): e is CalendarEvent =>
-                !!e &&
-                typeof e === "object" &&
-                typeof e.id === "string" &&
-                typeof e.date === "string" &&
-                typeof e.title === "string",
-            );
+            const valid = raw.filter(isValidCalendarEvent);
             if (valid.length > 0) {
               saveCalendarCache(valid);
               return valid;
@@ -1404,14 +1477,78 @@ export function generateUpcomingEvents(referenceDate = new Date()): CalendarEven
 
   // 主要企業決算 (平日に分散配置)
   const corporateList = [
-    { id: "earn-toyota", ticker: "7203", companyName: "トヨタ自動車", title: "トヨタ自動車 (7203) 決算発表", marketCap: 345000, importance: "HIGH" as const, days: 2 },
-    { id: "earn-shinetsu", ticker: "4063", companyName: "信越化学工業", title: "信越化学工業 (4063) 決算発表", marketCap: 115000, importance: "HIGH" as const, days: 5 },
-    { id: "earn-fanuc", ticker: "6954", companyName: "ファナック", title: "ファナック (6954) 決算発表", marketCap: 41000, importance: "MEDIUM" as const, days: 7 },
-    { id: "earn-advantest", ticker: "6857", companyName: "アドバンテスト", title: "アドバンテスト (6857) 決算発表", marketCap: 300000, importance: "HIGH" as const, days: 9 },
-    { id: "earn-aapl", ticker: "AAPL", companyName: "Apple Inc.", title: "Apple (AAPL) 決算発表", marketCap: 4900000, importance: "HIGH" as const, days: 13 },
-    { id: "earn-sbg", ticker: "9984", companyName: "ソフトバンクグループ", title: "ソフトバンクグループ (9984) 決算発表", marketCap: 135000, importance: "HIGH" as const, days: 16 },
-    { id: "earn-tel", ticker: "8035", companyName: "東京エレクトロン", title: "東京エレクトロン (8035) 決算発表", marketCap: 290000, importance: "HIGH" as const, days: 18 },
-    { id: "earn-nvda", ticker: "NVDA", companyName: "NVIDIA Corporation", title: "NVIDIA (NVDA) 決算発表", marketCap: 5500000, importance: "HIGH" as const, days: 22 },
+    {
+      id: "earn-toyota",
+      ticker: "7203",
+      companyName: "トヨタ自動車",
+      title: "トヨタ自動車 (7203) 決算発表",
+      marketCap: 345000,
+      importance: "HIGH" as const,
+      days: 2,
+    },
+    {
+      id: "earn-shinetsu",
+      ticker: "4063",
+      companyName: "信越化学工業",
+      title: "信越化学工業 (4063) 決算発表",
+      marketCap: 115000,
+      importance: "HIGH" as const,
+      days: 5,
+    },
+    {
+      id: "earn-fanuc",
+      ticker: "6954",
+      companyName: "ファナック",
+      title: "ファナック (6954) 決算発表",
+      marketCap: 41000,
+      importance: "MEDIUM" as const,
+      days: 7,
+    },
+    {
+      id: "earn-advantest",
+      ticker: "6857",
+      companyName: "アドバンテスト",
+      title: "アドバンテスト (6857) 決算発表",
+      marketCap: 300000,
+      importance: "HIGH" as const,
+      days: 9,
+    },
+    {
+      id: "earn-aapl",
+      ticker: "AAPL",
+      companyName: "Apple Inc.",
+      title: "Apple (AAPL) 決算発表",
+      marketCap: 4900000,
+      importance: "HIGH" as const,
+      days: 13,
+    },
+    {
+      id: "earn-sbg",
+      ticker: "9984",
+      companyName: "ソフトバンクグループ",
+      title: "ソフトバンクグループ (9984) 決算発表",
+      marketCap: 135000,
+      importance: "HIGH" as const,
+      days: 16,
+    },
+    {
+      id: "earn-tel",
+      ticker: "8035",
+      companyName: "東京エレクトロン",
+      title: "東京エレクトロン (8035) 決算発表",
+      marketCap: 290000,
+      importance: "HIGH" as const,
+      days: 18,
+    },
+    {
+      id: "earn-nvda",
+      ticker: "NVDA",
+      companyName: "NVIDIA Corporation",
+      title: "NVIDIA (NVDA) 決算発表",
+      marketCap: 5500000,
+      importance: "HIGH" as const,
+      days: 22,
+    },
   ];
 
   for (const corp of corporateList) {

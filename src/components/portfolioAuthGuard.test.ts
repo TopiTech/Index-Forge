@@ -5,16 +5,10 @@ import { resolve } from "path";
 describe("Portfolio Page Authentication Guard & Access Control", () => {
   const portfolioTsx = readFileSync(
     resolve(process.cwd(), "src/components/PortfolioManagerPage.tsx"),
-    "utf-8"
+    "utf-8",
   );
-  const sidebarTsx = readFileSync(
-    resolve(process.cwd(), "src/components/Sidebar.tsx"),
-    "utf-8"
-  );
-  const cssCode = readFileSync(
-    resolve(process.cwd(), "src/index.css"),
-    "utf-8"
-  );
+  const sidebarTsx = readFileSync(resolve(process.cwd(), "src/components/Sidebar.tsx"), "utf-8");
+  const cssCode = readFileSync(resolve(process.cwd(), "src/index.css"), "utf-8");
 
   describe("1. PortfolioManagerPage Authentication Gating", () => {
     it("imports and invokes useAuth hook for session authentication state", () => {
@@ -48,9 +42,14 @@ describe("Portfolio Page Authentication Guard & Access Control", () => {
       // Data must be loaded conditionally on auth
       expect(portfolioTsx).toMatch(/isAuthenticated\s*\?\s*loadPortfolioPositions\(\)\s*:\s*\[\]/);
       expect(portfolioTsx).toMatch(/isAuthenticated\s*\?\s*loadWatchlist\(\)\s*:\s*\[\]/);
-      // Data persistence must only trigger when authenticated
-      expect(portfolioTsx).toMatch(/if\s*\(isAuthenticated\)\s*\{\s*savePortfolioPositions\(positions\);/);
-      expect(portfolioTsx).toMatch(/if\s*\(isAuthenticated\)\s*\{\s*saveWatchlist\(watchlist\);/);
+      // Data persistence must only trigger when authenticated (and, since the
+      // preset list is preview-only, only after the user has persisted data).
+      expect(portfolioTsx).toMatch(
+        /if\s*\(isAuthenticated\s*&&\s*positionsPersistedRef\.current\)\s*\{\s*savePortfolioPositions\(positions\);/,
+      );
+      expect(portfolioTsx).toMatch(
+        /if\s*\(isAuthenticated\s*&&\s*watchlistPersistedRef\.current\)\s*\{\s*saveWatchlist\(watchlist\);/,
+      );
     });
 
     it("does not bind unused session and synchronizes state on inline login", () => {

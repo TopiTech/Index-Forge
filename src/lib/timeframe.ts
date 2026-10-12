@@ -19,7 +19,11 @@ export function filterByTimeframe<T extends { date: string }>(
   if (timeframe === "3M") return data.slice(-65);
   if (timeframe === "6M") return data.slice(-130);
   if (timeframe === "YTD") {
-    const currentYear = new Date().getFullYear().toString();
+    // Price dates are JST trading dates, so the year boundary must be
+    // evaluated in JST as well. Using the browser-local year returned the
+    // previous year's series (labeled 年初来) for users west of JST during the
+    // first hours of January 1.
+    const currentYear = new Date(Date.now() + 9 * 60 * 60 * 1000).getUTCFullYear().toString();
     // Never mix the previous year into a YTD series. Returning a short series
     // is safer than labeling a cross-year return as year-to-date; callers can
     // render it as insufficient data when fewer than two points are available.

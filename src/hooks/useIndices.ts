@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import type { CustomIndex } from "../data/indices";
 import { DEFAULT_INDICES } from "../data/indices";
 import type { BasketItem } from "../types";
@@ -134,8 +134,14 @@ export function useIndices() {
   });
   const [loading, setLoading] = useState(() => !getLocalIndicesCache());
   const [error, setError] = useState<string | null>(null);
+  // Mutations refetch the list immediately; without a generation guard a
+  // slower earlier response could overwrite a newer one (e.g. a just-added
+  // stock disappearing from the selected index until the next mutation).
+  const requestIdRef = useRef(0);
 
   const fetchIndices = useCallback(async () => {
+    const requestId = ++requestIdRef.current;
+    const isCurrentRequest = () => requestId === requestIdRef.current;
     const cachedIndices = getLocalIndicesCache();
     try {
       if (!cachedIndices) {
@@ -174,6 +180,10 @@ export function useIndices() {
       }
 
       const data: CustomIndex[] = await res.json();
+      if (!isCurrentRequest()) {
+        // A newer request already resolved; keep its state.
+        return data;
+      }
       if (Array.isArray(data) && data.length > 0) {
         try {
           localStorage.setItem(INDICES_CACHE_KEY, JSON.stringify(data));
@@ -206,6 +216,9 @@ export function useIndices() {
         return DEFAULT_INDICES;
       }
     } catch (err) {
+      if (!isCurrentRequest()) {
+        return getLocalIndicesCache() ?? DEFAULT_INDICES;
+      }
       const message =
         err instanceof DOMException && err.name === "AbortError"
           ? "指数一覧の取得がタイムアウトしました"
@@ -227,7 +240,9 @@ export function useIndices() {
       }
       return cached;
     } finally {
-      setLoading(false);
+      if (isCurrentRequest()) {
+        setLoading(false);
+      }
     }
   }, []);
 

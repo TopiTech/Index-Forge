@@ -1,13 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import worker from "../../worker/index";
-import {
-  setAllowMemoryCacheInTest,
-  clearMemoryCache,
-} from "../../worker/internal";
-import {
-  generateUpcomingEvents,
-  UPCOMING_EVENTS,
-} from "./marketDataService";
+import { setAllowMemoryCacheInTest, clearMemoryCache } from "../../worker/internal";
+import { generateUpcomingEvents, UPCOMING_EVENTS } from "./marketDataService";
 import fs from "fs";
 import path from "path";
 
@@ -27,7 +21,9 @@ describe("Comprehensive Audit Session Verification", () => {
     it("allows index symbols (^N225, ^TOPX) and currency tickers (USDJPY=X) in /api/stock/fundamentals", async () => {
       const allowedSymbols = ["^N225", "^TOPX", "USDJPY=X", "7203.T", "BRK_B", "AAPL"];
       for (const symbol of allowedSymbols) {
-        const req = new Request(`https://example.com/api/stock/fundamentals?ticker=${encodeURIComponent(symbol)}`);
+        const req = new Request(
+          `https://example.com/api/stock/fundamentals?ticker=${encodeURIComponent(symbol)}`,
+        );
         const res = await worker.fetch(req, {} as any);
         // Should not reject with 400 Bad Request (Invalid ticker format)
         expect(res.status).not.toBe(400);
@@ -43,10 +39,12 @@ describe("Comprehensive Audit Session Verification", () => {
         "VERY_LONG_TICKER_EXCEEDING_TWENTY_CHARACTERS_123456",
       ];
       for (const symbol of invalidSymbols) {
-        const req = new Request(`https://example.com/api/stock/fundamentals?ticker=${encodeURIComponent(symbol)}`);
+        const req = new Request(
+          `https://example.com/api/stock/fundamentals?ticker=${encodeURIComponent(symbol)}`,
+        );
         const res = await worker.fetch(req, {} as any);
         expect(res.status).toBe(400);
-        const data = await res.json() as any;
+        const data = (await res.json()) as any;
         expect(data.error).toBe("Invalid ticker format");
       }
     });
@@ -55,7 +53,7 @@ describe("Comprehensive Audit Session Verification", () => {
       const req = new Request("https://example.com/api/market/overview");
       const res = await worker.fetch(req, {} as any);
       expect(res.status).toBe(200);
-      const data = await res.json() as any;
+      const data = (await res.json()) as any;
       expect(data.news).toBeDefined();
       expect(Array.isArray(data.news)).toBe(true);
       expect(data.news.length).toBeGreaterThan(0);
@@ -97,7 +95,9 @@ describe("Comprehensive Audit Session Verification", () => {
     it("includes monotonic requestIdRef and mountedRef in loadStockData to guard against async race conditions", () => {
       expect(stockDetailCode).toContain("const requestIdRef = useRef(0);");
       expect(stockDetailCode).toContain("const mountedRef = useRef(true);");
-      expect(stockDetailCode).toContain("if (!mountedRef.current || requestId !== requestIdRef.current) return;");
+      expect(stockDetailCode).toContain(
+        "if (!mountedRef.current || requestId !== requestIdRef.current) return;",
+      );
     });
 
     it("formats US stock prices with 2 decimal places", () => {
@@ -126,7 +126,9 @@ describe("Comprehensive Audit Session Verification", () => {
     it("includes monotonic requestIdRef and mountedRef in loadLiveQuotes to prevent race conditions", () => {
       expect(portfolioCode).toContain("const requestIdRef = useRef(0);");
       expect(portfolioCode).toContain("const mountedRef = useRef(true);");
-      expect(portfolioCode).toContain("if (!mountedRef.current || requestId !== requestIdRef.current) return;");
+      expect(portfolioCode).toContain(
+        "if (!mountedRef.current || requestId !== requestIdRef.current) return;",
+      );
     });
 
     it("formats US holding prices with 2 decimal places", () => {
@@ -139,8 +141,14 @@ describe("Comprehensive Audit Session Verification", () => {
     const screenerCode = fs.readFileSync(screenerPath, "utf-8");
 
     it("safely formats dividendYield === 0 without omitting it in CSV or table display", () => {
-      expect(screenerCode).toContain('typeof stock.dividendYield === "number" ? `${stock.dividendYield.toFixed(2)}%` : "--"');
-      expect(screenerCode).toContain('typeof s.dividendYield === "number" ? s.dividendYield.toFixed(2) : ""');
+      // Whitespace-tolerant: the assertion pins the falsy-0 handling, not the
+      // line layout (the formatter may wrap the ternary).
+      expect(screenerCode).toMatch(
+        /typeof stock\.dividendYield === "number"\s*\?\s*`\$\{stock\.dividendYield\.toFixed\(2\)\}%`\s*:\s*"--"/,
+      );
+      expect(screenerCode).toMatch(
+        /typeof s\.dividendYield === "number"\s*\?\s*s\.dividendYield\.toFixed\(2\)\s*:\s*""/,
+      );
     });
 
     it("includes monotonic requestIdRef in loadScreenerData", () => {
@@ -149,7 +157,10 @@ describe("Comprehensive Audit Session Verification", () => {
     });
 
     it("formats US stock prices with 2 decimal places in screener results", () => {
-      expect(screenerCode).toContain('stock.price.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })');
+      // Whitespace-tolerant: the formatter may wrap the options object.
+      expect(screenerCode).toMatch(
+        /stock\.price\.toLocaleString\(\s*"en-US",\s*\{\s*minimumFractionDigits:\s*2,\s*maximumFractionDigits:\s*2,?\s*\}\)/,
+      );
     });
   });
 

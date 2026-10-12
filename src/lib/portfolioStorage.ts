@@ -115,10 +115,7 @@ function sanitizePosition(raw: unknown): PortfolioPosition | null {
     typeof record.id === "string" && record.id.trim()
       ? record.id.trim()
       : `pos-${ticker}-${shares}`;
-  const name =
-    typeof record.name === "string" && record.name.trim()
-      ? record.name.trim()
-      : ticker;
+  const name = typeof record.name === "string" && record.name.trim() ? record.name.trim() : ticker;
 
   const position: PortfolioPosition = { id, ticker, name, shares, averageCost };
   if (typeof record.acquiredAt === "string" && record.acquiredAt) {
@@ -143,6 +140,33 @@ export function sanitizeWatchlist(raw: unknown): string[] {
     result.push(ticker);
   }
   return result;
+}
+
+/**
+ * True when the user has a persisted portfolio. The preset list returned by
+ * loadPortfolioPositions() is a first-visit preview; callers must not write it
+ * back to storage before the user actually edits the list, or the preview
+ * silently becomes real (fake holdings in P&L, weights and index conversion).
+ */
+export function hasPersistedPortfolio(): boolean {
+  const storage = getLocalStorage();
+  if (!storage) return false;
+  try {
+    return storage.getItem(STORAGE_KEY_PORTFOLIO) !== null;
+  } catch {
+    return false;
+  }
+}
+
+/** Same as hasPersistedPortfolio, for the watchlist key. */
+export function hasPersistedWatchlist(): boolean {
+  const storage = getLocalStorage();
+  if (!storage) return false;
+  try {
+    return storage.getItem(STORAGE_KEY_WATCHLIST) !== null;
+  } catch {
+    return false;
+  }
 }
 
 // Load positions from localStorage
@@ -182,6 +206,50 @@ export function savePortfolioPositions(positions: PortfolioPosition[]): void {
 }
 
 /**
+ * Reads only what the user has actually persisted, with no preset fallback.
+ * Used by the write paths: `loadPortfolioPositions()` returns the demo preset
+ * list when nothing is stored yet, and persisting that list on the first
+ * addition would silently inject holdings the user never entered (they would
+ * then appear in P&L, weights and the portfolio→index conversion).
+ */
+function loadPersistedPositions(): PortfolioPosition[] {
+  const storage = getLocalStorage();
+  if (!storage) return [];
+  try {
+    const raw = storage.getItem(STORAGE_KEY_PORTFOLIO);
+    if (raw !== null) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        return parsed
+          .map(sanitizePosition)
+          .filter((position): position is PortfolioPosition => position !== null);
+      }
+    }
+  } catch {
+    // Ignore storage parse error
+  }
+  return [];
+}
+
+/** Same as loadPersistedPositions, for the watchlist key. */
+function loadPersistedWatchlist(): string[] {
+  const storage = getLocalStorage();
+  if (!storage) return [];
+  try {
+    const raw = storage.getItem(STORAGE_KEY_WATCHLIST);
+    if (raw !== null) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        return sanitizeWatchlist(parsed);
+      }
+    }
+  } catch {
+    // Ignore storage parse error
+  }
+  return [];
+}
+
+/**
  * Appends a position to the portfolio. Returns `true` when successful.
  */
 export function addPortfolioPosition(
@@ -190,7 +258,7 @@ export function addPortfolioPosition(
   const id = position.id?.trim() || `pos-${position.ticker}-${Date.now()}`;
   const sanitized = sanitizePosition({ ...position, id });
   if (!sanitized) return false;
-  const current = loadPortfolioPositions();
+  const current = loadPersistedPositions();
   savePortfolioPositions([...current, sanitized]);
   return true;
 }
@@ -227,7 +295,7 @@ export function addWatchlistTicker(ticker: string): boolean {
   const normalized = sanitizeWatchlist([ticker]);
   if (normalized.length === 0) return false;
 
-  const watchlist = loadWatchlist();
+  const watchlist = loadPersistedWatchlist();
   if (watchlist.includes(normalized[0])) return false;
   saveWatchlist([...watchlist, normalized[0]]);
   return true;
@@ -247,10 +315,12 @@ export function saveWatchlist(tickers: string[]): void {
 // Calculate entire portfolio financials and breakdown
 export function calculatePortfolioSummary(
   positions: PortfolioPosition[],
-  liveQuotesMap?: Map<string, { price: number; change?: number; dps?: number | null; name?: string }> | number,
+  liveQuotesMap?:
+    Map<string, { price: number; change?: number; dps?: number | null; name?: string }> | number,
   usdJpyRate?: number,
 ): PortfolioSummary {
-  let quotesMap: Map<string, { price: number; change?: number; dps?: number | null; name?: string }> | undefined;
+  let quotesMap:
+    Map<string, { price: number; change?: number; dps?: number | null; name?: string }> | undefined;
   let effectiveUsdJpyRate = usdJpyRate;
 
   if (typeof liveQuotesMap === "number") {
@@ -274,7 +344,10 @@ export function calculatePortfolioSummary(
 
   // 1. Calculate each position
   const enriched = positions.map((pos) => {
-    const live = quotesMap && typeof quotesMap.get === "function" ? quotesMap.get(pos.ticker.toUpperCase()) : undefined;
+    const live =
+      quotesMap && typeof quotesMap.get === "function"
+        ? quotesMap.get(pos.ticker.toUpperCase())
+        : undefined;
     const fund = getStockFundamentals(pos.ticker);
     const curr = getStockCurrency(pos.ticker);
     const isUSD = curr === "$";
@@ -284,7 +357,9 @@ export function calculatePortfolioSummary(
     const currentPrice =
       live?.price && live.price > 0
         ? live.price
-        : (pos.currentPrice && pos.currentPrice > 0 ? pos.currentPrice : fund.price);
+        : pos.currentPrice && pos.currentPrice > 0
+          ? pos.currentPrice
+          : fund.price;
     const marketValue = Math.round(pos.shares * currentPrice);
     const totalCost = Math.round(pos.shares * pos.averageCost);
     const unrealizedProfit = marketValue - totalCost;
@@ -331,17 +406,13 @@ export function calculatePortfolioSummary(
   const dailyTotalChange = enriched.reduce((sum, p) => sum + p.dailyChangeJpy, 0);
   const totalAnnualDividend = enriched.reduce((sum, p) => sum + p.annualDividendJpy, 0);
   const dividendYield =
-    totalMarketValue > 0
-      ? Number(((totalAnnualDividend / totalMarketValue) * 100).toFixed(2))
-      : 0;
+    totalMarketValue > 0 ? Number(((totalAnnualDividend / totalMarketValue) * 100).toFixed(2)) : 0;
 
   // 3. Normalize weights
   const finalPositions: PositionCalculation[] = enriched.map((p) => ({
     ...p,
     weightPercent:
-      totalMarketValue > 0
-        ? Number(((p.marketValueJpy / totalMarketValue) * 100).toFixed(1))
-        : 0,
+      totalMarketValue > 0 ? Number(((p.marketValueJpy / totalMarketValue) * 100).toFixed(1)) : 0,
   }));
 
   return {
@@ -375,21 +446,19 @@ export function convertPortfolioToCustomIndexBasket(
   for (const pos of summary.positions) {
     const existing = grouped.get(pos.ticker);
     if (existing) {
-      existing.marketValue += (pos.marketValueJpy ?? pos.marketValue);
+      existing.marketValue += pos.marketValueJpy ?? pos.marketValue;
     } else {
       grouped.set(pos.ticker, {
         ticker: pos.ticker,
         name: pos.name,
         theme: pos.theme,
-        marketValue: (pos.marketValueJpy ?? pos.marketValue),
+        marketValue: pos.marketValueJpy ?? pos.marketValue,
       });
     }
   }
 
   const items = Array.from(grouped.values());
-  const weights = allocateIntegerWeights(
-    items.map((item) => item.marketValue),
-  );
+  const weights = allocateIntegerWeights(items.map((item) => item.marketValue));
 
   return items.map((item, index) => ({
     ticker: item.ticker,
@@ -398,4 +467,3 @@ export function convertPortfolioToCustomIndexBasket(
     weight: weights[index],
   }));
 }
-

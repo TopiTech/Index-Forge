@@ -79,17 +79,27 @@ export function EditPasswordModal({
       setError("再設定するパスワードは8〜100文字で入力してください");
       return;
     }
+    // Promoting a user to admin requires a new password: stored hashes are
+    // salted PBKDF2, so the server cannot verify that the account's existing
+    // password is unique across accounts (a shared password would let the
+    // other account's holder log in as the new admin).
+    if (item.role !== "admin" && role === "admin" && !newPassword.trim()) {
+      setError("管理者へ昇格する場合は新しいパスワードを指定してください");
+      return;
+    }
 
     setLoading(true);
     setError(null);
 
     const isAdminRole = role === "admin";
-    const sanitizedMaxStocks = isAdminRole || unlimitedStocks
-      ? null
-      : Math.min(500, Math.max(1, Math.floor(Number(maxStocks)) || 1));
-    const sanitizedMaxIndices = isAdminRole || unlimitedIndices
-      ? null
-      : Math.min(100, Math.max(1, Math.floor(Number(maxIndices)) || 1));
+    const sanitizedMaxStocks =
+      isAdminRole || unlimitedStocks
+        ? null
+        : Math.min(500, Math.max(1, Math.floor(Number(maxStocks)) || 1));
+    const sanitizedMaxIndices =
+      isAdminRole || unlimitedIndices
+        ? null
+        : Math.min(100, Math.max(1, Math.floor(Number(maxIndices)) || 1));
 
     try {
       const payload: Record<string, unknown> = {
@@ -222,7 +232,12 @@ export function EditPasswordModal({
           <div style={{ marginBottom: 14 }}>
             <label
               htmlFor="edit-pw-name"
-              style={{ display: "block", fontSize: 12, color: "var(--text-secondary)", marginBottom: 5 }}
+              style={{
+                display: "block",
+                fontSize: 12,
+                color: "var(--text-secondary)",
+                marginBottom: 5,
+              }}
             >
               アカウント名 / 用途 <span style={{ color: "var(--neon-red)" }}>*</span>
             </label>
@@ -251,7 +266,12 @@ export function EditPasswordModal({
           <div style={{ marginBottom: 14 }}>
             <label
               htmlFor="edit-pw-role"
-              style={{ display: "block", fontSize: 12, color: "var(--text-secondary)", marginBottom: 5 }}
+              style={{
+                display: "block",
+                fontSize: 12,
+                color: "var(--text-secondary)",
+                marginBottom: 5,
+              }}
             >
               権限ロール
             </label>
@@ -286,10 +306,27 @@ export function EditPasswordModal({
           {/* Stocks Limit */}
           <div style={{ marginBottom: 14 }}>
             <div className="row space-between" style={{ marginBottom: 5 }}>
-              <label htmlFor="edit-pw-max-stocks" style={{ fontSize: 12, color: "var(--text-secondary)" }}>
-                最大銘柄数制限 {role === "admin" && <span style={{ color: "var(--accent-text)", fontSize: 11 }}>(管理者: 無制限)</span>}
+              <label
+                htmlFor="edit-pw-max-stocks"
+                style={{ fontSize: 12, color: "var(--text-secondary)" }}
+              >
+                最大銘柄数制限{" "}
+                {role === "admin" && (
+                  <span style={{ color: "var(--accent-text)", fontSize: 11 }}>
+                    (管理者: 無制限)
+                  </span>
+                )}
               </label>
-              <label style={{ fontSize: 12, display: "inline-flex", alignItems: "center", gap: 6, cursor: role === "admin" ? "not-allowed" : "pointer", opacity: role === "admin" ? 0.6 : 1 }}>
+              <label
+                style={{
+                  fontSize: 12,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  cursor: role === "admin" ? "not-allowed" : "pointer",
+                  opacity: role === "admin" ? 0.6 : 1,
+                }}
+              >
                 <input
                   type="checkbox"
                   checked={role === "admin" || unlimitedStocks}
@@ -306,7 +343,9 @@ export function EditPasswordModal({
                 min={1}
                 max={500}
                 value={maxStocks}
-                onChange={(e) => setMaxStocks(Math.min(500, Math.max(1, parseInt(e.target.value, 10) || 1)))}
+                onChange={(e) =>
+                  setMaxStocks(Math.min(500, Math.max(1, parseInt(e.target.value, 10) || 1)))
+                }
                 style={{
                   width: "100%",
                   padding: "8px 12px",
@@ -324,10 +363,27 @@ export function EditPasswordModal({
           {/* Indices Limit */}
           <div style={{ marginBottom: 14 }}>
             <div className="row space-between" style={{ marginBottom: 5 }}>
-              <label htmlFor="edit-pw-max-indices" style={{ fontSize: 12, color: "var(--text-secondary)" }}>
-                作成可能 指数上限数 {role === "admin" && <span style={{ color: "var(--accent-text)", fontSize: 11 }}>(管理者: 無制限)</span>}
+              <label
+                htmlFor="edit-pw-max-indices"
+                style={{ fontSize: 12, color: "var(--text-secondary)" }}
+              >
+                作成可能 指数上限数{" "}
+                {role === "admin" && (
+                  <span style={{ color: "var(--accent-text)", fontSize: 11 }}>
+                    (管理者: 無制限)
+                  </span>
+                )}
               </label>
-              <label style={{ fontSize: 12, display: "inline-flex", alignItems: "center", gap: 6, cursor: role === "admin" ? "not-allowed" : "pointer", opacity: role === "admin" ? 0.6 : 1 }}>
+              <label
+                style={{
+                  fontSize: 12,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  cursor: role === "admin" ? "not-allowed" : "pointer",
+                  opacity: role === "admin" ? 0.6 : 1,
+                }}
+              >
                 <input
                   type="checkbox"
                   checked={role === "admin" || unlimitedIndices}
@@ -344,7 +400,9 @@ export function EditPasswordModal({
                 min={1}
                 max={100}
                 value={maxIndices}
-                onChange={(e) => setMaxIndices(Math.min(100, Math.max(1, parseInt(e.target.value, 10) || 1)))}
+                onChange={(e) =>
+                  setMaxIndices(Math.min(100, Math.max(1, parseInt(e.target.value, 10) || 1)))
+                }
                 style={{
                   width: "100%",
                   padding: "8px 12px",
@@ -362,7 +420,10 @@ export function EditPasswordModal({
           {/* Password Reset (Optional) */}
           <div style={{ marginBottom: 14 }}>
             <div className="row space-between" style={{ marginBottom: 5 }}>
-              <label htmlFor="edit-pw-secret" style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+              <label
+                htmlFor="edit-pw-secret"
+                style={{ fontSize: 12, color: "var(--text-secondary)" }}
+              >
                 パスワード再設定 <span className="muted tiny">（変更する場合のみ入力）</span>
               </label>
               <button
@@ -381,8 +442,8 @@ export function EditPasswordModal({
               onChange={(e) => setNewPassword(e.target.value)}
               placeholder={
                 item.role !== "admin" && role === "admin"
-                  ? "新しい管理者パスワード（重複防止のため設定推奨）"
-                  : "新しいパスワード（8文字以上）"
+                  ? "新しい管理者パスワード(必須)"
+                  : "新しいパスワード(8文字以上)"
               }
               style={{
                 width: "100%",
@@ -405,21 +466,35 @@ export function EditPasswordModal({
                   lineHeight: 1.4,
                 }}
               >
-                ※ 一般ユーザーから管理者への昇格時は、他ユーザーとの重複防止のため新しいパスワードの設定を推奨します
+                ※
+                一般ユーザーから管理者へ昇格する場合は、新しいパスワードの設定が必須です(既存パスワードの重複は検証できません)
               </div>
             )}
           </div>
 
           {/* Active Status */}
           <div style={{ marginBottom: 20 }}>
-            <label style={{ fontSize: 12, display: "inline-flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+            <label
+              style={{
+                fontSize: 12,
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 8,
+                cursor: "pointer",
+              }}
+            >
               <input
                 type="checkbox"
                 checked={isActive}
                 disabled={item.id === "admin-master"}
                 onChange={(e) => setIsActive(e.target.checked)}
               />
-              <span style={{ color: isActive ? "var(--neon-green)" : "var(--neon-red)", fontWeight: 600 }}>
+              <span
+                style={{
+                  color: isActive ? "var(--neon-green)" : "var(--neon-red)",
+                  fontWeight: 600,
+                }}
+              >
                 {isActive ? "アカウント有効" : "アカウント一時停止（無効）"}
               </span>
             </label>

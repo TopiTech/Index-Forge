@@ -1,8 +1,11 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import {
+  addPortfolioPosition,
   addWatchlistTicker,
   calculatePortfolioSummary,
   convertPortfolioToCustomIndexBasket,
+  hasPersistedPortfolio,
+  hasPersistedWatchlist,
   loadPortfolioPositions,
   loadWatchlist,
   sanitizeWatchlist,
@@ -159,10 +162,7 @@ describe("PortfolioStorage & Engine", () => {
     });
 
     it("normalizes a watchlist to unique uppercase strings", () => {
-      expect(sanitizeWatchlist([" nvda ", "NVDA", "", 42, null, "7203"])).toEqual([
-        "NVDA",
-        "7203",
-      ]);
+      expect(sanitizeWatchlist([" nvda ", "NVDA", "", 42, null, "7203"])).toEqual(["NVDA", "7203"]);
       expect(sanitizeWatchlist("not-an-array")).toEqual([]);
     });
 
@@ -193,6 +193,102 @@ describe("PortfolioStorage & Engine", () => {
       stubLocalStorage();
       saveWatchlist([]);
       expect(loadWatchlist()).toEqual([]);
+    });
+  });
+
+  describe("preset preview must not leak into persisted state", () => {
+    it("addPortfolioPosition does not persist the demo preset positions", () => {
+      const store = stubLocalStorage();
+
+      // No stored portfolio yet: loadPortfolioPositions() shows the preview,
+      // but the first real addition must store only that position.
+      expect(loadPortfolioPositions().length).toBeGreaterThan(1);
+      expect(hasPersistedPortfolio()).toBe(false);
+
+      const ok = addPortfolioPosition({
+        ticker: "NVDA",
+        name: "NVIDIA",
+        shares: 10,
+        averageCost: 150,
+      });
+      expect(ok).toBe(true);
+
+      const stored = JSON.parse(store.get(PORTFOLIO_KEY) ?? "[]") as PortfolioPosition[];
+      expect(stored).toHaveLength(1);
+      expect(stored[0].ticker).toBe("NVDA");
+      expect(hasPersistedPortfolio()).toBe(true);
+      // The persisted list is now the source of truth (no preset fallback).
+      expect(loadPortfolioPositions().map((p) => p.ticker)).toEqual(["NVDA"]);
+    });
+
+    it("addPortfolioPosition keeps previously stored positions", () => {
+      const store = stubLocalStorage();
+      savePortfolioPositions([
+        { id: "p1", ticker: "7203", name: "トヨタ自動車", shares: 100, averageCost: 2000 },
+      ]);
+
+      expect(
+        addPortfolioPosition({ ticker: "AAPL", name: "Apple", shares: 5, averageCost: 200 }),
+      ).toBe(true);
+
+      const stored = JSON.parse(store.get(PORTFOLIO_KEY) ?? "[]") as PortfolioPosition[];
+      expect(stored.map((p) => p.ticker)).toEqual(["7203", "AAPL"]);
+    });
+
+    it("addWatchlistTicker does not persist the demo preset watchlist", () => {
+      const store = stubLocalStorage();
+      expect(loadWatchlist().length).toBeGreaterThan(1);
+      expect(hasPersistedWatchlist()).toBe(false);
+
+      expect(addWatchlistTicker("NVDA")).toBe(true);
+
+      expect(JSON.parse(store.get(WATCHLIST_KEY) ?? "[]")).toEqual(["NVDA"]);
+      expect(hasPersistedWatchlist()).toBe(true);
+      expect(loadWatchlist()).toEqual(["NVDA"]);
+    });
+
+    it("reports persistence for deliberate empty lists", () => {
+      stubLocalStorage();
+      savePortfolioPositions([]);
+      saveWatchlist([]);
+      expect(hasPersistedPortfolio()).toBe(true);
+      expect(hasPersistedWatchlist()).toBe(true);
+    });
+
+    it("uses a live USD/JPY rate from the quotes map instead of the fallback constant", () => {
+      const usdPosition: PortfolioPosition = {
+        id: "usd-1",
+        ticker: "NVDA",
+        name: "NVIDIA",
+        shares: 10,
+        averageCost: 100,
+      };
+      const quotes = new Map([
+        ["NVDA", { price: 200, change: 1, dps: 1, name: "NVIDIA" }],
+        ["USDJPY=X", { price: 100, change: 0, dps: null, name: "USD/JPY" }],
+      ]);
+
+      const summary = calculatePortfolioSummary([usdPosition], quotes);
+      expect(summary.positions[0].fxRate).toBe(100);
+      expect(summary.totalMarketValue).toBe(10 * 200 * 100);
+    });
+
+    it("lets an explicit rate override both the map and the fallback constant", () => {
+      const usdPosition: PortfolioPosition = {
+        id: "usd-2",
+        ticker: "NVDA",
+        name: "NVIDIA",
+        shares: 10,
+        averageCost: 100,
+      };
+      const quotes = new Map([
+        ["NVDA", { price: 200, change: 1, dps: 1, name: "NVIDIA" }],
+        ["USDJPY=X", { price: 100, change: 0, dps: null, name: "USD/JPY" }],
+      ]);
+
+      const summary = calculatePortfolioSummary([usdPosition], quotes, 155.5);
+      expect(summary.positions[0].fxRate).toBe(155.5);
+      expect(summary.totalMarketValue).toBe(Math.round(10 * 200 * 155.5));
     });
   });
 });

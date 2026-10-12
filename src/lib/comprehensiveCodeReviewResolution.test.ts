@@ -13,22 +13,41 @@ describe("Comprehensive Code Review Resolution & Regression Tests", () => {
   describe("Backend Worker Security & Resilience Enhancements", () => {
     const workerImplCode = fs.readFileSync(
       path.resolve(process.cwd(), "worker/internal-impl.ts"),
-      "utf-8"
+      "utf-8",
     );
 
-    it("enforces MAX_AUTH_ROW_VERIFICATIONS to prevent Cloudflare Worker CPU limits (1102)", () => {
-      expect(MAX_AUTH_ROW_VERIFICATIONS).toBe(15);
+    it("bounds per-attempt password verification without silently locking out accounts", () => {
+      // The bound is a CPU safety valve, not an account limit. It must stay far
+      // above any realistic account count: a bound of 15 rejected the correct
+      // password of every account past the 15th row (reported as "wrong
+      // password"), which was undiagnosable for both user and operator.
+      expect(MAX_AUTH_ROW_VERIFICATIONS).toBeGreaterThanOrEqual(100);
       expect(workerImplCode).toContain("checkedCount >= MAX_AUTH_ROW_VERIFICATIONS");
+      // Truncating the scan must surface a distinct error instead of blaming
+      // the password.
+      expect(workerImplCode).toContain("アカウント数が認証の検証上限を超えている");
     });
 
     it("verifies salted PBKDF2 hashes in admin password management", () => {
-      expect(workerImplCode).toContain("await verifyPasswordHash(trimmed, existingRow.password_hash)");
+      // The former promotion-path check compared raw hash strings, which can
+      // never match salted PBKDF2 hashes; that block was dead code and has been
+      // replaced by requiring a new password on promotion. Password checks now
+      // always go through real verification (findPasswordCollision verifies the
+      // candidate against the master row and every other account).
+      expect(workerImplCode).toContain(
+        "const collision = await findPasswordCollision(env, password.trim(), id)",
+      );
+      expect(workerImplCode).toContain(
+        "await verifyPasswordHash(candidatePassword, masterRow.password_hash)",
+      );
     });
 
     it("enforces RFC 6265 compliant cookie formatting without attributes in getYahooCrumb", () => {
       expect(workerImplCode).toContain("const cookie = rawCookies");
       expect(workerImplCode).toContain('.map((c) => c.split(";")[0]?.trim())');
-      expect(workerImplCode).toContain('.filter((c): c is string => Boolean(c && c.includes("=")))');
+      expect(workerImplCode).toContain(
+        '.filter((c): c is string => Boolean(c && c.includes("=")))',
+      );
     });
 
     it("enforces Cache-Control: no-store for error responses", () => {
@@ -129,16 +148,13 @@ describe("Comprehensive Code Review Resolution & Regression Tests", () => {
   describe("Frontend Accessibility & UI Fixes", () => {
     const stockDetailCode = fs.readFileSync(
       path.resolve(process.cwd(), "src/components/StockDetailPage.tsx"),
-      "utf-8"
+      "utf-8",
     );
     const footerCode = fs.readFileSync(
       path.resolve(process.cwd(), "src/components/Footer.tsx"),
-      "utf-8"
+      "utf-8",
     );
-    const appCode = fs.readFileSync(
-      path.resolve(process.cwd(), "src/App.tsx"),
-      "utf-8"
-    );
+    const appCode = fs.readFileSync(path.resolve(process.cwd(), "src/App.tsx"), "utf-8");
 
     it("provides scrollable keyboard accessibility to financial table in StockDetailPage", () => {
       expect(stockDetailCode).toContain('className="financials-table-container"');
@@ -152,7 +168,9 @@ describe("Comprehensive Code Review Resolution & Regression Tests", () => {
     });
 
     it("removes misleading ExternalLink icon from internal developer profile link in Footer", () => {
-      expect(footerCode).not.toContain('<ExternalLink size={12} className="footer-external-icon" />');
+      expect(footerCode).not.toContain(
+        '<ExternalLink size={12} className="footer-external-icon" />',
+      );
     });
 
     it("locks body scroll when mobile navigation drawer is open", () => {

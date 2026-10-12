@@ -24,6 +24,8 @@ import {
   savePortfolioPositions,
   loadWatchlist,
   saveWatchlist,
+  hasPersistedPortfolio,
+  hasPersistedWatchlist,
   calculatePortfolioSummary,
   convertPortfolioToCustomIndexBasket,
   type PortfolioPosition,
@@ -41,7 +43,9 @@ import { useToast } from "./Toast";
 interface PortfolioManagerPageProps {
   onNavigate: (view: PageView, searchParams?: string) => void;
   onOpenStockDetail: (ticker: string) => void;
-  onConvertAndCreateCustomIndex?: (basket: { ticker: string; name: string; theme: string; weight: number }[]) => void;
+  onConvertAndCreateCustomIndex?: (
+    basket: { ticker: string; name: string; theme: string; weight: number }[],
+  ) => void;
 }
 
 export function PortfolioManagerPage({
@@ -51,14 +55,23 @@ export function PortfolioManagerPage({
 }: PortfolioManagerPageProps) {
   const { isAuthenticated, login, loading: authLoading } = useAuth();
   const [positions, setPositions] = useState<PortfolioPosition[]>(() =>
-    isAuthenticated ? loadPortfolioPositions() : []
+    isAuthenticated ? loadPortfolioPositions() : [],
   );
   const [watchlist, setWatchlist] = useState<string[]>(() =>
-    isAuthenticated ? loadWatchlist() : []
+    isAuthenticated ? loadWatchlist() : [],
   );
   const [liveQuotes, setLiveQuotes] = useState<Map<string, StockQuoteFundamentals>>(new Map());
+  // Live USD/JPY rate for the JPY valuation of USD positions. Kept out of
+  // liveQuotes so the summary never picks up a demo/reference FX price from
+  // the map; when unset the summary keeps its documented fallback constant.
+  const [usdJpyRate, setUsdJpyRate] = useState<number | undefined>(undefined);
   const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState<"HOLDINGS" | "WATCHLIST">("HOLDINGS");
+  // The preset portfolio/watchlist is a first-visit preview. Persisting it
+  // before the user edits the lists would silently store holdings they never
+  // entered, so the save effects stay disabled until the first user edit.
+  const positionsPersistedRef = useRef(hasPersistedPortfolio());
+  const watchlistPersistedRef = useRef(hasPersistedWatchlist());
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const { success, info } = useToast();
 
@@ -108,13 +121,13 @@ export function PortfolioManagerPage({
   }, [isAuthenticated]);
 
   useEffect(() => {
-    if (isAuthenticated) {
+    if (isAuthenticated && positionsPersistedRef.current) {
       savePortfolioPositions(positions);
     }
   }, [positions, isAuthenticated]);
 
   useEffect(() => {
-    if (isAuthenticated) {
+    if (isAuthenticated && watchlistPersistedRef.current) {
       saveWatchlist(watchlist);
     }
   }, [watchlist, isAuthenticated]);
@@ -141,38 +154,59 @@ export function PortfolioManagerPage({
     }
   };
 
-  const loadLiveQuotes = useCallback(async (forceRefresh = false) => {
-    const allTickers = Array.from(new Set([...positions.map((p) => p.ticker), ...watchlist]));
-    if (allTickers.length === 0) return;
-    const requestId = ++requestIdRef.current;
-    setRefreshing(true);
-    try {
-      const entries = await Promise.all(
-        allTickers.map(async (ticker) => {
-          try {
-            const data = await fetchStockFundamentals(ticker, forceRefresh);
-            return [ticker.toUpperCase(), data] as const;
-          } catch {
-            return null;
-          }
-        }),
+  const loadLiveQuotes = useCallback(
+    async (forceRefresh = false) => {
+      const needsUsdJpy = positions.some((p) => getStockCurrency(p.ticker) === "$");
+      const allTickers = Array.from(
+        new Set([
+          ...positions.map((p) => p.ticker),
+          ...watchlist,
+          // Only fetched when a USD position exists: the JPY totals otherwise
+          // silently used a hardcoded FX constant instead of the live rate.
+          ...(needsUsdJpy ? ["USDJPY=X"] : []),
+        ]),
       );
-      if (!mountedRef.current || requestId !== requestIdRef.current) return;
-      setLiveQuotes((prev) => {
-        const next = new Map(prev);
-        for (const entry of entries) {
-          if (entry) {
-            next.set(entry[0], entry[1]);
+      if (allTickers.length === 0) return;
+      const requestId = ++requestIdRef.current;
+      setRefreshing(true);
+      try {
+        const entries = await Promise.all(
+          allTickers.map(async (ticker) => {
+            try {
+              const data = await fetchStockFundamentals(ticker, forceRefresh);
+              return [ticker.toUpperCase(), data] as const;
+            } catch {
+              return null;
+            }
+          }),
+        );
+        if (!mountedRef.current || requestId !== requestIdRef.current) return;
+        setLiveQuotes((prev) => {
+          const next = new Map(prev);
+          for (const entry of entries) {
+            if (entry && entry[0] !== "USDJPY=X") {
+              next.set(entry[0], entry[1]);
+            }
           }
+          return next;
+        });
+        const fxEntry = entries.find((entry) => entry && entry[0] === "USDJPY=X");
+        if (
+          fxEntry &&
+          !fxEntry[1].isDemoData &&
+          Number.isFinite(fxEntry[1].price) &&
+          fxEntry[1].price > 0
+        ) {
+          setUsdJpyRate(fxEntry[1].price);
         }
-        return next;
-      });
-    } finally {
-      if (mountedRef.current && requestId === requestIdRef.current) {
-        setRefreshing(false);
+      } finally {
+        if (mountedRef.current && requestId === requestIdRef.current) {
+          setRefreshing(false);
+        }
       }
-    }
-  }, [positions, watchlist]);
+    },
+    [positions, watchlist],
+  );
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -180,7 +214,7 @@ export function PortfolioManagerPage({
     }
   }, [isAuthenticated, loadLiveQuotes]);
 
-  const summary = calculatePortfolioSummary(positions, liveQuotes);
+  const summary = calculatePortfolioSummary(positions, liveQuotes, usdJpyRate);
   const isTotalProfitPositive = summary.totalProfit >= 0;
   const isDailyProfitPositive = summary.dailyTotalChange >= 0;
 
@@ -204,17 +238,20 @@ export function PortfolioManagerPage({
       acquiredAt: new Date().toISOString().split("T")[0],
     };
 
+    positionsPersistedRef.current = true;
     setPositions((prev) => [...prev, newPos]);
     setIsAddModalOpen(false);
     success(`「${fund.name} (${ticker})」を保有ポートフォリオに追加しました`);
   };
 
   const handleDeletePosition = (id: string, name: string) => {
+    positionsPersistedRef.current = true;
     setPositions((prev) => prev.filter((p) => p.id !== id));
     info(`「${name}」をポートフォリオから削除しました`);
   };
 
   const handleRemoveFromWatchlist = (ticker: string) => {
+    watchlistPersistedRef.current = true;
     setWatchlist((prev) => prev.filter((t) => t !== ticker));
     info(`「${ticker}」をウォッチリストから削除しました`);
   };
@@ -428,7 +465,9 @@ export function PortfolioManagerPage({
                   disabled={isSubmittingAuth || authLoading || !authPassword.trim()}
                 >
                   <KeyRound size={15} />
-                  <span>{isSubmittingAuth || authLoading ? "認証中..." : "ログインして利用開始"}</span>
+                  <span>
+                    {isSubmittingAuth || authLoading ? "認証中..." : "ログインして利用開始"}
+                  </span>
                 </button>
               </div>
             </form>
@@ -450,7 +489,9 @@ export function PortfolioManagerPage({
             }}
           >
             <div className="card" style={{ padding: "20px 22px" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "10px" }}>
+              <div
+                style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "10px" }}
+              >
                 <div
                   style={{
                     padding: "8px",
@@ -462,7 +503,9 @@ export function PortfolioManagerPage({
                 >
                   <Briefcase size={20} />
                 </div>
-                <h4 style={{ margin: 0, fontSize: "1rem", fontWeight: 600 }}>リアルタイム損益・利回り管理</h4>
+                <h4 style={{ margin: 0, fontSize: "1rem", fontWeight: 600 }}>
+                  リアルタイム損益・利回り管理
+                </h4>
               </div>
               <p className="tiny muted" style={{ margin: 0, lineHeight: 1.6 }}>
                 保有株数や取得単価を登録し、時価評価額、トータル損益、本日前日比損益および年間予想配当金をリアルタイムで一元管理できます。
@@ -470,7 +513,9 @@ export function PortfolioManagerPage({
             </div>
 
             <div className="card" style={{ padding: "20px 22px" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "10px" }}>
+              <div
+                style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "10px" }}
+              >
                 <div
                   style={{
                     padding: "8px",
@@ -482,15 +527,20 @@ export function PortfolioManagerPage({
                 >
                   <Sparkles size={20} />
                 </div>
-                <h4 style={{ margin: 0, fontSize: "1rem", fontWeight: 600 }}>ワンクリック指数化バックテスト</h4>
+                <h4 style={{ margin: 0, fontSize: "1rem", fontWeight: 600 }}>
+                  ワンクリック指数化バックテスト
+                </h4>
               </div>
               <p className="tiny muted" style={{ margin: 0, lineHeight: 1.6 }}>
-                保有株式の時価評価額比率からオリジナルカスタム指数を瞬時に自動生成し、日経平均やS&P 500との客観的なリスク・リターン比較を実行できます。
+                保有株式の時価評価額比率からオリジナルカスタム指数を瞬時に自動生成し、日経平均やS&P
+                500との客観的なリスク・リターン比較を実行できます。
               </p>
             </div>
 
             <div className="card" style={{ padding: "20px 22px" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "10px" }}>
+              <div
+                style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "10px" }}
+              >
                 <div
                   style={{
                     padding: "8px",
@@ -502,7 +552,9 @@ export function PortfolioManagerPage({
                 >
                   <BookmarkPlus size={20} />
                 </div>
-                <h4 style={{ margin: 0, fontSize: "1rem", fontWeight: 600 }}>銘柄監視ウォッチリスト</h4>
+                <h4 style={{ margin: 0, fontSize: "1rem", fontWeight: 600 }}>
+                  銘柄監視ウォッチリスト
+                </h4>
               </div>
               <p className="tiny muted" style={{ margin: 0, lineHeight: 1.6 }}>
                 気になる銘柄を登録して株価や前日比騰落率を素早く確認でき、財務指標やインタラクティブチャート分析へシームレスにアクセスできます。
@@ -601,8 +653,7 @@ export function PortfolioManagerPage({
               color: isTotalProfitPositive ? "var(--color-positive)" : "var(--color-negative)",
             }}
           >
-            {isTotalProfitPositive ? "+" : ""}
-            ¥{summary.totalProfit.toLocaleString()}
+            {isTotalProfitPositive ? "+" : ""}¥{summary.totalProfit.toLocaleString()}
           </div>
           <div
             style={{
@@ -633,8 +684,7 @@ export function PortfolioManagerPage({
               color: isDailyProfitPositive ? "var(--color-positive)" : "var(--color-negative)",
             }}
           >
-            {isDailyProfitPositive ? "+" : ""}
-            ¥{summary.dailyTotalChange.toLocaleString()}
+            {isDailyProfitPositive ? "+" : ""}¥{summary.dailyTotalChange.toLocaleString()}
           </div>
           <span className="tiny muted">本日の保有資産変動</span>
         </div>
@@ -743,19 +793,22 @@ export function PortfolioManagerPage({
                           {p.shares.toLocaleString()}株
                         </td>
                         <td style={{ textAlign: "right" }} className="mono">
-                          {curr}{p.averageCost.toLocaleString("en-US", {
+                          {curr}
+                          {p.averageCost.toLocaleString("en-US", {
                             minimumFractionDigits: curr === "$" ? 2 : 0,
                             maximumFractionDigits: 2,
                           })}
                         </td>
                         <td style={{ textAlign: "right" }} className="mono bold">
-                          {curr}{p.currentPrice.toLocaleString("en-US", {
+                          {curr}
+                          {p.currentPrice.toLocaleString("en-US", {
                             minimumFractionDigits: curr === "$" ? 2 : 0,
                             maximumFractionDigits: 2,
                           })}
                         </td>
                         <td style={{ textAlign: "right" }} className="mono bold">
-                          {curr}{p.marketValue.toLocaleString("en-US", {
+                          {curr}
+                          {p.marketValue.toLocaleString("en-US", {
                             minimumFractionDigits: curr === "$" ? 2 : 0,
                             maximumFractionDigits: 2,
                           })}
@@ -768,7 +821,8 @@ export function PortfolioManagerPage({
                           className="mono bold"
                         >
                           {isProfit ? "+" : ""}
-                          {curr}{p.unrealizedProfit.toLocaleString("en-US", {
+                          {curr}
+                          {p.unrealizedProfit.toLocaleString("en-US", {
                             minimumFractionDigits: curr === "$" ? 2 : 0,
                             maximumFractionDigits: 2,
                           })}
@@ -810,7 +864,13 @@ export function PortfolioManagerPage({
       {/* Tab 2: Watchlist */}
       {activeTab === "WATCHLIST" && (
         <div className="card" style={{ padding: "20px" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: "12px" }}>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
+              gap: "12px",
+            }}
+          >
             {watchlist.map((ticker) => {
               const live = liveQuotes.get(ticker.toUpperCase());
               const fund = live ?? getStockFundamentals(ticker);
@@ -851,13 +911,15 @@ export function PortfolioManagerPage({
 
                   <div style={{ textAlign: "right" }}>
                     <div className="mono bold" style={{ fontSize: "1.1rem" }}>
-                      {getStockCurrency(ticker)}{fund.price.toLocaleString()}
+                      {getStockCurrency(ticker)}
+                      {fund.price.toLocaleString()}
                     </div>
                     <div
                       className="mono tiny bold"
                       style={{ color: isPos ? "var(--color-positive)" : "var(--color-negative)" }}
                     >
-                      {isPos ? "+" : ""}{fund.changePercent.toFixed(2)}%
+                      {isPos ? "+" : ""}
+                      {fund.changePercent.toFixed(2)}%
                     </div>
                     <button
                       type="button"
@@ -891,7 +953,11 @@ export function PortfolioManagerPage({
       >
         <form onSubmit={handleAddPosition}>
           <div style={{ marginBottom: 14 }}>
-            <label htmlFor="position-ticker-select" className="tiny muted mono uppercase block" style={{ marginBottom: 4 }}>
+            <label
+              htmlFor="position-ticker-select"
+              className="tiny muted mono uppercase block"
+              style={{ marginBottom: 4 }}
+            >
               銘柄コードまたはプリセット
             </label>
             <select
@@ -914,7 +980,11 @@ export function PortfolioManagerPage({
           </div>
 
           <div style={{ marginBottom: 14 }}>
-            <label htmlFor="position-shares-input" className="tiny muted mono uppercase block" style={{ marginBottom: 4 }}>
+            <label
+              htmlFor="position-shares-input"
+              className="tiny muted mono uppercase block"
+              style={{ marginBottom: 4 }}
+            >
               保有株数
             </label>
             <input
@@ -931,7 +1001,11 @@ export function PortfolioManagerPage({
           </div>
 
           <div style={{ marginBottom: 20 }}>
-            <label htmlFor="position-avg-cost-input" className="tiny muted mono uppercase block" style={{ marginBottom: 4 }}>
+            <label
+              htmlFor="position-avg-cost-input"
+              className="tiny muted mono uppercase block"
+              style={{ marginBottom: 4 }}
+            >
               平均取得単価 (円またはドル)
             </label>
             <input

@@ -33,10 +33,7 @@ describe("Code Review Goal Fulfillment & Regression Verification", () => {
     "utf-8",
   );
   const appTsx = readFileSync(resolve(rootDir, "src/App.tsx"), "utf-8");
-  const calendarTsx = readFileSync(
-    resolve(rootDir, "src/components/CalendarPage.tsx"),
-    "utf-8",
-  );
+  const calendarTsx = readFileSync(resolve(rootDir, "src/components/CalendarPage.tsx"), "utf-8");
   const searchModalTsx = readFileSync(
     resolve(rootDir, "src/components/GlobalSearchModal.tsx"),
     "utf-8",
@@ -119,15 +116,19 @@ describe("Code Review Goal Fulfillment & Regression Verification", () => {
       // Verify prevAuthRef is declared and manages auth transition state
       expect(portfolioTsx).toContain("const prevAuthRef = useRef(isAuthenticated);");
       expect(portfolioTsx).toMatch(
-        /if\s*\(!prevAuthRef\.current\s*&&\s*isAuthenticated\)\s*\{\s*prevAuthRef\.current\s*=\s*true;\s*setPositions\(loadPortfolioPositions\(\)\);/
+        /if\s*\(!prevAuthRef\.current\s*&&\s*isAuthenticated\)\s*\{\s*prevAuthRef\.current\s*=\s*true;\s*setPositions\(loadPortfolioPositions\(\)\);/,
       );
     });
 
     it("preserves exact compatibility with portfolioAuthGuard test assertions", () => {
       expect(portfolioTsx).toMatch(/isAuthenticated\s*\?\s*loadPortfolioPositions\(\)\s*:\s*\[\]/);
       expect(portfolioTsx).toMatch(/isAuthenticated\s*\?\s*loadWatchlist\(\)\s*:\s*\[\]/);
-      expect(portfolioTsx).toMatch(/if\s*\(isAuthenticated\)\s*\{\s*savePortfolioPositions\(positions\);/);
-      expect(portfolioTsx).toMatch(/if\s*\(isAuthenticated\)\s*\{\s*saveWatchlist\(watchlist\);/);
+      expect(portfolioTsx).toMatch(
+        /if\s*\(isAuthenticated\s*&&\s*positionsPersistedRef\.current\)\s*\{\s*savePortfolioPositions\(positions\);/,
+      );
+      expect(portfolioTsx).toMatch(
+        /if\s*\(isAuthenticated\s*&&\s*watchlistPersistedRef\.current\)\s*\{\s*saveWatchlist\(watchlist\);/,
+      );
       expect(portfolioTsx).toContain("setPositions(loadPortfolioPositions())");
     });
   });
@@ -141,7 +142,7 @@ describe("Code Review Goal Fulfillment & Regression Verification", () => {
 
     it("checks authentication before adding position and navigates to portfolio", () => {
       expect(appTsx).toMatch(
-        /if\s*\(!isAuthenticated\)\s*\{\s*toastInfo\("ポートフォリオ登録にはログインが必要です"\);\s*navigateTo\("portfolio"\);\s*return;\s*\}/
+        /if\s*\(!isAuthenticated\)\s*\{\s*toastInfo\("ポートフォリオ登録にはログインが必要です"\);\s*navigateTo\("portfolio"\);\s*return;\s*\}/,
       );
     });
   });
@@ -170,7 +171,7 @@ describe("Code Review Goal Fulfillment & Regression Verification", () => {
 
     it("avoids duplicate entries when search query matches preset ticker exactly", () => {
       expect(searchModalTsx).toContain(
-        "const hasExactTicker = matchedStocks.some((s) => s.id.toUpperCase() === upperQuery);"
+        "const hasExactTicker = matchedStocks.some((s) => s.id.toUpperCase() === upperQuery);",
       );
       expect(searchModalTsx).toContain("isTickerPattern && !hasExactTicker");
     });

@@ -139,17 +139,23 @@ describe("Live Market and Stock Data Endpoints & Services", () => {
 
     it("returns 400 when ticker format is invalid or oversized", async () => {
       const env = createMockEnv();
-      const invalidCharsReq = new Request("http://localhost/api/stock/fundamentals?ticker=evil<script>", {
-        method: "GET",
-      });
+      const invalidCharsReq = new Request(
+        "http://localhost/api/stock/fundamentals?ticker=evil<script>",
+        {
+          method: "GET",
+        },
+      );
       const invalidRes = await worker.fetch(invalidCharsReq, env as any);
       expect(invalidRes.status).toBe(400);
       const invalidData = await invalidRes.json();
       expect(invalidData.error).toContain("Invalid ticker format");
 
-      const oversizedReq = new Request("http://localhost/api/stock/fundamentals?ticker=TOOLONGTICKERSYMBOLOVER20CHARS", {
-        method: "GET",
-      });
+      const oversizedReq = new Request(
+        "http://localhost/api/stock/fundamentals?ticker=TOOLONGTICKERSYMBOLOVER20CHARS",
+        {
+          method: "GET",
+        },
+      );
       const oversizedRes = await worker.fetch(oversizedReq, env as any);
       expect(oversizedRes.status).toBe(400);
     });
@@ -279,7 +285,10 @@ describe("Live Market and Stock Data Endpoints & Services", () => {
       expect(formatMarketCapDisplay(71200, "PRIME")).toBe("7.1 兆円");
       expect(formatMarketCapDisplay(3500, "STANDARD")).toBe("3,500 億円");
       expect(formatMarketCapDisplay(5536424, "US")).toBe("5.54 兆ドル");
-      expect(formatMarketCapDisplay(45000, "US")).toBe("45 億ドル");
+      // marketCap for US stocks is stored in millions of USD: $45B is
+      // 45,000 $M = 450 億ドル (not 45 億ドル, which would be $4.5B).
+      expect(formatMarketCapDisplay(45000, "US")).toBe("450 億ドル");
+      expect(formatMarketCapDisplay(1000, "US")).toBe("10 億ドル");
       expect(formatMarketCapDisplay(850, "US")).toBe("850 百万ドル");
       expect(formatMarketCapDisplay(-1, "US")).toBe("--");
     });
@@ -422,4 +431,3 @@ describe("Live Market and Stock Data Endpoints & Services", () => {
     });
   });
 });
-

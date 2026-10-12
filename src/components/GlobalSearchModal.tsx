@@ -1,9 +1,18 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { motion } from "framer-motion";
-import { Search, X, TrendingUp, BarChart2, BookmarkPlus, CornerDownLeft, Sparkles } from "lucide-react";
+import {
+  Search,
+  X,
+  TrendingUp,
+  BarChart2,
+  BookmarkPlus,
+  CornerDownLeft,
+  Sparkles,
+} from "lucide-react";
 import { POPULAR_STOCKS, type PopularStock } from "../data/popularStocks";
 import { useModalFocus } from "../hooks/useModalFocus";
+import { isInteractiveKeyTarget } from "../lib/keyboardTarget";
 import type { PageView } from "../lib/navigation";
 import type { CustomIndex } from "../data/indices";
 
@@ -62,13 +71,15 @@ export function GlobalSearchModal({
         s.ticker.toLowerCase().includes(q) ||
         s.name.toLowerCase().includes(q) ||
         s.theme.toLowerCase().includes(q),
-    ).slice(0, 8).map((stock) => ({
-      type: "stock" as const,
-      id: stock.ticker,
-      title: stock.name,
-      subtitle: `${stock.ticker} · ${stock.theme}`,
-      raw: stock,
-    }));
+    )
+      .slice(0, 8)
+      .map((stock) => ({
+        type: "stock" as const,
+        id: stock.ticker,
+        title: stock.name,
+        subtitle: `${stock.ticker} · ${stock.theme}`,
+        raw: stock,
+      }));
 
     const matchedIndices = availableIndices
       .filter(
@@ -116,6 +127,13 @@ export function GlobalSearchModal({
       if (!isOpen || e.isComposing || e.keyCode === 229) return;
       if (filteredResults.length === 0) return;
 
+      // Keep Enter/arrow behavior only for the search input. Without this
+      // guard, Enter while focus sat on a row action button (監視 / 指数に追加)
+      // or the clear button was preventDefault-ed and the handler navigated to
+      // the highlighted result instead, making those buttons unreachable from
+      // the keyboard.
+      if (isInteractiveKeyTarget(e.target, inputRef.current)) return;
+
       if (e.key === "ArrowDown") {
         e.preventDefault();
         setSelectedIndex((prev) => (prev < filteredResults.length - 1 ? prev + 1 : 0));
@@ -142,7 +160,7 @@ export function GlobalSearchModal({
   useEffect(() => {
     if (!isOpen || filteredResults.length === 0) return;
     const targetEl = listRef.current?.querySelector<HTMLElement>(
-      `[data-result-index="${selectedIndex}"]`
+      `[data-result-index="${selectedIndex}"]`,
     );
     targetEl?.scrollIntoView({ block: "nearest" });
   }, [selectedIndex, isOpen, filteredResults.length]);
@@ -189,7 +207,9 @@ export function GlobalSearchModal({
             aria-autocomplete="list"
             aria-expanded={isOpen && filteredResults.length > 0}
             aria-controls="global-search-results"
-            aria-activedescendant={filteredResults.length > 0 ? `global-search-item-${selectedIndex}` : undefined}
+            aria-activedescendant={
+              filteredResults.length > 0 ? `global-search-item-${selectedIndex}` : undefined
+            }
             className="global-search-input"
             placeholder="銘柄名、コード (例: 7203, NVDA)、テーマ、指数を検索..."
             value={query}
@@ -255,7 +275,10 @@ export function GlobalSearchModal({
                           width: "32px",
                           height: "32px",
                           borderRadius: "6px",
-                          background: item.type === "stock" ? "rgba(56, 189, 248, 0.1)" : "rgba(168, 85, 247, 0.1)",
+                          background:
+                            item.type === "stock"
+                              ? "rgba(56, 189, 248, 0.1)"
+                              : "rgba(168, 85, 247, 0.1)",
                           color: item.type === "stock" ? "var(--accent-color)" : "#a855f7",
                           display: "flex",
                           alignItems: "center",
@@ -265,9 +288,7 @@ export function GlobalSearchModal({
                         {item.type === "stock" ? <TrendingUp size={16} /> : <BarChart2 size={16} />}
                       </div>
                       <div>
-                        <div style={{ fontWeight: 600, fontSize: "0.95rem" }}>
-                          {item.title}
-                        </div>
+                        <div style={{ fontWeight: 600, fontSize: "0.95rem" }}>{item.title}</div>
                         <div className="tiny muted mono">{item.subtitle}</div>
                       </div>
                     </div>
@@ -306,7 +327,10 @@ export function GlobalSearchModal({
                         </button>
                       )}
                       {isSelected && (
-                        <div className="mono tiny muted" style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                        <div
+                          className="mono tiny muted"
+                          style={{ display: "flex", alignItems: "center", gap: "4px" }}
+                        >
                           <span>選択</span>
                           <CornerDownLeft size={12} />
                         </div>

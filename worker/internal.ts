@@ -69,6 +69,8 @@ export {
   // In-memory rate limiting and client IP
   HIGH_FREQUENCY_RATE_LIMIT_ENDPOINTS,
   MAX_MEMORY_RATE_LIMIT_ENTRIES,
+  RATE_LIMIT_MAX,
+  RATE_LIMIT_WINDOW,
   checkMemoryRateLimit,
   checkRateLimit,
   clearMemoryRateLimits,

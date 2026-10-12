@@ -651,9 +651,14 @@ describe("Comprehensive Review Fixes", () => {
   });
 
   describe("[M-6] Timeframe YTD boundaries", () => {
+    // Price dates are JST trading dates, so the implementation evaluates the
+    // current year in JST; the fixtures must do the same or they would drift
+    // around the New Year boundary.
+    const jstYear = () => new Date(Date.now() + 9 * 60 * 60 * 1000).getUTCFullYear();
+
     it("does not mix prior-year points when current year has fewer than 2 points", () => {
-      const currentYear = new Date().getFullYear().toString();
-      const pastYear = (new Date().getFullYear() - 1).toString();
+      const currentYear = jstYear().toString();
+      const pastYear = (jstYear() - 1).toString();
 
       const data = [
         ...Array.from({ length: 30 }, (_, i) => ({
@@ -668,8 +673,8 @@ describe("Comprehensive Review Fixes", () => {
     });
 
     it("returns YTD data when 2 or more points exist in current year", () => {
-      const currentYear = new Date().getFullYear().toString();
-      const pastYear = (new Date().getFullYear() - 1).toString();
+      const currentYear = jstYear().toString();
+      const pastYear = (jstYear() - 1).toString();
 
       const data = [
         { date: `${pastYear}-12-30`, close: 1000 },
@@ -680,6 +685,17 @@ describe("Comprehensive Review Fixes", () => {
       const result = filterByTimeframe(data, "YTD");
       expect(result.length).toBe(2);
       expect(result[0].date).toBe(`${currentYear}-01-04`);
+    });
+
+    it("selects the JST year even when the browser-local year has not rolled over", () => {
+      const jstCurrentYear = jstYear().toString();
+      const data = [
+        { date: `${Number(jstCurrentYear) - 1}-12-31`, close: 900 },
+        { date: `${jstCurrentYear}-01-04`, close: 1000 },
+      ];
+      // The filter must never return the prior year for YTD.
+      const result = filterByTimeframe(data, "YTD");
+      expect(result.every((point) => point.date.startsWith(jstCurrentYear))).toBe(true);
     });
   });
 });

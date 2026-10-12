@@ -8,19 +8,33 @@
  * an index name must never reach them verbatim.
  */
 export function toSafeDownloadFileName(raw: string, fallback = "download"): string {
-  const cleaned = Array.from(raw ?? "", (character) => {
-    const code = character.charCodeAt(0);
-    // C0/C1 control characters, DEL, and BOM/RTL overrides are unusable in file names.
+  const characters = Array.from(raw ?? "", (character) => {
+    const code = character.codePointAt(0) ?? 0;
+    // C0/C1 control characters and DEL are unusable in file names.
     if (code <= 31 || (code >= 127 && code <= 159)) return "_";
+    // BOM and bidi/format controls are invisible and can make a file name
+    // display differently from its real bytes (e.g. a spoofed extension).
+    if (
+      code === 0xfeff ||
+      (code >= 0x200b && code <= 0x200f) ||
+      (code >= 0x202a && code <= 0x202e) ||
+      (code >= 0x2066 && code <= 0x2069)
+    ) {
+      return "_";
+    }
     return character;
-  })
+  });
+
+  const cleaned = characters
     .join("")
     .replace(/[/\\?%*:|"<>]/g, "_")
-    .trim()
-    // The suffix (_constituents_YYYY-MM-DD.csv) adds roughly 30 characters;
-    // keep the user portion modest so total length stays filesystem-safe.
-    .slice(0, 80);
-  return cleaned.length > 0 ? cleaned : fallback;
+    .trim();
+  // The suffix (_constituents_YYYY-MM-DD.csv) adds roughly 30 characters; keep
+  // the user portion modest so total length stays filesystem-safe. Clamp by
+  // code points so an astral character (emoji) is never split into lone
+  // surrogates at the boundary.
+  const clamped = Array.from(cleaned).slice(0, 80).join("");
+  return clamped.length > 0 ? clamped : fallback;
 }
 
 /**

@@ -33,7 +33,9 @@ import { useToast } from "./Toast";
 interface ScreenerPageProps {
   onNavigate: (view: PageView, searchParams?: string) => void;
   onOpenStockDetail: (ticker: string) => void;
-  onBatchCreateCustomIndex?: (basket: { ticker: string; name: string; theme: string; weight: number }[]) => void;
+  onBatchCreateCustomIndex?: (
+    basket: { ticker: string; name: string; theme: string; weight: number }[],
+  ) => void;
 }
 
 type PresetKey = "TOP_GAINERS" | "HIGH_DIVIDEND" | "LOW_PBR" | "US_TECH" | null;
@@ -87,7 +89,8 @@ export function ScreenerPage({
   const [minDividend, setMinDividend] = useState<number | undefined>(undefined);
   const [maxPbr, setMaxPbr] = useState<number | undefined>(undefined);
   const [maxPer, setMaxPer] = useState<number | undefined>(undefined);
-  const [sortBy, setSortBy] = useState<NonNullable<ScreenerFilterOptions["sortBy"]>>("changePercent");
+  const [sortBy, setSortBy] =
+    useState<NonNullable<ScreenerFilterOptions["sortBy"]>>("changePercent");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
   const [searchQuery, setSearchQuery] = useState("");
   const [activePreset, setActivePreset] = useState<PresetKey>(null);
@@ -358,7 +361,7 @@ export function ScreenerPage({
   const renderSortableHeader = (
     label: string,
     column: NonNullable<ScreenerFilterOptions["sortBy"]>,
-    align: "left" | "right" | "center" = "right"
+    align: "left" | "right" | "center" = "right",
   ) => {
     const isActive = sortBy === column;
     return (
@@ -386,14 +389,19 @@ export function ScreenerPage({
             display: "inline-flex",
             alignItems: "center",
             gap: "5px",
-            justifyContent: align === "left" ? "flex-start" : align === "right" ? "flex-end" : "center",
+            justifyContent:
+              align === "left" ? "flex-start" : align === "right" ? "flex-end" : "center",
             width: "100%",
           }}
         >
           <span>{label}</span>
           <span style={{ display: "inline-flex", opacity: isActive ? 1 : 0.35 }}>
             {isActive ? (
-              sortOrder === "asc" ? <ArrowUp size={12} /> : <ArrowDown size={12} />
+              sortOrder === "asc" ? (
+                <ArrowUp size={12} />
+              ) : (
+                <ArrowDown size={12} />
+              )
             ) : (
               <ArrowUpDown size={11} />
             )}
@@ -488,7 +496,10 @@ export function ScreenerPage({
           >
             <Sparkles size={14} />
             <span>
-              ★ {selectedTickers.size > 0 ? `選択した${selectedTickers.size}銘柄で指数化` : "抽出結果を一括指数化"}
+              ★{" "}
+              {selectedTickers.size > 0
+                ? `選択した${selectedTickers.size}銘柄で指数化`
+                : "抽出結果を一括指数化"}
             </span>
           </button>
         </div>
@@ -583,10 +594,15 @@ export function ScreenerPage({
         }}
       >
         <div>
-          <label className="tiny muted mono uppercase block" style={{ marginBottom: 4 }}>
+          <label
+            htmlFor="screener-market"
+            className="tiny muted mono uppercase block"
+            style={{ marginBottom: 4 }}
+          >
             対象市場
           </label>
           <select
+            id="screener-market"
             className="select-styled"
             style={{ width: "100%", padding: "6px 10px", fontSize: "0.85rem" }}
             value={market}
@@ -602,10 +618,15 @@ export function ScreenerPage({
         </div>
 
         <div>
-          <label className="tiny muted mono uppercase block" style={{ marginBottom: 4 }}>
+          <label
+            htmlFor="screener-min-dividend"
+            className="tiny muted mono uppercase block"
+            style={{ marginBottom: 4 }}
+          >
             予想配当利回り
           </label>
           <select
+            id="screener-min-dividend"
             className="select-styled"
             style={{ width: "100%", padding: "6px 10px", fontSize: "0.85rem" }}
             value={minDividend ?? ""}
@@ -623,10 +644,15 @@ export function ScreenerPage({
         </div>
 
         <div>
-          <label className="tiny muted mono uppercase block" style={{ marginBottom: 4 }}>
+          <label
+            htmlFor="screener-max-pbr"
+            className="tiny muted mono uppercase block"
+            style={{ marginBottom: 4 }}
+          >
             PBR (株価純資産倍率)
           </label>
           <select
+            id="screener-max-pbr"
             className="select-styled"
             style={{ width: "100%", padding: "6px 10px", fontSize: "0.85rem" }}
             value={maxPbr ?? ""}
@@ -643,10 +669,15 @@ export function ScreenerPage({
         </div>
 
         <div>
-          <label className="tiny muted mono uppercase block" style={{ marginBottom: 4 }}>
+          <label
+            htmlFor="screener-max-per"
+            className="tiny muted mono uppercase block"
+            style={{ marginBottom: 4 }}
+          >
             PER (株価収益率)
           </label>
           <select
+            id="screener-max-per"
             className="select-styled"
             style={{ width: "100%", padding: "6px 10px", fontSize: "0.85rem" }}
             value={maxPer ?? ""}
@@ -663,11 +694,16 @@ export function ScreenerPage({
         </div>
 
         <div>
-          <label className="tiny muted mono uppercase block" style={{ marginBottom: 4 }}>
+          <label
+            htmlFor="screener-search"
+            className="tiny muted mono uppercase block"
+            style={{ marginBottom: 4 }}
+          >
             銘柄名 / コード絞り込み
           </label>
           <div style={{ position: "relative" }}>
             <input
+              id="screener-search"
               type="text"
               className="input-styled"
               placeholder="例: トヨタ, 半導体, 7203"
@@ -685,6 +721,7 @@ export function ScreenerPage({
                 style={{ position: "absolute", right: 4, top: 5, padding: "2px 4px" }}
                 onClick={() => setSearchQuery("")}
                 title="検索クリア"
+                aria-label="絞り込みキーワードをクリア"
               >
                 <X size={12} />
               </button>
@@ -764,18 +801,18 @@ export function ScreenerPage({
         >
           <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
             <span className="tiny muted mono">
-              抽出結果: <strong style={{ color: "var(--text-primary)" }}>{results.length}</strong> 件
+              抽出結果: <strong style={{ color: "var(--text-primary)" }}>{results.length}</strong>{" "}
+              件
             </span>
             {selectedTickers.size > 0 && (
-              <span className="badge badge-accent tiny mono">
-                {selectedTickers.size} 件選択中
-              </span>
+              <span className="badge badge-accent tiny mono">{selectedTickers.size} 件選択中</span>
             )}
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <span className="tiny muted">クイック並び替え:</span>
             <select
+              aria-label="クイック並び替え"
               className="select-styled tiny"
               style={{ padding: "4px 8px" }}
               value={sortBy}
@@ -797,7 +834,9 @@ export function ScreenerPage({
               className="btn btn-ghost tiny screener-sort-dir-btn"
               onClick={() => setSortOrder((prev) => (prev === "asc" ? "desc" : "asc"))}
               title={sortOrder === "asc" ? "昇順 (クリックで降順へ)" : "降順 (クリックで昇順へ)"}
-              aria-label={sortOrder === "asc" ? "昇順 (クリックで降順へ)" : "降順 (クリックで昇順へ)"}
+              aria-label={
+                sortOrder === "asc" ? "昇順 (クリックで降順へ)" : "降順 (クリックで昇順へ)"
+              }
             >
               {sortOrder === "asc" ? <ArrowUp size={13} /> : <ArrowDown size={13} />}
             </button>
@@ -854,7 +893,6 @@ export function ScreenerPage({
                   return (
                     <tr
                       key={stock.ticker}
-                      role="button"
                       tabIndex={0}
                       style={{ cursor: "pointer" }}
                       aria-label={`${stock.name} (${stock.ticker}) の詳細を見る`}
@@ -904,7 +942,14 @@ export function ScreenerPage({
                       </td>
 
                       <td>
-                        <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "6px",
+                            flexWrap: "wrap",
+                          }}
+                        >
                           <span style={{ fontWeight: 600, color: "var(--accent-text)" }}>
                             {stock.name}
                           </span>
@@ -932,7 +977,10 @@ export function ScreenerPage({
                         className="mono bold"
                       >
                         {stock.market === "US"
-                          ? stock.price.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                          ? stock.price.toLocaleString("en-US", {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2,
+                            })
                           : stock.price.toLocaleString("ja-JP")}
                         <span className="tiny muted" style={{ marginLeft: 3 }}>
                           {stock.market === "US" ? "USD" : "円"}
@@ -959,7 +1007,9 @@ export function ScreenerPage({
                         }}
                         className="mono bold"
                       >
-                        {typeof stock.dividendYield === "number" ? `${stock.dividendYield.toFixed(2)}%` : "--"}
+                        {typeof stock.dividendYield === "number"
+                          ? `${stock.dividendYield.toFixed(2)}%`
+                          : "--"}
                       </td>
 
                       <td

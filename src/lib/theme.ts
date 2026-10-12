@@ -101,12 +101,12 @@ export function applyTheme(theme: ThemeMode, accent: AccentColor): void {
   doc.documentElement.setAttribute("data-accent", accent);
 }
 
-const listeners = new Set<() => void>();
+const listeners = new Set<(theme: ThemeMode, accent: AccentColor) => void>();
 
-function notifyThemeListeners(): void {
+function notifyThemeListeners(theme: ThemeMode, accent: AccentColor): void {
   listeners.forEach((listener) => {
     try {
-      listener();
+      listener(theme, accent);
     } catch {
       // Ignore listener error
     }
@@ -122,16 +122,22 @@ export function useTheme() {
   }, [theme, accent]);
 
   useEffect(() => {
-    const handleSync = () => {
-      setThemeState(getStoredTheme());
-      setAccentState(getStoredAccent());
+    // Same-page instances receive the new values directly. Re-reading storage
+    // here made the toggle appear broken whenever storage is read-only: the
+    // write failed, the listener read the old/default value, and the state
+    // reverted immediately after the click.
+    const handleSync = (nextTheme: ThemeMode, nextAccent: AccentColor) => {
+      setThemeState(nextTheme);
+      setAccentState(nextAccent);
     };
     listeners.add(handleSync);
 
     const handleStorage = (e: unknown) => {
       const key = (e as { key?: string | null } | null)?.key;
       if (key === THEME_STORAGE_KEY || key === ACCENT_STORAGE_KEY) {
-        handleSync();
+        // Cross-tab change: storage is the source of truth.
+        setThemeState(getStoredTheme());
+        setAccentState(getStoredAccent());
       }
     };
     const win = globalThis as unknown as {
@@ -149,32 +155,38 @@ export function useTheme() {
     };
   }, []);
 
-  const setTheme = useCallback((newTheme: ThemeMode) => {
-    setThemeState(newTheme);
-    try {
-      localStorage.setItem(THEME_STORAGE_KEY, newTheme);
-    } catch {
-      // Storage may be unavailable or read-only.
-    }
-    applyTheme(newTheme, accent);
-    notifyThemeListeners();
-  }, [accent]);
+  const setTheme = useCallback(
+    (newTheme: ThemeMode) => {
+      setThemeState(newTheme);
+      try {
+        localStorage.setItem(THEME_STORAGE_KEY, newTheme);
+      } catch {
+        // Storage may be unavailable or read-only.
+      }
+      applyTheme(newTheme, accent);
+      notifyThemeListeners(newTheme, accent);
+    },
+    [accent],
+  );
 
   const toggleTheme = useCallback(() => {
     const next = theme === "dark" ? "light" : "dark";
     setTheme(next);
   }, [theme, setTheme]);
 
-  const setAccent = useCallback((newAccent: AccentColor) => {
-    setAccentState(newAccent);
-    try {
-      localStorage.setItem(ACCENT_STORAGE_KEY, newAccent);
-    } catch {
-      // Storage may be unavailable or read-only.
-    }
-    applyTheme(theme, newAccent);
-    notifyThemeListeners();
-  }, [theme]);
+  const setAccent = useCallback(
+    (newAccent: AccentColor) => {
+      setAccentState(newAccent);
+      try {
+        localStorage.setItem(ACCENT_STORAGE_KEY, newAccent);
+      } catch {
+        // Storage may be unavailable or read-only.
+      }
+      applyTheme(theme, newAccent);
+      notifyThemeListeners(theme, newAccent);
+    },
+    [theme],
+  );
 
   return {
     theme,
@@ -185,4 +197,3 @@ export function useTheme() {
     accentOptions: ACCENT_OPTIONS,
   };
 }
-

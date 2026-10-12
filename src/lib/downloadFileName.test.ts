@@ -24,6 +24,31 @@ describe("toSafeDownloadFileName", () => {
     expect(toSafeDownloadFileName(long).length).toBeLessThanOrEqual(80);
   });
 
+  it("never splits a surrogate pair at the length boundary", () => {
+    // 79 ASCII characters followed by an astral character (emoji = 2 code
+    // units): slicing by code units produced a lone surrogate.
+    const name = `${"x".repeat(79)}😀${"y".repeat(10)}`;
+    const safe = toSafeDownloadFileName(name);
+    expect(safe).toBe(`${"x".repeat(79)}😀`);
+    // No lone surrogates may remain.
+    for (let i = 0; i < safe.length; i += 1) {
+      const code = safe.charCodeAt(i);
+      if (code >= 0xd800 && code <= 0xdbff) {
+        const next = safe.charCodeAt(i + 1);
+        expect(next >= 0xdc00 && next <= 0xdfff).toBe(true);
+        i += 1;
+      } else {
+        expect(code >= 0xdc00 && code <= 0xdfff).toBe(false);
+      }
+    }
+  });
+
+  it("strips bidi overrides and BOM that could spoof the extension", () => {
+    expect(toSafeDownloadFileName("index\u202Egnp.exe")).toBe("index_gnp.exe");
+    expect(toSafeDownloadFileName("\uFEFFname\u200F")).toBe("_name_");
+    expect(toSafeDownloadFileName("a\u2066b\u2069c")).toBe("a_b_c");
+  });
+
   it("handles undefined-like input gracefully", () => {
     expect(toSafeDownloadFileName(undefined as unknown as string, "fallback")).toBe("fallback");
   });

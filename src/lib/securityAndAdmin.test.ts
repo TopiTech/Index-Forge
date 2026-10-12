@@ -191,21 +191,28 @@ function createSecurityTestEnv() {
             const targetId = params[params.length - 1] as string;
             const existing = passwords.get(targetId);
             if (existing) {
-              if (query.includes("password_hash = ?")) {
-                existing.password_hash = params[0] as string;
-                existing.updated_at = params[1] as number;
-              }
-              if (query.includes("role = ?")) {
-                existing.role = params[0] as "admin" | "user";
-              }
-              if (query.includes("is_active = ?")) {
-                existing.is_active = params[0] as number;
-              }
-              if (query.includes("max_stocks = ?")) {
-                existing.max_stocks = params[0] as number | null;
-              }
-              if (query.includes("max_indices = ?")) {
-                existing.max_indices = params[0] as number | null;
+              // Walk the SET clause so each bound parameter is assigned to the
+              // column it belongs to (assignments without a parameter, e.g.
+              // `max_stocks = NULL`, consume none).
+              const setClause = query.slice(query.indexOf("SET") + 3, query.indexOf("WHERE"));
+              const assignments = setClause
+                .split(",")
+                .map((s) => s.trim())
+                .filter((s) => s.includes("= ?"));
+              let paramIndex = 0;
+              for (const assignment of assignments) {
+                const value = params[paramIndex];
+                paramIndex += 1;
+                if (assignment.startsWith("password_hash"))
+                  existing.password_hash = value as string;
+                else if (assignment.startsWith("role")) existing.role = value as "admin" | "user";
+                else if (assignment.startsWith("is_active")) existing.is_active = value as number;
+                else if (assignment.startsWith("max_stocks"))
+                  existing.max_stocks = value as number | null;
+                else if (assignment.startsWith("max_indices"))
+                  existing.max_indices = value as number | null;
+                else if (assignment.startsWith("name")) existing.name = value as string;
+                else if (assignment.startsWith("updated_at")) existing.updated_at = value as number;
               }
             }
             return { success: true };
@@ -454,7 +461,7 @@ describe("Security and Admin Regression Tests", () => {
     expect(hasAdminMaster).toBe(false);
   });
 
-  it("allows admins to update role in PUT /api/admin/passwords", async () => {
+  it("allows admins to promote a user to admin when a new password is supplied", async () => {
     const { env, passwords } = createSecurityTestEnv();
 
     passwords.set("pwd-user-2", {
@@ -478,12 +485,49 @@ describe("Security and Admin Regression Tests", () => {
       body: JSON.stringify({
         id: "pwd-user-2",
         role: "admin",
+        password: "NewlyPromotedAdminPassword2026!",
       }),
     });
 
     const updateRes = await worker.fetch(updateReq, env as any);
     expect(updateRes.status).toBe(200);
     expect(passwords.get("pwd-user-2")?.role).toBe("admin");
+  });
+
+  it("rejects promoting a user to admin without a new password", async () => {
+    const { env, passwords } = createSecurityTestEnv();
+
+    passwords.set("pwd-user-3", {
+      id: "pwd-user-3",
+      name: "Unchanged User",
+      password_hash: await hashToken("unchangedpass"),
+      plain_password: "unchangedpass",
+      role: "user",
+      max_stocks: 10,
+      is_active: 1,
+      created_at: 1000,
+      updated_at: 1000,
+    });
+
+    // Salted PBKDF2 hashes cannot be compared for uniqueness, so a promotion
+    // must supply a fresh password that findPasswordCollision() can verify.
+    const updateReq = new Request("http://localhost/api/admin/passwords", {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        "x-auth-password": TEST_ADMIN_PASSWORD,
+      },
+      body: JSON.stringify({
+        id: "pwd-user-3",
+        role: "admin",
+      }),
+    });
+
+    const updateRes = await worker.fetch(updateReq, env as any);
+    expect(updateRes.status).toBe(400);
+    const data = await updateRes.json();
+    expect(String(data.error)).toContain("新しいパスワードを指定してください");
+    expect(passwords.get("pwd-user-3")?.role).toBe("user");
   });
 
   it("does not allow a secondary admin to rotate the master password", async () => {

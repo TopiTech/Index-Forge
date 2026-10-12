@@ -34,16 +34,24 @@ export function getStoredAuth(): AuthSession | null {
     const session = JSON.parse(raw) as AuthSession;
     if (!sessionRaw && legacyRaw) {
       // Storage can be present but read-only (private browsing/quota policy).
-      // A failed migration must not discard an otherwise valid legacy session.
+      // A failed migration must not discard an otherwise valid legacy session:
+      // the legacy entry is removed only after the sessionStorage write
+      // actually succeeded.
+      let migrated = false;
       try {
-        sessionStore?.setItem(AUTH_STORAGE_KEY, legacyRaw);
+        if (sessionStore) {
+          sessionStore.setItem(AUTH_STORAGE_KEY, legacyRaw);
+          migrated = true;
+        }
       } catch {
         // Keep using the parsed legacy session for this render.
       }
-      try {
-        localStore?.removeItem(AUTH_STORAGE_KEY);
-      } catch {
-        // Best-effort cleanup; clearAuth will retry later.
+      if (migrated) {
+        try {
+          localStore?.removeItem(AUTH_STORAGE_KEY);
+        } catch {
+          // Best-effort cleanup; clearAuth will retry later.
+        }
       }
     }
     return session;

@@ -62,12 +62,39 @@ const API_BASE = "/api";
 const SYNC_BATCH_SIZE = 30;
 
 /** Split tickers into sync batches no larger than the Worker's request limit. */
-export function buildSyncBatches(tickers: readonly string[], maxBatch = SYNC_BATCH_SIZE): string[][] {
+export function buildSyncBatches(
+  tickers: readonly string[],
+  maxBatch = SYNC_BATCH_SIZE,
+): string[][] {
   const batches: string[][] = [];
   for (let i = 0; i < tickers.length; i += maxBatch) {
     batches.push(tickers.slice(i, i + maxBatch));
   }
   return batches;
+}
+
+/**
+ * What the simulation effect must do when the basket or its ticker set changes.
+ *
+ * - "clear": the basket is empty.
+ * - "recompute": data was already fetched for this exact ticker set, so the
+ *   index can be recomputed in client memory (weights changed, or the server
+ *   has no price rows for one of the tickers — re-fetching cannot add data).
+ * - "idle": already fetched for this ticker set but no series are available;
+ *   fetching again would loop without ever satisfying the completeness check.
+ * - "fetch": the ticker set changed; fetch the missing data (debounced).
+ */
+export type SimulationEffectAction = "clear" | "recompute" | "idle" | "fetch";
+
+export function decideSimulationEffectAction(
+  basketLength: number,
+  knownTickersKey: string,
+  currentTickersKey: string,
+  stockUniverseSize: number,
+): SimulationEffectAction {
+  if (basketLength === 0) return "clear";
+  if (knownTickersKey !== currentTickersKey) return "fetch";
+  return stockUniverseSize > 0 ? "recompute" : "idle";
 }
 
 export function useSimulation(
@@ -126,6 +153,9 @@ export function useSimulation(
       if (!force && hasAllStockData && stockUniverse.length > 0) {
         const computed = calculateCustomIndex(basket, stockUniverse, baseValue);
         setCustomSeries(computed);
+        // The fetched data already covers this ticker set; record it so the
+        // effect recomputes in memory instead of re-arming a fetch.
+        knownTickersRef.current = currentTickersKey;
         return;
       }
 
@@ -266,19 +296,36 @@ export function useSimulation(
     [basket, baseValue, currentTickersKey, hasAllStockData, stockUniverse],
   );
 
-
   // When basket tickers change or initial mount, trigger simulation fetch
   useEffect(() => {
-    if (basket.length === 0) {
+    const action = decideSimulationEffectAction(
+      basket.length,
+      knownTickersRef.current,
+      currentTickersKey,
+      stockUniverse.length,
+    );
+
+    if (action === "clear") {
+      // Forget the fetched ticker set: re-adding the same tickers must fetch
+      // again instead of assuming the cleared universe still covers them.
+      knownTickersRef.current = "";
       setCustomSeries([]);
       setStockUniverse([]);
       return;
     }
 
-    // If only weights changed and we have stockUniverse, recompute client-side immediately
-    if (hasAllStockData && knownTickersRef.current === currentTickersKey) {
-      const computed = calculateCustomIndex(basket, stockUniverse, baseValue);
-      setCustomSeries(computed);
+    if (action === "recompute") {
+      // Weights changed, or the server returned no price rows for one of the
+      // tickers: recompute from the data we already have. Re-fetching cannot
+      // add missing data and previously looped forever at ~4 requests/second
+      // (each response replaced stockUniverse, re-triggering this effect).
+      setCustomSeries(calculateCustomIndex(basket, stockUniverse, baseValue));
+      return;
+    }
+
+    if (action === "idle") {
+      // Already fetched for this ticker set but no series are available;
+      // re-fetching would loop without ever satisfying the completeness check.
       return;
     }
 
@@ -288,7 +335,7 @@ export function useSimulation(
     }, 250);
 
     return () => clearTimeout(timer);
-  }, [currentTickersKey, basket, baseValue, hasAllStockData, stockUniverse, runSimulation]);
+  }, [currentTickersKey, basket, baseValue, stockUniverse, runSimulation]);
 
   // Cancel inflight simulation requests when component unmounts
   useEffect(() => {
@@ -330,7 +377,6 @@ export function useSimulation(
       filteredBenchmarkSeries.length > 0,
     [benchmarkLoading, activeBenchmarkData, filteredBenchmarkSeries],
   );
-
 
   // Calculate quantitative risk metrics
   const metrics = useMemo<RiskMetrics>(() => {
@@ -438,9 +484,23 @@ export function calculatePeriodReturns(
       endPoint = filteredBenchmarkSeries[filteredBenchmarkSeries.length - 1];
     }
 
-    if (startPoint && endPoint && startPoint.close > 0 && endPoint.close > 0 && startPoint !== endPoint) {
-      benchmarkReturn = sanitizeMetricPct(((endPoint.close - startPoint.close) / startPoint.close) * 100);
-    } else if (startPoint && endPoint && startPoint.close > 0 && endPoint.close > 0 && startPoint === endPoint) {
+    if (
+      startPoint &&
+      endPoint &&
+      startPoint.close > 0 &&
+      endPoint.close > 0 &&
+      startPoint !== endPoint
+    ) {
+      benchmarkReturn = sanitizeMetricPct(
+        ((endPoint.close - startPoint.close) / startPoint.close) * 100,
+      );
+    } else if (
+      startPoint &&
+      endPoint &&
+      startPoint.close > 0 &&
+      endPoint.close > 0 &&
+      startPoint === endPoint
+    ) {
       benchmarkReturn = 0;
     }
   } else if (filteredBenchmarkSeries.length >= 2) {
@@ -531,7 +591,8 @@ export function getTickerBasePrice(ticker: string): number {
   const cleanTicker = normalizeTicker(ticker).replace(/\.T$/, "");
   if (KNOWN_PRICES[cleanTicker]) return KNOWN_PRICES[cleanTicker];
   let hash = 0;
-  for (let i = 0; i < cleanTicker.length; i++) hash = (hash * 31 + cleanTicker.charCodeAt(i)) & 0xffff;
+  for (let i = 0; i < cleanTicker.length; i++)
+    hash = (hash * 31 + cleanTicker.charCodeAt(i)) & 0xffff;
   return 1000 + (hash % 4000);
 }
 

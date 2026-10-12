@@ -9,10 +9,7 @@ import {
   resetLastKnownCalendarEvents,
   resetYahooCrumbCache,
 } from "../../worker/internal";
-import {
-  fetchUpcomingEvents,
-  type CalendarEvent,
-} from "./marketDataService";
+import { fetchUpcomingEvents, type CalendarEvent } from "./marketDataService";
 
 function createMockEnv() {
   return {
@@ -252,6 +249,81 @@ describe("Calendar Enhancements & Live Data Fetching", () => {
         const res2 = await fetchUpcomingEvents();
         expect(res2).toHaveLength(1);
         expect(res2[0].id).toBe("live-event-1");
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
+    it("drops malformed cached events instead of rendering them", async () => {
+      const mockStorage: Record<string, string> = {};
+      const sessionStorageMock = {
+        getItem: (k: string) => mockStorage[k] || null,
+        setItem: (k: string, v: string) => {
+          mockStorage[k] = v;
+        },
+        removeItem: (k: string) => {
+          delete mockStorage[k];
+        },
+        clear: () => {
+          for (const k in mockStorage) delete mockStorage[k];
+        },
+      };
+
+      // A corrupted/hand-edited cache: entries missing id/date/title must be
+      // dropped, and the valid entry must survive.
+      mockStorage["indexforge:calendar:cache:v1"] = JSON.stringify([
+        { id: "bad-1", importance: "HIGH" },
+        { date: "11/04", title: "no id" },
+        null,
+        "garbage",
+        {
+          id: "good-1",
+          date: "11/05",
+          title: "Valid cached event",
+          type: "EARNINGS",
+          importance: "MEDIUM",
+        },
+      ]);
+
+      const fetchMock = vi.fn().mockRejectedValue(new Error("API offline"));
+      vi.stubGlobal("fetch", fetchMock);
+      vi.stubGlobal("window", { sessionStorage: sessionStorageMock });
+
+      try {
+        const events = await fetchUpcomingEvents();
+        expect(events).toHaveLength(1);
+        expect(events[0].id).toBe("good-1");
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
+    it("falls back to generated events when every cached event is malformed", async () => {
+      const mockStorage: Record<string, string> = {};
+      const sessionStorageMock = {
+        getItem: (k: string) => mockStorage[k] || null,
+        setItem: (k: string, v: string) => {
+          mockStorage[k] = v;
+        },
+        removeItem: (k: string) => {
+          delete mockStorage[k];
+        },
+        clear: () => {
+          for (const k in mockStorage) delete mockStorage[k];
+        },
+      };
+
+      mockStorage["indexforge:calendar:cache:v1"] = JSON.stringify([{ id: 1 }, { date: null }]);
+
+      const fetchMock = vi.fn().mockRejectedValue(new Error("API offline"));
+      vi.stubGlobal("fetch", fetchMock);
+      vi.stubGlobal("window", { sessionStorage: sessionStorageMock });
+
+      try {
+        const events = await fetchUpcomingEvents();
+        expect(events.length).toBeGreaterThan(0);
+        // The generated fallback is flagged as reference data.
+        expect(events.every((e) => e.source === "fallback")).toBe(true);
       } finally {
         vi.unstubAllGlobals();
       }
