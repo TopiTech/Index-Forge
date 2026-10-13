@@ -5,6 +5,7 @@
 
 import { POPULAR_STOCKS } from "../data/popularStocks";
 import { BASELINE_ASSET_QUOTES, type BaselineAssetQuote } from "../data/marketConstants";
+import { escapeCsvCell } from "./csv";
 
 export interface MarketAssetQuote {
   symbol: string;
@@ -1665,7 +1666,7 @@ export function escapeIcsText(text: string): string {
     .replace(/\\/g, "\\\\")
     .replace(/;/g, "\\;")
     .replace(/,/g, "\\,")
-    .replace(/\r?\n/g, "\\n");
+    .replace(/\r\n|\r|\n/g, "\\n");
 }
 
 /**
@@ -1740,12 +1741,6 @@ export function exportCalendarToIcs(events: CalendarEvent[]): string {
  * カレンダーイベント一覧を CSV 形式にエクスポート (Excel対応 UTF-8 BOM付き)
  */
 export function exportCalendarToCsv(events: CalendarEvent[]): string {
-  const escapeCell = (val: unknown): string => {
-    if (val === undefined || val === null) return '""';
-    const s = String(val).replace(/"/g, '""');
-    return `"${s}"`;
-  };
-
   const headers = [
     "日付",
     "完全日付",
@@ -1764,20 +1759,20 @@ export function exportCalendarToCsv(events: CalendarEvent[]): string {
   ];
 
   const rows = events.map((e) => [
-    escapeCell(e.date),
-    escapeCell(e.fullDate || ""),
-    escapeCell(e.type === "MACRO" ? "経済指標" : "企業決算"),
-    escapeCell(e.title),
-    escapeCell(e.ticker || ""),
-    escapeCell(e.companyName || ""),
-    escapeCell(e.importance),
-    escapeCell(e.time || ""),
-    escapeCell(e.market === "US" ? "米国" : "国内東証"),
-    escapeCell(e.previous || ""),
-    escapeCell(e.forecast || ""),
-    escapeCell(e.actual || ""),
-    escapeCell(e.source === "fallback" ? "参考値(推計)" : "実データ"),
-    escapeCell(e.description || ""),
+    escapeCsvCell(e.date),
+    escapeCsvCell(e.fullDate || ""),
+    escapeCsvCell(e.type === "MACRO" ? "経済指標" : "企業決算"),
+    escapeCsvCell(e.title),
+    escapeCsvCell(e.ticker || ""),
+    escapeCsvCell(e.companyName || ""),
+    escapeCsvCell(e.importance),
+    escapeCsvCell(e.time || ""),
+    escapeCsvCell(e.market === "US" ? "米国" : "国内東証"),
+    escapeCsvCell(e.previous || ""),
+    escapeCsvCell(e.forecast || ""),
+    escapeCsvCell(e.actual || ""),
+    escapeCsvCell(e.source === "fallback" ? "参考値(推計)" : "実データ"),
+    escapeCsvCell(e.description || ""),
   ]);
 
   return "\uFEFF" + [headers.join(","), ...rows.map((r) => r.join(","))].join("\r\n");

@@ -299,6 +299,7 @@ export function CalendarPage({
               className={`btn btn-xs ${viewMode === "LIST" ? "btn-accent" : "btn-ghost"}`}
               style={{ borderRadius: "18px", padding: "4px 12px", border: "none" }}
               onClick={() => setViewMode("LIST")}
+              aria-pressed={viewMode === "LIST"}
               title="リストタイムライン表示"
             >
               <List size={13} style={{ marginRight: 4 }} />
@@ -309,6 +310,7 @@ export function CalendarPage({
               className={`btn btn-xs ${viewMode === "CALENDAR" ? "btn-accent" : "btn-ghost"}`}
               style={{ borderRadius: "18px", padding: "4px 12px", border: "none" }}
               onClick={() => setViewMode("CALENDAR")}
+              aria-pressed={viewMode === "CALENDAR"}
               title="月間カレンダーグリッド表示"
             >
               <Grid size={13} style={{ marginRight: 4 }} />
@@ -859,6 +861,7 @@ export function CalendarPage({
                               }
                             }}
                             title={`${evt.title} (${evt.importance}重要度)`}
+                            aria-label={`${evt.title} (${evt.importance}重要度) の詳細を表示`}
                             style={{
                               padding: "2px 5px",
                               borderRadius: "4px",
