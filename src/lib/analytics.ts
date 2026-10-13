@@ -199,7 +199,18 @@ export function calculateRiskMetrics(
       const prevB = benchMap.get(prevDate);
       const currB = benchMap.get(currDate);
 
-      if (prevC > 0 && prevB !== undefined && currB !== undefined && prevB > 0) {
+      if (
+        prevC > 0 &&
+        currC > 0 &&
+        Number.isFinite(prevC) &&
+        Number.isFinite(currC) &&
+        prevB !== undefined &&
+        currB !== undefined &&
+        prevB > 0 &&
+        currB > 0 &&
+        Number.isFinite(prevB) &&
+        Number.isFinite(currB)
+      ) {
         pairedReturns.push({
           custom: (currC - prevC) / prevC,
           bench: (currB - prevB) / prevB,
@@ -221,7 +232,8 @@ export function calculateRiskMetrics(
       if (bVar > 1e-12) {
         const rawBeta = cov / bVar;
         if (Number.isFinite(rawBeta)) {
-          beta = Number(rawBeta.toFixed(2));
+          const roundedBeta = Number(rawBeta.toFixed(2));
+          beta = Object.is(roundedBeta, -0) ? 0 : roundedBeta;
         }
       }
     }

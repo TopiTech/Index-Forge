@@ -88,6 +88,11 @@ export function CalendarPage({
   const [viewMode, setViewMode] = useState<"LIST" | "CALENDAR">("LIST");
   const [currentMonthDate, setCurrentMonthDate] = useState(() => new Date());
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
+  const [selectedDayOverview, setSelectedDayOverview] = useState<{
+    dateStr: string;
+    fullDate?: string;
+    events: CalendarEvent[];
+  } | null>(null);
 
   const mountedRef = useRef(true);
   const requestIdRef = useRef(0);
@@ -882,12 +887,44 @@ export function CalendarPage({
                         );
                       })}
                       {cell.events.length > 3 && (
-                        <div
-                          className="tiny muted mono"
-                          style={{ fontSize: "0.65rem", textAlign: "right" }}
+                        <button
+                          type="button"
+                          className="calendar-more-events-btn tiny mono"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedDayOverview({
+                              dateStr: `${cell.day}日`,
+                              fullDate: cell.dateKeyFull,
+                              events: cell.events,
+                            });
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setSelectedDayOverview({
+                                dateStr: `${cell.day}日`,
+                                fullDate: cell.dateKeyFull,
+                                events: cell.events,
+                              });
+                            }
+                          }}
+                          aria-label={`${cell.day}日のすべてのイベント (${cell.events.length}件) を表示`}
+                          style={{
+                            border: "none",
+                            background: "rgba(0, 229, 255, 0.12)",
+                            color: "var(--neon-cyan)",
+                            borderRadius: "4px",
+                            padding: "2px 4px",
+                            fontSize: "0.65rem",
+                            textAlign: "center",
+                            cursor: "pointer",
+                            width: "100%",
+                            fontWeight: 600,
+                          }}
                         >
-                          +{cell.events.length - 3}件
-                        </div>
+                          +{cell.events.length - 3}件を表示
+                        </button>
                       )}
                     </div>
                   </div>
@@ -1056,6 +1093,111 @@ export function CalendarPage({
                 </button>
               )}
             </div>
+          </div>
+        </ModalBase>
+      )}
+
+      {/* Day Events Overview Modal */}
+      {selectedDayOverview && (
+        <ModalBase
+          isOpen={Boolean(selectedDayOverview)}
+          onClose={() => setSelectedDayOverview(null)}
+          title={
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <CalendarIcon size={18} style={{ color: "var(--accent-text)" }} />
+              <span>
+                {selectedDayOverview.fullDate || selectedDayOverview.dateStr} のイベント一覧 (
+                {selectedDayOverview.events.length}件)
+              </span>
+            </div>
+          }
+          maxWidth={560}
+        >
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: "10px",
+              maxHeight: "60vh",
+              overflowY: "auto",
+              paddingRight: "4px",
+            }}
+          >
+            {selectedDayOverview.events.map((evt) => {
+              const isMacro = evt.type === "MACRO";
+              return (
+                <div
+                  key={evt.id}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => {
+                    setSelectedDayOverview(null);
+                    setSelectedEvent(evt);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      setSelectedDayOverview(null);
+                      setSelectedEvent(evt);
+                    }
+                  }}
+                  aria-label={`${evt.title} の詳細を表示`}
+                  style={{
+                    padding: "12px",
+                    borderRadius: "8px",
+                    background: "var(--bg-card-hover)",
+                    border: `1px solid ${isMacro ? "rgba(56, 189, 248, 0.3)" : "rgba(16, 185, 129, 0.3)"}`,
+                    cursor: "pointer",
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    gap: "10px",
+                    transition: "border-color 0.15s ease",
+                  }}
+                >
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "6px",
+                        marginBottom: "4px",
+                        flexWrap: "wrap",
+                      }}
+                    >
+                      <span
+                        className={`badge ${isMacro ? "badge-accent" : "badge-success"} mono tiny`}
+                      >
+                        {isMacro ? "マクロ指標" : "企業決算"}
+                      </span>
+                      <span className="badge badge-default mono tiny">{evt.importance}</span>
+                      {evt.time && <span className="tiny muted mono">{evt.time}</span>}
+                      {evt.ticker && (
+                        <span className="badge badge-accent mono tiny">{evt.ticker}</span>
+                      )}
+                      {evt.source === "fallback" && (
+                        <span className="badge badge-warning mono tiny">参考値</span>
+                      )}
+                    </div>
+                    <div
+                      style={{
+                        fontWeight: 600,
+                        fontSize: "0.9rem",
+                        color: "var(--text-primary)",
+                      }}
+                    >
+                      {evt.title}
+                    </div>
+                    {evt.companyName && (
+                      <div className="tiny muted" style={{ marginTop: "2px" }}>
+                        {evt.companyName}
+                      </div>
+                    )}
+                  </div>
+                  <ChevronRight size={16} className="muted" style={{ flexShrink: 0 }} />
+                </div>
+              );
+            })}
           </div>
         </ModalBase>
       )}

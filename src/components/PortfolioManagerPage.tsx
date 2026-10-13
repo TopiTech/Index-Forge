@@ -172,13 +172,18 @@ export function PortfolioManagerPage({
 
   // Synchronize positions & watchlist immediately when auth transition occurs
   // during render to prevent overwriting saved data with unauthenticated empty arrays
+  const isAuthTransitionRef = useRef(false);
   const prevAuthRef = useRef(isAuthenticated);
   if (!prevAuthRef.current && isAuthenticated) {
     prevAuthRef.current = true;
     setPositions(loadPortfolioPositions());
     setWatchlist(loadWatchlist());
+    isAuthTransitionRef.current = true;
+    positionsPersistedRef.current = hasPersistedPortfolio();
+    watchlistPersistedRef.current = hasPersistedWatchlist();
   } else if (prevAuthRef.current && !isAuthenticated) {
     prevAuthRef.current = false;
+    isAuthTransitionRef.current = false;
     setPositions([]);
     setWatchlist([]);
   }
@@ -186,6 +191,8 @@ export function PortfolioManagerPage({
   // Synchronize positions & watchlist when auth state changes
   useEffect(() => {
     if (isAuthenticated) {
+      positionsPersistedRef.current = hasPersistedPortfolio();
+      watchlistPersistedRef.current = hasPersistedWatchlist();
       setPositions(loadPortfolioPositions());
       setWatchlist(loadWatchlist());
     } else {
@@ -195,12 +202,19 @@ export function PortfolioManagerPage({
   }, [isAuthenticated]);
 
   useEffect(() => {
+    if (isAuthTransitionRef.current) {
+      isAuthTransitionRef.current = false;
+      return;
+    }
     if (isAuthenticated && positionsPersistedRef.current) {
       savePortfolioPositions(positions);
     }
   }, [positions, isAuthenticated]);
 
   useEffect(() => {
+    if (isAuthTransitionRef.current) {
+      return;
+    }
     if (isAuthenticated && watchlistPersistedRef.current) {
       saveWatchlist(watchlist);
     }
@@ -263,6 +277,8 @@ export function PortfolioManagerPage({
       setIsSubmittingAuth(false);
 
       if (res.ok) {
+        positionsPersistedRef.current = hasPersistedPortfolio();
+        watchlistPersistedRef.current = hasPersistedWatchlist();
         setPositions(loadPortfolioPositions());
         setWatchlist(loadWatchlist());
         setAuthPassword("");
@@ -295,6 +311,8 @@ export function PortfolioManagerPage({
       if (!mountedRef.current) return;
       setIsSubmittingAuth(false);
       if (res.ok) {
+        positionsPersistedRef.current = hasPersistedPortfolio();
+        watchlistPersistedRef.current = hasPersistedWatchlist();
         setPositions(loadPortfolioPositions());
         setWatchlist(loadWatchlist());
         setAuthPassword("");
@@ -909,12 +927,12 @@ export function PortfolioManagerPage({
                 </>
               )}
 
-              <div style={{ display: "flex", gap: "10px", marginTop: "24px" }}>
+              <div className="portfolio-gate-actions" style={{ display: "flex", flexWrap: "wrap", gap: "10px", marginTop: "24px" }}>
                 <button
                   type="button"
                   onClick={() => onNavigate("dashboard")}
                   className="btn btn-default"
-                  style={{ flex: 1 }}
+                  style={{ flex: 1, minWidth: "140px" }}
                 >
                   ダッシュボードへ戻る
                 </button>
