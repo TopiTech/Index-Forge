@@ -25,16 +25,17 @@ ALTER TABLE access_passwords ADD COLUMN max_indices INTEGER DEFAULT NULL;
 ALTER TABLE indices ADD COLUMN creator_id TEXT;
 CREATE INDEX IF NOT EXISTS idx_indices_creator_id ON indices(creator_id);
 
--- Migration: Add secret_code_hash to access_passwords and admin_login_attempts table.
--- (Note: the Worker automatically provisions these at runtime via ensurePasswordTable(),
--- but if applying migrations manually to a pre-existing database, uncomment as needed):
+-- Migration: Add admin_login_attempts table and secret_code_hash to access_passwords.
+CREATE TABLE IF NOT EXISTS admin_login_attempts (
+    ip TEXT PRIMARY KEY,
+    failed_count INTEGER NOT NULL DEFAULT 0,
+    last_failed_at INTEGER NOT NULL,
+    locked_until INTEGER NOT NULL DEFAULT 0
+);
+-- Note: the Worker automatically provisions secret_code_hash at runtime via ensurePasswordTable(),
+-- but if applying migrations manually to a pre-existing database lacking the column, uncomment:
 -- ALTER TABLE access_passwords ADD COLUMN secret_code_hash TEXT;
--- CREATE TABLE IF NOT EXISTS admin_login_attempts (
---     ip TEXT PRIMARY KEY,
---     failed_count INTEGER NOT NULL DEFAULT 0,
---     last_failed_at INTEGER NOT NULL,
---     locked_until INTEGER NOT NULL DEFAULT 0
--- );
+
 
 -- Legacy releases stored issued passwords in plain text. Scrub those values
 -- before enabling the password-management API on an existing database.

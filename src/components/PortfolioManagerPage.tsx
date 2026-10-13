@@ -206,9 +206,33 @@ export function PortfolioManagerPage({
     }
   }, [watchlist, isAuthenticated]);
 
+  const handleTabKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
+    if (!["ArrowRight", "ArrowDown", "ArrowLeft", "ArrowUp", "Home", "End"].includes(event.key)) {
+      return;
+    }
+    event.preventDefault();
+    const tabs = Array.from(
+      event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="tab"]') || [],
+    );
+    const currentIndex = tabs.indexOf(event.currentTarget);
+    if (currentIndex < 0) return;
+
+    let nextIndex = currentIndex;
+    if (event.key === "Home") nextIndex = 0;
+    else if (event.key === "End") nextIndex = tabs.length - 1;
+    else if (event.key === "ArrowRight" || event.key === "ArrowDown")
+      nextIndex = (currentIndex + 1) % tabs.length;
+    else if (event.key === "ArrowLeft" || event.key === "ArrowUp")
+      nextIndex = (currentIndex - 1 + tabs.length) % tabs.length;
+
+    tabs[nextIndex]?.focus();
+    tabs[nextIndex]?.click();
+  };
+
   const handleInlineLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = authPassword.trim();
+
 
     if (authMode === "admin") {
       if (isLocked) {
@@ -599,7 +623,11 @@ export function PortfolioManagerPage({
               <button
                 type="button"
                 role="tab"
+                id="portfolio-auth-tab-admin"
                 aria-selected={authMode === "admin"}
+                aria-controls="portfolio-inline-auth-form"
+                tabIndex={authMode === "admin" ? 0 : -1}
+                onKeyDown={handleTabKeyDown}
                 onClick={() => {
                   setAuthMode("admin");
                   setAuthError(null);
@@ -628,7 +656,11 @@ export function PortfolioManagerPage({
               <button
                 type="button"
                 role="tab"
+                id="portfolio-auth-tab-user"
                 aria-selected={authMode === "user"}
+                aria-controls="portfolio-inline-auth-form"
+                tabIndex={authMode === "user" ? 0 : -1}
+                onKeyDown={handleTabKeyDown}
                 onClick={() => {
                   setAuthMode("user");
                   setAuthError(null);
@@ -705,7 +737,7 @@ export function PortfolioManagerPage({
               </div>
             )}
 
-            <form onSubmit={handleInlineLogin}>
+            <form id="portfolio-inline-auth-form" onSubmit={handleInlineLogin}>
               <div style={{ marginBottom: "18px" }}>
                 <label
                   htmlFor="portfolio-auth-input"

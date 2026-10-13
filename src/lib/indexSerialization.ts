@@ -194,18 +194,21 @@ export function serializeBasketToCsv(basket: readonly BasketItem[]): string {
 }
 
 /**
- * 数値文字列をパースします（全角数字、通貨記号、3桁区切りカンマに対応）。
+ * 数値文字列をパースします（全角数字、全角小数点、全角カンマ、負記号、通貨記号、3桁区切りカンマに対応）。
  */
 export function parseNumericValue(val: unknown): number {
   if (typeof val === "number") return val;
   if (typeof val !== "string") return NaN;
   const cleaned = val
     .replace(/[０-９]/g, (s) => String.fromCharCode(s.charCodeAt(0) - 0xfee0))
-    .replace(/[￥¥$€£\s]/g, "")
-    .replace(/,/g, "")
+    .replace(/[．。]/g, ".")
+    .replace(/[－ー―]/g, "-")
+    .replace(/[￥¥$＄€£￡\s]/g, "")
+    .replace(/[,，、]/g, "")
     .trim();
   return parseFloat(cleaned);
 }
+
 
 /**
  * CSV文字列から構成銘柄バスケットを読み込みパースします。

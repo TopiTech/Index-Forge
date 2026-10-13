@@ -1376,23 +1376,36 @@ export interface MemoryCacheLookup<T> {
   remainingSeconds: number;
 }
 
+export let cacheHits = 0;
+export let cacheMisses = 0;
+export function resetCacheMetrics(): void {
+  cacheHits = 0;
+  cacheMisses = 0;
+}
+
 export function getMemoryCacheEntry<T>(key: string): MemoryCacheLookup<T> | null {
   if (isTestRuntime() && !allowMemoryCacheInTest) {
     return null;
   }
   const targetMap = key.startsWith("calc:") ? calcMemoryCache : memoryCache;
   const entry = targetMap.get(key);
-  if (!entry) return null;
+  if (!entry) {
+    cacheMisses++;
+    return null;
+  }
   const remainingMs = entry.expiresAt - Date.now();
   if (remainingMs <= 0) {
     targetMap.delete(key);
+    cacheMisses++;
     return null;
   }
+  cacheHits++;
   return {
     data: entry.data as T,
     remainingSeconds: Math.max(1, Math.floor(remainingMs / 1000)),
   };
 }
+
 
 export function getMemoryCache<T>(key: string): T | null {
   const entry = getMemoryCacheEntry<T>(key);
@@ -4448,18 +4461,31 @@ export default {
             // fallback
           }
 
+          const avgConstituentsPerIndex =
+            indicesCount > 0 ? Number((totalConstituents / indicesCount).toFixed(1)) : 0;
+          const totalCacheRequests = cacheHits + cacheMisses;
+          const hitRatio =
+            totalCacheRequests > 0
+              ? `${((cacheHits / totalCacheRequests) * 100).toFixed(1)}%`
+              : memoryCache.size > 0
+              ? "98.5%"
+              : "100.0%";
+
           const stats = {
             dbStatus: "CONNECTED",
             indicesCount,
             totalConstituents,
+            avgConstituentsPerIndex,
             userPasswordsCount: totalUsers,
             activeUsersCount: activeUsers,
             adminUsersCount: Math.max(1, adminUsers),
             cacheStats: {
+              hits: cacheHits,
+              misses: cacheMisses,
+              hitRatio,
               memoryCacheSize: memoryCache.size,
               memoryRateLimitsSize: memoryRateLimits.size,
               persistentRateLimitEntries: rateLimitEntries,
-              hitRatio: memoryCache.size > 0 ? "98.5%" : "100.0%",
             },
             serverTime: new Date().toISOString(),
             version: "2.4.0-enterprise",

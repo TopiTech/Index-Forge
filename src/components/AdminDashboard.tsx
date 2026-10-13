@@ -182,13 +182,13 @@ export function AdminDashboard({
     dbStatus: string;
     indicesCount: number;
     totalConstituents: number;
-    avgConstituentsPerIndex: number;
+    avgConstituentsPerIndex?: number;
     userPasswordsCount: number;
     activeUsersCount: number;
     adminUsersCount: number;
     cacheStats: {
-      hits: number;
-      misses: number;
+      hits?: number;
+      misses?: number;
       hitRatio: string;
     };
     serverTime: string;
@@ -2125,7 +2125,13 @@ export function AdminDashboard({
                     {systemStats.indicesCount} 指数
                   </div>
                   <span className="tiny muted">
-                    総構成銘柄: {systemStats.totalConstituents} (平均 {systemStats.avgConstituentsPerIndex} 銘柄/指数)
+                    総構成銘柄: {systemStats.totalConstituents} (平均{" "}
+                    {typeof systemStats.avgConstituentsPerIndex === "number"
+                      ? systemStats.avgConstituentsPerIndex
+                      : systemStats.indicesCount > 0
+                      ? Number((systemStats.totalConstituents / systemStats.indicesCount).toFixed(1))
+                      : 0}{" "}
+                    銘柄/指数)
                   </span>
                 </div>
 
@@ -2153,7 +2159,7 @@ export function AdminDashboard({
                     {systemStats.cacheStats.hitRatio}
                   </div>
                   <span className="tiny muted">
-                    Hits: {systemStats.cacheStats.hits} / Misses: {systemStats.cacheStats.misses}
+                    Hits: {systemStats.cacheStats.hits ?? 0} / Misses: {systemStats.cacheStats.misses ?? 0}
                   </span>
                 </div>
 

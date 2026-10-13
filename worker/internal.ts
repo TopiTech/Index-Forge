@@ -51,6 +51,9 @@ export {
   getMemoryCacheEntry,
   setMemoryCache,
   clearMemoryCache,
+  cacheHits,
+  cacheMisses,
+  resetCacheMetrics,
   // Cache / ETag helpers
   getMarketAwareCacheDuration,
   isPriceCacheFresh,

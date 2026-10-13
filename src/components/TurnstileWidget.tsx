@@ -203,6 +203,8 @@ export const TurnstileWidget = forwardRef<TurnstileWidgetRef, TurnstileWidgetPro
     return (
       <div
         className="turnstile-wrapper"
+        role="region"
+        aria-label="Cloudflare Turnstile セキュリティ認証"
         style={{
           display: "flex",
           flexDirection: "column",
@@ -222,6 +224,7 @@ export const TurnstileWidget = forwardRef<TurnstileWidgetRef, TurnstileWidgetPro
       >
         <div
           ref={containerRef}
+          aria-label="Turnstile ウィジェット表示領域"
           style={{
             display: "flex",
             justifyContent: "center",

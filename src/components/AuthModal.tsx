@@ -82,6 +82,29 @@ export function AuthModal({
     return () => clearInterval(timer);
   }, [isLocked, lockoutRemainingSeconds]);
 
+  const handleTabKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
+    if (!["ArrowRight", "ArrowDown", "ArrowLeft", "ArrowUp", "Home", "End"].includes(event.key)) {
+      return;
+    }
+    event.preventDefault();
+    const tabs = Array.from(
+      event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="tab"]') || [],
+    );
+    const currentIndex = tabs.indexOf(event.currentTarget);
+    if (currentIndex < 0) return;
+
+    let nextIndex = currentIndex;
+    if (event.key === "Home") nextIndex = 0;
+    else if (event.key === "End") nextIndex = tabs.length - 1;
+    else if (event.key === "ArrowRight" || event.key === "ArrowDown")
+      nextIndex = (currentIndex + 1) % tabs.length;
+    else if (event.key === "ArrowLeft" || event.key === "ArrowUp")
+      nextIndex = (currentIndex - 1 + tabs.length) % tabs.length;
+
+    tabs[nextIndex]?.focus();
+    tabs[nextIndex]?.click();
+  };
+
   const handleClose = () => {
     if (!loading && !isSubmitting) {
       setError(null);
@@ -174,7 +197,7 @@ export function AuthModal({
       initialFocusRef={passwordInputRef}
       ariaDescribedBy="auth-modal-description"
     >
-      <form onSubmit={handleSubmit} style={{ padding: "4px 0" }}>
+      <form id="auth-modal-form" onSubmit={handleSubmit} style={{ padding: "4px 0" }}>
         {/* Mode Selector Tabs */}
         <div
           role="tablist"
@@ -192,7 +215,11 @@ export function AuthModal({
           <button
             type="button"
             role="tab"
+            id="auth-modal-tab-admin"
             aria-selected={authMode === "admin"}
+            aria-controls="auth-modal-form"
+            tabIndex={authMode === "admin" ? 0 : -1}
+            onKeyDown={handleTabKeyDown}
             onClick={() => {
               setAuthMode("admin");
               setError(null);
@@ -221,7 +248,11 @@ export function AuthModal({
           <button
             type="button"
             role="tab"
+            id="auth-modal-tab-user"
             aria-selected={authMode === "user"}
+            aria-controls="auth-modal-form"
+            tabIndex={authMode === "user" ? 0 : -1}
+            onKeyDown={handleTabKeyDown}
             onClick={() => {
               setAuthMode("user");
               setError(null);
