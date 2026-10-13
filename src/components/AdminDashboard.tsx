@@ -364,7 +364,7 @@ export function AdminDashboard({
     setLoginError(null);
     const res = await adminLogin(
       adminPasswordInput.trim(),
-      adminSecretCodeInput.trim(),
+      adminSecretCodeInput.normalize("NFC").trim(),
       turnstileToken.trim(),
     );
     setLoggingIn(false);
@@ -391,23 +391,27 @@ export function AdminDashboard({
     setSecretCodeError(null);
     setSecretCodeSuccess(null);
 
-    if (!newSecretCodeInput.trim() || newSecretCodeInput.trim().length < 6) {
+    const normNew = newSecretCodeInput.normalize("NFC").trim();
+    const normConfirm = confirmSecretCodeInput.normalize("NFC").trim();
+    const normCurrent = currentSecretCodeInput.normalize("NFC").trim();
+
+    if (!normNew || normNew.length < 6) {
       setSecretCodeError("新しい秘密の暗号は6文字以上で入力してください");
       return;
     }
-    if (newSecretCodeInput.trim().length > 100) {
+    if (normNew.length > 100) {
       setSecretCodeError("新しい秘密の暗号は100文字以内で入力してください");
       return;
     }
-    if (newSecretCodeInput.trim() !== confirmSecretCodeInput.trim()) {
+    if (normNew !== normConfirm) {
       setSecretCodeError("新しい秘密の暗号（確認）が一致しません");
       return;
     }
 
     setUpdatingSecretCode(true);
     const res = await changeAdminSecretCode(
-      currentSecretCodeInput.trim(),
-      newSecretCodeInput.trim(),
+      normCurrent,
+      normNew,
       getHeaders(),
     );
     setUpdatingSecretCode(false);
@@ -990,11 +994,16 @@ export function AdminDashboard({
                 <div style={{ position: "relative" }}>
                   <input
                     id="admin-secret-code-input"
-                    type={showAdminSecretCode ? "text" : "password"}
+                    type="text"
+                    inputMode="text"
+                    lang="ja"
+                    autoComplete="off"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck="false"
                     value={adminSecretCodeInput}
                     onChange={(e) => setAdminSecretCodeInput(e.target.value)}
-                    placeholder="管理者専用の秘密の暗号"
-                    autoComplete="off"
+                    placeholder="管理者専用の秘密の暗号（ひらがな・カタカナ可）"
                     disabled={isLocked || loggingIn}
                     style={{
                       width: "100%",
@@ -1005,7 +1014,8 @@ export function AdminDashboard({
                       color: "var(--text-primary)",
                       fontSize: 14,
                       boxSizing: "border-box",
-                    }}
+                      WebkitTextSecurity: showAdminSecretCode ? "none" : "disc",
+                    } as React.CSSProperties}
                   />
                   <button
                     type="button"
@@ -1029,7 +1039,7 @@ export function AdminDashboard({
                   </button>
                 </div>
                 <div className="muted tiny" style={{ marginTop: 6, lineHeight: 1.4 }}>
-                  ※ 不正アクセス防御のため、秘密の暗号の入力が必須です。未変更時の初期値は環境変数 <code>ADMIN_SECRET_CODE</code> または開発用暗号です。
+                  ※ 不正アクセス防御のため、秘密の暗号の入力が必須です（ひらがな・カタカナ・英数字・記号入力対応）。未変更時の初期値は環境変数 <code>ADMIN_SECRET_CODE</code> または開発用暗号です。
                 </div>
               </div>
 
@@ -2421,10 +2431,16 @@ export function AdminDashboard({
                     <div style={{ position: "relative" }}>
                       <input
                         id="current-secret-code"
-                        type={showCurrentSecretCode ? "text" : "password"}
+                        type="text"
+                        inputMode="text"
+                        lang="ja"
+                        autoComplete="off"
+                        autoCapitalize="none"
+                        autoCorrect="off"
+                        spellCheck="false"
                         value={currentSecretCodeInput}
                         onChange={(e) => setCurrentSecretCodeInput(e.target.value)}
-                        placeholder="現在の秘密の暗号 (未変更時は初期暗号)"
+                        placeholder="現在の秘密の暗号 (ひらがな・カタカナ可)"
                         style={{
                           width: "100%",
                           padding: "8px 36px 8px 10px",
@@ -2434,7 +2450,8 @@ export function AdminDashboard({
                           color: "var(--text-primary)",
                           fontSize: 13,
                           boxSizing: "border-box",
-                        }}
+                          WebkitTextSecurity: showCurrentSecretCode ? "none" : "disc",
+                        } as React.CSSProperties}
                       />
                       <button
                         type="button"
@@ -2460,15 +2477,21 @@ export function AdminDashboard({
 
                   <div style={{ marginBottom: 14 }}>
                     <label htmlFor="new-secret-code" style={{ display: "block", fontSize: 12, color: "var(--text-secondary)", marginBottom: 4 }}>
-                      新しい秘密の暗号 (6〜100文字)
+                      新しい秘密の暗号 (6〜100文字・ひらがな/カタカナ可)
                     </label>
                     <div style={{ position: "relative" }}>
                       <input
                         id="new-secret-code"
-                        type={showNewSecretCode ? "text" : "password"}
+                        type="text"
+                        inputMode="text"
+                        lang="ja"
+                        autoComplete="off"
+                        autoCapitalize="none"
+                        autoCorrect="off"
+                        spellCheck="false"
                         value={newSecretCodeInput}
                         onChange={(e) => setNewSecretCodeInput(e.target.value)}
-                        placeholder="新しい秘密の暗号"
+                        placeholder="新しい秘密の暗号 (ひらがな・カタカナ・英数字・記号)"
                         style={{
                           width: "100%",
                           padding: "8px 36px 8px 10px",
@@ -2478,7 +2501,8 @@ export function AdminDashboard({
                           color: "var(--text-primary)",
                           fontSize: 13,
                           boxSizing: "border-box",
-                        }}
+                          WebkitTextSecurity: showNewSecretCode ? "none" : "disc",
+                        } as React.CSSProperties}
                       />
                       <button
                         type="button"
@@ -2509,7 +2533,13 @@ export function AdminDashboard({
                     <div style={{ position: "relative" }}>
                       <input
                         id="confirm-secret-code"
-                        type={showConfirmSecretCode ? "text" : "password"}
+                        type="text"
+                        inputMode="text"
+                        lang="ja"
+                        autoComplete="off"
+                        autoCapitalize="none"
+                        autoCorrect="off"
+                        spellCheck="false"
                         value={confirmSecretCodeInput}
                         onChange={(e) => setConfirmSecretCodeInput(e.target.value)}
                         placeholder="もう一度入力してください"
@@ -2522,7 +2552,8 @@ export function AdminDashboard({
                           color: "var(--text-primary)",
                           fontSize: 13,
                           boxSizing: "border-box",
-                        }}
+                          WebkitTextSecurity: showConfirmSecretCode ? "none" : "disc",
+                        } as React.CSSProperties}
                       />
                       <button
                         type="button"

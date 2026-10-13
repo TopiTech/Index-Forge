@@ -20,9 +20,13 @@ import {
   Upload,
   PieChart,
   Coins,
+  Shield,
+  User,
 } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
 import { ModalBase } from "./ModalBase";
+import { TurnstileWidget, type TurnstileWidgetRef } from "./TurnstileWidget";
+import { getTurnstileConfig } from "../lib/auth";
 import {
   loadPortfolioPositions,
   savePortfolioPositions,
@@ -77,7 +81,7 @@ export function PortfolioManagerPage({
   onOpenStockDetail,
   onConvertAndCreateCustomIndex,
 }: PortfolioManagerPageProps) {
-  const { isAuthenticated, login, loading: authLoading } = useAuth();
+  const { isAuthenticated, login, adminLogin, loading: authLoading } = useAuth();
   const [positions, setPositions] = useState<PortfolioPosition[]>(() =>
     isAuthenticated ? loadPortfolioPositions() : [],
   );
@@ -101,10 +105,19 @@ export function PortfolioManagerPage({
   const { success, info } = useToast();
 
   // Auth gate inline login state
+  const [authMode, setAuthMode] = useState<"admin" | "user">("admin");
   const [authPassword, setAuthPassword] = useState("");
   const [authError, setAuthError] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
+  const [authSecretCode, setAuthSecretCode] = useState("");
+  const [showSecretCode, setShowSecretCode] = useState(false);
+  const [turnstileToken, setTurnstileToken] = useState("");
+  const [turnstileSiteKey, setTurnstileSiteKey] = useState("1x00000000000000000000AA");
+  const [isLocked, setIsLocked] = useState(false);
+  const [lockoutRemainingSeconds, setLockoutRemainingSeconds] = useState(0);
+  const [remainingAttempts, setRemainingAttempts] = useState<number | null>(null);
   const [isSubmittingAuth, setIsSubmittingAuth] = useState(false);
+  const turnstileRef = useRef<TurnstileWidgetRef>(null);
 
   // New position form state
   const [newTicker, setNewTicker] = useState("7203");
@@ -122,6 +135,40 @@ export function PortfolioManagerPage({
       requestIdRef.current += 1;
     };
   }, []);
+
+  // Fetch Turnstile config and lockout state if unauthenticated
+  useEffect(() => {
+    if (isAuthenticated) return;
+    let isMounted = true;
+    getTurnstileConfig().then((cfg) => {
+      if (!isMounted) return;
+      if (cfg.siteKey) setTurnstileSiteKey(cfg.siteKey);
+      if (cfg.lockout) {
+        setIsLocked(cfg.lockout.locked);
+        setLockoutRemainingSeconds(cfg.lockout.remainingSeconds);
+        setRemainingAttempts(cfg.lockout.remainingAttempts);
+      }
+    });
+    return () => {
+      isMounted = false;
+    };
+  }, [isAuthenticated]);
+
+  // Lockout countdown timer
+  useEffect(() => {
+    if (!isLocked || lockoutRemainingSeconds <= 0) return;
+    const timer = setInterval(() => {
+      setLockoutRemainingSeconds((prev) => {
+        if (prev <= 1) {
+          setIsLocked(false);
+          setAuthError(null);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [isLocked, lockoutRemainingSeconds]);
 
   // Synchronize positions & watchlist immediately when auth transition occurs
   // during render to prevent overwriting saved data with unauthenticated empty arrays
@@ -162,23 +209,75 @@ export function PortfolioManagerPage({
   const handleInlineLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = authPassword.trim();
-    if (!trimmed) {
-      setAuthError("パスワードを入力してください");
-      return;
-    }
 
-    setAuthError(null);
-    setIsSubmittingAuth(true);
-    const res = await login(trimmed);
-    if (!mountedRef.current) return;
-    setIsSubmittingAuth(false);
-    if (res.ok) {
-      setPositions(loadPortfolioPositions());
-      setWatchlist(loadWatchlist());
-      setAuthPassword("");
-      success("ログインしました。ポートフォリオ管理機能をご利用いただけます。");
+    if (authMode === "admin") {
+      if (isLocked) {
+        setAuthError(`アカウントが一時ロックされています。残り約${Math.ceil(lockoutRemainingSeconds / 60)}分後に再試行してください。`);
+        return;
+      }
+      if (!trimmed) {
+        setAuthError("管理者パスワードを入力してください");
+        return;
+      }
+      if (!authSecretCode.trim()) {
+        setAuthError("秘密の暗号を入力してください（ひらがな・カタカナも入力可能です）");
+        return;
+      }
+      if (!turnstileToken.trim()) {
+        setAuthError("Turnstile認証（ロボット確認）を完了してください");
+        return;
+      }
+
+      setAuthError(null);
+      setIsSubmittingAuth(true);
+      const res = await adminLogin(
+        trimmed,
+        authSecretCode.normalize("NFC").trim(),
+        turnstileToken.trim(),
+      );
+      if (!mountedRef.current) return;
+      setIsSubmittingAuth(false);
+
+      if (res.ok) {
+        setPositions(loadPortfolioPositions());
+        setWatchlist(loadWatchlist());
+        setAuthPassword("");
+        setAuthSecretCode("");
+        setTurnstileToken("");
+        success("管理者としてログインしました。ポートフォリオ管理機能をご利用いただけます。");
+      } else {
+        if (res.locked) {
+          setIsLocked(true);
+          setLockoutRemainingSeconds(res.remainingSeconds || 900);
+          setRemainingAttempts(0);
+        } else if (typeof res.remainingAttempts === "number") {
+          setRemainingAttempts(res.remainingAttempts);
+        }
+        setAuthError(res.error || "管理者認証に失敗しました");
+        if (turnstileRef.current) {
+          turnstileRef.current.reset();
+          setTurnstileToken("");
+        }
+      }
     } else {
-      setAuthError(res.error || "パスワードが正しくありません");
+      if (!trimmed) {
+        setAuthError("パスワードを入力してください");
+        return;
+      }
+
+      setAuthError(null);
+      setIsSubmittingAuth(true);
+      const res = await login(trimmed);
+      if (!mountedRef.current) return;
+      setIsSubmittingAuth(false);
+      if (res.ok) {
+        setPositions(loadPortfolioPositions());
+        setWatchlist(loadWatchlist());
+        setAuthPassword("");
+        success("ログインしました。ポートフォリオ管理機能をご利用いただけます。");
+      } else {
+        setAuthError(res.error || "パスワードが正しくありません");
+      }
     }
   };
 
@@ -483,7 +582,109 @@ export function PortfolioManagerPage({
               </p>
             </div>
 
-            {authError && (
+            {/* Mode Selector Tabs */}
+            <div
+              role="tablist"
+              aria-label="認証モード切替"
+              style={{
+                display: "flex",
+                gap: 6,
+                padding: 4,
+                background: "rgba(15, 23, 42, 0.6)",
+                borderRadius: 10,
+                border: "1px solid var(--border-subtle)",
+                marginBottom: 20,
+              }}
+            >
+              <button
+                type="button"
+                role="tab"
+                aria-selected={authMode === "admin"}
+                onClick={() => {
+                  setAuthMode("admin");
+                  setAuthError(null);
+                }}
+                style={{
+                  flex: 1,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 6,
+                  padding: "8px 12px",
+                  borderRadius: 8,
+                  border: "none",
+                  cursor: "pointer",
+                  fontSize: 13,
+                  fontWeight: 600,
+                  transition: "all 0.15s ease",
+                  background: authMode === "admin" ? "var(--bg-card-hover, rgba(0, 229, 255, 0.15))" : "transparent",
+                  color: authMode === "admin" ? "var(--neon-cyan, #00e5ff)" : "var(--text-muted)",
+                  boxShadow: authMode === "admin" ? "0 1px 3px rgba(0,0,0,0.3)" : "none",
+                }}
+              >
+                <Shield size={14} />
+                管理者ログイン
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={authMode === "user"}
+                onClick={() => {
+                  setAuthMode("user");
+                  setAuthError(null);
+                }}
+                style={{
+                  flex: 1,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 6,
+                  padding: "8px 12px",
+                  borderRadius: 8,
+                  border: "none",
+                  cursor: "pointer",
+                  fontSize: 13,
+                  fontWeight: 600,
+                  transition: "all 0.15s ease",
+                  background: authMode === "user" ? "var(--bg-card-hover, rgba(255, 255, 255, 0.1))" : "transparent",
+                  color: authMode === "user" ? "var(--text-primary)" : "var(--text-muted)",
+                  boxShadow: authMode === "user" ? "0 1px 3px rgba(0,0,0,0.3)" : "none",
+                }}
+              >
+                <User size={14} />
+                一般ユーザー
+              </button>
+            </div>
+
+            {/* Lockout Warning */}
+            {isLocked && (
+              <div
+                role="alert"
+                aria-live="assertive"
+                className="row"
+                style={{
+                  gap: 8,
+                  padding: "10px 14px",
+                  background: "rgba(255, 51, 102, 0.2)",
+                  border: "1px solid var(--neon-red)",
+                  borderRadius: "8px",
+                  color: "var(--neon-red)",
+                  fontSize: "12px",
+                  marginBottom: "18px",
+                }}
+              >
+                <Lock size={16} style={{ flexShrink: 0 }} />
+                <div>
+                  <strong>セキュリティロック発動中</strong>
+                  <div style={{ marginTop: 2 }}>
+                    試行上限超過のため一時ロックされています。
+                    残り約{Math.ceil(lockoutRemainingSeconds / 60)}分（{lockoutRemainingSeconds}秒）後に再試行できます。
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {authError && !isLocked && (
               <div
                 role="alert"
                 aria-live="assertive"
@@ -516,7 +717,7 @@ export function PortfolioManagerPage({
                     marginBottom: "6px",
                   }}
                 >
-                  アクセスパスワード
+                  {authMode === "admin" ? "管理者パスワード" : "アクセスパスワード"} <span style={{ color: "var(--neon-red)" }}>*必須</span>
                 </label>
                 <div style={{ position: "relative" }}>
                   <input
@@ -524,9 +725,9 @@ export function PortfolioManagerPage({
                     type={showPassword ? "text" : "password"}
                     value={authPassword}
                     onChange={(e) => setAuthPassword(e.target.value)}
-                    placeholder="ユーザーまたは管理者パスワード"
+                    placeholder={authMode === "admin" ? "管理者パスワード" : "ユーザーまたは管理者パスワード"}
                     autoComplete="current-password"
-                    disabled={isSubmittingAuth || authLoading}
+                    disabled={isSubmittingAuth || authLoading || isLocked}
                     style={{
                       width: "100%",
                       padding: "11px 44px 11px 14px",
@@ -562,11 +763,120 @@ export function PortfolioManagerPage({
                   </button>
                 </div>
                 <p className="tiny muted" style={{ margin: "6px 0 0", fontSize: "11px" }}>
-                  ※ 管理者パスワード、または管理者が発行したユーザーパスワードを入力してください
+                  {authMode === "admin"
+                    ? "※ マスター管理者のパスワードを入力してください"
+                    : "※ 管理者パスワード、または管理者が発行したユーザーパスワードを入力してください"}
                 </p>
               </div>
 
-              <div style={{ display: "flex", gap: "10px" }}>
+              {/* Admin-only fields: Secret Code + Turnstile */}
+              {authMode === "admin" && (
+                <>
+                  <div style={{ marginBottom: "18px" }}>
+                    <label
+                      htmlFor="portfolio-secret-code-input"
+                      style={{
+                        display: "block",
+                        fontSize: "12px",
+                        fontWeight: 600,
+                        color: "var(--text-secondary)",
+                        marginBottom: "6px",
+                      }}
+                    >
+                      秘密の暗号 (Admin Secret Code) <span style={{ color: "var(--neon-red)" }}>*必須</span>
+                    </label>
+                    <div style={{ position: "relative" }}>
+                      <input
+                        id="portfolio-secret-code-input"
+                        type="text"
+                        inputMode="text"
+                        lang="ja"
+                        autoComplete="off"
+                        autoCapitalize="none"
+                        autoCorrect="off"
+                        spellCheck="false"
+                        value={authSecretCode}
+                        onChange={(e) => setAuthSecretCode(e.target.value)}
+                        placeholder="ひらがな・カタカナ・英数字・記号で入力"
+                        disabled={isSubmittingAuth || authLoading || isLocked}
+                        style={{
+                          width: "100%",
+                          padding: "11px 44px 11px 14px",
+                          background: "var(--bg-input)",
+                          border: "1px solid var(--border-subtle)",
+                          borderRadius: "8px",
+                          color: "var(--text-primary)",
+                          fontSize: "14px",
+                          boxSizing: "border-box",
+                          WebkitTextSecurity: showSecretCode ? "none" : "disc",
+                        } as React.CSSProperties}
+                      />
+                      <button
+                        type="button"
+                        className="password-visibility-btn"
+                        onClick={() => setShowSecretCode(!showSecretCode)}
+                        aria-label={showSecretCode ? "秘密の暗号を隠す" : "秘密の暗号を表示"}
+                        aria-pressed={showSecretCode}
+                        style={{
+                          position: "absolute",
+                          right: "10px",
+                          top: "50%",
+                          transform: "translateY(-50%)",
+                          background: "transparent",
+                          border: "none",
+                          color: "var(--text-secondary)",
+                          cursor: "pointer",
+                          padding: "4px",
+                          display: "flex",
+                          alignItems: "center",
+                        }}
+                      >
+                        {showSecretCode ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    </div>
+                    <div className="tiny muted" style={{ margin: "6px 0 0", fontSize: "11px", lineHeight: 1.4 }}>
+                      ※ ひらがな・カタカナ・漢字・英数記号も自由に入力できます（全角・半角完全対応）。
+                      {remainingAttempts !== null && (
+                        <span style={{ marginLeft: 6, color: remainingAttempts <= 2 ? "var(--neon-red)" : "inherit" }}>
+                          (残り試行可能回数: {remainingAttempts}回)
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {!isLocked && (
+                    <div style={{ marginBottom: "18px" }}>
+                      <label
+                        style={{
+                          display: "block",
+                          fontSize: "12px",
+                          fontWeight: 600,
+                          color: "var(--text-secondary)",
+                          marginBottom: "4px",
+                        }}
+                      >
+                        ロボット検証 (Turnstile) <span style={{ color: "var(--neon-red)" }}>*必須</span>
+                      </label>
+                      <TurnstileWidget
+                        ref={turnstileRef}
+                        siteKey={turnstileSiteKey}
+                        onVerify={(token) => {
+                          setTurnstileToken(token);
+                          setAuthError(null);
+                        }}
+                        onError={(err) => {
+                          setAuthError(err || "セキュリティ認証エラーが発生しました");
+                        }}
+                        onExpire={() => {
+                          setTurnstileToken("");
+                        }}
+                      />
+                    </div>
+                  )}
+                </>
+              )}
+
+              <div style={{ display: "flex", gap: "10px", marginTop: "24px" }}>
                 <button
                   type="button"
                   onClick={() => onNavigate("dashboard")}
@@ -584,8 +894,17 @@ export function PortfolioManagerPage({
                     justifyContent: "center",
                     alignItems: "center",
                     gap: "6px",
+                    background: authMode === "admin" ? "var(--neon-cyan, #00e5ff)" : undefined,
+                    color: authMode === "admin" ? "#0a0e17" : undefined,
+                    fontWeight: 600,
                   }}
-                  disabled={isSubmittingAuth || authLoading || !authPassword.trim()}
+                  disabled={
+                    isSubmittingAuth ||
+                    authLoading ||
+                    isLocked ||
+                    !authPassword.trim() ||
+                    (authMode === "admin" && (!authSecretCode.trim() || !turnstileToken.trim()))
+                  }
                 >
                   <KeyRound size={15} />
                   <span>

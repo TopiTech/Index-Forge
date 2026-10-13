@@ -841,7 +841,7 @@ export async function verifyAdminSecretCode(
   env: Env,
   inputCode: string,
 ): Promise<boolean> {
-  const trimmed = inputCode?.trim();
+  const trimmed = typeof inputCode === "string" ? inputCode.normalize("NFC").trim() : "";
   if (!trimmed) return false;
 
   await ensurePasswordTable(env);
@@ -859,7 +859,8 @@ export async function verifyAdminSecretCode(
   }
 
   // Fallback to configured environment variable or default dev code
-  const configuredSecret = env.ADMIN_SECRET_CODE?.trim() || DEFAULT_DEV_ADMIN_SECRET_CODE;
+  const rawConfigured = env.ADMIN_SECRET_CODE?.trim() || DEFAULT_DEV_ADMIN_SECRET_CODE;
+  const configuredSecret = rawConfigured.normalize("NFC");
   const inputHash = await hashToken(trimmed);
   const configuredHash = await hashToken(configuredSecret);
   return timingSafeEqual(inputHash, configuredHash);
@@ -3762,7 +3763,7 @@ export default {
           const password =
             typeof parsed.body.password === "string" ? parsed.body.password.trim() : "";
           const secretCode =
-            typeof parsed.body.secretCode === "string" ? parsed.body.secretCode.trim() : "";
+            typeof parsed.body.secretCode === "string" ? parsed.body.secretCode.normalize("NFC").trim() : "";
           const turnstileToken =
             typeof parsed.body.turnstileToken === "string" ? parsed.body.turnstileToken.trim() : "";
 
@@ -4379,12 +4380,12 @@ export default {
           const parsed = await parseJsonBody(request);
           if (!parsed.ok) return parsed.response;
           const newSecretCode =
-            typeof parsed.body.newSecretCode === "string" ? parsed.body.newSecretCode.trim() : "";
+            typeof parsed.body.newSecretCode === "string" ? parsed.body.newSecretCode.normalize("NFC").trim() : "";
           if (newSecretCode.length < 6 || newSecretCode.length > 100) {
             return json({ error: "秘密の暗号は6〜100文字で入力してください" }, 400, request);
           }
           const currentSecretCode =
-            typeof parsed.body.currentSecretCode === "string" ? parsed.body.currentSecretCode.trim() : "";
+            typeof parsed.body.currentSecretCode === "string" ? parsed.body.currentSecretCode.normalize("NFC").trim() : "";
           if (currentSecretCode) {
             const isCurrentValid = await verifyAdminSecretCode(env, currentSecretCode);
             if (!isCurrentValid) {

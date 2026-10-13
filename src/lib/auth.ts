@@ -250,7 +250,7 @@ export async function adminLogin(
 }> {
   try {
     const trimmedPwd = password.trim();
-    const trimmedCode = secretCode.trim();
+    const trimmedCode = secretCode.normalize("NFC").trim();
     const trimmedToken = turnstileToken.trim();
 
     if (!trimmedPwd) {
@@ -324,8 +324,8 @@ export async function changeAdminSecretCode(
         ...authHeaders,
       },
       body: JSON.stringify({
-        currentSecretCode: currentSecretCode.trim(),
-        newSecretCode: newSecretCode.trim(),
+        currentSecretCode: currentSecretCode.normalize("NFC").trim(),
+        newSecretCode: newSecretCode.normalize("NFC").trim(),
       }),
     });
 
