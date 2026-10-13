@@ -31,7 +31,7 @@ function createMockEnv() {
       TURNSTILE_SECRET_KEY: "test-secret-key",
       DB: {
         prepare: (query: string) => ({
-          bind: (...params: unknown[]) => ({
+          bind: (..._params: unknown[]) => ({
             all: async () => {
               if (query.includes("FROM access_passwords WHERE id = 'admin-master'")) {
                 const master = passwords.get("admin-master");
