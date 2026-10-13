@@ -34,6 +34,17 @@ export {
   ensurePasswordTable,
   resetPasswordTableEnsured,
   clearAuthCache,
+  // Admin login security & Turnstile
+  ADMIN_LOGIN_MAX_ATTEMPTS,
+  ADMIN_LOGIN_LOCKOUT_SECONDS,
+  TURNSTILE_DEFAULT_SITE_KEY,
+  TURNSTILE_DEFAULT_SECRET_KEY,
+  DEFAULT_DEV_ADMIN_SECRET_CODE,
+  verifyTurnstileToken,
+  verifyAdminSecretCode,
+  checkAdminLoginLockout,
+  recordAdminLoginFailure,
+  resetAdminLoginAttempts,
   // In-memory caches
   setAllowMemoryCacheInTest,
   getMemoryCache,

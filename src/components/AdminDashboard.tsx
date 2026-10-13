@@ -22,9 +22,12 @@ import {
   Server,
   Database,
   CheckCircle2,
+  Clock,
+  ShieldAlert,
 } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
 import { storeAuth, generateSecurePassword } from "../lib/auth";
+import { getTurnstileConfig, changeAdminSecretCode } from "../lib/auth";
 import { toFiniteNumberOr } from "../lib/downloadFileName";
 import { SYSTEM_INDICES, type CustomIndex } from "../data/indices";
 import type { BasketItem, UserPasswordItem } from "../types";
@@ -34,6 +37,7 @@ import { ConfirmModal } from "./ConfirmModal";
 import { ModalBase } from "./ModalBase";
 import { useToast } from "./Toast";
 import { equalizeWeightsExact, normalizeTicker } from "../lib/indexEngine";
+import { TurnstileWidget, type TurnstileWidgetRef } from "./TurnstileWidget";
 
 export function getPasswordStrength(pwd: string): {
   score: number;
@@ -86,14 +90,33 @@ export function AdminDashboard({
   saveCustomIndex,
   deleteCustomIndex,
 }: AdminDashboardProps) {
-  const { session, isAdmin, login, logout, getHeaders } = useAuth();
+  const { session, isAdmin, adminLogin, logout, getHeaders } = useAuth();
   const { success: toastSuccess, error: toastError } = useToast();
 
   // Admin login state if not admin
   const [adminPasswordInput, setAdminPasswordInput] = useState("");
   const [showAdminLoginPassword, setShowAdminLoginPassword] = useState(false);
+  const [adminSecretCodeInput, setAdminSecretCodeInput] = useState("");
+  const [showAdminSecretCode, setShowAdminSecretCode] = useState(false);
+  const [turnstileToken, setTurnstileToken] = useState("");
+  const [turnstileSiteKey, setTurnstileSiteKey] = useState("1x00000000000000000000AA");
+  const [isLocked, setIsLocked] = useState(false);
+  const [lockoutRemainingSeconds, setLockoutRemainingSeconds] = useState(0);
+  const [remainingAttempts, setRemainingAttempts] = useState<number | null>(null);
+  const turnstileRef = useRef<TurnstileWidgetRef>(null);
   const [loginError, setLoginError] = useState<string | null>(null);
   const [loggingIn, setLoggingIn] = useState(false);
+
+  // Secret code change state
+  const [currentSecretCodeInput, setCurrentSecretCodeInput] = useState("");
+  const [newSecretCodeInput, setNewSecretCodeInput] = useState("");
+  const [confirmSecretCodeInput, setConfirmSecretCodeInput] = useState("");
+  const [showCurrentSecretCode, setShowCurrentSecretCode] = useState(false);
+  const [showNewSecretCode, setShowNewSecretCode] = useState(false);
+  const [showConfirmSecretCode, setShowConfirmSecretCode] = useState(false);
+  const [updatingSecretCode, setUpdatingSecretCode] = useState(false);
+  const [secretCodeError, setSecretCodeError] = useState<string | null>(null);
+  const [secretCodeSuccess, setSecretCodeSuccess] = useState<string | null>(null);
 
   // Tabs
   const [activeTab, setActiveTab] = useState<"passwords" | "indices" | "system" | "settings">("passwords");
@@ -285,19 +308,118 @@ export function AdminDashboard({
     }
   }, [selectedEditIndexId, indices]);
 
-  // Admin login submit
+  // Fetch Turnstile config and initial lockout status
+  useEffect(() => {
+    if (!isAdmin) {
+      getTurnstileConfig().then((cfg) => {
+        if (cfg.siteKey) setTurnstileSiteKey(cfg.siteKey);
+        if (cfg.lockout?.locked) {
+          setIsLocked(true);
+          setLockoutRemainingSeconds(cfg.lockout.remainingSeconds);
+        }
+        if (typeof cfg.lockout?.remainingAttempts === "number") {
+          setRemainingAttempts(cfg.lockout.remainingAttempts);
+        }
+      });
+    }
+  }, [isAdmin]);
+
+  // Lockout countdown timer
+  useEffect(() => {
+    if (!isLocked || lockoutRemainingSeconds <= 0) return;
+    const timer = setInterval(() => {
+      setLockoutRemainingSeconds((prev) => {
+        if (prev <= 1) {
+          setIsLocked(false);
+          clearInterval(timer);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [isLocked, lockoutRemainingSeconds]);
+
+  // Admin login submit with Turnstile, secret code, and lockout handling
   const handleAdminLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isLocked) {
+      setLoginError("試行回数上限に達したためロックされています。解除までお待ちください。");
+      return;
+    }
     if (!adminPasswordInput.trim()) {
       setLoginError("管理者パスワードを入力してください");
       return;
     }
+    if (!adminSecretCodeInput.trim()) {
+      setLoginError("秘密の暗号を入力してください");
+      return;
+    }
+    if (!turnstileToken.trim()) {
+      setLoginError("Turnstile認証（ロボット確認）を完了してください");
+      return;
+    }
+
     setLoggingIn(true);
     setLoginError(null);
-    const res = await login(adminPasswordInput.trim());
+    const res = await adminLogin(
+      adminPasswordInput.trim(),
+      adminSecretCodeInput.trim(),
+      turnstileToken.trim(),
+    );
     setLoggingIn(false);
+
     if (!res.ok) {
-      setLoginError(res.error || "管理者パスワードが正しくありません");
+      setLoginError(res.error || "管理者パスワードまたは秘密の暗号が正しくありません");
+      if (res.locked) {
+        setIsLocked(true);
+        if (typeof res.remainingSeconds === "number") {
+          setLockoutRemainingSeconds(res.remainingSeconds);
+        }
+      }
+      if (typeof res.remainingAttempts === "number") {
+        setRemainingAttempts(res.remainingAttempts);
+      }
+      turnstileRef.current?.reset();
+      setTurnstileToken("");
+    }
+  };
+
+  // Change admin secret code submit
+  const handleChangeSecretCode = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSecretCodeError(null);
+    setSecretCodeSuccess(null);
+
+    if (!newSecretCodeInput.trim() || newSecretCodeInput.trim().length < 6) {
+      setSecretCodeError("新しい秘密の暗号は6文字以上で入力してください");
+      return;
+    }
+    if (newSecretCodeInput.trim().length > 100) {
+      setSecretCodeError("新しい秘密の暗号は100文字以内で入力してください");
+      return;
+    }
+    if (newSecretCodeInput.trim() !== confirmSecretCodeInput.trim()) {
+      setSecretCodeError("新しい秘密の暗号（確認）が一致しません");
+      return;
+    }
+
+    setUpdatingSecretCode(true);
+    const res = await changeAdminSecretCode(
+      currentSecretCodeInput.trim(),
+      newSecretCodeInput.trim(),
+      getHeaders(),
+    );
+    setUpdatingSecretCode(false);
+
+    if (!res.ok) {
+      setSecretCodeError(res.error || "秘密の暗号の更新に失敗しました");
+    } else {
+      setSecretCodeSuccess("秘密の暗号を正常に更新しました");
+      setCurrentSecretCodeInput("");
+      setNewSecretCodeInput("");
+      setConfirmSecretCodeInput("");
+      toastSuccess("秘密の暗号を更新しました");
     }
   };
 
@@ -722,7 +844,72 @@ export function AdminDashboard({
               </p>
             </div>
 
-            {loginError && (
+            {isLocked && (
+              <div
+                className="row"
+                style={{
+                  gap: 10,
+                  padding: "12px 14px",
+                  background: "rgba(255, 51, 102, 0.2)",
+                  border: "1px solid var(--neon-red)",
+                  borderRadius: 8,
+                  color: "var(--neon-red)",
+                  fontSize: 13,
+                  marginBottom: 16,
+                  alignItems: "flex-start",
+                }}
+              >
+                <ShieldAlert size={18} style={{ flexShrink: 0, marginTop: 2 }} />
+                <div>
+                  <div style={{ fontWeight: 700, marginBottom: 2 }}>
+                    セキュリティロック発動中
+                  </div>
+                  <div>
+                    試行回数上限（5回）に達したため、管理者ログインは一時的にロックされています。
+                  </div>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                      marginTop: 6,
+                      fontWeight: 600,
+                      color: "#fff",
+                    }}
+                  >
+                    <Clock size={14} />
+                    <span>
+                      解除まで残り: {Math.floor(lockoutRemainingSeconds / 60)}分
+                      {String(lockoutRemainingSeconds % 60).padStart(2, "0")}秒
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {!isLocked && remainingAttempts !== null && remainingAttempts < 5 && (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  padding: "6px 12px",
+                  background: "rgba(255, 170, 0, 0.12)",
+                  border: "1px solid rgba(255, 170, 0, 0.4)",
+                  borderRadius: 6,
+                  fontSize: 12,
+                  color: "var(--neon-amber, #ffaa00)",
+                  marginBottom: 14,
+                }}
+              >
+                <span>⚠️ 認証失敗の試行履歴があります</span>
+                <span style={{ fontWeight: 700 }}>
+                  残り試行可能回数: {remainingAttempts}回 / 5回
+                </span>
+              </div>
+            )}
+
+            {loginError && !isLocked && (
               <div
                 className="row"
                 style={{
@@ -742,12 +929,12 @@ export function AdminDashboard({
             )}
 
             <form onSubmit={handleAdminLogin}>
-              <div style={{ marginBottom: 18 }}>
+              <div style={{ marginBottom: 16 }}>
                 <label
                   htmlFor="admin-password-input"
                   style={{ display: "block", fontSize: 12, color: "var(--text-secondary)", marginBottom: 6 }}
                 >
-                  管理者マスターパスワード
+                  管理者マスターパスワード <span style={{ color: "var(--neon-red)" }}>*</span>
                 </label>
                 <div style={{ position: "relative" }}>
                   <input
@@ -757,6 +944,7 @@ export function AdminDashboard({
                     onChange={(e) => setAdminPasswordInput(e.target.value)}
                     placeholder="設定済みの管理者パスワード"
                     autoComplete="current-password"
+                    disabled={isLocked || loggingIn}
                     autoFocus
                     style={{
                       width: "100%",
@@ -790,18 +978,91 @@ export function AdminDashboard({
                     {showAdminLoginPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                   </button>
                 </div>
-                <div className="muted tiny" style={{ marginTop: 6 }}>
-                  ※ 初回ログインにはデプロイ時に設定した <code>ADMIN_PASSWORD</code> を使用してください。
+              </div>
+
+              <div style={{ marginBottom: 16 }}>
+                <label
+                  htmlFor="admin-secret-code-input"
+                  style={{ display: "block", fontSize: 12, color: "var(--text-secondary)", marginBottom: 6 }}
+                >
+                  秘密の暗号 (Admin Secret Code) <span style={{ color: "var(--neon-red)" }}>*必須</span>
+                </label>
+                <div style={{ position: "relative" }}>
+                  <input
+                    id="admin-secret-code-input"
+                    type={showAdminSecretCode ? "text" : "password"}
+                    value={adminSecretCodeInput}
+                    onChange={(e) => setAdminSecretCodeInput(e.target.value)}
+                    placeholder="管理者専用の秘密の暗号"
+                    autoComplete="off"
+                    disabled={isLocked || loggingIn}
+                    style={{
+                      width: "100%",
+                      padding: "11px 40px 11px 14px",
+                      background: "var(--bg-input)",
+                      border: "1px solid var(--border-subtle)",
+                      borderRadius: 8,
+                      color: "var(--text-primary)",
+                      fontSize: 14,
+                      boxSizing: "border-box",
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowAdminSecretCode(!showAdminSecretCode)}
+                    aria-label={showAdminSecretCode ? "秘密の暗号を非表示" : "秘密の暗号を表示"}
+                    style={{
+                      position: "absolute",
+                      right: 10,
+                      top: "50%",
+                      transform: "translateY(-50%)",
+                      background: "transparent",
+                      border: "none",
+                      color: "var(--text-muted)",
+                      cursor: "pointer",
+                      padding: 4,
+                      display: "flex",
+                      alignItems: "center",
+                    }}
+                  >
+                    {showAdminSecretCode ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+                <div className="muted tiny" style={{ marginTop: 6, lineHeight: 1.4 }}>
+                  ※ 不正アクセス防御のため、秘密の暗号の入力が必須です。未変更時の初期値は環境変数 <code>ADMIN_SECRET_CODE</code> または開発用暗号です。
                 </div>
               </div>
 
+              {!isLocked && (
+                <TurnstileWidget
+                  ref={turnstileRef}
+                  siteKey={turnstileSiteKey}
+                  onVerify={(token) => {
+                    setTurnstileToken(token);
+                    setLoginError(null);
+                  }}
+                  onExpire={() => setTurnstileToken("")}
+                  onError={() => setTurnstileToken("")}
+                />
+              )}
+
               <button
                 type="submit"
-                disabled={loggingIn || !adminPasswordInput.trim()}
+                disabled={
+                  isLocked ||
+                  loggingIn ||
+                  !adminPasswordInput.trim() ||
+                  !adminSecretCodeInput.trim() ||
+                  !turnstileToken.trim()
+                }
                 className="btn btn-default"
                 style={{ width: "100%", padding: "10px 16px" }}
               >
-                {loggingIn ? "認証中..." : "管理者としてログイン"}
+                {isLocked
+                  ? "一時的にロックされています"
+                  : loggingIn
+                  ? "認証中..."
+                  : "管理者としてログイン"}
               </button>
             </form>
           </motion.div>
@@ -2095,6 +2356,210 @@ export function AdminDashboard({
                 {updatingAdminPwd ? "更新中..." : "管理者パスワードを更新"}
               </button>
             </form>
+              </>
+            )}
+          </Card>
+
+          <Card className="section" style={{ marginTop: 20 }}>
+            <div className="row" style={{ gap: 8, marginBottom: 14 }}>
+              <KeyRound size={16} style={{ color: "var(--neon-cyan)" }} />
+              <h2 style={{ fontSize: 16, margin: 0, fontWeight: 700 }}>秘密の暗号（Admin Secret Code）変更</h2>
+            </div>
+            <p className="muted tiny" style={{ marginTop: 0, marginBottom: 16, lineHeight: 1.5 }}>
+              管理者ログイン時に必須となる「秘密の暗号」を更新します。6〜100文字で設定してください。平文は保存されず暗号化ハッシュとして安全に記録されます。
+            </p>
+
+            {session?.id !== "admin-master" ? (
+              <div className="muted tiny" role="status">
+                秘密の暗号を変更できるのはマスター管理者だけです。
+              </div>
+            ) : (
+              <>
+                {secretCodeError && (
+                  <div
+                    className="row"
+                    style={{
+                      gap: 8,
+                      padding: "8px 12px",
+                      background: "rgba(255,51,102,0.15)",
+                      border: "1px solid var(--neon-red)",
+                      borderRadius: 6,
+                      color: "var(--neon-red)",
+                      fontSize: 12,
+                      marginBottom: 14,
+                    }}
+                  >
+                    <AlertCircle size={14} />
+                    <span>{secretCodeError}</span>
+                  </div>
+                )}
+
+                {secretCodeSuccess && (
+                  <div
+                    className="row"
+                    style={{
+                      gap: 8,
+                      padding: "8px 12px",
+                      background: "rgba(0,255,157,0.15)",
+                      border: "1px solid var(--neon-green)",
+                      borderRadius: 6,
+                      color: "var(--neon-green)",
+                      fontSize: 12,
+                      marginBottom: 14,
+                    }}
+                  >
+                    <Check size={14} />
+                    <span>{secretCodeSuccess}</span>
+                  </div>
+                )}
+
+                <form onSubmit={handleChangeSecretCode}>
+                  <div style={{ marginBottom: 14 }}>
+                    <label htmlFor="current-secret-code" style={{ display: "block", fontSize: 12, color: "var(--text-secondary)", marginBottom: 4 }}>
+                      現在の秘密の暗号 (確認用)
+                    </label>
+                    <div style={{ position: "relative" }}>
+                      <input
+                        id="current-secret-code"
+                        type={showCurrentSecretCode ? "text" : "password"}
+                        value={currentSecretCodeInput}
+                        onChange={(e) => setCurrentSecretCodeInput(e.target.value)}
+                        placeholder="現在の秘密の暗号 (未変更時は初期暗号)"
+                        style={{
+                          width: "100%",
+                          padding: "8px 36px 8px 10px",
+                          background: "var(--bg-input)",
+                          border: "1px solid var(--border-subtle)",
+                          borderRadius: 6,
+                          color: "var(--text-primary)",
+                          fontSize: 13,
+                          boxSizing: "border-box",
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowCurrentSecretCode(!showCurrentSecretCode)}
+                        aria-label={showCurrentSecretCode ? "秘密の暗号を非表示" : "秘密の暗号を表示"}
+                        style={{
+                          position: "absolute",
+                          right: 8,
+                          top: "50%",
+                          transform: "translateY(-50%)",
+                          background: "transparent",
+                          border: "none",
+                          color: "var(--text-muted)",
+                          cursor: "pointer",
+                          padding: 2,
+                          display: "flex",
+                        }}
+                      >
+                        {showCurrentSecretCode ? <EyeOff size={14} /> : <Eye size={14} />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div style={{ marginBottom: 14 }}>
+                    <label htmlFor="new-secret-code" style={{ display: "block", fontSize: 12, color: "var(--text-secondary)", marginBottom: 4 }}>
+                      新しい秘密の暗号 (6〜100文字)
+                    </label>
+                    <div style={{ position: "relative" }}>
+                      <input
+                        id="new-secret-code"
+                        type={showNewSecretCode ? "text" : "password"}
+                        value={newSecretCodeInput}
+                        onChange={(e) => setNewSecretCodeInput(e.target.value)}
+                        placeholder="新しい秘密の暗号"
+                        style={{
+                          width: "100%",
+                          padding: "8px 36px 8px 10px",
+                          background: "var(--bg-input)",
+                          border: "1px solid var(--border-subtle)",
+                          borderRadius: 6,
+                          color: "var(--text-primary)",
+                          fontSize: 13,
+                          boxSizing: "border-box",
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowNewSecretCode(!showNewSecretCode)}
+                        aria-label={showNewSecretCode ? "新しい秘密の暗号を非表示" : "新しい秘密の暗号を表示"}
+                        style={{
+                          position: "absolute",
+                          right: 8,
+                          top: "50%",
+                          transform: "translateY(-50%)",
+                          background: "transparent",
+                          border: "none",
+                          color: "var(--text-muted)",
+                          cursor: "pointer",
+                          padding: 2,
+                          display: "flex",
+                        }}
+                      >
+                        {showNewSecretCode ? <EyeOff size={14} /> : <Eye size={14} />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div style={{ marginBottom: 18 }}>
+                    <label htmlFor="confirm-secret-code" style={{ display: "block", fontSize: 12, color: "var(--text-secondary)", marginBottom: 4 }}>
+                      新しい秘密の暗号（確認）
+                    </label>
+                    <div style={{ position: "relative" }}>
+                      <input
+                        id="confirm-secret-code"
+                        type={showConfirmSecretCode ? "text" : "password"}
+                        value={confirmSecretCodeInput}
+                        onChange={(e) => setConfirmSecretCodeInput(e.target.value)}
+                        placeholder="もう一度入力してください"
+                        style={{
+                          width: "100%",
+                          padding: "8px 36px 8px 10px",
+                          background: "var(--bg-input)",
+                          border: "1px solid var(--border-subtle)",
+                          borderRadius: 6,
+                          color: "var(--text-primary)",
+                          fontSize: 13,
+                          boxSizing: "border-box",
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowConfirmSecretCode(!showConfirmSecretCode)}
+                        aria-label={showConfirmSecretCode ? "確認用暗号を非表示" : "確認用暗号を表示"}
+                        style={{
+                          position: "absolute",
+                          right: 8,
+                          top: "50%",
+                          transform: "translateY(-50%)",
+                          background: "transparent",
+                          border: "none",
+                          color: "var(--text-muted)",
+                          cursor: "pointer",
+                          padding: 2,
+                          display: "flex",
+                        }}
+                      >
+                        {showConfirmSecretCode ? <EyeOff size={14} /> : <Eye size={14} />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={
+                      updatingSecretCode ||
+                      newSecretCodeInput.trim().length < 6 ||
+                      newSecretCodeInput.trim().length > 100 ||
+                      newSecretCodeInput.trim() !== confirmSecretCodeInput.trim()
+                    }
+                    className="btn btn-default"
+                    style={{ width: "100%" }}
+                  >
+                    {updatingSecretCode ? "更新中..." : "秘密の暗号を更新"}
+                  </button>
+                </form>
               </>
             )}
           </Card>

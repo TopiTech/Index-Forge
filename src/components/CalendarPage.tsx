@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import {
   AlertTriangle,
   ArrowRight,
@@ -12,9 +12,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock,
-  Globe,
-  TrendingUp,
-  Tag,
   ExternalLink,
   X,
   FileSpreadsheet,
@@ -796,7 +793,6 @@ export function CalendarPage({
               }}
             >
               {calendarGrid.map((cell) => {
-                const hasEvents = cell.events.length > 0;
                 return (
                   <div
                     key={cell.dateKeyFull}

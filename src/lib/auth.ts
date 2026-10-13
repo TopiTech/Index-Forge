@@ -205,3 +205,141 @@ export function generateSecurePassword(length = 10): string {
   }
   return result;
 }
+
+/**
+ * Retrieve Turnstile configuration and admin lockout status from the Worker API
+ */
+export async function getTurnstileConfig(): Promise<{
+  siteKey: string;
+  lockout?: { locked: boolean; remainingSeconds: number; remainingAttempts: number };
+}> {
+  try {
+    const res = await fetch("/api/auth/turnstile-config");
+    if (!res.ok) {
+      return { siteKey: "1x00000000000000000000AA" };
+    }
+    const data = (await res.json()) as {
+      ok?: boolean;
+      siteKey?: string;
+      lockout?: { locked: boolean; remainingSeconds: number; remainingAttempts: number };
+    };
+    return {
+      siteKey: data.siteKey || "1x00000000000000000000AA",
+      lockout: data.lockout,
+    };
+  } catch (e) {
+    console.warn("Failed to fetch Turnstile config:", e);
+    return { siteKey: "1x00000000000000000000AA" };
+  }
+}
+
+/**
+ * Perform dedicated administrator login with password, secret code, and Turnstile verification.
+ */
+export async function adminLogin(
+  password: string,
+  secretCode: string,
+  turnstileToken: string,
+): Promise<{
+  ok: boolean;
+  session?: AuthSession;
+  error?: string;
+  locked?: boolean;
+  remainingSeconds?: number;
+  remainingAttempts?: number;
+}> {
+  try {
+    const trimmedPwd = password.trim();
+    const trimmedCode = secretCode.trim();
+    const trimmedToken = turnstileToken.trim();
+
+    if (!trimmedPwd) {
+      return { ok: false, error: "管理者パスワードを入力してください" };
+    }
+    if (!trimmedCode) {
+      return { ok: false, error: "秘密の暗号を入力してください" };
+    }
+    if (!trimmedToken) {
+      return { ok: false, error: "Turnstile認証（ロボット確認）を完了してください" };
+    }
+
+    const res = await fetch("/api/auth/admin-login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        password: trimmedPwd,
+        secretCode: trimmedCode,
+        turnstileToken: trimmedToken,
+      }),
+    });
+
+    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+
+    if (!res.ok || data.ok !== true) {
+      return {
+        ok: false,
+        error: typeof data.error === "string" ? data.error : "管理者ログインに失敗しました",
+        locked: Boolean(data.locked),
+        remainingSeconds: typeof data.remainingSeconds === "number" ? data.remainingSeconds : undefined,
+        remainingAttempts: typeof data.remainingAttempts === "number" ? data.remainingAttempts : undefined,
+      };
+    }
+
+    const role = data.role === "admin" ? "admin" : null;
+    if (!role) {
+      return { ok: false, error: "管理者権限の認証応答が不正です" };
+    }
+
+    const session: AuthSession = {
+      role: "admin",
+      name: typeof data.name === "string" ? data.name : "管理者",
+      password: trimmedPwd,
+      maxStocks: null,
+      maxIndices: null,
+      id: typeof data.id === "string" ? data.id : "admin-master",
+    };
+
+    storeAuth(session);
+    return { ok: true, session };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "管理者認証通信エラーが発生しました";
+    return { ok: false, error: msg };
+  }
+}
+
+/**
+ * Change administrator secret code
+ */
+export async function changeAdminSecretCode(
+  currentSecretCode: string,
+  newSecretCode: string,
+  headers?: Record<string, string>,
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const authHeaders = headers || getAuthHeaders();
+    const res = await fetch("/api/admin/admin-secret-code", {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        ...authHeaders,
+      },
+      body: JSON.stringify({
+        currentSecretCode: currentSecretCode.trim(),
+        newSecretCode: newSecretCode.trim(),
+      }),
+    });
+
+    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!res.ok || data.ok !== true) {
+      return {
+        ok: false,
+        error: typeof data.error === "string" ? data.error : "秘密の暗号の更新に失敗しました",
+      };
+    }
+
+    return { ok: true };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "通信エラーが発生しました";
+    return { ok: false, error: msg };
+  }
+}

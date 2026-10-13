@@ -66,6 +66,7 @@ CREATE TABLE IF NOT EXISTS access_passwords (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     password_hash TEXT NOT NULL,
+    secret_code_hash TEXT,
     role TEXT NOT NULL DEFAULT 'user',
     max_stocks INTEGER DEFAULT 10,
     max_indices INTEGER DEFAULT NULL,
@@ -75,3 +76,11 @@ CREATE TABLE IF NOT EXISTS access_passwords (
 );
 
 CREATE INDEX IF NOT EXISTS idx_access_passwords_hash ON access_passwords(password_hash);
+
+CREATE TABLE IF NOT EXISTS admin_login_attempts (
+    ip TEXT PRIMARY KEY,
+    failed_count INTEGER NOT NULL DEFAULT 0,
+    last_failed_at INTEGER NOT NULL,
+    locked_until INTEGER NOT NULL DEFAULT 0
+);
+

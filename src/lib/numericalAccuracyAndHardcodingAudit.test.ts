@@ -33,7 +33,7 @@ describe("Numerical Accuracy and Hardcoding Remediation Audit", () => {
     });
 
     it("ensures SECTOR_AVERAGE_PER contains reasonable multiples between 5x and 60x", () => {
-      for (const [sector, per] of Object.entries(SECTOR_AVERAGE_PER)) {
+      for (const [_sector, per] of Object.entries(SECTOR_AVERAGE_PER)) {
         expect(per).toBeGreaterThanOrEqual(5.0);
         expect(per).toBeLessThanOrEqual(60.0);
       }

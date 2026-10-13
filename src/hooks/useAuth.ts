@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from "react";
 import type { AuthSession } from "../types";
-import { getStoredAuth, clearAuth, verifyPassword, getAuthHeaders } from "../lib/auth";
+import { getStoredAuth, clearAuth, verifyPassword, adminLogin, getAuthHeaders } from "../lib/auth";
 
 export function useAuth() {
   const [session, setSession] = useState<AuthSession | null>(() => getStoredAuth());
@@ -51,6 +51,36 @@ export function useAuth() {
     return { ok: false, error: res.error || "認証に失敗しました" };
   }, []);
 
+  const handleAdminLogin = useCallback(
+    async (
+      password: string,
+      secretCode: string,
+      turnstileToken: string,
+    ): Promise<{
+      ok: boolean;
+      error?: string;
+      locked?: boolean;
+      remainingSeconds?: number;
+      remainingAttempts?: number;
+    }> => {
+      setLoading(true);
+      const res = await adminLogin(password, secretCode, turnstileToken);
+      setLoading(false);
+      if (res.ok && res.session) {
+        setSession(res.session);
+        return { ok: true };
+      }
+      return {
+        ok: false,
+        error: res.error || "管理者認証に失敗しました",
+        locked: res.locked,
+        remainingSeconds: res.remainingSeconds,
+        remainingAttempts: res.remainingAttempts,
+      };
+    },
+    [],
+  );
+
   const logout = useCallback(() => {
     clearAuth();
     setSession(null);
@@ -75,6 +105,7 @@ export function useAuth() {
     maxIndices,
     loading,
     login,
+    adminLogin: handleAdminLogin,
     logout,
     getHeaders,
   };
