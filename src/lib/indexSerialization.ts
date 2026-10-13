@@ -194,6 +194,20 @@ export function serializeBasketToCsv(basket: readonly BasketItem[]): string {
 }
 
 /**
+ * 数値文字列をパースします（全角数字、通貨記号、3桁区切りカンマに対応）。
+ */
+export function parseNumericValue(val: unknown): number {
+  if (typeof val === "number") return val;
+  if (typeof val !== "string") return NaN;
+  const cleaned = val
+    .replace(/[０-９]/g, (s) => String.fromCharCode(s.charCodeAt(0) - 0xfee0))
+    .replace(/[￥¥$€£\s]/g, "")
+    .replace(/,/g, "")
+    .trim();
+  return parseFloat(cleaned);
+}
+
+/**
  * CSV文字列から構成銘柄バスケットを読み込みパースします。
  */
 export function deserializeBasketFromCsv(csvStr: string): SerializationResult<BasketItem[]> {
@@ -277,7 +291,7 @@ export function deserializeBasketFromCsv(csvStr: string): SerializationResult<Ba
 
     const name = (nameIdx < fields.length ? fields[nameIdx] : "") || ticker;
     const theme = (themeIdx < fields.length ? fields[themeIdx] : "") || "カスタム";
-    const rawWeight = weightIdx < fields.length ? parseFloat(fields[weightIdx]) : NaN;
+    const rawWeight = weightIdx < fields.length ? parseNumericValue(fields[weightIdx]) : NaN;
     const weight = Number.isFinite(rawWeight) && rawWeight > 0 ? rawWeight : 1;
 
     basket.push({ ticker, name, theme, weight });
@@ -386,10 +400,10 @@ export function deserializePortfolioFromCsv(
     if (!ticker) continue;
 
     const name = (nameIdx < fields.length ? fields[nameIdx] : "") || ticker;
-    const rawShares = sharesIdx < fields.length ? parseFloat(fields[sharesIdx]) : NaN;
+    const rawShares = sharesIdx < fields.length ? parseNumericValue(fields[sharesIdx]) : NaN;
     const shares = Number.isFinite(rawShares) && rawShares > 0 ? rawShares : 100;
 
-    const rawCost = costIdx < fields.length ? parseFloat(fields[costIdx]) : NaN;
+    const rawCost = costIdx < fields.length ? parseNumericValue(fields[costIdx]) : NaN;
     const averageCost = Number.isFinite(rawCost) && rawCost > 0 ? rawCost : 1000;
 
     const acquiredAt = dateIdx < fields.length ? fields[dateIdx] : undefined;

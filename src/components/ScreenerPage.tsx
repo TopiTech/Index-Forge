@@ -496,7 +496,6 @@ export function ScreenerPage({
           >
             <Sparkles size={14} />
             <span>
-              ★{" "}
               {selectedTickers.size > 0
                 ? `選択した${selectedTickers.size}銘柄で指数化`
                 : "抽出結果を一括指数化"}

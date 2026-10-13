@@ -1656,6 +1656,19 @@ export function evaluateTechnicalSignal(
 }
 
 /**
+ * RFC 5545 §3.3.11 TEXT エスケープ
+ * バックスラッシュ、セミコロン、カンマ、改行を正しくエスケープします。
+ */
+export function escapeIcsText(text: string): string {
+  if (!text) return "";
+  return text
+    .replace(/\\/g, "\\\\")
+    .replace(/;/g, "\\;")
+    .replace(/,/g, "\\,")
+    .replace(/\r?\n/g, "\\n");
+}
+
+/**
  * カレンダーイベント一覧を iCalendar (RFC 5545, .ics) 形式にエクスポート
  */
 export function exportCalendarToIcs(events: CalendarEvent[]): string {
@@ -1691,7 +1704,9 @@ export function exportCalendarToIcs(events: CalendarEvent[]): string {
     const y = parseInt(dateStr.slice(0, 4), 10);
     const m = parseInt(dateStr.slice(4, 6), 10) - 1;
     const d = parseInt(dateStr.slice(6, 8), 10);
+    if (Number.isNaN(y) || Number.isNaN(m) || Number.isNaN(d)) continue;
     const nextDay = new Date(Date.UTC(y, m, d + 1));
+    if (Number.isNaN(nextDay.getTime())) continue;
     const nextDayStr = `${nextDay.getUTCFullYear()}${pad(nextDay.getUTCMonth() + 1)}${pad(nextDay.getUTCDate())}`;
 
     const descParts: string[] = [];
@@ -1708,9 +1723,9 @@ export function exportCalendarToIcs(events: CalendarEvent[]): string {
     lines.push(`DTSTAMP:${dtStamp}`);
     lines.push(`DTSTART;VALUE=DATE:${dateStr}`);
     lines.push(`DTEND;VALUE=DATE:${nextDayStr}`);
-    lines.push(`SUMMARY:${evt.title.replace(/[,;]/g, " ")}`);
+    lines.push(`SUMMARY:${escapeIcsText(evt.title)}`);
     if (descParts.length > 0) {
-      lines.push(`DESCRIPTION:${descParts.join(" \\n ").replace(/\r?\n/g, " ")}`);
+      lines.push(`DESCRIPTION:${escapeIcsText(descParts.join("\n"))}`);
     }
     lines.push("CLASS:PUBLIC");
     lines.push("STATUS:CONFIRMED");

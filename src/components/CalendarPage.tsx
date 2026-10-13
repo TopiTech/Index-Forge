@@ -677,15 +677,19 @@ export function CalendarPage({
                       </div>
                     )}
 
-                    <div style={{ display: "flex", gap: "6px" }}>
+                    <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
                       <button
                         type="button"
                         className="btn btn-xs btn-outline"
-                        style={{ borderRadius: "14px", padding: "4px 8px" }}
+                        style={{ borderRadius: "14px", padding: "4px 10px" }}
                         onClick={(e) => {
                           e.stopPropagation();
                           setSelectedEvent(evt);
                         }}
+                        onKeyDown={(e) => {
+                          e.stopPropagation();
+                        }}
+                        aria-label={`${evt.title}のイベント詳細を表示`}
                         title="イベントの詳細情報を表示"
                       >
                         詳細
