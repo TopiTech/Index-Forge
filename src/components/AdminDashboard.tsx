@@ -400,7 +400,7 @@ export function AdminDashboard({
       return;
     }
     if (!normNew || normNew.length < 6) {
-      setSecretCodeError("新しい秘密の暗号は6文字以上で入力してください");
+      setSecretCodeError(`新しい秘密の暗号は6文字以上で入力してください（現在: ${normNew.length}文字）`);
       return;
     }
     if (normNew.length > 100) {
@@ -2355,15 +2355,16 @@ export function AdminDashboard({
                     {showConfirmAdminPassword ? <EyeOff size={14} /> : <Eye size={14} />}
                   </button>
                 </div>
+                {confirmAdminPassword.length > 0 && newAdminPassword.trim() !== confirmAdminPassword.trim() && (
+                  <div style={{ fontSize: 11, color: "var(--neon-red)", marginTop: 4 }}>
+                    ⚠️ パスワード（確認）が一致していません
+                  </div>
+                )}
               </div>
 
               <button
                 type="submit"
-                disabled={
-                  updatingAdminPwd ||
-                  newAdminPassword.trim().length < 8 ||
-                  newAdminPassword.trim().length > 100
-                }
+                disabled={updatingAdminPwd}
                 className="btn btn-default"
                 style={{ width: "100%" }}
               >
@@ -2528,6 +2529,11 @@ export function AdminDashboard({
                         {showNewSecretCode ? <EyeOff size={14} /> : <Eye size={14} />}
                       </button>
                     </div>
+                    {newSecretCodeInput.length > 0 && newSecretCodeInput.trim().length < 6 && (
+                      <div style={{ fontSize: 11, color: "var(--neon-red)", marginTop: 4 }}>
+                        ⚠️ 6文字以上入力してください（現在: {newSecretCodeInput.trim().length}文字）
+                      </div>
+                    )}
                   </div>
 
                   <div style={{ marginBottom: 18 }}>
@@ -2579,16 +2585,16 @@ export function AdminDashboard({
                         {showConfirmSecretCode ? <EyeOff size={14} /> : <Eye size={14} />}
                       </button>
                     </div>
+                    {confirmSecretCodeInput.length > 0 && newSecretCodeInput.trim() !== confirmSecretCodeInput.trim() && (
+                      <div style={{ fontSize: 11, color: "var(--neon-red)", marginTop: 4 }}>
+                        ⚠️ 新しい秘密の暗号と一致していません
+                      </div>
+                    )}
                   </div>
 
                   <button
                     type="submit"
-                    disabled={
-                      updatingSecretCode ||
-                      newSecretCodeInput.trim().length < 6 ||
-                      newSecretCodeInput.trim().length > 100 ||
-                      newSecretCodeInput.trim() !== confirmSecretCodeInput.trim()
-                    }
+                    disabled={updatingSecretCode}
                     className="btn btn-default"
                     style={{ width: "100%" }}
                   >
