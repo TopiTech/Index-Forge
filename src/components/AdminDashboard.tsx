@@ -2656,6 +2656,7 @@ export function AdminDashboard({
         onClose={() => {
           if (!creatingIndex) setIsCreateIndexModalOpen(false);
         }}
+        ariaLabel="新規カスタム指数の作成"
         title={
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <Plus size={18} style={{ color: "var(--neon-cyan)" }} />

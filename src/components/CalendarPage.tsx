@@ -453,6 +453,7 @@ export function CalendarPage({
             />
             <input
               type="text"
+              aria-label="イベント・銘柄名検索"
               className="input input-sm"
               placeholder="イベント・銘柄名検索..."
               value={searchQuery}
@@ -467,6 +468,7 @@ export function CalendarPage({
             {searchQuery && (
               <button
                 type="button"
+                aria-label="検索キーワードを消去"
                 onClick={() => setSearchQuery("")}
                 style={{
                   position: "absolute",
@@ -940,6 +942,7 @@ export function CalendarPage({
         <ModalBase
           isOpen={Boolean(selectedEvent)}
           onClose={() => setSelectedEvent(null)}
+          ariaLabel="イベント詳細"
           title={
             <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
               <CalendarIcon size={18} style={{ color: "var(--accent-text)" }} />
@@ -1102,6 +1105,7 @@ export function CalendarPage({
         <ModalBase
           isOpen={Boolean(selectedDayOverview)}
           onClose={() => setSelectedDayOverview(null)}
+          ariaLabel={`${selectedDayOverview.fullDate || selectedDayOverview.dateStr} のイベント一覧 (${selectedDayOverview.events.length}件)`}
           title={
             <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
               <CalendarIcon size={18} style={{ color: "var(--accent-text)" }} />

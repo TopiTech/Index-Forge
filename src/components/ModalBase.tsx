@@ -51,7 +51,7 @@ export function ModalBase({
   // an explicit ariaLabel/ariaLabelledBy always wins.
   const titleId = `${generatedTitleId}-title`;
   const resolvedLabelledBy =
-    ariaLabelledBy ?? (ariaLabel || typeof title !== "string" ? undefined : titleId);
+    ariaLabelledBy ?? (ariaLabel ? undefined : (title ? titleId : undefined));
 
   const handleBackdropMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
     isBackdropMouseDownRef.current = e.target === e.currentTarget;
@@ -95,7 +95,9 @@ export function ModalBase({
                     {title}
                   </h2>
                 ) : (
-                  title
+                  <div className="modal-title" id={titleId}>
+                    {title}
+                  </div>
                 )}
                 {subtitle && <div className="modal-subtitle">{subtitle}</div>}
               </div>

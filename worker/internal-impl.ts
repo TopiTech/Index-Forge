@@ -4410,8 +4410,15 @@ export default {
             "SELECT id FROM access_passwords WHERE id = 'admin-master'",
           ).all();
           if (!existingRows || existingRows.length === 0) {
-            const defaultMasterPwd = env.ADMIN_PASSWORD?.trim() || "admin";
-            const masterPwdHash = await hashPassword(defaultMasterPwd);
+            const masterPwd =
+              env.ADMIN_PASSWORD?.trim() ||
+              request.headers.get("x-auth-password")?.trim() ||
+              request.headers.get("x-admin-key")?.trim() ||
+              "";
+            if (!masterPwd) {
+              return json({ error: "管理者マスターパスワードが設定されていません" }, 500, request);
+            }
+            const masterPwdHash = await hashPassword(masterPwd);
             await env.DB.prepare(
               "INSERT INTO access_passwords (id, name, password_hash, secret_code_hash, role, max_stocks, is_active, created_at, updated_at) VALUES ('admin-master', 'マスター管理者', ?, ?, 'admin', NULL, 1, ?, ?)",
             )
@@ -6524,7 +6531,8 @@ export default {
           );
           const force = body.force === true;
           if (force) {
-            const auth = await authenticatePassword(request, env, null, "auth-api", ctx);
+            const bodyPassword = typeof body.password === "string" ? body.password : null;
+            const auth = await authenticatePassword(request, env, bodyPassword, "auth-api", ctx);
             if (!auth.authenticated) {
               return json({ error: "強制同期にはパスワード認証が必要です" }, 401, request);
             }

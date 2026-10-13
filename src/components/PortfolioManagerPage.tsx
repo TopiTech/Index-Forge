@@ -203,7 +203,6 @@ export function PortfolioManagerPage({
 
   useEffect(() => {
     if (isAuthTransitionRef.current) {
-      isAuthTransitionRef.current = false;
       return;
     }
     if (isAuthenticated && positionsPersistedRef.current) {
@@ -219,6 +218,13 @@ export function PortfolioManagerPage({
       saveWatchlist(watchlist);
     }
   }, [watchlist, isAuthenticated]);
+
+  useEffect(() => {
+    if (isAuthTransitionRef.current) {
+      isAuthTransitionRef.current = false;
+      return;
+    }
+  });
 
   const handleTabKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
     if (!["ArrowRight", "ArrowDown", "ArrowLeft", "ArrowUp", "Home", "End"].includes(event.key)) {
