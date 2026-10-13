@@ -3871,11 +3871,28 @@ export default {
           const parsed = await parseJsonBody(request);
           if (!parsed.ok) return parsed.response;
           const password = typeof parsed.body.password === "string" ? parsed.body.password : "";
+          const requestedRole = typeof parsed.body.role === "string" ? parsed.body.role : undefined;
+          const userOnly = Boolean(
+            parsed.body.userOnly === true ||
+            requestedRole === "user" ||
+            request.headers.get("x-auth-mode") === "user",
+          );
           const auth = await authenticatePassword(request, env, password, "auth-login", ctx);
           if (!auth.authenticated) {
             return json(
               { ok: false, error: auth.error || "パスワードが正しくありません" },
               401,
+              request,
+            );
+          }
+          if (userOnly && auth.role === "admin") {
+            return json(
+              {
+                ok: false,
+                error:
+                  "管理者としてログインするには「管理者ログイン」から秘密の暗号およびTurnstile認証を行ってください",
+              },
+              403,
               request,
             );
           }

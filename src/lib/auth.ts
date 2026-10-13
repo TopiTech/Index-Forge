@@ -156,8 +156,8 @@ export async function verifyPassword(
 
     const res = await fetch("/api/auth/verify", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ password: trimmed }),
+      headers: { "Content-Type": "application/json", "x-auth-mode": "user" },
+      body: JSON.stringify({ password: trimmed, role: "user", userOnly: true }),
     });
 
     const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
@@ -168,14 +168,22 @@ export async function verifyPassword(
       };
     }
 
-    const role = data.role === "admin" || data.role === "user" ? data.role : null;
+    // 防御的検証: 一般ユーザー認証で管理者ロールが返却された場合は管理者ログインへの誘導エラーとする
+    if (data.role === "admin") {
+      return {
+        ok: false,
+        error: "管理者としてログインするには「管理者ログイン」から秘密の暗号およびTurnstile認証を行ってください",
+      };
+    }
+
+    const role = data.role === "user" ? data.role : null;
     if (!role) {
       return { ok: false, error: "認証応答が不正です" };
     }
 
     const session: AuthSession = {
-      role,
-      name: typeof data.name === "string" ? data.name : role === "admin" ? "管理者" : "ユーザー",
+      role: "user",
+      name: typeof data.name === "string" ? data.name : "ユーザー",
       password: trimmed,
       maxStocks: typeof data.maxStocks === "number" ? data.maxStocks : null,
       maxIndices: typeof data.maxIndices === "number" ? data.maxIndices : null,

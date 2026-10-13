@@ -757,7 +757,7 @@ export function PortfolioManagerPage({
                     type={showPassword ? "text" : "password"}
                     value={authPassword}
                     onChange={(e) => setAuthPassword(e.target.value)}
-                    placeholder={authMode === "admin" ? "管理者パスワード" : "ユーザーまたは管理者パスワード"}
+                    placeholder={authMode === "admin" ? "管理者パスワード" : "ユーザー用アクセスパスワード"}
                     autoComplete="current-password"
                     disabled={isSubmittingAuth || authLoading || isLocked}
                     style={{
@@ -797,7 +797,7 @@ export function PortfolioManagerPage({
                 <p className="tiny muted" style={{ margin: "6px 0 0", fontSize: "11px" }}>
                   {authMode === "admin"
                     ? "※ マスター管理者のパスワードを入力してください"
-                    : "※ 管理者パスワード、または管理者が発行したユーザーパスワードを入力してください"}
+                    : "※ 管理者が発行したユーザーパスワード（アクセスパスワード）を入力してください（管理者の方は「管理者ログイン」タブをご利用ください）"}
                 </p>
               </div>
 

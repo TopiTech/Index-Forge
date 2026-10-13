@@ -361,7 +361,7 @@ export function AuthModal({
               type={showPassword ? "text" : "password"}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder={authMode === "admin" ? "管理者パスワード" : "ユーザーパスワードまたは管理者パスワード"}
+              placeholder={authMode === "admin" ? "管理者パスワード" : "ユーザー用アクセスパスワード"}
               ref={passwordInputRef}
               autoComplete="current-password"
               disabled={isLocked || loading || isSubmitting}
@@ -405,7 +405,7 @@ export function AuthModal({
           <div id="auth-modal-hint" className="muted tiny" style={{ marginTop: 6 }}>
             {authMode === "admin"
               ? "※ マスター管理者のパスワードを入力してください"
-              : "※ 管理者パスワードまたは管理者が作成したユーザーパスワードを入力してください"}
+              : "※ 管理者が発行したユーザーパスワード（アクセスパスワード）を入力してください（管理者の方は「管理者ログイン」タブをご利用ください）"}
           </div>
         </div>
 
