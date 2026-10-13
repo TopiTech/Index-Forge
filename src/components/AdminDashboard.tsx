@@ -395,6 +395,10 @@ export function AdminDashboard({
     const normConfirm = confirmSecretCodeInput.normalize("NFC").trim();
     const normCurrent = currentSecretCodeInput.normalize("NFC").trim();
 
+    if (!normCurrent) {
+      setSecretCodeError("現在の秘密の暗号を入力してください");
+      return;
+    }
     if (!normNew || normNew.length < 6) {
       setSecretCodeError("新しい秘密の暗号は6文字以上で入力してください");
       return;

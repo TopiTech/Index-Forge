@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useImperativeHandle, forwardRef, useState } from "react";
+import React, { useEffect, useRef, useImperativeHandle, forwardRef, useState, useCallback } from "react";
 import { ShieldCheck, RefreshCw, AlertCircle } from "lucide-react";
 
 export interface TurnstileWidgetRef {
@@ -34,50 +34,54 @@ declare global {
   }
 }
 
-let turnstileScriptLoading = false;
-let turnstileScriptLoaded = false;
+let turnstileLoadPromise: Promise<boolean> | null = null;
 
-function loadTurnstileScript(): Promise<void> {
-  if (typeof window === "undefined") return Promise.resolve();
-  if (turnstileScriptLoaded && window.turnstile) return Promise.resolve();
+function loadTurnstileScript(): Promise<boolean> {
+  if (typeof window === "undefined") return Promise.resolve(false);
+  if (window.turnstile) return Promise.resolve(true);
+  if (turnstileLoadPromise) return turnstileLoadPromise;
 
-  return new Promise((resolve) => {
-    if (window.turnstile) {
-      turnstileScriptLoaded = true;
-      resolve();
-      return;
-    }
-
-    if (turnstileScriptLoading) {
-      const interval = setInterval(() => {
-        if (window.turnstile) {
-          clearInterval(interval);
-          turnstileScriptLoaded = true;
-          resolve();
-        }
-      }, 50);
-      return;
-    }
-
-    turnstileScriptLoading = true;
-    window.onloadTurnstileCallback = () => {
-      turnstileScriptLoaded = true;
-      resolve();
+  turnstileLoadPromise = new Promise<boolean>((resolve) => {
+    let resolved = false;
+    const finish = (success: boolean) => {
+      if (resolved) return;
+      resolved = true;
+      if (!success) {
+        turnstileLoadPromise = null;
+        const failedScript = document.querySelector('script[src*="challenges.cloudflare.com/turnstile"]');
+        failedScript?.remove();
+      }
+      resolve(success);
     };
 
-    const existingScript = document.querySelector('script[src*="challenges.cloudflare.com/turnstile"]');
-    if (!existingScript) {
+    window.onloadTurnstileCallback = () => {
+      finish(Boolean(window.turnstile));
+    };
+
+    const existingScript = document.querySelector<HTMLScriptElement>('script[src*="challenges.cloudflare.com/turnstile"]');
+    if (existingScript) {
+      if (window.turnstile) {
+        finish(true);
+        return;
+      }
+      existingScript.addEventListener("error", () => finish(false), { once: true });
+    } else {
       const script = document.createElement("script");
       script.src = "https://challenges.cloudflare.com/turnstile/v0/api.js?onload=onloadTurnstileCallback&render=explicit";
       script.async = true;
       script.defer = true;
-      script.onerror = () => {
-        turnstileScriptLoading = false;
-        resolve(); // Continue gracefully without hanging
-      };
+      script.onerror = () => finish(false);
       document.head.appendChild(script);
     }
+
+    setTimeout(() => {
+      if (!resolved) {
+        finish(Boolean(window.turnstile));
+      }
+    }, 8000);
   });
+
+  return turnstileLoadPromise;
 }
 
 export const TurnstileWidget = forwardRef<TurnstileWidgetRef, TurnstileWidgetProps>(
@@ -85,6 +89,7 @@ export const TurnstileWidget = forwardRef<TurnstileWidgetRef, TurnstileWidgetPro
     const containerRef = useRef<HTMLDivElement>(null);
     const widgetIdRef = useRef<string | null>(null);
     const [loadError, setLoadError] = useState<string | null>(null);
+    const [retryCount, setRetryCount] = useState(0);
 
     const onVerifyRef = useRef(onVerify);
     const onErrorRef = useRef(onError);
@@ -96,15 +101,27 @@ export const TurnstileWidget = forwardRef<TurnstileWidgetRef, TurnstileWidgetPro
       onExpireRef.current = onExpire;
     });
 
-    const resetWidget = () => {
+    const handleRetry = useCallback(() => {
+      setLoadError(null);
+      if (!window.turnstile) {
+        turnstileLoadPromise = null;
+        const failedScript = document.querySelector('script[src*="challenges.cloudflare.com/turnstile"]');
+        failedScript?.remove();
+      }
+      setRetryCount((prev) => prev + 1);
+    }, []);
+
+    const resetWidget = useCallback(() => {
       if (widgetIdRef.current && window.turnstile) {
         try {
           window.turnstile.reset(widgetIdRef.current);
         } catch (e) {
           console.warn("Failed to reset Turnstile widget:", e);
         }
+      } else {
+        handleRetry();
       }
-    };
+    }, [handleRetry]);
 
     useImperativeHandle(ref, () => ({
       reset: resetWidget,
@@ -114,11 +131,10 @@ export const TurnstileWidget = forwardRef<TurnstileWidgetRef, TurnstileWidgetPro
       let isMounted = true;
 
       loadTurnstileScript()
-        .then(() => {
-          if (!isMounted || !containerRef.current || !window.turnstile) {
-            if (isMounted && !window.turnstile) {
-              setLoadError("セキュリティ認証の読み込みに失敗しました");
-            }
+        .then((loaded) => {
+          if (!isMounted || !containerRef.current) return;
+          if (!loaded || !window.turnstile) {
+            setLoadError("セキュリティ認証の読み込みに失敗しました。再試行してください。");
             return;
           }
 
@@ -182,7 +198,7 @@ export const TurnstileWidget = forwardRef<TurnstileWidgetRef, TurnstileWidgetPro
           widgetIdRef.current = null;
         }
       };
-    }, [siteKey, theme]);
+    }, [siteKey, theme, retryCount, resetWidget]);
 
     return (
       <div
@@ -200,6 +216,8 @@ export const TurnstileWidget = forwardRef<TurnstileWidgetRef, TurnstileWidgetPro
           marginTop: 12,
           marginBottom: 16,
           position: "relative",
+          maxWidth: "100%",
+          boxSizing: "border-box",
         }}
       >
         <div
@@ -208,12 +226,15 @@ export const TurnstileWidget = forwardRef<TurnstileWidgetRef, TurnstileWidgetPro
             display: "flex",
             justifyContent: "center",
             width: "100%",
+            maxWidth: "100%",
+            overflowX: "auto",
             minHeight: 65,
           }}
         />
 
         {loadError && (
           <div
+            role="alert"
             style={{
               display: "flex",
               alignItems: "center",
@@ -227,7 +248,8 @@ export const TurnstileWidget = forwardRef<TurnstileWidgetRef, TurnstileWidgetPro
             <span>{loadError}</span>
             <button
               type="button"
-              onClick={resetWidget}
+              onClick={handleRetry}
+              aria-label="認証を再試行"
               style={{
                 background: "transparent",
                 border: "none",

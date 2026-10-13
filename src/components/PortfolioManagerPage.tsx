@@ -846,7 +846,8 @@ export function PortfolioManagerPage({
 
                   {!isLocked && (
                     <div style={{ marginBottom: "18px" }}>
-                      <label
+                      <span
+                        id="portfolio-turnstile-label"
                         style={{
                           display: "block",
                           fontSize: "12px",
@@ -856,7 +857,7 @@ export function PortfolioManagerPage({
                         }}
                       >
                         ロボット検証 (Turnstile) <span style={{ color: "var(--neon-red)" }}>*必須</span>
-                      </label>
+                      </span>
                       <TurnstileWidget
                         ref={turnstileRef}
                         siteKey={turnstileSiteKey}

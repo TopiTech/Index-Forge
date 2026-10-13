@@ -187,6 +187,75 @@ describe("Japanese Hiragana and Katakana Support for Admin Secret Code & UI Auth
       expect(data.ok).toBe(true);
       expect(data.role).toBe("admin");
     });
+
+    it("verifies Turnstile tokens and rejects empty or missing tokens", async () => {
+      const emptyRes = await verifyTurnstileToken(TURNSTILE_DEFAULT_SECRET_KEY, "");
+      expect(emptyRes.success).toBe(false);
+      expect(emptyRes.error).toContain("Turnstile認証トークンが指定されていません");
+
+      const undefinedRes = await verifyTurnstileToken(TURNSTILE_DEFAULT_SECRET_KEY, undefined);
+      expect(undefinedRes.success).toBe(false);
+
+      const dummyRes = await verifyTurnstileToken(TURNSTILE_DEFAULT_SECRET_KEY, "dummy-turnstile-token");
+      expect(dummyRes.success).toBe(true);
+
+      const testTokenRes = await verifyTurnstileToken(TURNSTILE_DEFAULT_SECRET_KEY, "test-token");
+      expect(testTokenRes.success).toBe(true);
+    });
+
+    it("enforces current secret code requirement when updating admin secret code via PUT /api/admin/admin-secret-code", async () => {
+      const { env } = createJapaneseSecretTestEnv();
+
+      // Missing currentSecretCode should return 400
+      const missingCurrentReq = new Request("https://indexforge.test/api/admin/admin-secret-code", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "x-auth-password": TEST_ADMIN_PASSWORD,
+        },
+        body: JSON.stringify({
+          newSecretCode: "new-super-secret-2026",
+        }),
+      });
+      const missingRes = await worker.fetch(missingCurrentReq, env as any);
+      expect(missingRes.status).toBe(400);
+      const missingData = (await missingRes.json()) as any;
+      expect(missingData.error).toContain("現在の秘密の暗号を入力してください");
+
+      // Wrong currentSecretCode should return 401
+      const wrongCurrentReq = new Request("https://indexforge.test/api/admin/admin-secret-code", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "x-auth-password": TEST_ADMIN_PASSWORD,
+        },
+        body: JSON.stringify({
+          currentSecretCode: "まちがったあんごう",
+          newSecretCode: "new-super-secret-2026",
+        }),
+      });
+      const wrongRes = await worker.fetch(wrongCurrentReq, env as any);
+      expect(wrongRes.status).toBe(401);
+      const wrongData = (await wrongRes.json()) as any;
+      expect(wrongData.error).toContain("現在の秘密の暗号が正しくありません");
+
+      // Correct currentSecretCode should return 200
+      const validReq = new Request("https://indexforge.test/api/admin/admin-secret-code", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "x-auth-password": TEST_ADMIN_PASSWORD,
+        },
+        body: JSON.stringify({
+          currentSecretCode: HIRAGANA_SECRET_CODE,
+          newSecretCode: "new-super-secret-2026",
+        }),
+      });
+      const validRes = await worker.fetch(validReq, env as any);
+      expect(validRes.status).toBe(200);
+      const validData = (await validRes.json()) as any;
+      expect(validData.ok).toBe(true);
+    });
   });
 
   describe("2. UI Component Contracts: AuthModal", () => {
@@ -258,6 +327,33 @@ describe("Japanese Hiragana and Katakana Support for Admin Secret Code & UI Auth
 
     it("normalizes secret codes to NFC in AdminDashboard", () => {
       expect(adminDashboardCode).toMatch(/adminSecretCodeInput\.normalize\("NFC"\)/);
+    });
+  });
+
+  describe("5. UI Component Contracts: TurnstileWidget Accessibility & Resilience", () => {
+    const turnstileWidgetCode = readFileSync(
+      resolve(process.cwd(), "src/components/TurnstileWidget.tsx"),
+      "utf-8",
+    );
+
+    it("includes accessible aria-label on retry button and role=alert on error", () => {
+      expect(turnstileWidgetCode).toContain('aria-label="認証を再試行"');
+      expect(turnstileWidgetCode).toContain('role="alert"');
+    });
+
+    it("has mobile horizontal overflow protection", () => {
+      expect(turnstileWidgetCode).toContain('overflowX: "auto"');
+    });
+
+    it("guards AuthModal and PortfolioManagerPage labels for accessibility", () => {
+      const authModalCode = readFileSync(resolve(process.cwd(), "src/components/AuthModal.tsx"), "utf-8");
+      expect(authModalCode).toContain('id="auth-modal-turnstile-label"');
+
+      const portfolioCode = readFileSync(
+        resolve(process.cwd(), "src/components/PortfolioManagerPage.tsx"),
+        "utf-8",
+      );
+      expect(portfolioCode).toContain('id="portfolio-turnstile-label"');
     });
   });
 });

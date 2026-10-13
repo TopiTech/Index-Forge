@@ -458,7 +458,8 @@ export function AuthModal({
             {/* Cloudflare Turnstile Verification Widget */}
             {!isLocked && (
               <div style={{ marginBottom: 16 }}>
-                <label
+                <span
+                  id="auth-modal-turnstile-label"
                   style={{
                     display: "block",
                     fontSize: 12,
@@ -468,7 +469,7 @@ export function AuthModal({
                   }}
                 >
                   ロボット検証 (Turnstile) <span style={{ color: "var(--neon-red)" }}>*必須</span>
-                </label>
+                </span>
                 <TurnstileWidget
                   ref={turnstileRef}
                   siteKey={turnstileSiteKey}

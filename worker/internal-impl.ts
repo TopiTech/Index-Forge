@@ -764,39 +764,11 @@ export async function verifyTurnstileToken(
     return { success: false, error: "Turnstile認証トークンが指定されていません" };
   }
 
-  // Official dummy test keys / mocked environment handling
-  if (
-    effectiveSecret === TURNSTILE_DEFAULT_SECRET_KEY &&
-    (trimmedToken === "dummy-turnstile-token" ||
-      trimmedToken === "test-token" ||
-      trimmedToken.startsWith("XXXX.") ||
-      trimmedToken.length >= 10)
-  ) {
-    try {
-      const formData = new URLSearchParams();
-      formData.append("secret", effectiveSecret);
-      formData.append("response", trimmedToken);
-      if (remoteIp) formData.append("remoteip", remoteIp);
-
-      const res = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
-        method: "POST",
-        body: formData,
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      });
-      const data = (await res.json().catch(() => ({}))) as {
-        success?: boolean;
-        "error-codes"?: string[];
-      };
-      if (data.success) {
-        return { success: true };
-      }
-    } catch {
-      // In offline unit test environments using the official test key, accept the test token
-      if (effectiveSecret === TURNSTILE_DEFAULT_SECRET_KEY) {
-        return { success: true };
-      }
-    }
-  }
+  const isTestSecret = effectiveSecret === TURNSTILE_DEFAULT_SECRET_KEY;
+  const isMockToken =
+    trimmedToken === "dummy-turnstile-token" ||
+    trimmedToken === "test-token" ||
+    trimmedToken.startsWith("XXXX.");
 
   try {
     const formData = new URLSearchParams();
@@ -817,13 +789,20 @@ export async function verifyTurnstileToken(
     if (data.success) {
       return { success: true };
     }
+
+    // In unit test or development environment using the official test secret key,
+    // allow mock tokens to pass even if live siteverify returns false
+    if (isTestSecret && isMockToken) {
+      return { success: true };
+    }
+
     return {
       success: false,
       error: "Turnstile認証に失敗しました。もう一度お試しください",
     };
   } catch (err) {
     console.error("Turnstile verification network error:", err);
-    if (effectiveSecret === TURNSTILE_DEFAULT_SECRET_KEY) {
+    if (isTestSecret) {
       return { success: true };
     }
     return {
@@ -4386,11 +4365,12 @@ export default {
           }
           const currentSecretCode =
             typeof parsed.body.currentSecretCode === "string" ? parsed.body.currentSecretCode.normalize("NFC").trim() : "";
-          if (currentSecretCode) {
-            const isCurrentValid = await verifyAdminSecretCode(env, currentSecretCode);
-            if (!isCurrentValid) {
-              return json({ error: "現在の秘密の暗号が正しくありません" }, 401, request);
-            }
+          if (!currentSecretCode) {
+            return json({ error: "現在の秘密の暗号を入力してください" }, 400, request);
+          }
+          const isCurrentValid = await verifyAdminSecretCode(env, currentSecretCode);
+          if (!isCurrentValid) {
+            return json({ error: "現在の秘密の暗号が正しくありません" }, 401, request);
           }
           await ensurePasswordTable(env);
           const hash = await hashPassword(newSecretCode);
