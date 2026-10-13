@@ -86,7 +86,9 @@ export function StatsGrid({
             type: (safeBenchmarkReturnPct > 0 ? "positive" : safeBenchmarkReturnPct < 0 ? "negative" : "neutral") as "positive" | "negative" | "neutral",
           }
         : undefined,
-      sub: benchmarkData ? `前日比 ${benchmarkData.snapshot.change >= 0 ? "+" : ""}${fmt.format(benchmarkData.snapshot.change)}` : undefined,
+      sub: benchmarkData
+        ? `前日比 ${benchmarkData.snapshot.change >= 0 ? "+" : ""}${fmt.format(benchmarkData.snapshot.change)}${Number.isFinite(benchmarkData.snapshot.changePct) ? ` (${benchmarkData.snapshot.changePct >= 0 ? "+" : ""}${pct.format(benchmarkData.snapshot.changePct)}%)` : ""}`
+        : undefined,
       icon: <Gauge size={16} />,
     },
     {

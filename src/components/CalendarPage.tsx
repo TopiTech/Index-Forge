@@ -1,11 +1,33 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
-import { motion } from "framer-motion";
-import { AlertTriangle, ArrowRight, Calendar as CalendarIcon, RefreshCw } from "lucide-react";
+import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import {
+  AlertTriangle,
+  ArrowRight,
+  Calendar as CalendarIcon,
+  RefreshCw,
+  Download,
+  Search,
+  List,
+  Grid,
+  ChevronLeft,
+  ChevronRight,
+  Clock,
+  Globe,
+  TrendingUp,
+  Tag,
+  ExternalLink,
+  X,
+  FileSpreadsheet,
+} from "lucide-react";
 import {
   fetchUpcomingEvents,
   UPCOMING_EVENTS,
+  exportCalendarToIcs,
+  exportCalendarToCsv,
   type CalendarEvent,
 } from "../lib/marketDataService";
+import { toSafeDownloadFileName } from "../lib/downloadFileName";
+import { ModalBase } from "./ModalBase";
 import type { PageView } from "../lib/navigation";
 
 interface CalendarPageProps {
@@ -63,6 +85,12 @@ export function CalendarPage({
   const [events, setEvents] = useState<CalendarEvent[]>(UPCOMING_EVENTS);
   const [loading, setLoading] = useState(false);
   const [activeFilter, setActiveFilter] = useState<"ALL" | "MACRO" | "EARNINGS">("ALL");
+  const [importanceFilter, setImportanceFilter] = useState<"ALL" | "HIGH" | "MEDIUM">("ALL");
+  const [marketFilter, setMarketFilter] = useState<"ALL" | "JP" | "US">("ALL");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [viewMode, setViewMode] = useState<"LIST" | "CALENDAR">("LIST");
+  const [currentMonthDate, setCurrentMonthDate] = useState(() => new Date());
+  const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
 
   const mountedRef = useRef(true);
   const requestIdRef = useRef(0);
@@ -94,10 +122,137 @@ export function CalendarPage({
     void loadEvents();
   }, [loadEvents]);
 
-  const filteredEvents =
-    activeFilter === "ALL"
-      ? events
-      : events.filter((e) => e.type === activeFilter);
+  // Multi-axis filtering & text search
+  const filteredEvents = useMemo(() => {
+    return events.filter((e) => {
+      if (activeFilter !== "ALL" && e.type !== activeFilter) return false;
+      if (importanceFilter !== "ALL" && e.importance !== importanceFilter) return false;
+      if (marketFilter !== "ALL") {
+        const isUS = e.market === "US" || e.ticker === "AAPL" || e.ticker === "NVDA";
+        if (marketFilter === "US" && !isUS) return false;
+        if (marketFilter === "JP" && isUS) return false;
+      }
+      if (searchQuery.trim()) {
+        const q = searchQuery.trim().toLowerCase();
+        const matchTitle = e.title.toLowerCase().includes(q);
+        const matchTicker = e.ticker ? e.ticker.toLowerCase().includes(q) : false;
+        const matchCompany = e.companyName ? e.companyName.toLowerCase().includes(q) : false;
+        const matchDesc = e.description ? e.description.toLowerCase().includes(q) : false;
+        if (!matchTitle && !matchTicker && !matchCompany && !matchDesc) return false;
+      }
+      return true;
+    });
+  }, [events, activeFilter, importanceFilter, marketFilter, searchQuery]);
+
+  // Export handlers
+  const handleExportIcs = () => {
+    const icsContent = exportCalendarToIcs(filteredEvents);
+    const blob = new Blob([icsContent], { type: "text/calendar;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const dStr = new Date().toISOString().split("T")[0];
+    a.href = url;
+    a.download = toSafeDownloadFileName(`indexforge_calendar_${dStr}.ics`);
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportCsv = () => {
+    const csvContent = exportCalendarToCsv(filteredEvents);
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const dStr = new Date().toISOString().split("T")[0];
+    a.href = url;
+    a.download = toSafeDownloadFileName(`indexforge_calendar_${dStr}.csv`);
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  // Month Calendar Navigation & Grid Generation
+  const viewYear = currentMonthDate.getFullYear();
+  const viewMonth = currentMonthDate.getMonth(); // 0-indexed
+
+  const handlePrevMonth = () => {
+    setCurrentMonthDate(new Date(viewYear, viewMonth - 1, 1));
+  };
+  const handleNextMonth = () => {
+    setCurrentMonthDate(new Date(viewYear, viewMonth + 1, 1));
+  };
+  const handleTodayMonth = () => {
+    setCurrentMonthDate(new Date());
+  };
+
+  const calendarGrid = useMemo(() => {
+    const firstDayOfMonth = new Date(viewYear, viewMonth, 1);
+    const startDayOfWeek = (firstDayOfMonth.getDay() + 6) % 7; // 0 = Mon, 6 = Sun
+    const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+    const daysInPrevMonth = new Date(viewYear, viewMonth, 0).getDate();
+
+    const totalCells = Math.ceil((startDayOfWeek + daysInMonth) / 7) * 7;
+    const cells = [];
+
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const today = new Date();
+    const todayStr = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
+
+    for (let i = 0; i < totalCells; i++) {
+      let cellYear = viewYear;
+      let cellMonth = viewMonth;
+      let cellDay = 1;
+      let isCurrentMonth = true;
+
+      if (i < startDayOfWeek) {
+        // Prev month
+        cellMonth = viewMonth - 1;
+        if (cellMonth < 0) {
+          cellMonth = 11;
+          cellYear -= 1;
+        }
+        cellDay = daysInPrevMonth - startDayOfWeek + i + 1;
+        isCurrentMonth = false;
+      } else if (i >= startDayOfWeek + daysInMonth) {
+        // Next month
+        cellMonth = viewMonth + 1;
+        if (cellMonth > 11) {
+          cellMonth = 0;
+          cellYear += 1;
+        }
+        cellDay = i - (startDayOfWeek + daysInMonth) + 1;
+        isCurrentMonth = false;
+      } else {
+        // Current month
+        cellDay = i - startDayOfWeek + 1;
+        isCurrentMonth = true;
+      }
+
+      const dateKeyFull = `${cellYear}-${pad(cellMonth + 1)}-${pad(cellDay)}`;
+      const dateKeyShort = `${pad(cellMonth + 1)}/${pad(cellDay)}`;
+      const isToday = dateKeyFull === todayStr;
+
+      // Find events matching this date
+      const cellEvents = filteredEvents.filter((e) => {
+        if (e.fullDate && e.fullDate.startsWith(dateKeyFull)) return true;
+        return e.date === dateKeyShort;
+      });
+
+      cells.push({
+        year: cellYear,
+        month: cellMonth,
+        day: cellDay,
+        isCurrentMonth,
+        isToday,
+        dateKeyFull,
+        events: cellEvents,
+      });
+    }
+
+    return cells;
+  }, [viewYear, viewMonth, filteredEvents]);
 
   return (
     <motion.div
@@ -128,11 +283,43 @@ export function CalendarPage({
           </p>
         </div>
 
-        <div
-          role="group"
-          aria-label="イベント種別フィルター"
-          style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}
-        >
+        {/* Global Toolbar Controls */}
+        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+          {/* Dual View Toggle */}
+          <div
+            role="group"
+            aria-label="表示形式切り替え"
+            style={{
+              display: "flex",
+              background: "var(--surface-control)",
+              borderRadius: "20px",
+              padding: "2px",
+              border: "1px solid var(--border-subtle)",
+            }}
+          >
+            <button
+              type="button"
+              className={`btn btn-xs ${viewMode === "LIST" ? "btn-accent" : "btn-ghost"}`}
+              style={{ borderRadius: "18px", padding: "4px 12px", border: "none" }}
+              onClick={() => setViewMode("LIST")}
+              title="リストタイムライン表示"
+            >
+              <List size={13} style={{ marginRight: 4 }} />
+              <span>リスト表示</span>
+            </button>
+            <button
+              type="button"
+              className={`btn btn-xs ${viewMode === "CALENDAR" ? "btn-accent" : "btn-ghost"}`}
+              style={{ borderRadius: "18px", padding: "4px 12px", border: "none" }}
+              onClick={() => setViewMode("CALENDAR")}
+              title="月間カレンダーグリッド表示"
+            >
+              <Grid size={13} style={{ marginRight: 4 }} />
+              <span>月間表示</span>
+            </button>
+          </div>
+
+          {/* Refresh Button */}
           <button
             type="button"
             className="btn btn-sm btn-outline"
@@ -144,6 +331,62 @@ export function CalendarPage({
             <RefreshCw size={12} className={loading ? "spin" : ""} />
             <span>更新</span>
           </button>
+
+          {/* Export Dropdown / Action Buttons */}
+          <button
+            type="button"
+            className="btn btn-sm btn-outline"
+            onClick={handleExportIcs}
+            title="iCalendar (.ics) ファイルをダウンロードして各種カレンダーアプリに追加"
+            style={{ borderRadius: "20px", padding: "5px 12px" }}
+          >
+            <Download size={12} />
+            <span>.ICS 保存</span>
+          </button>
+          <button
+            type="button"
+            className="btn btn-sm btn-outline"
+            onClick={handleExportCsv}
+            title="Excel対応のCSV形式でダウンロード"
+            style={{ borderRadius: "20px", padding: "5px 12px" }}
+          >
+            <FileSpreadsheet size={12} />
+            <span>CSV 保存</span>
+          </button>
+
+          {/* Navigate to Market */}
+          <button
+            type="button"
+            className="btn btn-sm btn-outline"
+            onClick={() => onNavigate("market")}
+            title="マーケット概況へ移動"
+            style={{ borderRadius: "20px", padding: "5px 14px" }}
+          >
+            マーケット概況へ
+          </button>
+        </div>
+      </div>
+
+      {/* Filter and Search Bar */}
+      <div
+        className="card"
+        style={{
+          padding: "14px 18px",
+          marginBottom: "16px",
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          flexWrap: "wrap",
+          gap: "12px",
+          background: "var(--bg-card)",
+        }}
+      >
+        {/* Category Tabs */}
+        <div
+          role="group"
+          aria-label="イベント種別フィルター"
+          style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}
+        >
           {(
             [
               { id: "ALL", label: "全イベント" },
@@ -162,20 +405,86 @@ export function CalendarPage({
               {tab.label}
             </button>
           ))}
-          <button
-            type="button"
-            className="btn btn-sm btn-outline"
-            onClick={() => onNavigate("market")}
-            title="マーケット概況へ移動"
-            style={{ borderRadius: "20px", padding: "5px 14px" }}
+        </div>
+
+        {/* Secondary Filters & Search Bar */}
+        <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
+          {/* Market Region Filter */}
+          <select
+            value={marketFilter}
+            onChange={(e) => setMarketFilter(e.target.value as "ALL" | "JP" | "US")}
+            className="input input-sm"
+            aria-label="市場・地域フィルター"
+            style={{ borderRadius: "16px", padding: "4px 10px", fontSize: "0.82rem" }}
           >
-            マーケット概況へ
-          </button>
+            <option value="ALL">全市場・地域</option>
+            <option value="JP">国内東証 (TSE)</option>
+            <option value="US">米国市場 (US)</option>
+          </select>
+
+          {/* Importance Filter */}
+          <select
+            value={importanceFilter}
+            onChange={(e) => setImportanceFilter(e.target.value as "ALL" | "HIGH" | "MEDIUM")}
+            className="input input-sm"
+            aria-label="重要度フィルター"
+            style={{ borderRadius: "16px", padding: "4px 10px", fontSize: "0.82rem" }}
+          >
+            <option value="ALL">全重要度</option>
+            <option value="HIGH">最重要 (HIGH)</option>
+            <option value="MEDIUM">標準以上 (MEDIUM+)</option>
+          </select>
+
+          {/* Search Box */}
+          <div style={{ position: "relative", minWidth: "180px" }}>
+            <Search
+              size={13}
+              style={{
+                position: "absolute",
+                left: "10px",
+                top: "50%",
+                transform: "translateY(-50%)",
+                color: "var(--text-muted)",
+              }}
+            />
+            <input
+              type="text"
+              className="input input-sm"
+              placeholder="イベント・銘柄名検索..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              style={{
+                paddingLeft: "30px",
+                borderRadius: "16px",
+                width: "100%",
+                fontSize: "0.82rem",
+              }}
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery("")}
+                style={{
+                  position: "absolute",
+                  right: "8px",
+                  top: "50%",
+                  transform: "translateY(-50%)",
+                  background: "transparent",
+                  border: "none",
+                  cursor: "pointer",
+                  color: "var(--text-muted)",
+                }}
+              >
+                <X size={12} />
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* Events Timeline List */}
+      {/* Main Container */}
       <div className="card" style={{ padding: "20px" }}>
+        {/* Dynamic Fallback Notice */}
         {events.some((evt) => evt.source === "fallback") && (
           <div
             role="note"
@@ -220,6 +529,8 @@ export function CalendarPage({
             </button>
           </div>
         )}
+
+        {/* Empty State */}
         {filteredEvents.length === 0 ? (
           <div
             role="status"
@@ -249,7 +560,8 @@ export function CalendarPage({
               すべてのイベントを表示
             </button>
           </div>
-        ) : (
+        ) : viewMode === "LIST" ? (
+          /* List Timeline View */
           <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
             {filteredEvents.map((evt) => {
               const isMacro = evt.type === "MACRO";
@@ -315,6 +627,16 @@ export function CalendarPage({
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "3px", flexWrap: "wrap" }}>
                         <span className="badge badge-default mono tiny">{evt.importance} 重要度</span>
+                        {evt.time && (
+                          <span className="tiny muted mono" style={{ display: "inline-flex", alignItems: "center", gap: "3px" }}>
+                            <Clock size={11} /> {evt.time}
+                          </span>
+                        )}
+                        {evt.market && (
+                          <span className="badge badge-default mono tiny">
+                            {evt.market === "US" ? "米国" : "国内東証"}
+                          </span>
+                        )}
                         {evt.ticker && <span className="badge badge-accent mono tiny">{evt.ticker}</span>}
                         {evt.source === "fallback" && (
                           <span
@@ -333,10 +655,15 @@ export function CalendarPage({
                       <h3 style={{ fontSize: "1.05rem", fontWeight: 600, margin: 0, wordBreak: "break-word" }}>
                         {evt.title}
                       </h3>
+                      {evt.description && (
+                        <p className="tiny muted" style={{ margin: "4px 0 0", lineHeight: 1.4 }}>
+                          {evt.description}
+                        </p>
+                      )}
                     </div>
                   </div>
 
-                  <div style={{ display: "flex", alignItems: "center", gap: "16px", flexWrap: "wrap" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "14px", flexWrap: "wrap" }}>
                     {evt.previous && (
                       <div className="tiny muted">
                         前回: <strong className="mono">{evt.previous}</strong>
@@ -347,21 +674,388 @@ export function CalendarPage({
                         市場予想: <strong className="mono" style={{ color: "var(--accent-text)" }}>{evt.forecast}</strong>
                       </div>
                     )}
-                    {evt.ticker && (
-                      <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-                        <span className="tiny mono" style={{ color: "var(--accent-text)" }}>
-                          銘柄分析
-                        </span>
-                        <ArrowRight size={14} style={{ color: "var(--accent-text)" }} />
+                    {evt.actual && (
+                      <div className="tiny muted">
+                        結果: <strong className="mono" style={{ color: "#10b981" }}>{evt.actual}</strong>
                       </div>
                     )}
+
+                    <div style={{ display: "flex", gap: "6px" }}>
+                      <button
+                        type="button"
+                        className="btn btn-xs btn-outline"
+                        style={{ borderRadius: "14px", padding: "4px 8px" }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedEvent(evt);
+                        }}
+                        title="イベントの詳細情報を表示"
+                      >
+                        詳細
+                      </button>
+
+                      {evt.ticker && (
+                        <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                          <span className="tiny mono" style={{ color: "var(--accent-text)" }}>
+                            銘柄分析
+                          </span>
+                          <ArrowRight size={14} style={{ color: "var(--accent-text)" }} />
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               );
             })}
           </div>
+        ) : (
+          /* Month Grid View */
+          <div className="calendar-month-container">
+            {/* Month Header Controller */}
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                marginBottom: "16px",
+                padding: "8px 12px",
+                background: "var(--surface-control)",
+                borderRadius: "8px",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <button
+                  type="button"
+                  className="btn btn-xs btn-outline"
+                  onClick={handlePrevMonth}
+                  title="前月へ"
+                >
+                  <ChevronLeft size={14} />
+                  <span>前月</span>
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-xs btn-outline"
+                  onClick={handleTodayMonth}
+                  title="当月へジャンプ"
+                >
+                  今月
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-xs btn-outline"
+                  onClick={handleNextMonth}
+                  title="翌月へ"
+                >
+                  <span>翌月</span>
+                  <ChevronRight size={14} />
+                </button>
+              </div>
+
+              <div style={{ fontSize: "1.2rem", fontWeight: 700 }} className="mono">
+                {viewYear}年 {viewMonth + 1}月
+              </div>
+
+              <div className="tiny muted mono">
+                該当イベント: {filteredEvents.length}件
+              </div>
+            </div>
+
+            {/* Weekday Header */}
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(7, 1fr)",
+                gap: "6px",
+                marginBottom: "6px",
+                textAlign: "center",
+                fontWeight: 600,
+                fontSize: "0.85rem",
+              }}
+            >
+              {["月", "火", "水", "木", "金", "土", "日"].map((dayName, idx) => (
+                <div
+                  key={dayName}
+                  style={{
+                    padding: "6px 0",
+                    color: idx === 5 ? "#38bdf8" : idx === 6 ? "#f43f5e" : "var(--text-secondary)",
+                  }}
+                >
+                  {dayName}
+                </div>
+              ))}
+            </div>
+
+            {/* Calendar Month Grid */}
+            <div
+              className="calendar-month-grid"
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(7, 1fr)",
+                gap: "6px",
+              }}
+            >
+              {calendarGrid.map((cell) => {
+                const hasEvents = cell.events.length > 0;
+                return (
+                  <div
+                    key={cell.dateKeyFull}
+                    style={{
+                      minHeight: "88px",
+                      padding: "6px 8px",
+                      borderRadius: "6px",
+                      background: cell.isCurrentMonth
+                        ? cell.isToday
+                          ? "rgba(56, 189, 248, 0.08)"
+                          : "var(--bg-card-hover)"
+                        : "rgba(0, 0, 0, 0.15)",
+                      border: cell.isToday
+                        ? "1px solid var(--accent-border)"
+                        : "1px solid var(--border-subtle)",
+                      opacity: cell.isCurrentMonth ? 1 : 0.45,
+                      display: "flex",
+                      flexDirection: "column",
+                      overflow: "hidden",
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        marginBottom: "4px",
+                      }}
+                    >
+                      <span
+                        className="mono bold"
+                        style={{
+                          fontSize: "0.85rem",
+                          color: cell.isToday ? "var(--neon-cyan)" : "var(--text-primary)",
+                        }}
+                      >
+                        {cell.day}
+                      </span>
+                      {cell.isToday && (
+                        <span className="badge badge-accent mono" style={{ fontSize: "0.6rem", padding: "1px 4px" }}>
+                          TODAY
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Cell Event Badges */}
+                    <div style={{ display: "flex", flexDirection: "column", gap: "3px", flex: 1 }}>
+                      {cell.events.slice(0, 3).map((evt) => {
+                        const isMacro = evt.type === "MACRO";
+                        return (
+                          <div
+                            key={evt.id}
+                            role="button"
+                            tabIndex={0}
+                            onClick={() => setSelectedEvent(evt)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" || e.key === " ") {
+                                e.preventDefault();
+                                setSelectedEvent(evt);
+                              }
+                            }}
+                            title={`${evt.title} (${evt.importance}重要度)`}
+                            style={{
+                              padding: "2px 5px",
+                              borderRadius: "4px",
+                              fontSize: "0.68rem",
+                              lineHeight: 1.2,
+                              whiteSpace: "nowrap",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              cursor: "pointer",
+                              background: isMacro ? "rgba(56, 189, 248, 0.15)" : "rgba(16, 185, 129, 0.15)",
+                              color: isMacro ? "var(--neon-cyan)" : "var(--neon-green)",
+                              border: `1px solid ${isMacro ? "rgba(56, 189, 248, 0.3)" : "rgba(16, 185, 129, 0.3)"}`,
+                            }}
+                          >
+                            {evt.ticker ? `[${evt.ticker}] ` : ""}
+                            {evt.title}
+                          </div>
+                        );
+                      })}
+                      {cell.events.length > 3 && (
+                        <div
+                          className="tiny muted mono"
+                          style={{ fontSize: "0.65rem", textAlign: "right" }}
+                        >
+                          +{cell.events.length - 3}件
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         )}
       </div>
+
+      {/* Event Detail Modal */}
+      {selectedEvent && (
+        <ModalBase
+          isOpen={Boolean(selectedEvent)}
+          onClose={() => setSelectedEvent(null)}
+          title={
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <CalendarIcon size={18} style={{ color: "var(--accent-text)" }} />
+              <span>イベント詳細</span>
+            </div>
+          }
+          maxWidth={500}
+        >
+          <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+            {/* Header info */}
+            <div>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "6px" }}>
+                <span className={`badge ${selectedEvent.type === "MACRO" ? "badge-accent" : "badge-success"} mono tiny`}>
+                  {selectedEvent.type === "MACRO" ? "マクロ経済指標" : "企業決算"}
+                </span>
+                <span className="badge badge-default mono tiny">
+                  {selectedEvent.importance} 重要度
+                </span>
+                {selectedEvent.market && (
+                  <span className="badge badge-default mono tiny">
+                    {selectedEvent.market === "US" ? "米国市場" : "国内東証"}
+                  </span>
+                )}
+                {selectedEvent.source === "fallback" && (
+                  <span className="badge badge-warning mono tiny">参考値 (推計)</span>
+                )}
+              </div>
+              <h3 style={{ fontSize: "1.2rem", fontWeight: 700, margin: "4px 0" }}>
+                {selectedEvent.title}
+              </h3>
+              {selectedEvent.companyName && (
+                <div className="tiny muted">{selectedEvent.companyName}</div>
+              )}
+            </div>
+
+            {/* Schedule Details */}
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(2, 1fr)",
+                gap: "10px",
+                padding: "12px",
+                background: "var(--surface-control)",
+                borderRadius: "8px",
+              }}
+            >
+              <div>
+                <span className="tiny muted mono block">日程</span>
+                <strong className="mono" style={{ fontSize: "0.95rem" }}>
+                  {selectedEvent.fullDate || selectedEvent.date}{" "}
+                  {getEventDayOfWeek(selectedEvent.date, selectedEvent.fullDate) && `(${getEventDayOfWeek(selectedEvent.date, selectedEvent.fullDate)})`}
+                </strong>
+              </div>
+              <div>
+                <span className="tiny muted mono block">発表予定時刻</span>
+                <strong className="mono" style={{ fontSize: "0.95rem" }}>
+                  {selectedEvent.time || "未定"}
+                </strong>
+              </div>
+            </div>
+
+            {/* Estimates & Forecasts */}
+            {(selectedEvent.forecast || selectedEvent.previous || selectedEvent.actual) && (
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(3, 1fr)",
+                  gap: "10px",
+                  padding: "12px",
+                  background: "var(--surface-control)",
+                  borderRadius: "8px",
+                  textAlign: "center",
+                }}
+              >
+                <div>
+                  <span className="tiny muted mono block">前回値</span>
+                  <div className="mono bold" style={{ fontSize: "1.1rem" }}>
+                    {selectedEvent.previous || "--"}
+                  </div>
+                </div>
+                <div>
+                  <span className="tiny muted mono block">市場予想</span>
+                  <div className="mono bold" style={{ fontSize: "1.1rem", color: "var(--accent-text)" }}>
+                    {selectedEvent.forecast || "--"}
+                  </div>
+                </div>
+                <div>
+                  <span className="tiny muted mono block">発表結果</span>
+                  <div className="mono bold" style={{ fontSize: "1.1rem", color: "#10b981" }}>
+                    {selectedEvent.actual || "--"}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Description / Summary */}
+            {selectedEvent.description && (
+              <div>
+                <span className="tiny muted mono block" style={{ marginBottom: "4px" }}>
+                  イベント概要・市場の注目点
+                </span>
+                <p style={{ margin: 0, fontSize: "0.9rem", lineHeight: 1.5, color: "var(--text-secondary)" }}>
+                  {selectedEvent.description}
+                </p>
+              </div>
+            )}
+
+            {/* Action buttons */}
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "flex-end",
+                gap: "8px",
+                marginTop: "12px",
+                paddingTop: "12px",
+                borderTop: "1px solid var(--border-subtle)",
+              }}
+            >
+              <button
+                type="button"
+                className="btn btn-sm btn-outline"
+                onClick={() => {
+                  const singleIcs = exportCalendarToIcs([selectedEvent]);
+                  const blob = new Blob([singleIcs], { type: "text/calendar;charset=utf-8" });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement("a");
+                  a.href = url;
+                  a.download = toSafeDownloadFileName(`event_${selectedEvent.id}.ics`);
+                  document.body.appendChild(a);
+                  a.click();
+                  document.body.removeChild(a);
+                  URL.revokeObjectURL(url);
+                }}
+              >
+                <Download size={13} />
+                <span>カレンダーに追加 (.ics)</span>
+              </button>
+
+              {selectedEvent.ticker && (
+                <button
+                  type="button"
+                  className="btn btn-sm btn-accent"
+                  onClick={() => {
+                    const t = selectedEvent.ticker!;
+                    setSelectedEvent(null);
+                    onOpenStockDetail(t);
+                  }}
+                >
+                  <ExternalLink size={13} />
+                  <span>銘柄詳細分析へ</span>
+                </button>
+              )}
+            </div>
+          </div>
+        </ModalBase>
+      )}
     </motion.div>
   );
 }

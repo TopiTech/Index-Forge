@@ -24,6 +24,52 @@ interface MarketOverviewPageProps {
   onOpenStockDetail: (ticker: string) => void;
 }
 
+export function getFearGreedMeta(score: number): {
+  label: string;
+  badgeClass: string;
+  gradient: string;
+  textColor: string;
+} {
+  if (score >= 75) {
+    return {
+      label: "EXTREME GREED (極度の強気)",
+      badgeClass: "badge-success",
+      gradient: "linear-gradient(90deg, #10b981, #00ff9d)",
+      textColor: "var(--neon-green)",
+    };
+  }
+  if (score >= 55) {
+    return {
+      label: "GREED (強気相場)",
+      badgeClass: "badge-success",
+      gradient: "linear-gradient(90deg, #38bdf8, #10b981)",
+      textColor: "#10b981",
+    };
+  }
+  if (score >= 45) {
+    return {
+      label: "NEUTRAL (中立・拮抗)",
+      badgeClass: "badge-default",
+      gradient: "linear-gradient(90deg, #94a3b8, #38bdf8)",
+      textColor: "var(--text-secondary)",
+    };
+  }
+  if (score >= 25) {
+    return {
+      label: "FEAR (弱気相場)",
+      badgeClass: "badge-warning",
+      gradient: "linear-gradient(90deg, #f59e0b, #fb7185)",
+      textColor: "var(--neon-amber)",
+    };
+  }
+  return {
+    label: "EXTREME FEAR (極度の警戒・総悲観)",
+    badgeClass: "badge-danger",
+    gradient: "linear-gradient(90deg, #ef4444, #f43f5e)",
+    textColor: "var(--neon-red)",
+  };
+}
+
 export function MarketOverviewPage({
   onNavigate,
   onOpenStockDetail,
@@ -79,6 +125,8 @@ export function MarketOverviewPage({
     selectedAssetTab === "ALL"
       ? allAssets
       : allAssets.filter((a) => a.category === selectedAssetTab);
+
+  const sentiment = getFearGreedMeta(data.marketBreadth.sentimentScore);
 
   return (
     <motion.div
@@ -210,11 +258,18 @@ export function MarketOverviewPage({
         <div>
           <span className="tiny muted mono uppercase block">市場センチメント (Fear & Greed)</span>
           <div style={{ display: "flex", alignItems: "baseline", gap: "10px", marginTop: "4px" }}>
-            <span style={{ fontSize: "1.7rem", fontWeight: 700, color: "var(--accent-text)" }}>
+            <span style={{ fontSize: "1.7rem", fontWeight: 700, color: sentiment.textColor }}>
               {data.marketBreadth.sentimentScore}
             </span>
-            <span className="badge badge-success tiny mono">
-              {data.marketBreadth.sentimentScore >= 60 ? "GREED (強気相場)" : "NEUTRAL"}
+            <span
+              className={`badge ${sentiment.badgeClass} tiny mono`}
+              style={{
+                color: sentiment.textColor,
+                background: `${sentiment.textColor}1a`,
+                borderColor: `${sentiment.textColor}40`,
+              }}
+            >
+              {sentiment.label}
             </span>
           </div>
           {/* Sentiment Progress Bar */}
@@ -232,8 +287,9 @@ export function MarketOverviewPage({
               style={{
                 height: "100%",
                 width: `${data.marketBreadth.sentimentScore}%`,
-                background: "linear-gradient(90deg, #38bdf8, #10b981)",
+                background: sentiment.gradient,
                 borderRadius: "3px",
+                transition: "width 0.4s ease",
               }}
             />
           </div>

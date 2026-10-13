@@ -6574,3 +6574,30 @@ a.footer-creator-note:hover .footer-icon-accent {
   display: block;
   border: none;
 }
+
+/* ==========================================================================
+   CALENDAR ENHANCED & RESPONSIVE STYLES
+   ========================================================================== */
+.calendar-month-container {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.calendar-month-grid {
+  min-width: 680px;
+}
+
+@media (max-width: 768px) {
+  .calendar-month-container {
+    padding-bottom: 8px;
+  }
+  .stock-hero-price {
+    text-align: left !important;
+    width: 100%;
+  }
+}
+
+.password-strength-container {
+  width: 100%;
+}

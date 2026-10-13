@@ -46,6 +46,7 @@ import {
   type StockQuoteFundamentals,
 } from "../lib/marketDataService";
 import { POPULAR_STOCKS, PRESET_STOCKS, searchPopularStocks } from "../data/popularStocks";
+import { DEFAULT_USD_JPY_RATE } from "../data/marketConstants";
 import { getStockCurrency } from "../lib/currency";
 import type { PageView } from "../lib/navigation";
 import { useToast } from "./Toast";
@@ -835,7 +836,7 @@ export function PortfolioManagerPage({
           <span>
             為替換算基準レート:{" "}
             <strong className="mono" style={{ color: "var(--neon-cyan)" }}>
-              1 USD = {usdJpyRate ? usdJpyRate.toFixed(2) : "150.00"} JPY
+              1 USD = {usdJpyRate ? usdJpyRate.toFixed(2) : DEFAULT_USD_JPY_RATE.toFixed(2)} JPY
             </strong>{" "}
             <span className="tiny muted">
               {usdJpyRate ? "(リアルタイム為替市場レート適用)" : "(基準参考レート)"}
@@ -1536,7 +1537,7 @@ export function PortfolioManagerPage({
               lineHeight: 1.5,
             }}
           >
-            ※ 米国株 (USD) の評価額および損益は、為替市場のリアルタイムレート (1 USD ≒ {usdJpyRate ? usdJpyRate.toFixed(2) : "150.00"} 円) に基づき自動的に円換算されて総合計に反映されます。
+            ※ 米国株 (USD) の評価額および損益は、為替市場のリアルタイムレート (1 USD ≒ {usdJpyRate ? usdJpyRate.toFixed(2) : DEFAULT_USD_JPY_RATE.toFixed(2)} 円) に基づき自動的に円換算されて総合計に反映されます。
           </div>
 
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>

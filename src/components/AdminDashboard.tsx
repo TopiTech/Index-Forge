@@ -16,6 +16,12 @@ import {
   AlertCircle,
   Sparkles,
   Edit2,
+  Eye,
+  EyeOff,
+  Activity,
+  Server,
+  Database,
+  CheckCircle2,
 } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
 import { storeAuth, generateSecurePassword } from "../lib/auth";
@@ -25,8 +31,45 @@ import type { BasketItem, UserPasswordItem } from "../types";
 import { Card, Tag, Badge } from "./ui";
 import { EditPasswordModal } from "./EditPasswordModal";
 import { ConfirmModal } from "./ConfirmModal";
+import { ModalBase } from "./ModalBase";
 import { useToast } from "./Toast";
 import { equalizeWeightsExact, normalizeTicker } from "../lib/indexEngine";
+
+export function getPasswordStrength(pwd: string): {
+  score: number;
+  label: string;
+  color: string;
+  widthPercent: number;
+} {
+  if (!pwd) return { score: 0, label: "未入力", color: "var(--border-subtle)", widthPercent: 0 };
+  let score = 0;
+  if (pwd.length >= 8) score += 1;
+  if (pwd.length >= 12) score += 1;
+  if (/[A-Z]/.test(pwd) && /[a-z]/.test(pwd)) score += 1;
+  if (/[0-9]/.test(pwd)) score += 1;
+  if (/[^A-Za-z0-9]/.test(pwd)) score += 1;
+
+  if (score <= 1) return { score: 1, label: "脆弱 (Weak)", color: "var(--neon-red)", widthPercent: 25 };
+  if (score === 2) return { score: 2, label: "普通 (Fair)", color: "var(--neon-amber)", widthPercent: 50 };
+  if (score === 3 || score === 4) return { score: 3, label: "良好 (Good)", color: "#38bdf8", widthPercent: 75 };
+  return { score: 5, label: "強固 (Strong)", color: "var(--neon-green)", widthPercent: 100 };
+}
+
+export function PasswordStrengthBar({ password }: { password: string }) {
+  const strength = getPasswordStrength(password);
+  if (!password) return null;
+  return (
+    <div style={{ marginTop: 6 }} className="password-strength-container">
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 3 }}>
+        <span className="tiny muted mono" style={{ fontSize: "0.72rem" }}>パスワード強度:</span>
+        <span className="tiny mono bold" style={{ fontSize: "0.72rem", color: strength.color }}>{strength.label}</span>
+      </div>
+      <div style={{ height: 4, width: "100%", background: "var(--surface-control)", borderRadius: 2, overflow: "hidden" }}>
+        <div style={{ height: "100%", width: `${strength.widthPercent}%`, background: strength.color, transition: "width 0.3s ease" }} />
+      </div>
+    </div>
+  );
+}
 
 interface AdminDashboardProps {
   indices: CustomIndex[];
@@ -48,11 +91,12 @@ export function AdminDashboard({
 
   // Admin login state if not admin
   const [adminPasswordInput, setAdminPasswordInput] = useState("");
+  const [showAdminLoginPassword, setShowAdminLoginPassword] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
   const [loggingIn, setLoggingIn] = useState(false);
 
   // Tabs
-  const [activeTab, setActiveTab] = useState<"passwords" | "indices" | "settings">("passwords");
+  const [activeTab, setActiveTab] = useState<"passwords" | "indices" | "system" | "settings">("passwords");
 
   // Passwords state
   const [passwords, setPasswords] = useState<UserPasswordItem[]>([]);
@@ -65,6 +109,7 @@ export function AdminDashboard({
   // New password form
   const [newUserName, setNewUserName] = useState("");
   const [newUserPassword, setNewUserPassword] = useState(() => generateSecurePassword());
+  const [showNewUserPassword, setShowNewUserPassword] = useState(false);
   const [newUserMaxStocks, setNewUserMaxStocks] = useState<number | null>(10);
   const [newUserMaxIndices, setNewUserMaxIndices] = useState<number | null>(5);
   const [newUserRole, setNewUserRole] = useState<"user" | "admin">("user");
@@ -92,11 +137,64 @@ export function AdminDashboard({
   const [addTheme, setAddTheme] = useState("");
   const [addWeight, setAddWeight] = useState(10);
 
+  // Create new index modal state
+  const [isCreateIndexModalOpen, setIsCreateIndexModalOpen] = useState(false);
+  const [newIndexName, setNewIndexName] = useState("");
+  const [newIndexDesc, setNewIndexDesc] = useState("");
+  const [newIndexBaseValue, setNewIndexBaseValue] = useState(1000);
+  const [creatingIndex, setCreatingIndex] = useState(false);
+
   // Change admin password state
+  const [currentAdminPassword, setCurrentAdminPassword] = useState("");
+  const [showCurrentAdminPassword, setShowCurrentAdminPassword] = useState(false);
   const [newAdminPassword, setNewAdminPassword] = useState("");
+  const [showNewAdminPassword, setShowNewAdminPassword] = useState(false);
   const [confirmAdminPassword, setConfirmAdminPassword] = useState("");
+  const [showConfirmAdminPassword, setShowConfirmAdminPassword] = useState(false);
   const [updatingAdminPwd, setUpdatingAdminPwd] = useState(false);
   const [adminPwdMessage, setAdminPwdMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
+  // System Stats & Telemetry state
+  interface SystemStatsData {
+    dbStatus: string;
+    indicesCount: number;
+    totalConstituents: number;
+    avgConstituentsPerIndex: number;
+    userPasswordsCount: number;
+    activeUsersCount: number;
+    adminUsersCount: number;
+    cacheStats: {
+      hits: number;
+      misses: number;
+      hitRatio: string;
+    };
+    serverTime: string;
+    version: string;
+  }
+  const [systemStats, setSystemStats] = useState<SystemStatsData | null>(null);
+  const [loadingStats, setLoadingStats] = useState(false);
+  const [statsError, setStatsError] = useState<string | null>(null);
+
+  const fetchSystemStats = useCallback(async () => {
+    if (!isAdmin) return;
+    setLoadingStats(true);
+    setStatsError(null);
+    try {
+      const res = await fetch("/api/admin/system-stats", {
+        headers: getHeaders(),
+      });
+      const data = await res.json();
+      if (res.ok && data.ok) {
+        setSystemStats(data.stats);
+      } else {
+        setStatsError(data.error || `HTTP ${res.status}`);
+      }
+    } catch (err) {
+      setStatsError(err instanceof Error ? err.message : "テレメトリ取得に失敗しました");
+    } finally {
+      setLoadingStats(false);
+    }
+  }, [isAdmin, getHeaders]);
 
   // Fetch passwords
   const [passwordFetchError, setPasswordFetchError] = useState<string | null>(null);
@@ -154,6 +252,9 @@ export function AdminDashboard({
     if (isAdmin && activeTab === "passwords") {
       fetchPasswords();
     }
+    if (isAdmin && activeTab === "system") {
+      void fetchSystemStats();
+    }
     return () => {
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
@@ -161,7 +262,7 @@ export function AdminDashboard({
         isFetchingPasswordsRef.current = false;
       }
     };
-  }, [isAdmin, activeTab, fetchPasswords]);
+  }, [isAdmin, activeTab, fetchPasswords, fetchSystemStats]);
 
   const prevSelectedIdRef = useRef<string | null>(null);
 
@@ -437,6 +538,41 @@ export function AdminDashboard({
     }
   };
 
+  // Create new custom index modal submit
+  const handleCreateNewIndexSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newIndexName.trim()) {
+      toastError("指数名を入力してください");
+      return;
+    }
+    setCreatingIndex(true);
+    const newId = `idx-admin-${Date.now()}`;
+    const newIndex: CustomIndex = {
+      id: newId,
+      name: newIndexName.trim(),
+      description: newIndexDesc.trim() || "管理者作成のカスタムインデックス",
+      baseValue: Number(newIndexBaseValue) || 1000,
+      basket: [
+        { ticker: "7203", name: "トヨタ自動車", theme: "モビリティ", weight: 33.3 },
+        { ticker: "6758", name: "ソニーグループ", theme: "エンタメ・技術", weight: 33.3 },
+        { ticker: "8035", name: "東京エレクトロン", theme: "半導体", weight: 33.4 },
+      ],
+    };
+    const res = await saveCustomIndex(newIndex);
+    setCreatingIndex(false);
+    if (res.ok) {
+      toastSuccess(`新規指数「${newIndex.name}」を作成しました`);
+      await onRefreshIndices();
+      setSelectedEditIndexId(newId);
+      setIsCreateIndexModalOpen(false);
+      setNewIndexName("");
+      setNewIndexDesc("");
+      setNewIndexBaseValue(1000);
+    } else {
+      toastError(res.error || "指数の作成に失敗しました");
+    }
+  };
+
   // Equalize weights
   const handleEqualWeights = () => {
     if (editBasket.length === 0) return;
@@ -480,7 +616,10 @@ export function AdminDashboard({
           "Content-Type": "application/json",
           ...getHeaders(),
         },
-        body: JSON.stringify({ newPassword: normalizedPassword }),
+        body: JSON.stringify({
+          currentPassword: currentAdminPassword.trim() || undefined,
+          newPassword: normalizedPassword,
+        }),
       });
       const data = await res.json();
       if (!res.ok || !data.ok) {
@@ -490,6 +629,7 @@ export function AdminDashboard({
       const updatedPassword = normalizedPassword;
       setNewAdminPassword("");
       setConfirmAdminPassword("");
+      setCurrentAdminPassword("");
       if (session) {
         storeAuth({ ...session, password: updatedPassword });
       }
@@ -609,25 +749,47 @@ export function AdminDashboard({
                 >
                   管理者マスターパスワード
                 </label>
-                <input
-                  id="admin-password-input"
-                  type="password"
-                  value={adminPasswordInput}
-                  onChange={(e) => setAdminPasswordInput(e.target.value)}
-                  placeholder="設定済みの管理者パスワード"
-                  autoComplete="current-password"
-                  autoFocus
-                  style={{
-                    width: "100%",
-                    padding: "11px 14px",
-                    background: "var(--bg-input)",
-                    border: "1px solid var(--border-subtle)",
-                    borderRadius: 8,
-                    color: "var(--text-primary)",
-                    fontSize: 14,
-                    boxSizing: "border-box",
-                  }}
-                />
+                <div style={{ position: "relative" }}>
+                  <input
+                    id="admin-password-input"
+                    type={showAdminLoginPassword ? "text" : "password"}
+                    value={adminPasswordInput}
+                    onChange={(e) => setAdminPasswordInput(e.target.value)}
+                    placeholder="設定済みの管理者パスワード"
+                    autoComplete="current-password"
+                    autoFocus
+                    style={{
+                      width: "100%",
+                      padding: "11px 40px 11px 14px",
+                      background: "var(--bg-input)",
+                      border: "1px solid var(--border-subtle)",
+                      borderRadius: 8,
+                      color: "var(--text-primary)",
+                      fontSize: 14,
+                      boxSizing: "border-box",
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowAdminLoginPassword(!showAdminLoginPassword)}
+                    aria-label={showAdminLoginPassword ? "パスワードを非表示" : "パスワードを表示"}
+                    style={{
+                      position: "absolute",
+                      right: 10,
+                      top: "50%",
+                      transform: "translateY(-50%)",
+                      background: "transparent",
+                      border: "none",
+                      color: "var(--text-muted)",
+                      cursor: "pointer",
+                      padding: 4,
+                      display: "flex",
+                      alignItems: "center",
+                    }}
+                  >
+                    {showAdminLoginPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
                 <div className="muted tiny" style={{ marginTop: 6 }}>
                   ※ 初回ログインにはデプロイ時に設定した <code>ADMIN_PASSWORD</code> を使用してください。
                 </div>
@@ -727,6 +889,20 @@ export function AdminDashboard({
           style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
         >
           <Sliders size={14} /> 全指数 & 銘柄フル編集
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab("system")}
+          id="admin-tab-system"
+          role="tab"
+          aria-selected={activeTab === "system"}
+          aria-controls="admin-panel-system"
+          tabIndex={activeTab === "system" ? 0 : -1}
+          onKeyDown={handleTabKeyDown}
+          className={`btn btn-sm admin-tab ${activeTab === "system" ? "btn-default" : "btn-outline"}`}
+          style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+        >
+          <Activity size={14} /> システム運用健全性
         </button>
         <button
           type="button"
@@ -880,24 +1056,46 @@ export function AdminDashboard({
                     <Sparkles size={12} /> ランダム再生成
                   </button>
                 </div>
-                <input
-                  id="new-user-password"
-                  type="text"
-                  value={newUserPassword}
-                  onChange={(e) => setNewUserPassword(e.target.value)}
-                  autoComplete="new-password"
-                  style={{
-                    width: "100%",
-                    padding: "8px 10px",
-                    background: "var(--bg-input)",
-                    border: "1px solid var(--border-subtle)",
-                    borderRadius: 6,
-                    color: "var(--neon-cyan)",
-                    fontFamily: "monospace",
-                    fontSize: 14,
-                    boxSizing: "border-box",
-                  }}
-                />
+                <div style={{ position: "relative" }}>
+                  <input
+                    id="new-user-password"
+                    type={showNewUserPassword ? "text" : "password"}
+                    value={newUserPassword}
+                    onChange={(e) => setNewUserPassword(e.target.value)}
+                    autoComplete="new-password"
+                    style={{
+                      width: "100%",
+                      padding: "8px 36px 8px 10px",
+                      background: "var(--bg-input)",
+                      border: "1px solid var(--border-subtle)",
+                      borderRadius: 6,
+                      color: "var(--neon-cyan)",
+                      fontFamily: "monospace",
+                      fontSize: 14,
+                      boxSizing: "border-box",
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowNewUserPassword(!showNewUserPassword)}
+                    aria-label={showNewUserPassword ? "パスワードを非表示" : "パスワードを表示"}
+                    style={{
+                      position: "absolute",
+                      right: 8,
+                      top: "50%",
+                      transform: "translateY(-50%)",
+                      background: "transparent",
+                      border: "none",
+                      color: "var(--text-muted)",
+                      cursor: "pointer",
+                      padding: 2,
+                      display: "flex",
+                    }}
+                  >
+                    {showNewUserPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+                  </button>
+                </div>
+                <PasswordStrengthBar password={newUserPassword} />
               </div>
 
               <div style={{ marginBottom: 16 }}>
@@ -1245,8 +1443,17 @@ export function AdminDashboard({
                 </div>
               </div>
 
-              {/* Index selector dropdown */}
-              <div className="row" style={{ gap: 8 }}>
+              {/* Index selector & creator controls */}
+              <div className="row flex-wrap" style={{ gap: 8, alignItems: "center" }}>
+                <button
+                  type="button"
+                  className="btn btn-sm btn-outline"
+                  onClick={() => setIsCreateIndexModalOpen(true)}
+                  style={{ display: "inline-flex", alignItems: "center", gap: 6, borderColor: "var(--neon-cyan)", color: "var(--neon-cyan)" }}
+                  title="管理者権限で新しいカスタムインデックスを作成"
+                >
+                  <Plus size={14} /> 新規指数作成
+                </button>
                 <label htmlFor="admin-select-edit-index" style={{ fontSize: 12, color: "var(--text-secondary)" }}>編集対象指数:</label>
                 <select
                   id="admin-select-edit-index"
@@ -1564,7 +1771,137 @@ export function AdminDashboard({
         </div>
       )}
 
-      {/* TAB 3: Settings */}
+      {/* TAB: System Telemetry & Operations */}
+      {activeTab === "system" && (
+        <div
+          id="admin-panel-system"
+          role="tabpanel"
+          aria-labelledby="admin-tab-system"
+          tabIndex={0}
+          className="admin-tabpanel"
+        >
+          <Card className="section">
+            <div className="row space-between flex-wrap" style={{ gap: 12, marginBottom: 16 }}>
+              <div className="row" style={{ gap: 8 }}>
+                <Activity size={18} style={{ color: "var(--neon-cyan)" }} />
+                <div>
+                  <h2 style={{ fontSize: 16, margin: 0, fontWeight: 700 }}>
+                    システム運用健全性 & テレメトリモニタリング
+                  </h2>
+                  <div className="muted tiny">
+                    D1データベース接続、キャッシュ効率、登録指数構成、セキュリティ権限状態のリアルタイム診断
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                className="btn btn-sm btn-outline"
+                onClick={() => void fetchSystemStats()}
+                disabled={loadingStats}
+              >
+                <RefreshCw size={12} className={loadingStats ? "spin" : ""} />
+                <span>テレメトリ再取得</span>
+              </button>
+            </div>
+
+            {statsError && (
+              <div
+                className="row"
+                style={{
+                  gap: 8,
+                  padding: "10px 14px",
+                  background: "rgba(255, 51, 102, 0.15)",
+                  border: "1px solid var(--neon-red)",
+                  borderRadius: 8,
+                  color: "var(--neon-red)",
+                  fontSize: 13,
+                  marginBottom: 16,
+                }}
+              >
+                <AlertCircle size={16} />
+                <span>{statsError}</span>
+              </div>
+            )}
+
+            {systemStats && (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 14 }}>
+                {/* DB Status */}
+                <div className="card" style={{ padding: 16, background: "var(--bg-surface)" }}>
+                  <div className="row" style={{ gap: 8, marginBottom: 6 }}>
+                    <Database size={15} style={{ color: "var(--neon-green)" }} />
+                    <span className="tiny muted mono uppercase">データベース状態</span>
+                  </div>
+                  <div className="row" style={{ gap: 6, alignItems: "center" }}>
+                    <CheckCircle2 size={16} style={{ color: "var(--neon-green)" }} />
+                    <span className="bold" style={{ color: "var(--neon-green)", fontSize: "1.1rem" }}>
+                      {systemStats.dbStatus}
+                    </span>
+                  </div>
+                  <span className="tiny muted">Cloudflare D1 / Primary Replica</span>
+                </div>
+
+                {/* Index Telemetry */}
+                <div className="card" style={{ padding: 16, background: "var(--bg-surface)" }}>
+                  <div className="row" style={{ gap: 8, marginBottom: 6 }}>
+                    <Sliders size={15} style={{ color: "var(--neon-cyan)" }} />
+                    <span className="tiny muted mono uppercase">インデックス運用規模</span>
+                  </div>
+                  <div className="bold mono" style={{ fontSize: "1.2rem", color: "var(--neon-cyan)" }}>
+                    {systemStats.indicesCount} 指数
+                  </div>
+                  <span className="tiny muted">
+                    総構成銘柄: {systemStats.totalConstituents} (平均 {systemStats.avgConstituentsPerIndex} 銘柄/指数)
+                  </span>
+                </div>
+
+                {/* User & Auth Telemetry */}
+                <div className="card" style={{ padding: 16, background: "var(--bg-surface)" }}>
+                  <div className="row" style={{ gap: 8, marginBottom: 6 }}>
+                    <Users size={15} style={{ color: "var(--neon-amber)" }} />
+                    <span className="tiny muted mono uppercase">発行ユーザー・権限</span>
+                  </div>
+                  <div className="bold mono" style={{ fontSize: "1.2rem", color: "var(--neon-amber)" }}>
+                    {systemStats.userPasswordsCount} アカウント
+                  </div>
+                  <span className="tiny muted">
+                    管理者: {systemStats.adminUsersCount}名 / 一般: {systemStats.activeUsersCount}名
+                  </span>
+                </div>
+
+                {/* Cache Telemetry */}
+                <div className="card" style={{ padding: 16, background: "var(--bg-surface)" }}>
+                  <div className="row" style={{ gap: 8, marginBottom: 6 }}>
+                    <Server size={15} style={{ color: "#a855f7" }} />
+                    <span className="tiny muted mono uppercase">市場データキャッシュ効率</span>
+                  </div>
+                  <div className="bold mono" style={{ fontSize: "1.2rem", color: "#a855f7" }}>
+                    {systemStats.cacheStats.hitRatio}
+                  </div>
+                  <span className="tiny muted">
+                    Hits: {systemStats.cacheStats.hits} / Misses: {systemStats.cacheStats.misses}
+                  </span>
+                </div>
+
+                {/* System Environment */}
+                <div className="card" style={{ padding: 16, background: "var(--bg-surface)", gridColumn: "1 / -1" }}>
+                  <div className="row space-between flex-wrap" style={{ gap: 10 }}>
+                    <div>
+                      <span className="tiny muted mono">RUNNING VERSION:</span>{" "}
+                      <span className="badge badge-accent mono tiny">{systemStats.version}</span>
+                    </div>
+                    <div>
+                      <span className="tiny muted mono">SERVER UTC TIME:</span>{" "}
+                      <span className="mono tiny muted">{systemStats.serverTime}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </Card>
+        </div>
+      )}
+
+      {/* TAB 4: Settings */}
       {activeTab === "settings" && (
         <div
           id="admin-panel-settings"
@@ -1610,51 +1947,139 @@ export function AdminDashboard({
 
             <form onSubmit={handleUpdateAdminPassword}>
               <div style={{ marginBottom: 14 }}>
+                <label htmlFor="current-admin-password" style={{ display: "block", fontSize: 12, color: "var(--text-secondary)", marginBottom: 4 }}>
+                  現在の管理者パスワード (確認用)
+                </label>
+                <div style={{ position: "relative" }}>
+                  <input
+                    id="current-admin-password"
+                    type={showCurrentAdminPassword ? "text" : "password"}
+                    value={currentAdminPassword}
+                    onChange={(e) => setCurrentAdminPassword(e.target.value)}
+                    autoComplete="current-password"
+                    placeholder="現在のパスワード (任意入力)"
+                    style={{
+                      width: "100%",
+                      padding: "8px 36px 8px 10px",
+                      background: "var(--bg-input)",
+                      border: "1px solid var(--border-subtle)",
+                      borderRadius: 6,
+                      color: "var(--text-primary)",
+                      fontSize: 13,
+                      boxSizing: "border-box",
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowCurrentAdminPassword(!showCurrentAdminPassword)}
+                    aria-label={showCurrentAdminPassword ? "現在のパスワードを非表示" : "現在のパスワードを表示"}
+                    style={{
+                      position: "absolute",
+                      right: 8,
+                      top: "50%",
+                      transform: "translateY(-50%)",
+                      background: "transparent",
+                      border: "none",
+                      color: "var(--text-muted)",
+                      cursor: "pointer",
+                      padding: 2,
+                      display: "flex",
+                    }}
+                  >
+                    {showCurrentAdminPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+                  </button>
+                </div>
+              </div>
+
+              <div style={{ marginBottom: 14 }}>
                 <label htmlFor="new-admin-password" style={{ display: "block", fontSize: 12, color: "var(--text-secondary)", marginBottom: 4 }}>
                   新しい管理者パスワード
                 </label>
-                <input
-                  id="new-admin-password"
-                  type="password"
-                  value={newAdminPassword}
-                  onChange={(e) => setNewAdminPassword(e.target.value)}
-                  autoComplete="new-password"
-                  placeholder="新しいパスワード (8〜100文字)"
-                  style={{
-                    width: "100%",
-                    padding: "8px 10px",
-                    background: "var(--bg-input)",
-                    border: "1px solid var(--border-subtle)",
-                    borderRadius: 6,
-                    color: "var(--text-primary)",
-                    fontSize: 13,
-                    boxSizing: "border-box",
-                  }}
-                />
+                <div style={{ position: "relative" }}>
+                  <input
+                    id="new-admin-password"
+                    type={showNewAdminPassword ? "text" : "password"}
+                    value={newAdminPassword}
+                    onChange={(e) => setNewAdminPassword(e.target.value)}
+                    autoComplete="new-password"
+                    placeholder="新しいパスワード (8〜100文字)"
+                    style={{
+                      width: "100%",
+                      padding: "8px 36px 8px 10px",
+                      background: "var(--bg-input)",
+                      border: "1px solid var(--border-subtle)",
+                      borderRadius: 6,
+                      color: "var(--text-primary)",
+                      fontSize: 13,
+                      boxSizing: "border-box",
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowNewAdminPassword(!showNewAdminPassword)}
+                    aria-label={showNewAdminPassword ? "新しいパスワードを非表示" : "新しいパスワードを表示"}
+                    style={{
+                      position: "absolute",
+                      right: 8,
+                      top: "50%",
+                      transform: "translateY(-50%)",
+                      background: "transparent",
+                      border: "none",
+                      color: "var(--text-muted)",
+                      cursor: "pointer",
+                      padding: 2,
+                      display: "flex",
+                    }}
+                  >
+                    {showNewAdminPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+                  </button>
+                </div>
+                <PasswordStrengthBar password={newAdminPassword} />
               </div>
 
               <div style={{ marginBottom: 18 }}>
                 <label htmlFor="confirm-admin-password" style={{ display: "block", fontSize: 12, color: "var(--text-secondary)", marginBottom: 4 }}>
                   新しい管理者パスワード（確認）
                 </label>
-                <input
-                  id="confirm-admin-password"
-                  type="password"
-                  value={confirmAdminPassword}
-                  onChange={(e) => setConfirmAdminPassword(e.target.value)}
-                  autoComplete="new-password"
-                  placeholder="もう一度入力してください"
-                  style={{
-                    width: "100%",
-                    padding: "8px 10px",
-                    background: "var(--bg-input)",
-                    border: "1px solid var(--border-subtle)",
-                    borderRadius: 6,
-                    color: "var(--text-primary)",
-                    fontSize: 13,
-                    boxSizing: "border-box",
-                  }}
-                />
+                <div style={{ position: "relative" }}>
+                  <input
+                    id="confirm-admin-password"
+                    type={showConfirmAdminPassword ? "text" : "password"}
+                    value={confirmAdminPassword}
+                    onChange={(e) => setConfirmAdminPassword(e.target.value)}
+                    autoComplete="new-password"
+                    placeholder="もう一度入力してください"
+                    style={{
+                      width: "100%",
+                      padding: "8px 36px 8px 10px",
+                      background: "var(--bg-input)",
+                      border: "1px solid var(--border-subtle)",
+                      borderRadius: 6,
+                      color: "var(--text-primary)",
+                      fontSize: 13,
+                      boxSizing: "border-box",
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmAdminPassword(!showConfirmAdminPassword)}
+                    aria-label={showConfirmAdminPassword ? "確認用パスワードを非表示" : "確認用パスワードを表示"}
+                    style={{
+                      position: "absolute",
+                      right: 8,
+                      top: "50%",
+                      transform: "translateY(-50%)",
+                      background: "transparent",
+                      border: "none",
+                      color: "var(--text-muted)",
+                      cursor: "pointer",
+                      padding: 2,
+                      display: "flex",
+                    }}
+                  >
+                    {showConfirmAdminPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+                  </button>
+                </div>
               </div>
 
               <button
@@ -1712,6 +2137,139 @@ export function AdminDashboard({
         variant="danger"
         loading={deletingIndex}
       />
+
+      {/* Create New Index Modal for Admins */}
+      <ModalBase
+        isOpen={isCreateIndexModalOpen}
+        onClose={() => {
+          if (!creatingIndex) setIsCreateIndexModalOpen(false);
+        }}
+        title={
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <Plus size={18} style={{ color: "var(--neon-cyan)" }} />
+            <span>新規カスタム指数の作成</span>
+          </div>
+        }
+        maxWidth={480}
+      >
+        <form onSubmit={handleCreateNewIndexSubmit}>
+          <div style={{ marginBottom: 14 }}>
+            <label htmlFor="create-index-name" style={{ display: "block", fontSize: 12, color: "var(--text-secondary)", marginBottom: 4 }}>
+              指数名 <span style={{ color: "var(--neon-red)" }}>*</span>
+            </label>
+            <input
+              id="create-index-name"
+              type="text"
+              value={newIndexName}
+              onChange={(e) => setNewIndexName(e.target.value)}
+              placeholder="例: 次世代モビリティ & AI指数"
+              maxLength={100}
+              required
+              autoFocus
+              style={{
+                width: "100%",
+                padding: "8px 10px",
+                background: "var(--bg-input)",
+                border: "1px solid var(--border-subtle)",
+                borderRadius: 6,
+                color: "var(--text-primary)",
+                fontSize: 13,
+                boxSizing: "border-box",
+              }}
+            />
+          </div>
+
+          <div style={{ marginBottom: 14 }}>
+            <label htmlFor="create-index-desc" style={{ display: "block", fontSize: 12, color: "var(--text-secondary)", marginBottom: 4 }}>
+              指数の概要・説明
+            </label>
+            <textarea
+              id="create-index-desc"
+              value={newIndexDesc}
+              onChange={(e) => setNewIndexDesc(e.target.value)}
+              placeholder="例: 国内主要モビリティおよびテックリーダー企業で構成されるカスタムテーマ指数"
+              maxLength={500}
+              rows={3}
+              style={{
+                width: "100%",
+                padding: "8px 10px",
+                background: "var(--bg-input)",
+                border: "1px solid var(--border-subtle)",
+                borderRadius: 6,
+                color: "var(--text-primary)",
+                fontSize: 13,
+                boxSizing: "border-box",
+                resize: "vertical",
+              }}
+            />
+          </div>
+
+          <div style={{ marginBottom: 14 }}>
+            <label htmlFor="create-index-base-val" style={{ display: "block", fontSize: 12, color: "var(--text-secondary)", marginBottom: 4 }}>
+              基準値 (Base Value)
+            </label>
+            <input
+              id="create-index-base-val"
+              type="number"
+              value={newIndexBaseValue}
+              onChange={(e) => setNewIndexBaseValue(Number(e.target.value) || 1000)}
+              min={1}
+              max={1000000}
+              style={{
+                width: "100%",
+                padding: "8px 10px",
+                background: "var(--bg-input)",
+                border: "1px solid var(--border-subtle)",
+                borderRadius: 6,
+                color: "var(--text-primary)",
+                fontSize: 13,
+                boxSizing: "border-box",
+              }}
+            />
+            <span className="tiny muted" style={{ display: "block", marginTop: 4 }}>
+              ※ 初期の基準値（標準: 1,000）
+            </span>
+          </div>
+
+          <div
+            style={{
+              padding: "10px 12px",
+              background: "var(--surface-control)",
+              borderRadius: 6,
+              marginBottom: 16,
+              fontSize: "0.8rem",
+            }}
+          >
+            <span className="mono bold block" style={{ color: "var(--neon-cyan)", marginBottom: 4 }}>
+              初期組み入れプリセット (3銘柄):
+            </span>
+            <div className="tiny muted">
+              7203 トヨタ (33.3%) / 6758 ソニーG (33.3%) / 8035 東エレク (33.4%)
+            </div>
+            <span className="tiny muted" style={{ display: "block", marginTop: 4 }}>
+              ※ 作成後に「全指数 & 銘柄フル編集」タブから任意の銘柄・比率に自由に変更できます。
+            </span>
+          </div>
+
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+            <button
+              type="button"
+              className="btn btn-sm btn-ghost"
+              onClick={() => setIsCreateIndexModalOpen(false)}
+              disabled={creatingIndex}
+            >
+              キャンセル
+            </button>
+            <button
+              type="submit"
+              className="btn btn-sm btn-default"
+              disabled={creatingIndex || !newIndexName.trim()}
+            >
+              {creatingIndex ? "作成中..." : "指数を作成"}
+            </button>
+          </div>
+        </form>
+      </ModalBase>
     </div>
   );
 }

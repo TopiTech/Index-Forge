@@ -18,6 +18,7 @@ import {
   fetchStockFundamentals,
   formatMarketCapDisplay,
   isMacroAsset,
+  getSectorAveragePer,
   type StockQuoteFundamentals,
 } from "../lib/marketDataService";
 import { useTheme } from "../lib/theme";
@@ -360,7 +361,9 @@ export function StockDetailPage({
           <div className="mono bold" style={{ fontSize: "1.3rem", marginTop: 4 }}>
             {!isMacro && stock.per ? `${stock.per.toFixed(1)}倍` : "--"}
           </div>
-          <span className="tiny muted">{isMacro ? "指数・マクロ指標対象外" : "業界平均: 14.5倍"}</span>
+          <span className="tiny muted">
+            {isMacro ? "指数・マクロ指標対象外" : `業界平均: ${getSectorAveragePer(stock.sector).toFixed(1)}倍`}
+          </span>
         </div>
 
         <div className="card" style={{ padding: "14px 16px" }}>

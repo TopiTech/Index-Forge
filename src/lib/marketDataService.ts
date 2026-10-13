@@ -109,6 +109,14 @@ export interface CalendarEvent {
   previous?: string;
   forecast?: string;
   importance: "HIGH" | "MEDIUM" | "LOW";
+  /** 発表予定時刻 (例: "15:00 JST", "21:30 JST", "03:00 JST") */
+  time?: string;
+  /** 市場・地域区分 ("TSE": 国内東証, "US": 米国市場) */
+  market?: "TSE" | "US";
+  /** サプライズ判定 (発表結果と市場予想の比較) */
+  surprise?: "BEAT" | "MISS" | "IN_LINE";
+  /** 指標や決算の概要・注目ポイント解説 */
+  description?: string;
   /**
    * データの出所。実データ取得に失敗して静的フォールバックを返した場合は "fallback"。
    * 未設定の場合は実データ (または従来どおりの生成データ) を意味する。
@@ -1501,9 +1509,45 @@ export function generateUpcomingEvents(referenceDate = new Date()): CalendarEven
       companyName: corp.companyName,
       importance: corp.importance,
       marketCap: corp.marketCap,
+      market: corp.ticker === "AAPL" || corp.ticker === "NVDA" ? "US" : "TSE",
+      time: corp.ticker === "AAPL" || corp.ticker === "NVDA" ? "06:30 JST (米引け後)" : "15:00 JST (東証引け後)",
+      description: `${corp.companyName} (${corp.ticker}) の四半期業績および通期見通し発表。`,
       source: "fallback",
     });
   }
+
+  // 追加マクロ指標: 日本全国CPI & 実質GDP
+  const jpCpiDate = adjustToWeekday(addBusinessDays(referenceDate, 8));
+  events.push({
+    id: "macro-jp-cpi",
+    date: fmt(jpCpiDate),
+    fullDate: fmtFull(jpCpiDate),
+    type: "MACRO",
+    title: "日本 全国消費者物価指数 (全国CPI)",
+    importance: "HIGH",
+    time: "08:30 JST",
+    market: "TSE",
+    previous: "2.8%",
+    forecast: "2.7%",
+    description: "総務省発表。生鮮食品を除くコアCPI前年同月比。日銀追加利上げ判断の最重要物価指標。",
+    source: "fallback",
+  });
+
+  const jpGdpDate = adjustToWeekday(addBusinessDays(referenceDate, 14));
+  events.push({
+    id: "macro-jp-gdp",
+    date: fmt(jpGdpDate),
+    fullDate: fmtFull(jpGdpDate),
+    type: "MACRO",
+    title: "日本 四半期実質GDP成長率 (1次速報)",
+    importance: "HIGH",
+    time: "08:50 JST",
+    market: "TSE",
+    previous: "+0.5%",
+    forecast: "+0.3%",
+    description: "内閣府発表。実質国内総生産（前期比・年率換算）。国内個人消費および設備投資の景気動向。",
+    source: "fallback",
+  });
 
   // 日付順にソート (fullDate 優先、または6ヶ月境界判定)
   const currentYear = referenceDate.getFullYear();
@@ -1539,3 +1583,187 @@ export function generateUpcomingEvents(referenceDate = new Date()): CalendarEven
 }
 
 export const UPCOMING_EVENTS: CalendarEvent[] = generateUpcomingEvents();
+
+/**
+ * 業種・セクター別平均PERベンチマークテーブル (東証および主要市場基準)
+ */
+export const SECTOR_AVERAGE_PER: Record<string, number> = {
+  "半導体": 32.5,
+  "半導体製造装置": 32.5,
+  "半導体検査": 30.0,
+  "電気機器": 24.2,
+  "IT": 28.0,
+  "情報・通信": 22.0,
+  "情報・通信業": 22.0,
+  "モビリティ": 9.5,
+  "自動車": 9.5,
+  "輸送用機器": 9.5,
+  "銀行": 10.2,
+  "銀行業": 10.2,
+  "メガバンク": 10.2,
+  "金融": 11.5,
+  "総合商社": 11.0,
+  "卸売業": 11.0,
+  "小売": 24.0,
+  "小売業": 24.0,
+  "医薬": 23.5,
+  "製薬": 23.5,
+  "化学": 15.0,
+  "素材": 13.5,
+  "ゲーム": 25.0,
+  "防衛": 21.0,
+  "FA・センサー": 35.0,
+  "精密機器": 26.0,
+};
+
+export function getSectorAveragePer(sectorOrTheme?: string): number {
+  if (!sectorOrTheme) return 15.0;
+  for (const [key, val] of Object.entries(SECTOR_AVERAGE_PER)) {
+    if (sectorOrTheme.includes(key)) return val;
+  }
+  return 15.0;
+}
+
+/**
+ * テクニカルシグナル判定エンジン (移動平均・モメンタム複合)
+ */
+export function evaluateTechnicalSignal(
+  changePct: number,
+  sparkline?: number[],
+  price?: number,
+): { signal: "STRONG_BUY" | "BUY" | "NEUTRAL" | "SELL" | "STRONG_SELL"; reason: string } {
+  if (sparkline && sparkline.length >= 3 && price && Number.isFinite(price)) {
+    const shortSMA = sparkline.slice(-3).reduce((a, b) => a + b, 0) / 3;
+    const fullSMA = sparkline.reduce((a, b) => a + b, 0) / sparkline.length;
+    if (price > shortSMA && shortSMA > fullSMA && changePct > 0.5) {
+      return { signal: "STRONG_BUY", reason: "短期・中期移動平均線ゴールデンクロス & 上昇トレンド" };
+    }
+    if (price > shortSMA && changePct >= 0) {
+      return { signal: "BUY", reason: "短期移動平均線上抜け & 堅調推移" };
+    }
+    if (price < shortSMA && shortSMA < fullSMA && changePct < -0.5) {
+      return { signal: "STRONG_SELL", reason: "移動平均線デッドクロス & 下落トレンド" };
+    }
+    if (price < shortSMA && changePct < 0) {
+      return { signal: "SELL", reason: "短期移動平均線下抜け & 軟調推移" };
+    }
+  }
+  if (changePct >= 2.0) return { signal: "STRONG_BUY", reason: "急反発モメンタム (+2%以上)" };
+  if (changePct > 0.3) return { signal: "BUY", reason: "堅調モメンタム推移" };
+  if (changePct > -0.8) return { signal: "NEUTRAL", reason: "レンジもみ合い推移" };
+  if (changePct > -2.0) return { signal: "SELL", reason: "利益確定売り先行" };
+  return { signal: "STRONG_SELL", reason: "大幅下落モメンタム (-2%超)" };
+}
+
+/**
+ * カレンダーイベント一覧を iCalendar (RFC 5545, .ics) 形式にエクスポート
+ */
+export function exportCalendarToIcs(events: CalendarEvent[]): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const now = new Date();
+  const dtStamp = `${now.getUTCFullYear()}${pad(now.getUTCMonth() + 1)}${pad(now.getUTCDate())}T${pad(now.getUTCHours())}${pad(now.getUTCMinutes())}${pad(now.getUTCSeconds())}Z`;
+
+  const lines: string[] = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//IndexForge//Financial Calendar//JA",
+    "CALSCALE:GREGORIAN",
+    "METHOD:PUBLISH",
+    "X-WR-CALNAME:IndexForge 決算・経済指標カレンダー",
+    "X-WR-TIMEZONE:Asia/Tokyo",
+  ];
+
+  for (const evt of events) {
+    let dateStr = "";
+    if (evt.fullDate && /^\d{4}-\d{2}-\d{2}$/.test(evt.fullDate)) {
+      dateStr = evt.fullDate.replace(/-/g, "");
+    } else {
+      const parts = evt.date.split("/");
+      if (parts.length === 2) {
+        const y = now.getFullYear();
+        const m = pad(parseInt(parts[0], 10));
+        const d = pad(parseInt(parts[1], 10));
+        dateStr = `${y}${m}${d}`;
+      }
+    }
+    if (!dateStr || dateStr.length !== 8) continue;
+
+    const y = parseInt(dateStr.slice(0, 4), 10);
+    const m = parseInt(dateStr.slice(4, 6), 10) - 1;
+    const d = parseInt(dateStr.slice(6, 8), 10);
+    const nextDay = new Date(Date.UTC(y, m, d + 1));
+    const nextDayStr = `${nextDay.getUTCFullYear()}${pad(nextDay.getUTCMonth() + 1)}${pad(nextDay.getUTCDate())}`;
+
+    const descParts: string[] = [];
+    if (evt.time) descParts.push(`【発表時刻】${evt.time}`);
+    if (evt.importance) descParts.push(`【重要度】${evt.importance}`);
+    if (evt.market) descParts.push(`【市場】${evt.market === "US" ? "米国" : "国内東証"}`);
+    if (evt.forecast) descParts.push(`【市場予想】${evt.forecast}`);
+    if (evt.previous) descParts.push(`【前回値】${evt.previous}`);
+    if (evt.actual) descParts.push(`【発表結果】${evt.actual}`);
+    if (evt.description) descParts.push(evt.description);
+
+    lines.push("BEGIN:VEVENT");
+    lines.push(`UID:${evt.id}-${dateStr}@indexforge.internal`);
+    lines.push(`DTSTAMP:${dtStamp}`);
+    lines.push(`DTSTART;VALUE=DATE:${dateStr}`);
+    lines.push(`DTEND;VALUE=DATE:${nextDayStr}`);
+    lines.push(`SUMMARY:${evt.title.replace(/[,;]/g, " ")}`);
+    if (descParts.length > 0) {
+      lines.push(`DESCRIPTION:${descParts.join(" \\n ").replace(/\r?\n/g, " ")}`);
+    }
+    lines.push("CLASS:PUBLIC");
+    lines.push("STATUS:CONFIRMED");
+    lines.push("END:VEVENT");
+  }
+
+  lines.push("END:VCALENDAR");
+  return lines.join("\r\n");
+}
+
+/**
+ * カレンダーイベント一覧を CSV 形式にエクスポート (Excel対応 UTF-8 BOM付き)
+ */
+export function exportCalendarToCsv(events: CalendarEvent[]): string {
+  const escapeCell = (val: unknown): string => {
+    if (val === undefined || val === null) return '""';
+    const s = String(val).replace(/"/g, '""');
+    return `"${s}"`;
+  };
+
+  const headers = [
+    "日付",
+    "完全日付",
+    "種別",
+    "イベント名",
+    "ティッカー",
+    "企業名",
+    "重要度",
+    "発表時刻",
+    "市場",
+    "前回値",
+    "市場予想",
+    "発表結果",
+    "出所",
+    "詳細",
+  ];
+
+  const rows = events.map((e) => [
+    escapeCell(e.date),
+    escapeCell(e.fullDate || ""),
+    escapeCell(e.type === "MACRO" ? "経済指標" : "企業決算"),
+    escapeCell(e.title),
+    escapeCell(e.ticker || ""),
+    escapeCell(e.companyName || ""),
+    escapeCell(e.importance),
+    escapeCell(e.time || ""),
+    escapeCell(e.market === "US" ? "米国" : "国内東証"),
+    escapeCell(e.previous || ""),
+    escapeCell(e.forecast || ""),
+    escapeCell(e.actual || ""),
+    escapeCell(e.source === "fallback" ? "参考値(推計)" : "実データ"),
+    escapeCell(e.description || ""),
+  ]);
+
+  return "\uFEFF" + [headers.join(","), ...rows.map((r) => r.join(","))].join("\r\n");
+}
