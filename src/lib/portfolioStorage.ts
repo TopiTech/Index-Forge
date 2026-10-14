@@ -353,8 +353,18 @@ export function calculatePortfolioSummary(
     const fund = getStockFundamentals(pos.ticker);
     const curr = getStockCurrency(pos.ticker);
     const isUSD = curr === "$";
-    const defaultRate = quotesMap?.get?.("USDJPY=X")?.price || DEFAULT_USD_JPY_RATE;
-    const fxRate = isUSD ? (effectiveUsdJpyRate ?? defaultRate) : 1;
+    const rawQuoteRate = quotesMap?.get?.("USDJPY=X")?.price;
+    const fallbackRate =
+      typeof rawQuoteRate === "number" && Number.isFinite(rawQuoteRate) && rawQuoteRate > 0
+        ? rawQuoteRate
+        : DEFAULT_USD_JPY_RATE;
+    const validCustomRate =
+      typeof effectiveUsdJpyRate === "number" &&
+      Number.isFinite(effectiveUsdJpyRate) &&
+      effectiveUsdJpyRate > 0
+        ? effectiveUsdJpyRate
+        : undefined;
+    const fxRate = isUSD ? (validCustomRate ?? fallbackRate) : 1;
 
     const currentPrice =
       live?.price && live.price > 0

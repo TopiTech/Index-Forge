@@ -28,6 +28,9 @@ export function detectStockCurrency(
     market === "PRIME" ||
     market === "STANDARD" ||
     market === "GROWTH" ||
+    market === "ETF" ||
+    market === "REIT" ||
+    market === "PRO" ||
     market === "TSE" ||
     market === "JP"
   ) {

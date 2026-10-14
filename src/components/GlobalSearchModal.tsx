@@ -65,19 +65,51 @@ export function clearRecentSearches(): void {
   }
 }
 
+export function expandQueryTokenVariants(token: string): string[] {
+  const variants = new Set<string>();
+  if (!token) return [];
+  variants.add(token);
+
+  const nfkc = token.normalize("NFKC");
+  if (nfkc) variants.add(nfkc);
+
+  // Hiragana -> Katakana
+  const hiraToKata = nfkc.replace(/[\u3041-\u3096]/g, (ch) =>
+    String.fromCharCode(ch.charCodeAt(0) + 0x60),
+  );
+  if (hiraToKata) variants.add(hiraToKata);
+
+  // Katakana -> Hiragana
+  const kataToHira = nfkc.replace(/[\u30a1-\u30f6]/g, (ch) =>
+    String.fromCharCode(ch.charCodeAt(0) - 0x60),
+  );
+  if (kataToHira) variants.add(kataToHira);
+
+  return Array.from(variants).filter((v) => v.length > 0);
+}
+
 export function HighlightMatch({ text, query }: { text: string; query: string }) {
-  if (!query.trim()) return <>{text}</>;
+  if (!query || !query.trim() || !text) return <>{text}</>;
   const tokens = query.trim().split(/\s+/).filter(Boolean);
   if (tokens.length === 0) return <>{text}</>;
 
-  const escaped = tokens.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
-  const regex = new RegExp(`(${escaped})`, "gi");
-  const parts = text.split(regex);
+  const allVariants = Array.from(
+    new Set(tokens.flatMap((t) => expandQueryTokenVariants(t))),
+  )
+    .filter(Boolean)
+    .sort((a, b) => b.length - a.length);
+
+  if (allVariants.length === 0) return <>{text}</>;
+
+  const escaped = allVariants.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
+  const splitRegex = new RegExp(`(${escaped})`, "i");
+  const testRegex = new RegExp(`^(?:${escaped})$`, "i");
+  const parts = text.split(splitRegex);
 
   return (
     <>
       {parts.map((part, i) =>
-        regex.test(part) ? (
+        testRegex.test(part) ? (
           <span
             key={i}
             style={{

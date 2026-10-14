@@ -3409,7 +3409,7 @@ export function json(
       headers["access-control-allow-origin"] = origin;
       headers["access-control-allow-methods"] = "GET,POST,PUT,DELETE,OPTIONS";
       headers["access-control-allow-headers"] =
-        "content-type,x-owner-token,x-admin-key,x-auth-password,authorization,cache-control,if-none-match";
+        "content-type,x-owner-token,x-admin-key,x-auth-password,x-auth-mode,authorization,cache-control,if-none-match";
       headers["access-control-expose-headers"] = "etag, x-data-stale, x-cache";
     }
     // The CORS headers above are selected by the request Origin, so the
@@ -3452,7 +3452,7 @@ export function notModified(request?: Request, customHeaders?: Record<string, st
       headers["access-control-allow-origin"] = origin;
       headers["access-control-allow-methods"] = "GET,POST,PUT,DELETE,OPTIONS";
       headers["access-control-allow-headers"] =
-        "content-type,x-owner-token,x-admin-key,x-auth-password,authorization,cache-control,if-none-match";
+        "content-type,x-owner-token,x-admin-key,x-auth-password,x-auth-mode,authorization,cache-control,if-none-match";
       headers["access-control-expose-headers"] = "etag, x-data-stale, x-cache";
     }
     // See json(): Vary must be declared whenever CORS headers are selected by

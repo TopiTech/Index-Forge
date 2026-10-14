@@ -309,4 +309,96 @@ describe("Goal Comprehensive Code Review Verification", () => {
       expect(cacheControl).toMatch(/s-maxage=[0-9]/);
     });
   });
+
+  describe("CORS Allow Headers: x-auth-mode Inclusion", () => {
+    it("includes x-auth-mode in access-control-allow-headers for preflight OPTIONS and JSON responses", async () => {
+      const req = new Request("http://localhost:8787/api/auth/verify", {
+        method: "OPTIONS",
+        headers: {
+          Origin: "http://localhost:5173",
+          "Access-Control-Request-Method": "POST",
+          "Access-Control-Request-Headers": "content-type,x-auth-mode",
+        },
+      });
+
+      const env: any = {
+        DB: { prepare: vi.fn(), batch: vi.fn() },
+        ASSETS: { fetch: vi.fn() },
+      };
+
+      const res = await worker.fetch(req, env);
+      expect(res.status).toBe(200);
+      const allowHeaders = res.headers.get("access-control-allow-headers") || "";
+      expect(allowHeaders).toContain("x-auth-mode");
+      expect(allowHeaders).toContain("x-auth-password");
+      expect(allowHeaders).toContain("content-type");
+    });
+  });
+
+  describe("Currency Detection for ETF, REIT, and PRO Markets", () => {
+    it("detects JPY for Japanese ETF, REIT, and PRO markets even with non-standard ticker format", async () => {
+      const { detectStockCurrency } = await import("./currency");
+      expect(detectStockCurrency("UNKNOWN_TICKER", "ETF")).toBe("JPY");
+      expect(detectStockCurrency("UNKNOWN_TICKER", "REIT")).toBe("JPY");
+      expect(detectStockCurrency("UNKNOWN_TICKER", "PRO")).toBe("JPY");
+      expect(detectStockCurrency("UNKNOWN_TICKER", "PRIME")).toBe("JPY");
+      expect(detectStockCurrency("UNKNOWN_TICKER", "STANDARD")).toBe("JPY");
+      expect(detectStockCurrency("UNKNOWN_TICKER", "GROWTH")).toBe("JPY");
+      expect(detectStockCurrency("UNKNOWN_TICKER", "US")).toBe("USD");
+    });
+  });
+
+  describe("Portfolio Summary Non-Finite or Invalid FX Rate Robustness", () => {
+    it("sanitizes zero, negative, and NaN FX rates safely falling back to default USD/JPY rate", async () => {
+      const { calculatePortfolioSummary } = await import("./portfolioStorage");
+      const positions: any[] = [
+        {
+          id: "pos-1",
+          ticker: "AAPL",
+          name: "Apple Inc.",
+          shares: 10,
+          averageCost: 150,
+          currentPrice: 200,
+        },
+      ];
+
+      // Pass NaN
+      const summaryNaN = calculatePortfolioSummary(positions, undefined, NaN);
+      expect(Number.isFinite(summaryNaN.totalMarketValue)).toBe(true);
+      expect(summaryNaN.totalMarketValue).toBeGreaterThan(0);
+      expect(Number.isNaN(summaryNaN.totalProfitLoss)).toBe(false);
+
+      // Pass 0
+      const summaryZero = calculatePortfolioSummary(positions, undefined, 0);
+      expect(Number.isFinite(summaryZero.totalMarketValue)).toBe(true);
+      expect(summaryZero.totalMarketValue).toBeGreaterThan(0);
+
+      // Pass negative
+      const summaryNeg = calculatePortfolioSummary(positions, undefined, -150);
+      expect(Number.isFinite(summaryNeg.totalMarketValue)).toBe(true);
+      expect(summaryNeg.totalMarketValue).toBeGreaterThan(0);
+
+      // Pass valid rate
+      const summaryValid = calculatePortfolioSummary(positions, undefined, 160);
+      // 10 shares * $200 = $2,000 * 160 = 320,000 JPY
+      expect(summaryValid.totalMarketValue).toBe(320000);
+    });
+  });
+
+  describe("GlobalSearchModal Token Expansion and Highlighting", () => {
+    it("expands Hiragana and NFKC full-width queries to Katakana and half-width variants", async () => {
+      const { expandQueryTokenVariants } = await import("../components/GlobalSearchModal");
+      const toyotaVariants = expandQueryTokenVariants("とよた");
+      expect(toyotaVariants).toContain("とよた");
+      expect(toyotaVariants).toContain("トヨタ");
+
+      const fullWidthVariants = expandQueryTokenVariants("７２０３");
+      expect(fullWidthVariants).toContain("７２０３");
+      expect(fullWidthVariants).toContain("7203");
+
+      const halfKanaVariants = expandQueryTokenVariants("ﾄﾖﾀ");
+      expect(halfKanaVariants).toContain("トヨタ");
+      expect(halfKanaVariants).toContain("とよた");
+    });
+  });
 });
