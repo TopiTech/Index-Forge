@@ -1583,7 +1583,7 @@ export function AdminDashboard({
                 発行されたユーザーパスワードはまだありません。左のフォームから作成してください。
               </div>
             ) : (
-              <div className="table-wrapper">
+              <div className="table-wrapper" tabIndex={0} role="region" aria-label="発行済みパスワード一覧テーブル">
                 <table className="custom-table">
                   <thead>
                     <tr>
@@ -1861,7 +1861,7 @@ export function AdminDashboard({
                 </button>
               </div>
 
-              <div className="table-wrapper" style={{ maxHeight: 340, overflowY: "auto" }}>
+              <div className="table-wrapper" style={{ maxHeight: 340, overflowY: "auto" }} tabIndex={0} role="region" aria-label="構成銘柄編集テーブル">
                 <table className="custom-table">
                   <thead>
                     <tr>

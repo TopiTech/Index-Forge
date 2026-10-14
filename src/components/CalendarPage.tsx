@@ -245,7 +245,19 @@ export function CalendarPage({
         if (e.fullDate) {
           return e.fullDate.startsWith(dateKeyFull);
         }
-        return e.date === dateKeyShort && cellYear === today.getFullYear();
+        if (e.date !== dateKeyShort) return false;
+        const parts = e.date.split("/");
+        const mNum = parseInt(parts[0], 10);
+        let eventYear = today.getFullYear();
+        const currentMonth = today.getMonth() + 1;
+        if (!Number.isNaN(mNum)) {
+          if (mNum < currentMonth && currentMonth - mNum >= 6) {
+            eventYear += 1;
+          } else if (mNum > currentMonth && mNum - currentMonth >= 6) {
+            eventYear -= 1;
+          }
+        }
+        return cellYear === eventYear;
       });
 
       cells.push({
@@ -736,7 +748,7 @@ export function CalendarPage({
           </div>
         ) : (
           /* Month Grid View */
-          <div className="calendar-month-container">
+          <div className="calendar-month-container" tabIndex={0} role="region" aria-label="月間カレンダーグリッド">
             {/* Month Header Controller */}
             <div
               style={{

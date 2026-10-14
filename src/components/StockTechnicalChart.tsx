@@ -298,10 +298,22 @@ export function StockTechnicalChart({
               const rawP = rawSeries[i].close;
               const p = Number.isFinite(rawP) && rawP > 0 ? rawP : stock.price;
               const dateStr = rawSeries[i].date;
-              const dt = dateStr ? new Date(dateStr) : new Date();
-              const displayDate = Number.isNaN(dt.getTime())
-                ? dateStr
-                : `${dt.getMonth() + 1}/${dt.getDate()}`;
+              let displayDate = dateStr;
+              if (dateStr) {
+                const parts = dateStr.split(/[-/]/);
+                if (parts.length >= 3) {
+                  const m = parseInt(parts[1], 10);
+                  const d = parseInt(parts[2], 10);
+                  if (!Number.isNaN(m) && !Number.isNaN(d)) {
+                    displayDate = `${m}/${d}`;
+                  }
+                } else {
+                  const dt = new Date(dateStr);
+                  displayDate = Number.isNaN(dt.getTime())
+                    ? dateStr
+                    : `${dt.getUTCMonth() + 1}/${dt.getUTCDate()}`;
+                }
+              }
 
               let sma25: number | null = null;
               if (i >= 24) {

@@ -891,7 +891,7 @@ export function ScreenerPage({
             </button>
           </div>
         ) : (
-          <div style={{ overflowX: "auto" }}>
+          <div style={{ overflowX: "auto" }} tabIndex={0} role="region" aria-label="銘柄スクリーナー結果テーブル">
             <table className="constituents-table screener-grid-table" style={{ width: "100%" }}>
               <thead>
                 <tr>

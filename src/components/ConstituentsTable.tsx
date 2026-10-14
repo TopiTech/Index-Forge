@@ -546,7 +546,7 @@ export function ConstituentsTable({
         </div>
       </div>
 
-      <div className="table-wrapper desktop-constituents-table">
+      <div className="table-wrapper desktop-constituents-table" tabIndex={0} role="region" aria-label="構成銘柄一覧テーブル">
         <table className="custom-table" style={{ minWidth: 820 }}>
           <thead>
             <tr>

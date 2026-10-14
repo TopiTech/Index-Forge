@@ -236,11 +236,19 @@ export function deserializeBasketFromCsv(csvStr: string): SerializationResult<Ba
     else if (h.includes("比率") || h.includes("ウェイト") || h.includes("weight") || h.includes("%")) weightIdx = i;
   }
 
+  const hasMatchedHeader =
+    tickerIdx !== -1 || nameIdx !== -1 || themeIdx !== -1 || weightIdx !== -1;
+
   // ヘッダーが見つからない場合はデフォルトの列順 (0: ticker, 1: name, 2: theme, 3: weight)
-  if (tickerIdx === -1) tickerIdx = 0;
-  if (nameIdx === -1) nameIdx = 1;
-  if (themeIdx === -1) themeIdx = 2;
-  if (weightIdx === -1) weightIdx = 3;
+  if (!hasMatchedHeader) {
+    tickerIdx = 0;
+    nameIdx = 1;
+    themeIdx = 2;
+    weightIdx = 3;
+  } else {
+    // ヘッダーが一部指定されている場合、未指定のtickerのみ0にフォールバック
+    if (tickerIdx === -1) tickerIdx = 0;
+  }
 
   const basket: BasketItem[] = [];
   const seen = new Set<string>();
@@ -252,9 +260,9 @@ export function deserializeBasketFromCsv(csvStr: string): SerializationResult<Ba
     if (!ticker || seen.has(ticker)) continue;
     seen.add(ticker);
 
-    const name = (nameIdx < fields.length ? fields[nameIdx] : "") || ticker;
-    const theme = (themeIdx < fields.length ? fields[themeIdx] : "") || "カスタム";
-    const rawWeight = weightIdx < fields.length ? parseNumericValue(fields[weightIdx]) : NaN;
+    const name = (nameIdx !== -1 && nameIdx < fields.length ? fields[nameIdx] : "") || ticker;
+    const theme = (themeIdx !== -1 && themeIdx < fields.length ? fields[themeIdx] : "") || "カスタム";
+    const rawWeight = weightIdx !== -1 && weightIdx < fields.length ? parseNumericValue(fields[weightIdx]) : NaN;
     const weight = Number.isFinite(rawWeight) && rawWeight > 0 ? rawWeight : 1;
 
     basket.push({ ticker, name, theme, weight });
@@ -298,12 +306,12 @@ export function deserializePortfolioFromCsv(
   }
 
   const headerLine = rows[0];
-  let tickerIdx = 0;
-  let nameIdx = 1;
-  let sharesIdx = 2;
-  let costIdx = 3;
-  let dateIdx = 4;
-  let notesIdx = 5;
+  let tickerIdx = -1;
+  let nameIdx = -1;
+  let sharesIdx = -1;
+  let costIdx = -1;
+  let dateIdx = -1;
+  let notesIdx = -1;
 
   for (let i = 0; i < headerLine.length; i++) {
     const h = headerLine[i].toLowerCase();
@@ -315,6 +323,25 @@ export function deserializePortfolioFromCsv(
     else if (h.includes("メモ") || h.includes("note")) notesIdx = i;
   }
 
+  const hasMatchedHeader =
+    tickerIdx !== -1 ||
+    nameIdx !== -1 ||
+    sharesIdx !== -1 ||
+    costIdx !== -1 ||
+    dateIdx !== -1 ||
+    notesIdx !== -1;
+
+  if (!hasMatchedHeader) {
+    tickerIdx = 0;
+    nameIdx = 1;
+    sharesIdx = 2;
+    costIdx = 3;
+    dateIdx = 4;
+    notesIdx = 5;
+  } else {
+    if (tickerIdx === -1) tickerIdx = 0;
+  }
+
   const positions: PortfolioPosition[] = [];
 
   for (let rowIdx = 1; rowIdx < rows.length; rowIdx++) {
@@ -323,15 +350,15 @@ export function deserializePortfolioFromCsv(
     const ticker = fields[tickerIdx]?.toUpperCase().trim();
     if (!ticker) continue;
 
-    const name = (nameIdx < fields.length ? fields[nameIdx] : "") || ticker;
-    const rawShares = sharesIdx < fields.length ? parseNumericValue(fields[sharesIdx]) : NaN;
+    const name = (nameIdx !== -1 && nameIdx < fields.length ? fields[nameIdx] : "") || ticker;
+    const rawShares = sharesIdx !== -1 && sharesIdx < fields.length ? parseNumericValue(fields[sharesIdx]) : NaN;
     const shares = Number.isFinite(rawShares) && rawShares > 0 ? rawShares : 100;
 
-    const rawCost = costIdx < fields.length ? parseNumericValue(fields[costIdx]) : NaN;
+    const rawCost = costIdx !== -1 && costIdx < fields.length ? parseNumericValue(fields[costIdx]) : NaN;
     const averageCost = Number.isFinite(rawCost) && rawCost > 0 ? rawCost : 1000;
 
-    const acquiredAt = dateIdx < fields.length ? fields[dateIdx] : undefined;
-    const notes = notesIdx < fields.length ? fields[notesIdx] : undefined;
+    const acquiredAt = dateIdx !== -1 && dateIdx < fields.length ? fields[dateIdx] : undefined;
+    const notes = notesIdx !== -1 && notesIdx < fields.length ? fields[notesIdx] : undefined;
 
     positions.push({
       id: `pos-${ticker}-${Date.now()}-${rowIdx}`,

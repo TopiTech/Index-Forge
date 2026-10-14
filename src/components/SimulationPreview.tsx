@@ -506,6 +506,9 @@ export function SimulationPreview({
           </div>
 
           <div
+            tabIndex={0}
+            role="region"
+            aria-label="構成銘柄パフォーマンス寄与度テーブル"
             style={{
               maxHeight: 140,
               overflowY: "auto",

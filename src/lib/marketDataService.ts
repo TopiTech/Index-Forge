@@ -1802,10 +1802,20 @@ export function exportCalendarToIcs(events: CalendarEvent[]): string {
     } else {
       const parts = evt.date.split("/");
       if (parts.length === 2) {
-        const y = now.getFullYear();
-        const m = pad(parseInt(parts[0], 10));
-        const d = pad(parseInt(parts[1], 10));
-        dateStr = `${y}${m}${d}`;
+        const mNum = parseInt(parts[0], 10);
+        const dNum = parseInt(parts[1], 10);
+        if (!Number.isNaN(mNum) && !Number.isNaN(dNum)) {
+          let y = now.getFullYear();
+          const currentMonth = now.getMonth() + 1;
+          if (mNum < currentMonth && currentMonth - mNum >= 6) {
+            y += 1;
+          } else if (mNum > currentMonth && mNum - currentMonth >= 6) {
+            y -= 1;
+          }
+          const m = pad(mNum);
+          const d = pad(dNum);
+          dateStr = `${y}${m}${d}`;
+        }
       }
     }
     if (!dateStr || dateStr.length !== 8) continue;
