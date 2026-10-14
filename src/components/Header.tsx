@@ -19,6 +19,7 @@ import { AuthModal } from "./AuthModal";
 interface HeaderProps {
   onNavigateToHome?: () => void;
   onOpenSearch?: () => void;
+  onSearchHover?: () => void;
   /** Mobile navigation drawer state, owned by the shared page layout. */
   isNavOpen?: boolean;
   onToggleNav?: () => void;
@@ -38,6 +39,7 @@ interface HeaderProps {
 export function Header({
   onNavigateToHome,
   onOpenSearch,
+  onSearchHover,
   isNavOpen = false,
   onToggleNav,
   navToggleRef,
@@ -103,6 +105,8 @@ export function Header({
               type="button"
               className="header-search-btn"
               onClick={onOpenSearch}
+              onMouseEnter={onSearchHover}
+              onFocus={onSearchHover}
               title="銘柄・指数をクイック検索 (⌘K / Ctrl+K)"
               aria-label="検索モーダルを開く"
             >
@@ -119,6 +123,8 @@ export function Header({
                 type="button"
                 className="btn btn-sm btn-ghost header-mobile-search-btn"
                 onClick={onOpenSearch}
+                onMouseEnter={onSearchHover}
+                onTouchStart={onSearchHover}
                 title="検索"
                 aria-label="検索モーダルを開く"
               >

@@ -17,7 +17,9 @@ import {
   Square,
   MinusSquare,
   RefreshCw,
+  SearchX,
 } from "lucide-react";
+import { SkeletonTable } from "./Skeleton";
 import {
   runStockScreener,
   fetchScreenerStocks,
@@ -362,6 +364,7 @@ export function ScreenerPage({
     label: string,
     column: NonNullable<ScreenerFilterOptions["sortBy"]>,
     align: "left" | "right" | "center" = "right",
+    extraClass = "",
   ) => {
     const isActive = sortBy === column;
     return (
@@ -371,7 +374,7 @@ export function ScreenerPage({
           cursor: "pointer",
           userSelect: "none",
         }}
-        className={`sortable-col-header ${isActive ? "active" : ""}`}
+        className={`sortable-col-header ${isActive ? "active" : ""} ${extraClass}`}
         onClick={() => handleSortColumn(column)}
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") {
@@ -842,13 +845,49 @@ export function ScreenerPage({
           </div>
         </div>
 
-        {results.length === 0 ? (
-          <div style={{ textAlign: "center", padding: "48px 20px" }}>
-            <p className="muted" style={{ marginBottom: 8 }}>
-              条件に合致する銘柄が見つかりませんでした。
+        {loading && results.length === 0 ? (
+          <SkeletonTable rows={8} columns={9} />
+        ) : results.length === 0 ? (
+          <div
+            className="card"
+            style={{
+              textAlign: "center",
+              padding: "48px 20px",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: "12px",
+            }}
+          >
+            <div
+              style={{
+                width: "48px",
+                height: "48px",
+                borderRadius: "50%",
+                background: "rgba(255, 255, 255, 0.05)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                color: "var(--text-muted)",
+              }}
+            >
+              <SearchX size={24} />
+            </div>
+            <div style={{ fontWeight: 600, fontSize: "1.05rem" }}>
+              条件に一致する銘柄が見つかりませんでした
+            </div>
+            <p className="muted tiny" style={{ maxWidth: "420px", margin: 0 }}>
+              条件を緩和するか、検索キーワードを見直して再度お試しください。
             </p>
-            <button type="button" className="btn btn-sm btn-outline" onClick={handleResetFilters}>
-              条件をリセットして全銘柄を表示
+            <button
+              type="button"
+              className="btn btn-sm btn-outline"
+              onClick={handleResetFilters}
+              style={{ marginTop: "4px" }}
+            >
+              <RotateCcw size={12} style={{ marginRight: 4 }} />
+              <span>条件をリセットして全銘柄を表示</span>
             </button>
           </div>
         ) : (
@@ -876,7 +915,7 @@ export function ScreenerPage({
                       )}
                     </button>
                   </th>
-                  {renderSortableHeader("銘柄", "name", "left")}
+                  {renderSortableHeader("銘柄", "name", "left", "table-sticky-col")}
                   <th style={{ textAlign: "center", width: "70px" }}>トレンド</th>
                   {renderSortableHeader("現在値", "price", "right")}
                   {renderSortableHeader("前日比 (%)", "changePercent", "right")}
@@ -944,7 +983,7 @@ export function ScreenerPage({
                         </button>
                       </td>
 
-                      <td>
+                      <td className="table-sticky-col">
                         <div
                           style={{
                             display: "flex",

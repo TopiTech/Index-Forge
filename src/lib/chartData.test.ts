@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildChartData } from "./chartData";
+import { buildChartData, downsampleLTTB } from "./chartData";
 import type { PricePoint } from "../types";
 
 describe("buildChartData", () => {
@@ -146,5 +146,43 @@ describe("buildChartData", () => {
     // On 2026-07-06, benchmark was 5100, normalized to (1000 * 5100 / 5000 = 1020)
     expect(result[1].date).toBe("2026-07-06");
     expect(result[1].nikkei).toBe(1020);
+  });
+});
+
+describe("downsampleLTTB", () => {
+  it("returns original data if length is below or equal to threshold", () => {
+    const points = [
+      { date: "2026-01-01", value: 10 },
+      { date: "2026-01-02", value: 20 },
+      { date: "2026-01-03", value: 15 },
+    ];
+    expect(downsampleLTTB(points, 5)).toEqual(points);
+  });
+
+  it("downsamples large series to exact threshold while keeping first and last points", () => {
+    const points = Array.from({ length: 500 }, (_, i) => ({
+      date: `2026-01-${String(i + 1).padStart(3, "0")}`,
+      value: Math.sin(i / 10) * 50 + 100,
+    }));
+
+    const result = downsampleLTTB(points, 50);
+    expect(result.length).toBe(50);
+    expect(result[0]).toEqual(points[0]);
+    expect(result[result.length - 1]).toEqual(points[points.length - 1]);
+  });
+
+  it("preserves prominent peak values during downsampling", () => {
+    const points = [
+      { date: "2026-01-01", value: 10 },
+      { date: "2026-01-02", value: 12 },
+      { date: "2026-01-03", value: 100 }, // Prominent peak
+      { date: "2026-01-04", value: 11 },
+      { date: "2026-01-05", value: 10 },
+    ];
+    const result = downsampleLTTB(points, 3);
+    expect(result.length).toBe(3);
+    expect(result[0].value).toBe(10);
+    expect(result[1].value).toBe(100); // Peak is captured
+    expect(result[2].value).toBe(10);
   });
 });

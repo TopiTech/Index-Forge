@@ -17,6 +17,7 @@ import { EmptyState } from "./EmptyState";
 import type { Timeframe } from "../types";
 import { calculateSMA } from "../lib/analytics";
 import { filterByTimeframe } from "../lib/timeframe";
+import { downsampleLTTB } from "../lib/chartData";
 
 const fmt = new Intl.NumberFormat("ja-JP", { maximumFractionDigits: 2 });
 const pct = new Intl.NumberFormat("ja-JP", {
@@ -136,7 +137,18 @@ export function PerformanceChart({
   }, [data, showSMA25]);
 
   // Compute transformed series for % mode vs value mode vs spread mode
-  const displayData = useMemo(() => {
+  interface DisplayPoint {
+    date: string;
+    value: number;
+    nikkei: number;
+    sma5?: number;
+    sma25?: number;
+    rawCustom?: number;
+    rawNikkei?: number;
+    spread?: number;
+  }
+
+  const displayData = useMemo<DisplayPoint[]>(() => {
     if (filteredData.length === 0) return [];
     if (viewMode === "value") {
       return filteredData.map((d) => {
@@ -167,6 +179,8 @@ export function PerformanceChart({
           rawCustom: d.value,
           rawNikkei: d.nikkei,
           spread,
+          sma5: undefined,
+          sma25: undefined,
         };
       });
     }
@@ -185,6 +199,12 @@ export function PerformanceChart({
       };
     });
   }, [filteredData, viewMode, baseValue, fullSma5Map, fullSma25Map]);
+
+  // Downsample chart data points using LTTB if dataset is large, preserving visual accuracy & peak/troughs
+  const renderedData = useMemo(() => {
+    if (displayData.length <= 250) return displayData;
+    return downsampleLTTB(displayData, 250);
+  }, [displayData]);
 
   // Key chart statistics
   const stats = useMemo(() => {
@@ -362,7 +382,7 @@ export function PerformanceChart({
           </div>
         ) : displayData.length > 0 ? (
           <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart data={displayData} margin={{ top: 12, right: 14, left: -10, bottom: 0 }}>
+            <ComposedChart data={renderedData} margin={{ top: 12, right: 14, left: -10, bottom: 0 }}>
               <defs>
                 <linearGradient id="cyanGradient" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor="var(--accent-color)" stopOpacity={0.18} />

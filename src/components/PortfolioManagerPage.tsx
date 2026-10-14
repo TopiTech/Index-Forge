@@ -1525,9 +1525,20 @@ export function PortfolioManagerPage({
                             title="銘柄詳細を見る"
                             aria-label={`${p.name} (${p.ticker}) の詳細を見る`}
                           >
-                            <span style={{ fontWeight: 600, color: "var(--accent-text)" }}>
-                              {p.name}
-                            </span>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                              <span style={{ fontWeight: 600, color: "var(--accent-text)" }}>
+                                {p.name}
+                              </span>
+                              {p.isDemoData && (
+                                <span
+                                  className="badge badge-default mono tiny"
+                                  style={{ fontSize: "0.62rem", padding: "1px 5px" }}
+                                  title="実データ未取得のため推計デモ値を表示しています"
+                                >
+                                  参考値
+                                </span>
+                              )}
+                            </div>
                             <div className="tiny muted mono">
                               {p.ticker} · {p.theme}
                             </div>
@@ -1647,8 +1658,19 @@ export function PortfolioManagerPage({
                       <span className="mono bold">{ticker}</span>
                       <span className="badge badge-default tiny mono">{fund.market}</span>
                     </div>
-                    <div style={{ fontWeight: 600, fontSize: "0.95rem", marginTop: 2 }}>
-                      {fund.name}
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginTop: 2 }}>
+                      <div style={{ fontWeight: 600, fontSize: "0.95rem" }}>
+                        {fund.name}
+                      </div>
+                      {fund.isDemoData && (
+                        <span
+                          className="badge badge-default mono tiny"
+                          style={{ fontSize: "0.62rem", padding: "1px 5px" }}
+                          title="実データ未取得のため推計デモ値を表示しています"
+                        >
+                          参考値
+                        </span>
+                      )}
                     </div>
                     <div className="tiny muted">{fund.theme}</div>
                   </div>

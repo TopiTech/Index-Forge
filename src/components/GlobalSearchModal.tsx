@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from "react";
+import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { motion } from "framer-motion";
 import {
@@ -9,6 +9,8 @@ import {
   BookmarkPlus,
   CornerDownLeft,
   Sparkles,
+  Clock,
+  Trash2,
 } from "lucide-react";
 import { POPULAR_STOCKS, type PopularStock } from "../data/popularStocks";
 import { searchStockUniverse, ALL_UNIVERSE_STOCKS, normalizeSearchQuery, type StockMarket } from "../data/stockUniverse";
@@ -19,6 +21,82 @@ import type { PageView } from "../lib/navigation";
 import type { CustomIndex } from "../data/indices";
 
 export type SearchCategory = "ALL" | "PRIME" | "STANDARD" | "GROWTH" | "US" | "MACRO";
+
+export interface RecentSearchItem {
+  id: string;
+  title: string;
+  subtitle: string;
+  type: "stock" | "index";
+  market: StockMarket;
+  timestamp: number;
+}
+
+export const RECENT_SEARCHES_STORAGE_KEY = "indexforge:recent_searches";
+
+export function getRecentSearches(): RecentSearchItem[] {
+  if (typeof localStorage === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(RECENT_SEARCHES_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.slice(0, 8) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function saveRecentSearch(item: Omit<RecentSearchItem, "timestamp">): void {
+  if (typeof localStorage === "undefined") return;
+  try {
+    const current = getRecentSearches().filter((x) => x.id !== item.id);
+    const updated: RecentSearchItem[] = [{ ...item, timestamp: Date.now() }, ...current].slice(0, 8);
+    localStorage.setItem(RECENT_SEARCHES_STORAGE_KEY, JSON.stringify(updated));
+  } catch {
+    // ignore
+  }
+}
+
+export function clearRecentSearches(): void {
+  if (typeof localStorage === "undefined") return;
+  try {
+    localStorage.removeItem(RECENT_SEARCHES_STORAGE_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+export function HighlightMatch({ text, query }: { text: string; query: string }) {
+  if (!query.trim()) return <>{text}</>;
+  const tokens = query.trim().split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) return <>{text}</>;
+
+  const escaped = tokens.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
+  const regex = new RegExp(`(${escaped})`, "gi");
+  const parts = text.split(regex);
+
+  return (
+    <>
+      {parts.map((part, i) =>
+        regex.test(part) ? (
+          <span
+            key={i}
+            style={{
+              backgroundColor: "rgba(56, 189, 248, 0.25)",
+              color: "var(--accent-color, #38bdf8)",
+              borderRadius: "2px",
+              padding: "0 1px",
+              fontWeight: 700,
+            }}
+          >
+            {part}
+          </span>
+        ) : (
+          part
+        ),
+      )}
+    </>
+  );
+}
 
 interface GlobalSearchModalProps {
   isOpen: boolean;
@@ -40,6 +118,7 @@ export function GlobalSearchModal({
   const [query, setQuery] = useState("");
   const [activeCategory, setActiveCategory] = useState<SearchCategory>("ALL");
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [recentSearches, setRecentSearches] = useState<RecentSearchItem[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -55,8 +134,14 @@ export function GlobalSearchModal({
       setQuery("");
       setActiveCategory("ALL");
       setSelectedIndex(0);
+      setRecentSearches(getRecentSearches());
     }
   }, [isOpen]);
+
+  const handleClearRecent = () => {
+    clearRecentSearches();
+    setRecentSearches([]);
+  };
 
   // Filter stocks, macro assets, and custom indices from complete 4,500+ universe
   const filteredResults = useMemo(() => {
@@ -65,32 +150,52 @@ export function GlobalSearchModal({
     // Default / Empty query state: provide rich curated & trending assets across categories
     if (!q) {
       if (activeCategory === "ALL") {
+        // Prepend recent searches if any exist
+        const recentPicks = recentSearches.map((r) => ({
+          type: r.type,
+          id: r.id,
+          title: r.title,
+          subtitle: `${r.subtitle} · 最近閲覧`,
+          market: r.market,
+          isRecent: true,
+          raw: { ticker: r.id, name: r.title, theme: r.subtitle },
+        }));
+
+        const recentIds = new Set(recentSearches.map((r) => r.id));
+
         // Rich default showcase: 4 benchmarks + 16 leading market stocks
         const benchmarks = [
           ...DEFAULT_MARKET_OVERVIEW.indices.slice(0, 3),
           ...DEFAULT_MARKET_OVERVIEW.forex.slice(0, 1),
-        ].map((m) => ({
-          type: "stock" as const,
-          id: m.symbol,
-          title: m.name,
-          subtitle: `${m.symbol} · ${m.category === "INDEX" ? "主要市場指数" : "外国為替"} · ${m.price.toLocaleString()} ${m.currency}`,
-          market: m.category as StockMarket,
-          raw: { ticker: m.symbol, name: m.name, theme: m.category },
-        }));
-
-        const popularPicks = POPULAR_STOCKS.slice(0, 14).map((stock) => {
-          const isUS = !/^\d/.test(stock.ticker);
-          return {
+        ]
+          .filter((m) => !recentIds.has(m.symbol))
+          .map((m) => ({
             type: "stock" as const,
-            id: stock.ticker,
-            title: stock.name,
-            subtitle: `${stock.ticker} · ${isUS ? "米国株" : "東証プライム"} · ${stock.theme}`,
-            market: (isUS ? "US" : "PRIME") as StockMarket,
-            raw: stock,
-          };
-        });
+            id: m.symbol,
+            title: m.name,
+            subtitle: `${m.symbol} · ${m.category === "INDEX" ? "主要市場指数" : "外国為替"} · ${m.price.toLocaleString()} ${m.currency}`,
+            market: m.category as StockMarket,
+            isRecent: false,
+            raw: { ticker: m.symbol, name: m.name, theme: m.category },
+          }));
 
-        return [...benchmarks, ...popularPicks];
+        const popularPicks = POPULAR_STOCKS
+          .filter((s) => !recentIds.has(s.ticker))
+          .slice(0, 14)
+          .map((stock) => {
+            const isUS = !/^\d/.test(stock.ticker);
+            return {
+              type: "stock" as const,
+              id: stock.ticker,
+              title: stock.name,
+              subtitle: `${stock.ticker} · ${isUS ? "米国株" : "東証プライム"} · ${stock.theme}`,
+              market: (isUS ? "US" : "PRIME") as StockMarket,
+              isRecent: false,
+              raw: stock,
+            };
+          });
+
+        return [...recentPicks, ...benchmarks, ...popularPicks];
       }
 
       if (activeCategory === "MACRO") {
@@ -239,7 +344,26 @@ export function GlobalSearchModal({
         : [];
 
     return [...matchedMacro, ...customStockResult, ...matchedStocks, ...matchedIndices];
-  }, [query, activeCategory, availableIndices]);
+  }, [query, activeCategory, availableIndices, recentSearches]);
+
+  const handleSelect = useCallback(
+    (item: (typeof filteredResults)[number]) => {
+      saveRecentSearch({
+        id: item.id,
+        title: item.title,
+        subtitle: item.subtitle,
+        type: item.type,
+        market: item.market,
+      });
+      if (item.type === "stock") {
+        onNavigate("stock", `?ticker=${item.id}`);
+      } else {
+        onNavigate("dashboard", `?index=${item.id}`);
+      }
+      onClose();
+    },
+    [onNavigate, onClose],
+  );
 
   // Handle keyboard navigation (Escape is owned by useModalFocus above)
   useEffect(() => {
@@ -262,19 +386,13 @@ export function GlobalSearchModal({
         setSelectedIndex((prev) => (prev > 0 ? prev - 1 : filteredResults.length - 1));
       } else if (e.key === "Enter" && filteredResults[selectedIndex]) {
         e.preventDefault();
-        const item = filteredResults[selectedIndex];
-        if (item.type === "stock") {
-          onNavigate("stock", `?ticker=${item.id}`);
-        } else {
-          onNavigate("dashboard", `?index=${item.id}`);
-        }
-        onClose();
+        handleSelect(filteredResults[selectedIndex]);
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, filteredResults, selectedIndex, onClose, onNavigate]);
+  }, [isOpen, filteredResults, selectedIndex, handleSelect]);
 
   // Ensure active keyboard selection stays visible in scrollable container
   useEffect(() => {
@@ -378,11 +496,25 @@ export function GlobalSearchModal({
               {cat.label}
             </button>
           ))}
-          <span style={{ marginLeft: "auto", fontSize: "10px", color: "var(--text-muted)" }}>
-            {query.trim()
-              ? `${filteredResults.length}件表示`
-              : "ローカル即時検索 (0負荷)"}
-          </span>
+          <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "8px" }}>
+            {!query.trim() && recentSearches.length > 0 && activeCategory === "ALL" && (
+              <button
+                type="button"
+                className="btn btn-ghost btn-xs"
+                onClick={handleClearRecent}
+                style={{ fontSize: "10px", padding: "2px 6px", color: "var(--text-muted)" }}
+                title="閲覧履歴を消去"
+              >
+                <Trash2 size={11} style={{ marginRight: 3 }} />
+                履歴消去
+              </button>
+            )}
+            <span style={{ fontSize: "10px", color: "var(--text-muted)" }}>
+              {query.trim()
+                ? `${filteredResults.length}件表示`
+                : "ローカル即時検索 (0負荷)"}
+            </span>
+          </div>
         </div>
 
         {/* Search Results List */}
@@ -391,6 +523,7 @@ export function GlobalSearchModal({
           id="global-search-results"
           role="listbox"
           aria-label="検索結果"
+          aria-live="polite"
           className="global-search-list"
         >
           {filteredResults.length === 0 ? (
@@ -402,6 +535,7 @@ export function GlobalSearchModal({
             <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
               {filteredResults.map((item, idx) => {
                 const isSelected = idx === selectedIndex;
+                const isRecent = Boolean((item as { isRecent?: boolean }).isRecent);
                 return (
                   <div
                     key={`${item.type}-${item.id}`}
@@ -410,14 +544,7 @@ export function GlobalSearchModal({
                     aria-selected={isSelected}
                     data-result-index={idx}
                     className={`search-result-item ${isSelected ? "selected" : ""}`}
-                    onClick={() => {
-                      if (item.type === "stock") {
-                        onNavigate("stock", `?ticker=${item.id}`);
-                      } else {
-                        onNavigate("dashboard", `?index=${item.id}`);
-                      }
-                      onClose();
-                    }}
+                    onClick={() => handleSelect(item)}
                     onMouseEnter={() => setSelectedIndex(idx)}
                   >
                     <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
@@ -426,17 +553,29 @@ export function GlobalSearchModal({
                           width: "32px",
                           height: "32px",
                           borderRadius: "6px",
-                          background:
-                            item.type === "stock"
+                          background: isRecent
+                            ? "rgba(245, 158, 11, 0.12)"
+                            : item.type === "stock"
                               ? "rgba(56, 189, 248, 0.1)"
                               : "rgba(168, 85, 247, 0.1)",
-                          color: item.type === "stock" ? "var(--accent-color)" : "#a855f7",
+                          color: isRecent
+                            ? "var(--neon-amber, #f59e0b)"
+                            : item.type === "stock"
+                              ? "var(--accent-color)"
+                              : "#a855f7",
                           display: "flex",
                           alignItems: "center",
                           justifyContent: "center",
+                          flexShrink: 0,
                         }}
                       >
-                        {item.type === "stock" ? <TrendingUp size={16} /> : <BarChart2 size={16} />}
+                        {isRecent ? (
+                          <Clock size={16} />
+                        ) : item.type === "stock" ? (
+                          <TrendingUp size={16} />
+                        ) : (
+                          <BarChart2 size={16} />
+                        )}
                       </div>
                       <div>
                         <div
@@ -448,7 +587,20 @@ export function GlobalSearchModal({
                             gap: "6px",
                           }}
                         >
-                          <span>{item.title}</span>
+                          <span>
+                            <HighlightMatch text={item.title} query={query} />
+                          </span>
+                          {isRecent && (
+                            <span
+                              className="global-search-market-tag"
+                              style={{
+                                borderColor: "rgba(245, 158, 11, 0.4)",
+                                color: "var(--neon-amber, #f59e0b)",
+                              }}
+                            >
+                              最近閲覧
+                            </span>
+                          )}
                           {item.market === "PRIME" && (
                             <span className="global-search-market-tag prime">プライム</span>
                           )}
@@ -468,7 +620,9 @@ export function GlobalSearchModal({
                             <span className="global-search-market-tag">REIT</span>
                           )}
                         </div>
-                        <div className="tiny muted mono">{item.subtitle}</div>
+                        <div className="tiny muted mono">
+                          <HighlightMatch text={item.subtitle} query={query} />
+                        </div>
                       </div>
                     </div>
 

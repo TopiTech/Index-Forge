@@ -33,6 +33,7 @@ export type StockDetail = {
   contributionPt: number;
   contributionPct: number;
   sparkline: number[];
+  isDemoData?: boolean;
 };
 
 export type Snapshot = {

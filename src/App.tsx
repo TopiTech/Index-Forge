@@ -44,8 +44,13 @@ const ScreenerPage = lazy(() =>
 const CalendarPage = lazy(() =>
   import("./components/CalendarPage").then((m) => ({ default: m.CalendarPage })),
 );
+const GlobalSearchModal = lazy(() =>
+  import("./components/GlobalSearchModal").then((m) => ({ default: m.GlobalSearchModal })),
+);
+export const preloadGlobalSearchModal = () => {
+  void import("./components/GlobalSearchModal");
+};
 
-import { GlobalSearchModal } from "./components/GlobalSearchModal";
 import { ErrorFallback } from "./components/ErrorFallback";
 import { LoadingScreen } from "./components/LoadingScreen";
 import { buildChartData } from "./lib/chartData";
@@ -234,6 +239,7 @@ export default function App({
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
+        preloadGlobalSearchModal();
         setIsSearchModalOpen((prev) => !prev);
       }
     };
@@ -682,7 +688,11 @@ export default function App({
   // Shared page layout props for Header (navigation lives in the Sidebar now)
   const pageLayoutHeaderProps = useMemo(
     () => ({
-      onOpenSearch: () => setIsSearchModalOpen(true),
+      onOpenSearch: () => {
+        preloadGlobalSearchModal();
+        setIsSearchModalOpen(true);
+      },
+      onSearchHover: preloadGlobalSearchModal,
       benchmarkUpdatedAt,
       calculationUpdatedAt,
       dataLoading: loadingBenchmark || loadingCalc,
@@ -699,16 +709,18 @@ export default function App({
     ],
   );
 
-  const commonSearchModal = (
-    <GlobalSearchModal
-      isOpen={isSearchModalOpen}
-      onClose={() => setIsSearchModalOpen(false)}
-      onNavigate={navigateTo}
-      availableIndices={indices}
-      onAddToIndex={handleAddStockToIndex}
-      onAddToWatchlist={handleAddToWatchlist}
-    />
-  );
+  const commonSearchModal = isSearchModalOpen ? (
+    <Suspense fallback={null}>
+      <GlobalSearchModal
+        isOpen={isSearchModalOpen}
+        onClose={() => setIsSearchModalOpen(false)}
+        onNavigate={navigateTo}
+        availableIndices={indices}
+        onAddToIndex={handleAddStockToIndex}
+        onAddToWatchlist={handleAddToWatchlist}
+      />
+    </Suspense>
+  ) : null;
 
   if (currentView === "tutorial") {
     return (

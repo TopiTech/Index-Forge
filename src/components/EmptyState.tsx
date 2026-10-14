@@ -6,8 +6,11 @@ interface EmptyStateProps {
   description: string;
   actionLabel?: string;
   onAction?: () => void;
+  secondaryActionLabel?: string;
+  onSecondaryAction?: () => void;
   icon?: ReactNode;
   compact?: boolean;
+  children?: ReactNode;
 }
 
 export function EmptyState({
@@ -15,8 +18,11 @@ export function EmptyState({
   description,
   actionLabel,
   onAction,
+  secondaryActionLabel,
+  onSecondaryAction,
   icon = <Inbox size={22} />,
   compact = false,
+  children,
 }: EmptyStateProps) {
   return (
     <div className={`empty-state ${compact ? "empty-state-compact" : ""}`} role="status">
@@ -27,11 +33,21 @@ export function EmptyState({
         <strong>{title}</strong>
         <p>{description}</p>
       </div>
-      {actionLabel && onAction && (
-        <button type="button" className="btn btn-sm btn-default" onClick={onAction}>
-          {actionLabel}
-        </button>
+      {(actionLabel || secondaryActionLabel) && (
+        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", justifyContent: "center" }}>
+          {actionLabel && onAction && (
+            <button type="button" className="btn btn-sm btn-default" onClick={onAction}>
+              {actionLabel}
+            </button>
+          )}
+          {secondaryActionLabel && onSecondaryAction && (
+            <button type="button" className="btn btn-sm btn-outline" onClick={onSecondaryAction}>
+              {secondaryActionLabel}
+            </button>
+          )}
+        </div>
       )}
+      {children}
     </div>
   );
 }

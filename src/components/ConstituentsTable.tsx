@@ -206,6 +206,7 @@ export function ConstituentsTable({
         contributionPt: detail?.contributionPt ?? 0,
         contributionPct: detail?.contributionPct ?? 0,
         sparkline: detail?.sparkline ?? [],
+        isDemoData: detail?.isDemoData,
       };
     });
   }, [basket, stockDetails]);
@@ -711,7 +712,18 @@ export function ConstituentsTable({
                         </a>
                       </td>
                       <td>
-                        <span style={{ fontWeight: 500 }}>{item.name}</span>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                          <span style={{ fontWeight: 500 }}>{item.name}</span>
+                          {item.isDemoData && (
+                            <span
+                              className="badge badge-default mono tiny"
+                              style={{ fontSize: "0.62rem", padding: "1px 5px" }}
+                              title="実データ未取得のため推計デモ値を表示しています"
+                            >
+                              参考値
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td>
                         <Tag variant="theme" style={{ fontSize: 11 }}>
@@ -843,6 +855,15 @@ export function ConstituentsTable({
                       <ExternalLink size={10} aria-hidden="true" />
                     </a>
                     <strong>{item.name}</strong>
+                    {item.isDemoData && (
+                      <span
+                        className="badge badge-default mono tiny"
+                        style={{ fontSize: "0.62rem", padding: "1px 5px" }}
+                        title="実データ未取得のため推計デモ値を表示しています"
+                      >
+                        参考値
+                      </span>
+                    )}
                     <Tag variant="theme">{item.theme}</Tag>
                   </div>
                   {onRemoveStock && canEdit && (

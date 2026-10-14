@@ -65,3 +65,66 @@ export function buildChartData(
     };
   });
 }
+
+/**
+ * Downsample timeseries points using Largest-Triangle-Three-Buckets (LTTB) algorithm.
+ * Preserves visual peaks, troughs, and overall trend while significantly reducing SVG path / DOM node count.
+ */
+export function downsampleLTTB<T extends { date: string; value: number }>(
+  data: T[],
+  threshold: number = 200,
+): T[] {
+  if (data.length <= threshold || threshold < 3) return data;
+
+  const sampled: T[] = [];
+  const bucketSize = (data.length - 2) / (threshold - 2);
+
+  let aIndex = 0;
+  sampled.push(data[aIndex]); // Always add the first point
+
+  for (let i = 0; i < threshold - 2; i++) {
+    // Calculate average for the next bucket (c)
+    const nextBucketStart = Math.floor((i + 1) * bucketSize) + 1;
+    const nextBucketEnd = Math.min(Math.floor((i + 2) * bucketSize) + 1, data.length);
+
+    let avgX = 0;
+    let avgY = 0;
+    const nextBucketLength = nextBucketEnd - nextBucketStart;
+
+    for (let j = nextBucketStart; j < nextBucketEnd; j++) {
+      avgX += j;
+      avgY += data[j].value;
+    }
+    if (nextBucketLength > 0) {
+      avgX /= nextBucketLength;
+      avgY /= nextBucketLength;
+    }
+
+    // Find the point in current bucket (b) that has the largest triangle area with a and avg(c)
+    const currentBucketStart = Math.floor(i * bucketSize) + 1;
+    const currentBucketEnd = Math.min(Math.floor((i + 1) * bucketSize) + 1, data.length);
+
+    const aPoint = data[aIndex];
+    let maxArea = -1;
+    let maxAreaIndex = currentBucketStart;
+
+    for (let j = currentBucketStart; j < currentBucketEnd; j++) {
+      const bPoint = data[j];
+      const area = Math.abs(
+        (aIndex - avgX) * (bPoint.value - aPoint.value) -
+        (aIndex - j) * (avgY - aPoint.value),
+      ) * 0.5;
+
+      if (area > maxArea) {
+        maxArea = area;
+        maxAreaIndex = j;
+      }
+    }
+
+    sampled.push(data[maxAreaIndex]);
+    aIndex = maxAreaIndex; // Next a is this bucket's chosen point
+  }
+
+  sampled.push(data[data.length - 1]); // Always add the last point
+  return sampled;
+}

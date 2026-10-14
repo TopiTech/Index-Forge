@@ -9,6 +9,8 @@
  * タイピング毎のサーバーAPI呼び出しをゼロ（0負荷・0ミリ秒遅延）に抑えます。
  */
 
+import { POPULAR_STOCKS } from "./popularStocks";
+
 export type StockMarket =
   | "PRIME"
   | "STANDARD"
@@ -4596,25 +4598,32 @@ export const ALL_UNIVERSE_STOCKS: UniverseStock[] = RAW_UNIVERSE.map((row) => ({
   normAliases: row[4] ? normalizeSearchQuery(row[4]) : undefined,
 }));
 
+let popularTickerSetCache: Set<string> | null = null;
+function getPopularTickerSet(): Set<string> {
+  if (!popularTickerSetCache && Array.isArray(POPULAR_STOCKS)) {
+    popularTickerSetCache = new Set(POPULAR_STOCKS.map((p) => p.ticker.toUpperCase()));
+  }
+  return popularTickerSetCache || new Set();
+}
+
 /**
  * Normalizes user queries for Japanese financial search:
- * 1. Full-width alphanumeric -> Half-width (７２０３ -> 7203, ＡＡＰＬ -> AAPL)
+ * 1. Unicode NFKC (Half-width Katakana -> Full-width, Full-width alphanumeric -> Half-width, Ideographic space -> ASCII space)
  * 2. Hiragana -> Katakana (とよた -> トヨタ)
  * 3. Lowercase English
  */
 export function normalizeSearchQuery(query: string): string {
   if (!query) return "";
-  return query
-    .trim()
-    .replace(/\u3000/g, " ")
-    .replace(/[！-～]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0xfee0))
+  const nfkc = query.normalize("NFKC").trim();
+  return nfkc
     .replace(/[ぁ-ゖ]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) + 0x60))
     .toLowerCase();
 }
 
 /**
  * Ultra-fast in-memory client-side stock search across 4,500+ instruments.
- * Zero server load, < 1ms execution time.
+ * Supports multi-token AND search, NFKC normalization (half-width kana, full-width alphanum),
+ * and relevance priority scoring (popular large-cap stocks boosted).
  */
 export function searchStockUniverse(
   query: string,
@@ -4640,14 +4649,12 @@ export function searchStockUniverse(
     return pool.slice(0, limit);
   }
 
+  const tokens = norm.split(/\s+/).filter(Boolean);
   const normUpper = norm.toUpperCase();
   const rawUpper = query.trim().toUpperCase();
   const rawLower = query.trim().toLowerCase();
 
-  const exactMatches: UniverseStock[] = [];
-  const tickerPrefixMatches: UniverseStock[] = [];
-  const namePrefixMatches: UniverseStock[] = [];
-  const substringMatches: UniverseStock[] = [];
+  const scoredMatches: { stock: UniverseStock; score: number }[] = [];
 
   for (let i = 0; i < ALL_UNIVERSE_STOCKS.length; i++) {
     const s = ALL_UNIVERSE_STOCKS[i];
@@ -4661,62 +4668,99 @@ export function searchStockUniverse(
     const tUpper = s.ticker.toUpperCase();
     const nNorm = s.name.toLowerCase();
     const normName = s.normName || normalizeSearchQuery(s.name);
-    const normAliases = s.normAliases || (s.aliases ? normalizeSearchQuery(s.aliases) : undefined);
+    const normAliases = s.normAliases || (s.aliases ? normalizeSearchQuery(s.aliases) : "");
+    const rawAliases = s.aliases ? s.aliases.toLowerCase() : "";
+    const isPopular = getPopularTickerSet().has(tUpper);
+
+    // Multi-token (AND search) mode
+    if (tokens.length > 1) {
+      let allMatch = true;
+      let tokenScore = 0;
+
+      for (const tok of tokens) {
+        const tokUpper = tok.toUpperCase();
+        const matchTicker = tUpper.includes(tokUpper);
+        const matchName = normName.includes(tok) || nNorm.includes(tok);
+        const matchAlias = normAliases.includes(tok) || rawAliases.includes(tok);
+        const matchSector = s.sector ? s.sector.toLowerCase().includes(tok) : false;
+
+        if (!matchTicker && !matchName && !matchAlias && !matchSector) {
+          allMatch = false;
+          break;
+        }
+
+        if (tUpper === tokUpper) tokenScore += 500;
+        else if (tUpper.startsWith(tokUpper)) tokenScore += 250;
+        else if (normName.startsWith(tok)) tokenScore += 200;
+        else if (normName.includes(tok)) tokenScore += 100;
+        else if (matchAlias) tokenScore += 80;
+        else if (matchSector) tokenScore += 50;
+      }
+
+      if (allMatch) {
+        if (isPopular) tokenScore += 300;
+        scoredMatches.push({ stock: s, score: tokenScore });
+      }
+      continue;
+    }
+
+    // Single token mode with rich hierarchical scoring
+    let score = 0;
+    if (isPopular) score += 200;
 
     // 1. Exact ticker match (e.g. "7203", "AAPL", "７２０３")
     if (tUpper === normUpper || tUpper === rawUpper) {
-      exactMatches.push(s);
+      score += 2000;
+      scoredMatches.push({ stock: s, score });
       continue;
     }
 
-    // 2. Ticker prefix match (e.g. "720" -> "7203", "AA" -> "AAPL", "７２０")
+    // 2. Exact name match
+    if (normName === norm || nNorm === norm || nNorm === rawLower) {
+      score += 1500;
+      scoredMatches.push({ stock: s, score });
+      continue;
+    }
+
+    // 3. Ticker prefix match (e.g. "720" -> "7203", "AA" -> "AAPL")
     if (tUpper.startsWith(normUpper) || tUpper.startsWith(rawUpper)) {
-      tickerPrefixMatches.push(s);
-      continue;
+      score += 800;
     }
 
-    // 3. Name starts with query (normalized both sides)
-    if (
-      normName.startsWith(norm) ||
-      nNorm.startsWith(norm) ||
-      nNorm.startsWith(rawLower)
-    ) {
-      namePrefixMatches.push(s);
-      continue;
+    // 4. Name prefix match
+    if (normName.startsWith(norm) || nNorm.startsWith(norm) || nNorm.startsWith(rawLower)) {
+      score += 500;
     }
 
-    // 4. Substring or alias match
-    if (
-      tUpper.includes(normUpper) ||
-      tUpper.includes(rawUpper) ||
-      normName.includes(norm) ||
-      nNorm.includes(norm) ||
-      nNorm.includes(rawLower) ||
-      (s.sector && s.sector.toLowerCase().includes(norm)) ||
-      (normAliases && normAliases.includes(norm)) ||
-      (s.aliases && s.aliases.toLowerCase().includes(rawLower))
-    ) {
-      substringMatches.push(s);
+    // 5. Substring or alias matches
+    if (score === 0 || score === 200) {
+      let matched = false;
+      if (tUpper.includes(normUpper) || tUpper.includes(rawUpper)) {
+        score += 300;
+        matched = true;
+      }
+      if (normName.includes(norm) || nNorm.includes(norm) || nNorm.includes(rawLower)) {
+        score += 250;
+        matched = true;
+      }
+      if (normAliases.includes(norm) || rawAliases.includes(rawLower)) {
+        score += 180;
+        matched = true;
+      }
+      if (s.sector && s.sector.toLowerCase().includes(norm)) {
+        score += 100;
+        matched = true;
+      }
+
+      if (!matched) continue;
     }
 
-    // Early termination if we already have enough high quality matches
-    if (
-      exactMatches.length +
-        tickerPrefixMatches.length +
-        namePrefixMatches.length +
-        substringMatches.length >=
-      limit * 3
-    ) {
-      break;
-    }
+    scoredMatches.push({ stock: s, score });
   }
 
-  return [
-    ...exactMatches,
-    ...tickerPrefixMatches,
-    ...namePrefixMatches,
-    ...substringMatches,
-  ].slice(0, limit);
+  // Sort descending by relevance score
+  scoredMatches.sort((a, b) => b.score - a.score);
+  return scoredMatches.slice(0, limit).map((m) => m.stock);
 }
 
 /**

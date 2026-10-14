@@ -37,6 +37,7 @@ export interface PositionCalculation extends PortfolioPosition {
   annualDividendJpy?: number;
   theme: string;
   sector: string;
+  isDemoData?: boolean;
 }
 
 export interface PortfolioSummary {
@@ -317,11 +318,11 @@ export function saveWatchlist(tickers: string[]): boolean {
 export function calculatePortfolioSummary(
   positions: PortfolioPosition[],
   liveQuotesMap?:
-    Map<string, { price: number; change?: number; dps?: number | null; name?: string }> | number,
+    Map<string, { price: number; change?: number; dps?: number | null; name?: string; isDemoData?: boolean }> | number,
   usdJpyRate?: number,
 ): PortfolioSummary {
   let quotesMap:
-    Map<string, { price: number; change?: number; dps?: number | null; name?: string }> | undefined;
+    Map<string, { price: number; change?: number; dps?: number | null; name?: string; isDemoData?: boolean }> | undefined;
   let effectiveUsdJpyRate = usdJpyRate;
 
   if (typeof liveQuotesMap === "number") {
@@ -404,6 +405,7 @@ export function calculatePortfolioSummary(
       annualDividendJpy,
       theme: fund.theme,
       sector: fund.sector,
+      isDemoData: live?.isDemoData !== undefined ? live.isDemoData : fund.isDemoData,
       weightPercent: 0, // will compute below
     };
   });

@@ -14,9 +14,11 @@ import {
 } from "lucide-react";
 import {
   fetchMarketOverview,
+  formatDynamicRelativeTime,
   type MarketOverviewData,
   type MarketAssetQuote,
 } from "../lib/marketDataService";
+import { Skeleton, SkeletonStatGrid, SkeletonCard, SkeletonTable } from "./Skeleton";
 import type { PageView } from "../lib/navigation";
 
 interface MarketOverviewPageProps {
@@ -107,9 +109,51 @@ export function MarketOverviewPage({
 
   if (!data) {
     return (
-      <div style={{ padding: "40px 20px", textAlign: "center" }}>
-        <RefreshCw className="spin muted" size={24} />
-        <p className="muted" style={{ marginTop: 12 }}>市場データを取得中...</p>
+      <div
+        className="page-container market-overview-page"
+        role="status"
+        aria-live="polite"
+        aria-label="市場データを読み込み中..."
+      >
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            flexWrap: "wrap",
+            gap: "16px",
+            marginBottom: "20px",
+          }}
+        >
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, maxWidth: "480px" }}>
+            <Skeleton height="14px" width="140px" />
+            <Skeleton height="32px" width="280px" />
+            <Skeleton height="14px" width="380px" />
+          </div>
+          <div style={{ display: "flex", gap: "8px" }}>
+            <Skeleton height="34px" width="80px" borderRadius="6px" />
+            <Skeleton height="34px" width="160px" borderRadius="6px" />
+          </div>
+        </div>
+
+        <SkeletonStatGrid count={4} />
+
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+            gap: "16px",
+            margin: "20px 0",
+          }}
+        >
+          <SkeletonCard lines={4} />
+          <SkeletonCard lines={4} />
+          <SkeletonCard lines={4} />
+        </div>
+
+        <div style={{ marginTop: "24px" }}>
+          <SkeletonTable rows={6} columns={5} />
+        </div>
       </div>
     );
   }
@@ -604,7 +648,11 @@ export function MarketOverviewPage({
                       </a>
                     )}
                   </div>
-                  <span className="tiny muted mono">{item.publishedAt}</span>
+                  <span className="tiny muted mono">
+                    {item.publishedTimestamp
+                      ? formatDynamicRelativeTime(item.publishedTimestamp)
+                      : item.publishedAt}
+                  </span>
                 </div>
                 {item.relatedTicker ? (
                   <button

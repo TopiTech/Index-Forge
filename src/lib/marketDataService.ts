@@ -49,6 +49,7 @@ export interface MarketOverviewData {
     title: string;
     source: string;
     publishedAt: string;
+    publishedTimestamp?: string;
     url?: string;
     relatedTicker?: string;
   }>;
@@ -165,6 +166,69 @@ function buildDefaultMarketQuotes(
   });
 }
 
+/**
+ * Format relative time string dynamically (e.g. "25分前", "1時間前", "昨日")
+ * based on elapsed minutes from reference time or ISO timestamp.
+ */
+export function formatDynamicRelativeTime(
+  offsetMinutesOrDate: number | string | Date,
+  now = new Date(),
+): string {
+  let diffMs: number;
+  if (typeof offsetMinutesOrDate === "number") {
+    diffMs = offsetMinutesOrDate * 60 * 1000;
+  } else {
+    const target = new Date(offsetMinutesOrDate).getTime();
+    diffMs = Math.max(0, now.getTime() - target);
+  }
+
+  const diffMins = Math.floor(diffMs / (60 * 1000));
+  if (diffMins < 1) return "たった今";
+  if (diffMins < 60) return `${diffMins}分前`;
+  const diffHours = Math.floor(diffMins / 60);
+  if (diffHours < 24) return `${diffHours}時間前`;
+  const diffDays = Math.floor(diffHours / 24);
+  if (diffDays === 1) return "昨日";
+  if (diffDays < 7) return `${diffDays}日前`;
+  return `${Math.floor(diffDays / 7)}週間前`;
+}
+
+export function buildDefaultMarketNews(refDate = new Date()) {
+  return [
+    {
+      id: "news-1",
+      title: "日経平均は高水準推移、主要半導体・ハイテク関連株に堅調な買い需要",
+      source: "市場速報",
+      publishedAt: formatDynamicRelativeTime(25, refDate),
+      publishedTimestamp: new Date(refDate.getTime() - 25 * 60 * 1000).toISOString(),
+      relatedTicker: "8035",
+    },
+    {
+      id: "news-2",
+      title: "米ハイテク株と主要指数が堅調、AIインフラ需要期待が下支え",
+      source: "グローバル金融",
+      publishedAt: formatDynamicRelativeTime(60, refDate),
+      publishedTimestamp: new Date(refDate.getTime() - 60 * 60 * 1000).toISOString(),
+      relatedTicker: "NVDA",
+    },
+    {
+      id: "news-3",
+      title: "ドル円は158円台前半で推移、日米金利差と金融政策動向を注視",
+      source: "為替市況",
+      publishedAt: formatDynamicRelativeTime(120, refDate),
+      publishedTimestamp: new Date(refDate.getTime() - 120 * 60 * 1000).toISOString(),
+      relatedTicker: "USDJPY=X",
+    },
+    {
+      id: "news-4",
+      title: "東証プライム騰落レシオは良好、好業績バリュー銘柄に見直し買いが継続",
+      source: "株式ニュース",
+      publishedAt: formatDynamicRelativeTime(180, refDate),
+      publishedTimestamp: new Date(refDate.getTime() - 180 * 60 * 1000).toISOString(),
+    },
+  ];
+}
+
 // Default Global Market Quotes Baseline (Derived from shared marketConstants BASELINE_ASSET_QUOTES)
 export const DEFAULT_MARKET_OVERVIEW: MarketOverviewData = {
   indices: buildDefaultMarketQuotes((q) => q.category === "INDEX"),
@@ -191,35 +255,7 @@ export const DEFAULT_MARKET_OVERVIEW: MarketOverviewData = {
     unchanged: 85,
     sentimentScore: 65, // Greed
   },
-  news: [
-    {
-      id: "news-1",
-      title: "日経平均は高水準推移、主要半導体・ハイテク関連株に堅調な買い需要",
-      source: "市場速報",
-      publishedAt: "25分前",
-      relatedTicker: "8035",
-    },
-    {
-      id: "news-2",
-      title: "米ハイテク株と主要指数が堅調、AIインフラ需要期待が下支え",
-      source: "グローバル金融",
-      publishedAt: "1時間前",
-      relatedTicker: "NVDA",
-    },
-    {
-      id: "news-3",
-      title: "ドル円は158円台前半で推移、日米金利差と金融政策動向を注視",
-      source: "為替市況",
-      publishedAt: "2時間前",
-      relatedTicker: "USDJPY=X",
-    },
-    {
-      id: "news-4",
-      title: "東証プライム騰落レシオは良好、好業績バリュー銘柄に見直し買いが継続",
-      source: "株式ニュース",
-      publishedAt: "3時間前",
-    },
-  ],
+  news: buildDefaultMarketNews(),
 };
 
 interface KnownStockAnchor {
@@ -1560,8 +1596,23 @@ export function generateUpcomingEvents(referenceDate = new Date()): CalendarEven
     });
   }
 
-  // 追加マクロ指標: 日本全国CPI & 実質GDP
-  const jpCpiDate = adjustToWeekday(addBusinessDays(referenceDate, 8));
+  // 追加マクロ指標: 日本全国CPI (毎月19日を含む週の金曜日・公定基準)
+  const jpCpiDate = (() => {
+    for (let offset = 0; offset <= 2; offset++) {
+      const y = referenceDate.getFullYear();
+      const m = referenceDate.getMonth() + offset;
+      for (let day = 19; day <= 25; day++) {
+        const d = new Date(y, m, day);
+        if (d.getDay() === 5) {
+          if (d.getTime() >= referenceDate.getTime() - 24 * 60 * 60 * 1000) {
+            return d;
+          }
+        }
+      }
+    }
+    return adjustToWeekday(addBusinessDays(referenceDate, 8));
+  })();
+
   events.push({
     id: "macro-jp-cpi",
     date: fmt(jpCpiDate),
@@ -1577,7 +1628,21 @@ export function generateUpcomingEvents(referenceDate = new Date()): CalendarEven
     source: "fallback",
   });
 
-  const jpGdpDate = adjustToWeekday(addBusinessDays(referenceDate, 14));
+  // 四半期実質GDP1次速報 (2, 5, 8, 11月中旬・内閣府公約基準)
+  const jpGdpDate = (() => {
+    const gdpMonths = [1, 4, 7, 10]; // Feb, May, Aug, Nov
+    for (let yearOffset = 0; yearOffset <= 1; yearOffset++) {
+      const y = referenceDate.getFullYear() + yearOffset;
+      for (const m of gdpMonths) {
+        const target = adjustToWeekday(new Date(y, m, 15));
+        if (target.getTime() >= referenceDate.getTime() - 24 * 60 * 60 * 1000) {
+          return target;
+        }
+      }
+    }
+    return adjustToWeekday(addBusinessDays(referenceDate, 14));
+  })();
+
   events.push({
     id: "macro-jp-gdp",
     date: fmt(jpGdpDate),

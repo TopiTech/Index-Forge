@@ -174,6 +174,41 @@ describe("Stock Universe & Zero Server Load Suggestion System", () => {
       expect(molResults.length).toBeGreaterThan(0);
       expect(molResults[0].ticker).toBe("9104");
     });
+
+    it("normalizes half-width Katakana queries (e.g. ﾄﾖﾀ, ｿﾆｰ, ｶﾌﾟｺﾝ)", () => {
+      const toyotaHankaku = searchStockUniverse("ﾄﾖﾀ");
+      expect(toyotaHankaku.length).toBeGreaterThan(0);
+      expect(toyotaHankaku.some((s) => s.ticker === "7203")).toBe(true);
+
+      const sonyHankaku = searchStockUniverse("ｿﾆｰ");
+      expect(sonyHankaku.length).toBeGreaterThan(0);
+      expect(sonyHankaku.some((s) => s.ticker === "6758")).toBe(true);
+
+      const capcomHankaku = searchStockUniverse("ｶﾌﾟｺﾝ");
+      expect(capcomHankaku.length).toBeGreaterThan(0);
+      expect(capcomHankaku.some((s) => s.ticker === "9697")).toBe(true);
+    });
+
+    it("supports multi-token AND search with spaces (e.g. 'トヨタ 7203', 'ソニー エンタメ')", () => {
+      const andMatch1 = searchStockUniverse("トヨタ 7203");
+      expect(andMatch1.length).toBeGreaterThan(0);
+      expect(andMatch1[0].ticker).toBe("7203");
+
+      const andMatch2 = searchStockUniverse("ソニー エンタメ");
+      expect(andMatch2.length).toBeGreaterThan(0);
+      expect(andMatch2.some((s) => s.ticker === "6758")).toBe(true);
+
+      const andMatch3 = searchStockUniverse("半導体 6857");
+      expect(andMatch3.length).toBeGreaterThan(0);
+      expect(andMatch3.some((s) => s.ticker === "6857")).toBe(true);
+    });
+
+    it("boosts popular large-cap stocks in search rankings", () => {
+      // Searching for "東" should rank Tokyo Electron (8035) or major popular picks high
+      const results = searchStockUniverse("東", { limit: 10 });
+      expect(results.length).toBeGreaterThan(0);
+      expect(results.some((s) => s.ticker === "8035" || s.ticker === "8766")).toBe(true);
+    });
   });
 
   describe("Zero Server Load & High Performance", () => {
