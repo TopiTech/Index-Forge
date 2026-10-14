@@ -19,3 +19,97 @@ export function escapeCsvCell(value: unknown): string {
     !isPlainNumber && /^[\s\uFEFF]*[=+\-@|]/u.test(raw) ? `'${raw}` : raw;
   return `"${formulaSafe.replace(/"/g, '""')}"`;
 }
+
+/**
+ * Parses a CSV string conforming to RFC 4180.
+ *
+ * Supports:
+ * - Multi-line fields inside quotes (`"line1\nline2"`)
+ * - Escaped quotes (`""` -> `"`)
+ * - CRLF (`\r\n`), LF (`\n`), and CR (`\r`) line breaks
+ * - Strips UTF-8 BOM if present
+ * - Un-escapes spreadsheet formula injection guards (leading apostrophe)
+ * - Safely handles edge cases like trailing commas and trailing newlines
+ */
+export function parseCsv(text: string): string[][] {
+  const stripped = typeof text === "string" ? text.replace(/^\uFEFF/, "") : "";
+  if (!stripped.trim()) {
+    return [];
+  }
+
+  const rows: string[][] = [];
+  let currentRow: string[] = [];
+  let currentField = "";
+  let insideQuotes = false;
+  let fieldWasQuoted = false;
+
+  for (let i = 0; i < stripped.length; i++) {
+    const char = stripped[i];
+
+    if (insideQuotes) {
+      if (char === '"') {
+        if (i + 1 < stripped.length && stripped[i + 1] === '"') {
+          currentField += '"';
+          i++; // skip escaped quote
+        } else {
+          insideQuotes = false;
+        }
+      } else {
+        currentField += char;
+      }
+    } else {
+      if (char === '"') {
+        insideQuotes = true;
+        fieldWasQuoted = true;
+      } else if (char === ",") {
+        currentRow.push(cleanParsedCell(currentField, fieldWasQuoted));
+        currentField = "";
+        fieldWasQuoted = false;
+      } else if (char === "\r") {
+        if (i + 1 < stripped.length && stripped[i + 1] === "\n") {
+          i++;
+        }
+        currentRow.push(cleanParsedCell(currentField, fieldWasQuoted));
+        currentField = "";
+        fieldWasQuoted = false;
+        rows.push(currentRow);
+        currentRow = [];
+      } else if (char === "\n") {
+        currentRow.push(cleanParsedCell(currentField, fieldWasQuoted));
+        currentField = "";
+        fieldWasQuoted = false;
+        rows.push(currentRow);
+        currentRow = [];
+      } else {
+        currentField += char;
+      }
+    }
+  }
+
+  // Push final field / row if pending
+  if (currentField.length > 0 || currentRow.length > 0 || fieldWasQuoted) {
+    currentRow.push(cleanParsedCell(currentField, fieldWasQuoted));
+    rows.push(currentRow);
+  }
+
+  // Filter out any trailing empty lines (e.g. trailing newlines at end of file)
+  while (rows.length > 0) {
+    const last = rows[rows.length - 1];
+    if (last.length === 0 || (last.length === 1 && last[0].trim() === "")) {
+      rows.pop();
+    } else {
+      break;
+    }
+  }
+
+  return rows;
+}
+
+function cleanParsedCell(raw: string, wasQuoted: boolean): string {
+  let val = wasQuoted ? raw : raw.trim();
+  if (val.startsWith("'")) {
+    val = val.slice(1);
+  }
+  return val.trim();
+}
+

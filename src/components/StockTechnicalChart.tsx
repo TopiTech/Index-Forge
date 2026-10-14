@@ -26,7 +26,7 @@ export interface StockTechnicalChartProps {
   isMobile?: boolean;
 }
 
-interface PriceDataPoint {
+export interface PriceDataPoint {
   date: string;
   displayDate: string;
   close: number;
@@ -42,12 +42,13 @@ interface PriceDataPoint {
  * Generate deterministic fallback daily series when /api/sync-prices is unavailable or offline.
  * Anchors precisely to stock.yearLow, stock.yearHigh, stock.previousClose, and stock.price.
  */
-function generateDeterministicHistory(
+export function generateDeterministicHistory(
   stock: StockQuoteFundamentals,
   totalDays: number = 75,
+  baseDate: Date = new Date(),
 ): PriceDataPoint[] {
   const result: PriceDataPoint[] = [];
-  const now = new Date();
+  const now = baseDate;
   const currentPrice = stock.price > 0 ? stock.price : 1000;
   const prevClose = stock.previousClose > 0 ? stock.previousClose : currentPrice;
   const dayHigh = stock.dayHigh > 0 ? stock.dayHigh : currentPrice * 1.01;
@@ -110,7 +111,10 @@ function generateDeterministicHistory(
 
   for (let i = 0; i < totalDays; i++) {
     const d = businessDates[i] || new Date();
-    const dateStr = d.toISOString().split("T")[0];
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, "0");
+    const dayStr = String(d.getDate()).padStart(2, "0");
+    const dateStr = `${year}-${month}-${dayStr}`;
     const displayDate = `${d.getMonth() + 1}/${d.getDate()}`;
     const close = Math.round(rawPrices[i] * 100) / 100;
     const isLast = i === totalDays - 1;

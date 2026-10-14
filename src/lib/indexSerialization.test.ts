@@ -90,6 +90,45 @@ describe("indexSerialization", () => {
     expect(parsed.data?.[0].notes).toBe("NISA枠");
   });
 
+  it("deserializes portfolio CSV containing multi-line notes without breaking rows", () => {
+    const positionsWithMultilineNotes: PortfolioPosition[] = [
+      {
+        id: "pos-ml-1",
+        ticker: "7203",
+        name: "トヨタ自動車",
+        shares: 100,
+        averageCost: 2800,
+        notes: "長期保有予定\n配当利回り重視\n2026年目標",
+      },
+      {
+        id: "pos-ml-2",
+        ticker: "6758",
+        name: "ソニーグループ",
+        shares: 50,
+        averageCost: 12000,
+        notes: "エンタメ分野伸長期待",
+      },
+    ];
+
+    const csv = serializePortfolioToCsv(positionsWithMultilineNotes);
+    const parsed = deserializePortfolioFromCsv(csv);
+    expect(parsed.ok).toBe(true);
+    expect(parsed.data?.length).toBe(2);
+    expect(parsed.data?.[0].ticker).toBe("7203");
+    expect(parsed.data?.[0].notes).toBe("長期保有予定\n配当利回り重視\n2026年目標");
+    expect(parsed.data?.[1].ticker).toBe("6758");
+    expect(parsed.data?.[1].notes).toBe("エンタメ分野伸長期待");
+  });
+
+  it("deserializes basket CSV containing quoted theme with commas or quotes", () => {
+    const csv = 'コード,銘柄名,テーマ,比率(%)\n"8035","東京エレクトロン","半導体, 製造装置","60"\n"6857","アドバンテスト","半導体 ""検査""","40"';
+    const parsed = deserializeBasketFromCsv(csv);
+    expect(parsed.ok).toBe(true);
+    expect(parsed.data?.length).toBe(2);
+    expect(parsed.data?.[0].theme).toBe("半導体, 製造装置");
+    expect(parsed.data?.[1].theme).toBe('半導体 "検査"');
+  });
+
   it("calculates HHI diversification scores accurately", () => {
     // 10 stocks equally weighted (10% each): HHI = 10 * 10^2 = 1000 (Highly diversified)
     const diversified = calculateDiversificationScore([10, 10, 10, 10, 10, 10, 10, 10, 10, 10]);

@@ -138,4 +138,17 @@ describe("Calendar Enhanced Features", () => {
       expect(getEventDayOfWeek("")).toBe("");
     });
   });
+
+  describe("Empty event exports", () => {
+    it("handles empty event lists gracefully", () => {
+      const emptyIcs = exportCalendarToIcs([]);
+      expect(emptyIcs).toContain("BEGIN:VCALENDAR");
+      expect(emptyIcs).toContain("END:VCALENDAR");
+      expect(emptyIcs).not.toContain("BEGIN:VEVENT");
+
+      const emptyCsv = exportCalendarToCsv([]);
+      expect(emptyCsv.charCodeAt(0)).toBe(0xfeff);
+      expect(emptyCsv).toContain("日付,完全日付,種別,イベント名");
+    });
+  });
 });

@@ -148,11 +148,13 @@ export function CalendarPage({
 
   // Export handlers
   const handleExportIcs = () => {
+    if (filteredEvents.length === 0) return;
     const icsContent = exportCalendarToIcs(filteredEvents);
     const blob = new Blob([icsContent], { type: "text/calendar;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    const dStr = new Date().toISOString().split("T")[0];
+    const d = new Date();
+    const dStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
     a.href = url;
     a.download = toSafeDownloadFileName(`indexforge_calendar_${dStr}.ics`);
     document.body.appendChild(a);
@@ -162,11 +164,13 @@ export function CalendarPage({
   };
 
   const handleExportCsv = () => {
+    if (filteredEvents.length === 0) return;
     const csvContent = exportCalendarToCsv(filteredEvents);
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    const dStr = new Date().toISOString().split("T")[0];
+    const d = new Date();
+    const dStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
     a.href = url;
     a.download = toSafeDownloadFileName(`indexforge_calendar_${dStr}.csv`);
     document.body.appendChild(a);
@@ -343,7 +347,12 @@ export function CalendarPage({
             type="button"
             className="btn btn-sm btn-outline"
             onClick={handleExportIcs}
-            title="iCalendar (.ics) ファイルをダウンロードして各種カレンダーアプリに追加"
+            disabled={filteredEvents.length === 0}
+            title={
+              filteredEvents.length === 0
+                ? "エクスポート対象のイベントがありません"
+                : "iCalendar (.ics) ファイルをダウンロードして各種カレンダーアプリに追加"
+            }
             style={{ borderRadius: "20px", padding: "5px 12px" }}
           >
             <Download size={12} />
@@ -353,7 +362,12 @@ export function CalendarPage({
             type="button"
             className="btn btn-sm btn-outline"
             onClick={handleExportCsv}
-            title="Excel対応のCSV形式でダウンロード"
+            disabled={filteredEvents.length === 0}
+            title={
+              filteredEvents.length === 0
+                ? "エクスポート対象のイベントがありません"
+                : "Excel対応のCSV形式でダウンロード"
+            }
             style={{ borderRadius: "20px", padding: "5px 12px" }}
           >
             <FileSpreadsheet size={12} />

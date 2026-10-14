@@ -8,7 +8,7 @@
 import type { BasketItem } from "../types";
 import type { CustomIndex } from "../data/indices";
 import type { PortfolioPosition } from "./portfolioStorage";
-import { escapeCsvCell } from "./csv";
+import { escapeCsvCell, parseCsv } from "./csv";
 
 export type SerializationResult<T> =
   | { ok: true; data: T; error?: string }
@@ -214,55 +214,15 @@ export function parseNumericValue(val: unknown): number {
  * CSV文字列から構成銘柄バスケットを読み込みパースします。
  */
 export function deserializeBasketFromCsv(csvStr: string): SerializationResult<BasketItem[]> {
-  const stripped = typeof csvStr === "string" ? csvStr.replace(/^\uFEFF/, "") : "";
-  if (!stripped || !stripped.trim()) {
+  const rows = parseCsv(csvStr);
+  if (rows.length === 0) {
     return { ok: false, error: "CSVデータが空です" };
   }
-
-  const lines = stripped
-    .split(/\r?\n/)
-    .map((l) => l.trim())
-    .filter((l) => l.length > 0);
-
-  if (lines.length < 2) {
+  if (rows.length < 2) {
     return { ok: false, error: "CSVにはヘッダー行と少なくとも1行の銘柄データが必要です" };
   }
 
-  // 単純なCSVパーサー (カンマ分割および引用符対応)
-  const parseLine = (line: string): string[] => {
-    const fields: string[] = [];
-    let current = "";
-    let inQuotes = false;
-    for (let i = 0; i < line.length; i++) {
-      const char = line[i];
-      if (char === '"') {
-        if (inQuotes && line[i + 1] === '"') {
-          current += '"';
-          i++;
-        } else {
-          inQuotes = !inQuotes;
-        }
-      } else if (char === "," && !inQuotes) {
-        fields.push(current.trim());
-        current = "";
-      } else {
-        current += char;
-      }
-    }
-    fields.push(current.trim());
-    return fields.map((f) => {
-      let cleaned = f;
-      if (cleaned.startsWith('"') && cleaned.endsWith('"')) {
-        cleaned = cleaned.slice(1, -1).replace(/""/g, '"');
-      }
-      if (cleaned.startsWith("'")) {
-        cleaned = cleaned.slice(1);
-      }
-      return cleaned.trim();
-    });
-  };
-
-  const headerLine = parseLine(lines[0]);
+  const headerLine = rows[0];
   let tickerIdx = -1;
   let nameIdx = -1;
   let themeIdx = -1;
@@ -285,8 +245,8 @@ export function deserializeBasketFromCsv(csvStr: string): SerializationResult<Ba
   const basket: BasketItem[] = [];
   const seen = new Set<string>();
 
-  for (let rowIdx = 1; rowIdx < lines.length; rowIdx++) {
-    const fields = parseLine(lines[rowIdx]);
+  for (let rowIdx = 1; rowIdx < rows.length; rowIdx++) {
+    const fields = rows[rowIdx];
     if (fields.length <= tickerIdx) continue;
     const ticker = fields[tickerIdx]?.toUpperCase().trim();
     if (!ticker || seen.has(ticker)) continue;
@@ -329,54 +289,15 @@ export function serializePortfolioToCsv(positions: readonly PortfolioPosition[])
 export function deserializePortfolioFromCsv(
   csvStr: string,
 ): SerializationResult<PortfolioPosition[]> {
-  const stripped = typeof csvStr === "string" ? csvStr.replace(/^\uFEFF/, "") : "";
-  if (!stripped || !stripped.trim()) {
+  const rows = parseCsv(csvStr);
+  if (rows.length === 0) {
     return { ok: false, error: "CSVデータが空です" };
   }
-
-  const lines = stripped
-    .split(/\r?\n/)
-    .map((l) => l.trim())
-    .filter((l) => l.length > 0);
-
-  if (lines.length < 2) {
+  if (rows.length < 2) {
     return { ok: false, error: "CSVにはヘッダー行と少なくとも1行の保有データが必要です" };
   }
 
-  const parseLine = (line: string): string[] => {
-    const fields: string[] = [];
-    let current = "";
-    let inQuotes = false;
-    for (let i = 0; i < line.length; i++) {
-      const char = line[i];
-      if (char === '"') {
-        if (inQuotes && line[i + 1] === '"') {
-          current += '"';
-          i++;
-        } else {
-          inQuotes = !inQuotes;
-        }
-      } else if (char === "," && !inQuotes) {
-        fields.push(current.trim());
-        current = "";
-      } else {
-        current += char;
-      }
-    }
-    fields.push(current.trim());
-    return fields.map((f) => {
-      let cleaned = f;
-      if (cleaned.startsWith('"') && cleaned.endsWith('"')) {
-        cleaned = cleaned.slice(1, -1).replace(/""/g, '"');
-      }
-      if (cleaned.startsWith("'")) {
-        cleaned = cleaned.slice(1);
-      }
-      return cleaned.trim();
-    });
-  };
-
-  const headerLine = parseLine(lines[0]);
+  const headerLine = rows[0];
   let tickerIdx = 0;
   let nameIdx = 1;
   let sharesIdx = 2;
@@ -396,8 +317,8 @@ export function deserializePortfolioFromCsv(
 
   const positions: PortfolioPosition[] = [];
 
-  for (let rowIdx = 1; rowIdx < lines.length; rowIdx++) {
-    const fields = parseLine(lines[rowIdx]);
+  for (let rowIdx = 1; rowIdx < rows.length; rowIdx++) {
+    const fields = rows[rowIdx];
     if (fields.length <= tickerIdx) continue;
     const ticker = fields[tickerIdx]?.toUpperCase().trim();
     if (!ticker) continue;

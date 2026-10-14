@@ -61,4 +61,38 @@ describe("StockTechnicalChart & StockDetailPage Integration", () => {
       expect(detailTsx).toContain("formatStockChange");
     });
   });
+
+  describe("generateDeterministicHistory Date Consistency", () => {
+    it("ensures date and displayDate represent the exact same calendar day", async () => {
+      const { generateDeterministicHistory } = await import("./StockTechnicalChart");
+      const mockStock = {
+        ticker: "7203",
+        name: "トヨタ自動車",
+        market: "PRIME" as const,
+        theme: "自動車",
+        price: 2850,
+        change: 15,
+        changePercent: 0.53,
+        previousClose: 2835,
+        dayHigh: 2870,
+        dayLow: 2830,
+        yearHigh: 3200,
+        yearLow: 2400,
+        volume: 12000000,
+        sparkline: [2800, 2820, 2810, 2835, 2850],
+      };
+
+      // Test with a fixed date
+      const testBase = new Date(2026, 9, 15, 3, 30, 0); // Oct 15, 2026, 03:30 local
+      const history = generateDeterministicHistory(mockStock, 20, testBase);
+
+      expect(history.length).toBe(20);
+      for (const pt of history) {
+        const [y, m, d] = pt.date.split("-").map(Number);
+        const expectedDisplay = `${m}/${d}`;
+        expect(pt.displayDate).toBe(expectedDisplay);
+        expect(y).toBeGreaterThanOrEqual(2025);
+      }
+    });
+  });
 });

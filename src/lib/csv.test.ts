@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { escapeCsvCell } from "./csv";
+import { escapeCsvCell, parseCsv } from "./csv";
 
 describe("escapeCsvCell", () => {
   // "-10" is intentionally absent: it is a plain numeric string and cannot
@@ -47,3 +47,70 @@ describe("escapeCsvCell", () => {
     expect(escapeCsvCell('A "quoted" company')).toBe('"A ""quoted"" company"');
   });
 });
+
+describe("parseCsv (RFC 4180)", () => {
+  it("handles basic comma-separated rows", () => {
+    const csv = "a,b,c\n1,2,3";
+    expect(parseCsv(csv)).toEqual([
+      ["a", "b", "c"],
+      ["1", "2", "3"],
+    ]);
+  });
+
+  it("handles CRLF line breaks", () => {
+    const csv = "col1,col2\r\nval1,val2\r\nval3,val4";
+    expect(parseCsv(csv)).toEqual([
+      ["col1", "col2"],
+      ["val1", "val2"],
+      ["val3", "val4"],
+    ]);
+  });
+
+  it("handles multi-line fields enclosed in quotes without splitting the row", () => {
+    const csv = 'code,notes\n"7203","Line 1\nLine 2"\n"9984","Single line"';
+    const parsed = parseCsv(csv);
+    expect(parsed).toEqual([
+      ["code", "notes"],
+      ["7203", "Line 1\nLine 2"],
+      ["9984", "Single line"],
+    ]);
+  });
+
+  it("handles escaped quotes inside quoted fields", () => {
+    const csv = 'name,desc\n"Toyota","The ""best"" maker"';
+    expect(parseCsv(csv)).toEqual([
+      ["name", "desc"],
+      ["Toyota", 'The "best" maker'],
+    ]);
+  });
+
+  it("strips UTF-8 BOM if present", () => {
+    const csv = '\uFEFFticker,name\n"AAPL","Apple"';
+    expect(parseCsv(csv)).toEqual([
+      ["ticker", "name"],
+      ["AAPL", "Apple"],
+    ]);
+  });
+
+  it("strips formula injection protection apostrophes", () => {
+    const csv = 'formula,calc\n"\'+SUM(A1:A2)","\'-2.56"';
+    expect(parseCsv(csv)).toEqual([
+      ["formula", "calc"],
+      ["+SUM(A1:A2)", "-2.56"],
+    ]);
+  });
+
+  it("returns empty array for empty or whitespace-only input", () => {
+    expect(parseCsv("")).toEqual([]);
+    expect(parseCsv("   \n\n\r\n  ")).toEqual([]);
+  });
+
+  it("ignores trailing empty lines", () => {
+    const csv = "a,b\n1,2\n\n\n";
+    expect(parseCsv(csv)).toEqual([
+      ["a", "b"],
+      ["1", "2"],
+    ]);
+  });
+});
+
