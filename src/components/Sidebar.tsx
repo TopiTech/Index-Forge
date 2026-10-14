@@ -15,6 +15,8 @@ import {
     Menu,
     Lock,
     User,
+    PanelLeftClose,
+    PanelLeftOpen,
 } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
 import { DataFreshness } from "./DataFreshness";
@@ -81,6 +83,10 @@ interface SidebarProps {
     isOpen: boolean;
     /** Closes the drawer and restores focus to the header toggle button. */
     onRequestClose: () => void;
+    /** Desktop collapsed state (icon rail mode). */
+    isCollapsed?: boolean;
+    /** Toggle desktop collapsed state. */
+    onToggleCollapse?: () => void;
     /** Data freshness props shared with the header. */
     freshnessProps?: {
         benchmarkUpdatedAt?: number | null;
@@ -97,6 +103,8 @@ export function Sidebar({
     navigateTo,
     isOpen,
     onRequestClose,
+    isCollapsed = false,
+    onToggleCollapse,
     freshnessProps,
 }: SidebarProps) {
     const { isAdmin, isAuthenticated } = useAuth();
@@ -206,6 +214,25 @@ export function Sidebar({
 
     const nav = (
         <nav className="global-nav" aria-label="メインナビゲーション">
+            {/* Desktop header with collapse/expand toggle */}
+            {onToggleCollapse && (
+                <div className="global-sidebar-desktop-header">
+                    <span className="global-sidebar-desktop-title mono tiny uppercase" style={{ color: "var(--text-muted)", letterSpacing: "0.08em", fontWeight: 600 }}>
+                        {isCollapsed ? "" : "ナビゲーション"}
+                    </span>
+                    <button
+                        type="button"
+                        className="sidebar-collapse-btn"
+                        onClick={onToggleCollapse}
+                        title={isCollapsed ? "サイドバーを展開する" : "サイドバーを格納する"}
+                        aria-label={isCollapsed ? "サイドバーを展開" : "サイドバーを格納"}
+                        aria-expanded={!isCollapsed}
+                    >
+                        {isCollapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
+                    </button>
+                </div>
+            )}
+
             <div className="sidebar-drawer-header">
                 <div className="row" style={{ gap: 8 }}>
                     <Menu size={15} style={{ color: "var(--accent-text)" }} aria-hidden="true" />
@@ -259,7 +286,10 @@ export function Sidebar({
     return (
         <>
             {/* Desktop: fixed rail */}
-            <aside className="global-sidebar" aria-label="サイトナビゲーション">
+            <aside
+                className={`global-sidebar ${isCollapsed ? "is-collapsed" : ""}`}
+                aria-label="サイトナビゲーション"
+            >
                 {nav}
             </aside>
 

@@ -29,6 +29,7 @@ import {
   getCurrencyMeta,
 } from "../lib/currency";
 import { StockTechnicalChart } from "./StockTechnicalChart";
+import { getTradingViewWebUrl } from "../lib/tradingView";
 import type { PageView } from "../lib/navigation";
 
 interface StockDetailPageProps {
@@ -175,7 +176,7 @@ export function StockDetailPage({
           </button>
 
           <a
-            href={`https://jp.tradingview.com/symbols/${stock.market === "US" ? stock.ticker : `TSE-${stock.ticker}`}/`}
+            href={getTradingViewWebUrl(stock.ticker, stock.market)}
             target="_blank"
             rel="noopener noreferrer"
             className="btn btn-sm btn-outline"

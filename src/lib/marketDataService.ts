@@ -5,6 +5,12 @@
 
 import { POPULAR_STOCKS } from "../data/popularStocks";
 import { BASELINE_ASSET_QUOTES, type BaselineAssetQuote } from "../data/marketConstants";
+import {
+  BOJ_MEETING_SCHEDULE,
+  FOMC_MEETING_SCHEDULE,
+  getNextScheduledMeetings,
+  MACRO_METRICS_DEFAULTS,
+} from "../data/macroSchedule";
 import { escapeCsvCell } from "./csv";
 
 export interface MarketAssetQuote {
@@ -1195,6 +1201,7 @@ const CALENDAR_CACHE_KEY = "indexforge:calendar:cache:v1";
 interface StorageLike {
   getItem(key: string): string | null;
   setItem(key: string, value: string): void;
+  removeItem?(key: string): void;
 }
 
 function getSessionStorageSafe(): StorageLike | null {
@@ -1213,11 +1220,17 @@ function getSessionStorageSafe(): StorageLike | null {
   return null;
 }
 
+const CALENDAR_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour TTL
+
 function saveCalendarCache(events: CalendarEvent[]): void {
   try {
     const storage = getSessionStorageSafe();
     if (storage) {
-      storage.setItem(CALENDAR_CACHE_KEY, JSON.stringify(events));
+      const payload = {
+        timestamp: Date.now(),
+        events,
+      };
+      storage.setItem(CALENDAR_CACHE_KEY, JSON.stringify(payload));
     }
   } catch {
     // Ignore storage quota/security errors
@@ -1247,8 +1260,22 @@ function loadCalendarCache(): CalendarEvent[] | null {
       const stored = storage.getItem(CALENDAR_CACHE_KEY);
       if (stored) {
         const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed)) {
-          const valid = parsed.filter(isValidCalendarEvent);
+        let eventsArray: unknown = parsed;
+        if (
+          parsed &&
+          typeof parsed === "object" &&
+          "timestamp" in parsed &&
+          Array.isArray((parsed as { events?: unknown }).events)
+        ) {
+          const age = Date.now() - (parsed as { timestamp: number }).timestamp;
+          if (age > CALENDAR_CACHE_TTL_MS) {
+            storage.removeItem?.(CALENDAR_CACHE_KEY);
+            return null;
+          }
+          eventsArray = (parsed as { events: unknown }).events;
+        }
+        if (Array.isArray(eventsArray)) {
+          const valid = eventsArray.filter(isValidCalendarEvent);
           if (valid.length > 0) {
             return valid;
           }
@@ -1341,31 +1368,41 @@ export function generateUpcomingEvents(referenceDate = new Date()): CalendarEven
 
   const events: CalendarEvent[] = [];
 
-  // マクロ: 日銀会合 (直近平日)
-  const bojDate = adjustToWeekday(addBusinessDays(referenceDate, 4));
+  // マクロ: 日銀会合 (公定日程スケジュールマスターから直近次回・次々回を特定)
+  const nextBoj =
+    getNextScheduledMeetings(BOJ_MEETING_SCHEDULE, referenceDate, 1)[0] ||
+    adjustToWeekday(new Date(referenceDate.getFullYear(), referenceDate.getMonth(), 24));
   events.push({
     id: "macro-boj",
-    date: fmt(bojDate),
-    fullDate: fmtFull(bojDate),
+    date: fmt(nextBoj),
+    fullDate: fmtFull(nextBoj),
     type: "MACRO",
     title: "日銀金融政策決定会合・総裁記者会見",
     importance: "HIGH",
-    previous: "0.25%",
-    forecast: "0.25%",
+    time: "15:30 JST",
+    market: "TSE",
+    previous: MACRO_METRICS_DEFAULTS.boj.previous,
+    forecast: MACRO_METRICS_DEFAULTS.boj.forecast,
+    description: MACRO_METRICS_DEFAULTS.boj.description,
     source: "fallback",
   });
 
-  // マクロ: 米FOMC (中旬〜月末平日)
-  const fomcDate = adjustToWeekday(addBusinessDays(referenceDate, 12));
+  // マクロ: 米FOMC (公定日程スケジュールマスターから直近次回・次々回を特定)
+  const nextFomc =
+    getNextScheduledMeetings(FOMC_MEETING_SCHEDULE, referenceDate, 1)[0] ||
+    adjustToWeekday(new Date(referenceDate.getFullYear(), referenceDate.getMonth(), 28));
   events.push({
     id: "macro-fomc",
-    date: fmt(fomcDate),
-    fullDate: fmtFull(fomcDate),
+    date: fmt(nextFomc),
+    fullDate: fmtFull(nextFomc),
     type: "MACRO",
     title: "米FOMC 政策金利発表 & パウエル議長記者会見",
     importance: "HIGH",
-    previous: "5.00%",
-    forecast: "4.75%",
+    time: "03:00 JST",
+    market: "US",
+    previous: MACRO_METRICS_DEFAULTS.fomc.previous,
+    forecast: MACRO_METRICS_DEFAULTS.fomc.forecast,
+    description: MACRO_METRICS_DEFAULTS.fomc.description,
     source: "fallback",
   });
 
@@ -1392,8 +1429,11 @@ export function generateUpcomingEvents(referenceDate = new Date()): CalendarEven
     type: "MACRO",
     title: "米雇用統計 (非農業部門雇用者数・失業率)",
     importance: "HIGH",
-    previous: "25.4万人",
-    forecast: "12.0万人",
+    time: "21:30 JST",
+    market: "US",
+    previous: MACRO_METRICS_DEFAULTS.jobs.previous,
+    forecast: MACRO_METRICS_DEFAULTS.jobs.forecast,
+    description: MACRO_METRICS_DEFAULTS.jobs.description,
     source: "fallback",
   });
 
@@ -1417,8 +1457,11 @@ export function generateUpcomingEvents(referenceDate = new Date()): CalendarEven
     type: "MACRO",
     title: "米消費者物価指数 (CPI) 発表",
     importance: "HIGH",
-    previous: "2.4%",
-    forecast: "2.3%",
+    time: "21:30 JST",
+    market: "US",
+    previous: MACRO_METRICS_DEFAULTS.cpi.previous,
+    forecast: MACRO_METRICS_DEFAULTS.cpi.forecast,
+    description: MACRO_METRICS_DEFAULTS.cpi.description,
     source: "fallback",
   });
 

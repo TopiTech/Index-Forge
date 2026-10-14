@@ -104,7 +104,7 @@ describe("Comprehensive Goal Audit Fixes 2: Accessibility & Security Enhancement
       expect(stockDetailTsx).toContain('target="_blank"');
       expect(stockDetailTsx).toContain('rel="noopener noreferrer"');
       expect(stockDetailTsx).toContain(
-        'href={`https://jp.tradingview.com/symbols/${stock.market === "US" ? stock.ticker : `TSE-${stock.ticker}`}/`}',
+        'href={getTradingViewWebUrl(stock.ticker, stock.market)}',
       );
     });
   });

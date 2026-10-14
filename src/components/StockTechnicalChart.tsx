@@ -150,69 +150,8 @@ function generateDeterministicHistory(
   return result;
 }
 
-/**
- * Map local/Yahoo style tickers to valid TradingView symbol codes.
- * Returns null if the symbol is known to be unsupported in TradingView embeds,
- * triggering automatic fallback to LOCAL QUANT ENGINE.
- */
-export function resolveTradingViewSymbol(
-  ticker: string,
-  isUS = false,
-): { symbol: string | null; isSupported: boolean } {
-  if (!ticker || !ticker.trim()) return { symbol: null, isSupported: false };
-  const clean = ticker.trim().toUpperCase();
-
-  // Explicit index and macro mappings
-  const SPECIAL_MAP: Record<string, string> = {
-    "^GSPC": "FOREXCOM:SPXUSD",
-    "^IXIC": "NASDAQ:IXIC",
-    "^DJI": "FOREXCOM:DJI",
-    "^N225": "INDEX:NKY",
-    "^TOPX": "TSE:1308",
-    "^TOPIXG": "TSE:2516",
-    "USDJPY=X": "FX:USDJPY",
-    "EURUSD=X": "FX:EURUSD",
-    "EURJPY=X": "FX:EURJPY",
-    "GBPJPY=X": "FX:GBPJPY",
-    "FX_IDC:USDJPY": "FX:USDJPY",
-    "BTC-USD": "COINBASE:BTCUSD",
-  };
-
-  if (SPECIAL_MAP[clean]) {
-    return { symbol: SPECIAL_MAP[clean], isSupported: true };
-  }
-
-  // Already prefixed with exchange
-  if (
-    clean.startsWith("NASDAQ:") ||
-    clean.startsWith("NYSE:") ||
-    clean.startsWith("AMEX:") ||
-    clean.startsWith("CBOE:") ||
-    clean.startsWith("TSE:") ||
-    clean.startsWith("FOREXCOM:") ||
-    clean.startsWith("FX:") ||
-    clean.startsWith("INDEX:")
-  ) {
-    return { symbol: clean, isSupported: true };
-  }
-
-  // Tickers starting with caret '^' or containing '=X' that weren't in SPECIAL_MAP are unsupported
-  if (clean.startsWith("^") || clean.includes("=X")) {
-    return { symbol: null, isSupported: false };
-  }
-
-  // Tokyo Stock Exchange (digits, 130A style)
-  if (/^\d/.test(clean)) {
-    return { symbol: `TSE:${clean.replace(/[^0-9A-Za-z]/g, "")}`, isSupported: true };
-  }
-
-  // Standard US equities (e.g. AAPL, NVDA, MSFT)
-  if (/^[A-Z]{1,6}$/.test(clean)) {
-    return { symbol: clean, isSupported: true };
-  }
-
-  return { symbol: isUS ? clean : null, isSupported: isUS };
-}
+import { resolveTradingViewSymbol, getTradingViewWebUrl } from "../lib/tradingView";
+export { resolveTradingViewSymbol, getTradingViewWebUrl };
 
 export function StockTechnicalChart({
   stock,
@@ -374,14 +313,25 @@ export function StockTechnicalChart({
                 sma75 = Math.round((sum / 75) * 100) / 100;
               }
 
+              const rawVol = (rawSeries[i] as { volume?: number })?.volume;
+              const baseVol = stock.volume > 0 ? stock.volume : 500000;
+              const prevP = i > 0 ? rawSeries[i - 1]?.close : p;
+              const priceChangeRate = prevP > 0 ? Math.abs(p - prevP) / prevP : 0.01;
+              const dynamicVol = Math.round(
+                baseVol * (0.65 + Math.min(priceChangeRate * 12, 1.2) + ((i * 13 + Math.round(p)) % 10) * 0.035),
+              );
+              const pointVolume = typeof rawVol === "number" && Number.isFinite(rawVol) && rawVol > 0
+                ? rawVol
+                : dynamicVol;
+
               points.push({
                 date: dateStr,
                 displayDate,
                 close: p,
-                open: i > 0 ? rawSeries[i - 1].close : p,
+                open: prevP,
                 high: p * 1.008,
                 low: p * 0.992,
-                volume: stock.volume || 100000,
+                volume: pointVolume,
                 sma25,
                 sma75,
               });
@@ -541,9 +491,11 @@ export function StockTechnicalChart({
     setRetryKey((k) => k + 1);
   }, []);
 
-  const tradingViewWebUrl = `https://jp.tradingview.com/symbols/${
-    isUS ? stock.ticker : `TSE-${stock.ticker}`
-  }/`;
+  // Official link: resolves via getTradingViewWebUrl (e.g. https://jp.tradingview.com/symbols/TSE-...)
+  const tradingViewWebUrl = getTradingViewWebUrl(
+    stock.ticker,
+    isUS ? "US" : stock.market || "PRIME",
+  );
 
   return (
     <div
@@ -858,7 +810,11 @@ export function StockTechnicalChart({
                   <YAxis
                     yAxisId="volume"
                     orientation="right"
-                    domain={[0, (dataMax: number) => dataMax * 4]}
+                    domain={[
+                      0,
+                      (dataMax: number) =>
+                        Number.isFinite(dataMax) && dataMax > 0 ? dataMax * 3.5 : 100000,
+                    ]}
                     hide={true}
                   />
 

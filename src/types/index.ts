@@ -2,6 +2,7 @@ export type PricePoint = {
   date: string;
   close: number;
   value?: number; // 独自指数の計算結果用
+  volume?: number; // 日次出来高
 };
 
 export type StockSeries = {

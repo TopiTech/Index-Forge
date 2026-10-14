@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { useTheme } from "../lib/theme";
 import { useModalFocus } from "../hooks/useModalFocus";
+import { getTradingViewWebUrl } from "../lib/tradingView";
 
 export interface PopupSymbolInfo {
   proName: string;
@@ -496,7 +497,7 @@ export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModal
 
   if (!symbol) return null;
 
-  const tradingViewSymbolUrl = `https://jp.tradingview.com/symbols/${symbol.proName.replace(":", "-")}/`;
+  const tradingViewSymbolUrl = getTradingViewWebUrl(symbol.proName);
 
   return (
     <div

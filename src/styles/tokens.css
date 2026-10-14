@@ -313,6 +313,7 @@
 :root {
     /* Layout constants */
     --sidebar-width: 232px;
+    --sidebar-collapsed-width: 64px;
     --shell-max-width: 1780px;
     --content-max-width: 1480px;
 

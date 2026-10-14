@@ -60,7 +60,7 @@ export interface YahooChartResponse {
       };
       timestamp: number[];
       indicators: {
-        quote: { close: (number | null)[] }[];
+        quote: { close: (number | null)[]; volume?: (number | null)[] }[];
       };
     }[];
   };
@@ -80,7 +80,9 @@ export function isPricePoint(value: unknown): value is PricePoint {
     PRICE_DATE_PATTERN.test(point.date) &&
     typeof point.close === "number" &&
     Number.isFinite(point.close) &&
-    point.close > 0
+    point.close > 0 &&
+    (point.volume === undefined ||
+      (typeof point.volume === "number" && Number.isFinite(point.volume) && point.volume >= 0))
   );
 }
 
@@ -89,7 +91,11 @@ export function sanitizePriceSeries(value: unknown): PricePoint[] {
   const byDate = new Map<string, PricePoint>();
   for (const point of value) {
     if (!isPricePoint(point)) continue;
-    byDate.set(point.date, { date: point.date, close: point.close });
+    byDate.set(point.date, {
+      date: point.date,
+      close: point.close,
+      ...(typeof point.volume === "number" ? { volume: point.volume } : {}),
+    });
   }
   return Array.from(byDate.values()).sort((a, b) => a.date.localeCompare(b.date));
 }
@@ -1483,11 +1489,15 @@ export async function fetchYahooFinance(symbol: string, range = "1y"): Promise<P
     const closes = Array.isArray(result.indicators?.quote)
       ? (result.indicators.quote[0]?.close ?? [])
       : [];
+    const volumes = Array.isArray(result.indicators?.quote)
+      ? (result.indicators.quote[0]?.volume ?? [])
+      : [];
 
-    const pointsByDate = new Map<string, number>();
+    const pointsByDate = new Map<string, { close: number; volume?: number }>();
     for (let i = 0; i < timestamps.length; i++) {
       const ts = timestamps[i];
       const close = closes[i];
+      const vol = volumes[i];
       if (
         typeof ts === "number" &&
         Number.isFinite(ts) &&
@@ -1500,12 +1510,21 @@ export async function fetchYahooFinance(symbol: string, range = "1y"): Promise<P
         const yyyy = date.getUTCFullYear();
         const mm = String(date.getUTCMonth() + 1).padStart(2, "0");
         const dd = String(date.getUTCDate()).padStart(2, "0");
-        pointsByDate.set(`${yyyy}-${mm}-${dd}`, Number(close.toFixed(2)));
+        const safeVol =
+          typeof vol === "number" && Number.isFinite(vol) && vol >= 0 ? Math.round(vol) : undefined;
+        pointsByDate.set(`${yyyy}-${mm}-${dd}`, {
+          close: Number(close.toFixed(2)),
+          volume: safeVol,
+        });
       }
     }
 
     return Array.from(pointsByDate.entries())
-      .map(([date, close]) => ({ date, close }))
+      .map(([date, data]) => ({
+        date,
+        close: data.close,
+        ...(data.volume !== undefined ? { volume: data.volume } : {}),
+      }))
       .sort((a, b) => a.date.localeCompare(b.date));
   } catch (err) {
     console.error(`Error fetching ${symbol}:`, err);
@@ -2919,8 +2938,8 @@ function generateUpcomingMacroEvents(refDate = new Date()): CalendarEvent[] {
         time: "15:30 JST",
         market: "TSE",
         previous: "0.25%",
-        forecast: "0.25%",
-        description: "日銀金融政策決定会合後の総裁定例記者会見。利上げ判断や国債買入れ方針に注目。",
+        forecast: "0.50%",
+        description: "日銀金融政策決定会合後の総裁定例記者会見。政策金利判断や国債買入れ方針に注目。",
       });
       bojCount++;
     }
@@ -2940,8 +2959,8 @@ function generateUpcomingMacroEvents(refDate = new Date()): CalendarEvent[] {
         importance: "HIGH",
         time: "03:00 JST",
         market: "US",
-        previous: "5.00%",
-        forecast: "4.75%",
+        previous: "4.75%",
+        forecast: "4.50%",
         description: "米連邦公開市場委員会（FOMC）政策金利発表および議長会見。FF金利誘導目標。",
       });
       fomcCount++;
@@ -2970,8 +2989,8 @@ function generateUpcomingMacroEvents(refDate = new Date()): CalendarEvent[] {
         importance: "HIGH",
         time: "21:30 JST",
         market: "US",
-        previous: "25.4万人",
-        forecast: "12.0万人",
+        previous: "14.2万人",
+        forecast: "15.0万人",
         description: "米労働省発表。非農業部門雇用者数変化、失業率、平均時給の伸び率。",
       });
     }
@@ -2996,8 +3015,8 @@ function generateUpcomingMacroEvents(refDate = new Date()): CalendarEvent[] {
         importance: "HIGH",
         time: "21:30 JST",
         market: "US",
-        previous: "2.4%",
-        forecast: "2.3%",
+        previous: "2.7%",
+        forecast: "2.6%",
         description: "米労働省発表。総合およびコア消費者物価指数のインフレ動向。",
       });
     }

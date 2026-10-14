@@ -103,6 +103,27 @@ function PageLayout({
   const [isNavOpen, setIsNavOpen] = useState(false);
   const navToggleRef = useRef<HTMLButtonElement>(null);
 
+  const [isDesktopSidebarCollapsed, setIsDesktopSidebarCollapsed] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      return localStorage.getItem("indexforge:sidebar:collapsed") === "true";
+    } catch {
+      return false;
+    }
+  });
+
+  const handleToggleDesktopSidebar = useCallback(() => {
+    setIsDesktopSidebarCollapsed((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem("indexforge:sidebar:collapsed", String(next));
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+  }, []);
+
   // Closing the drawer restores focus to the header toggle so keyboard users
   // do not lose their place (Escape path and item activation both route here).
   const closeNav = useCallback(() => {
@@ -140,6 +161,8 @@ function PageLayout({
             navigateTo={navigateTo}
             isOpen={isNavOpen}
             onRequestClose={closeNav}
+            isCollapsed={isDesktopSidebarCollapsed}
+            onToggleCollapse={handleToggleDesktopSidebar}
             freshnessProps={headerProps}
           />
           <div className="app-column">
