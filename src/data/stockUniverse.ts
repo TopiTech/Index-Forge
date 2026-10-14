@@ -32,6 +32,11 @@ export interface UniverseStock {
   aliases?: string;
   normName?: string;
   normAliases?: string;
+  tickerUpper?: string;
+  nameLower?: string;
+  sectorLower?: string;
+  rawAliasesLower?: string;
+  isPopular?: boolean;
 }
 
 type RawTuple = [string, string, StockMarket, string] | [string, string, StockMarket, string, string];
@@ -4588,23 +4593,27 @@ const RAW_UNIVERSE: readonly RawTuple[] = [
   ["3670", "協立情報通信", "STANDARD", "情報・通信業"],
 ];
 
-export const ALL_UNIVERSE_STOCKS: UniverseStock[] = RAW_UNIVERSE.map((row) => ({
-  ticker: row[0],
-  name: row[1],
-  market: row[2],
-  sector: row[3],
-  aliases: row[4],
-  normName: normalizeSearchQuery(row[1]),
-  normAliases: row[4] ? normalizeSearchQuery(row[4]) : undefined,
-}));
+const popularTickerSet = new Set(
+  Array.isArray(POPULAR_STOCKS) ? POPULAR_STOCKS.map((p) => p.ticker.toUpperCase()) : []
+);
 
-let popularTickerSetCache: Set<string> | null = null;
-function getPopularTickerSet(): Set<string> {
-  if (!popularTickerSetCache && Array.isArray(POPULAR_STOCKS)) {
-    popularTickerSetCache = new Set(POPULAR_STOCKS.map((p) => p.ticker.toUpperCase()));
-  }
-  return popularTickerSetCache || new Set();
-}
+export const ALL_UNIVERSE_STOCKS: UniverseStock[] = RAW_UNIVERSE.map((row) => {
+  const tickerUpper = row[0].toUpperCase();
+  return {
+    ticker: row[0],
+    name: row[1],
+    market: row[2],
+    sector: row[3],
+    aliases: row[4],
+    normName: normalizeSearchQuery(row[1]),
+    normAliases: row[4] ? normalizeSearchQuery(row[4]) : undefined,
+    tickerUpper,
+    nameLower: row[1].toLowerCase(),
+    sectorLower: row[3] ? row[3].toLowerCase() : "",
+    rawAliasesLower: row[4] ? row[4].toLowerCase() : "",
+    isPopular: popularTickerSet.has(tickerUpper),
+  };
+});
 
 /**
  * Normalizes user queries for Japanese financial search:
@@ -4650,6 +4659,13 @@ export function searchStockUniverse(
   }
 
   const tokens = norm.split(/\s+/).filter(Boolean);
+  const tokenTuples =
+    tokens.length > 1
+      ? tokens.map((tok) => ({
+          tok,
+          tokUpper: tok.toUpperCase(),
+        }))
+      : [];
   const normUpper = norm.toUpperCase();
   const rawUpper = query.trim().toUpperCase();
   const rawLower = query.trim().toLowerCase();
@@ -4665,24 +4681,25 @@ export function searchStockUniverse(
       continue;
     }
 
-    const tUpper = s.ticker.toUpperCase();
-    const nNorm = s.name.toLowerCase();
-    const normName = s.normName || normalizeSearchQuery(s.name);
-    const normAliases = s.normAliases || (s.aliases ? normalizeSearchQuery(s.aliases) : "");
-    const rawAliases = s.aliases ? s.aliases.toLowerCase() : "";
-    const isPopular = getPopularTickerSet().has(tUpper);
+    const tUpper = s.tickerUpper || s.ticker.toUpperCase();
+    const nNorm = s.nameLower || s.name.toLowerCase();
+    const normName = s.normName || "";
+    const normAliases = s.normAliases || "";
+    const rawAliases = s.rawAliasesLower || "";
+    const sSector = s.sectorLower || "";
+    const isPopular = s.isPopular ?? false;
 
     // Multi-token (AND search) mode
-    if (tokens.length > 1) {
+    if (tokenTuples.length > 1) {
       let allMatch = true;
       let tokenScore = 0;
 
-      for (const tok of tokens) {
-        const tokUpper = tok.toUpperCase();
+      for (let j = 0; j < tokenTuples.length; j++) {
+        const { tok, tokUpper } = tokenTuples[j];
         const matchTicker = tUpper.includes(tokUpper);
         const matchName = normName.includes(tok) || nNorm.includes(tok);
         const matchAlias = normAliases.includes(tok) || rawAliases.includes(tok);
-        const matchSector = s.sector ? s.sector.toLowerCase().includes(tok) : false;
+        const matchSector = sSector.includes(tok);
 
         if (!matchTicker && !matchName && !matchAlias && !matchSector) {
           allMatch = false;
@@ -4747,7 +4764,7 @@ export function searchStockUniverse(
         score += 180;
         matched = true;
       }
-      if (s.sector && s.sector.toLowerCase().includes(norm)) {
+      if (sSector && sSector.includes(norm)) {
         score += 100;
         matched = true;
       }
