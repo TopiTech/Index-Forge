@@ -26,7 +26,8 @@ export function parseLocalSyncCache(raw: string | null): Record<string, number> 
         Number.isFinite(timestamp) &&
         timestamp > 0
       ) {
-        cache[normalizedTicker] = Math.max(cache[normalizedTicker] || 0, timestamp);
+        const msTimestamp = timestamp < 1e11 ? Math.round(timestamp * 1000) : Math.round(timestamp);
+        cache[normalizedTicker] = Math.max(cache[normalizedTicker] || 0, msTimestamp);
       }
     }
     return cache;
@@ -64,8 +65,8 @@ export function updateLocalSyncCache(
         const normalizedTicker = item.ticker.trim().toUpperCase();
         if (normalizedTicker) {
           cache[normalizedTicker] =
-            typeof item.lastSynced === "number" && item.lastSynced > 0
-              ? item.lastSynced
+            typeof item.lastSynced === "number" && Number.isFinite(item.lastSynced) && item.lastSynced > 0
+              ? (item.lastSynced < 1e11 ? Math.round(item.lastSynced * 1000) : Math.round(item.lastSynced))
               : now;
         }
       }
@@ -295,8 +296,8 @@ export function useCalculation(selectedIndex: CustomIndex | null, enabled = true
                           typeof r.ticker === "string" ? r.ticker.trim().toUpperCase() : "";
                         if (normalizedTicker) {
                           const syncTimestamp =
-                            typeof r.lastSynced === "number" && r.lastSynced > 0
-                              ? r.lastSynced * 1000
+                            typeof r.lastSynced === "number" && Number.isFinite(r.lastSynced) && r.lastSynced > 0
+                              ? (r.lastSynced < 1e11 ? Math.round(r.lastSynced * 1000) : Math.round(r.lastSynced))
                               : Date.now();
                           syncedTickersRef.current.set(normalizedTicker, syncTimestamp);
                           newlySynced.push({

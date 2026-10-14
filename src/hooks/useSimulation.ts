@@ -208,10 +208,16 @@ export function useSimulation(
                       const nt = typeof r.ticker === "string" ? normalizeTicker(r.ticker) : "";
                       if (nt) {
                         localSyncCache[nt] =
-                          typeof r.lastSynced === "number" && r.lastSynced > 0
-                            ? r.lastSynced * 1000
+                          typeof r.lastSynced === "number" && Number.isFinite(r.lastSynced) && r.lastSynced > 0
+                            ? (r.lastSynced < 1e11 ? Math.round(r.lastSynced * 1000) : Math.round(r.lastSynced))
                             : nowMs;
                       }
+                    }
+                  }
+                  // Clean entries older than 7 days
+                  for (const [k, v] of Object.entries(localSyncCache)) {
+                    if (nowMs - v > 7 * 24 * 60 * 60 * 1000) {
+                      delete localSyncCache[k];
                     }
                   }
                   try {
