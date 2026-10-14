@@ -79,19 +79,35 @@ export const POPULAR_STOCKS: PopularStock[] = [
   { ticker: "TSLA", name: "Tesla", theme: "EV・自動運転" },
 ];
 
-import { searchStockUniverse } from "./stockUniverse";
+import { searchStockUniverse, normalizeSearchQuery, getUniverseStockByTicker } from "./stockUniverse";
 
 export function searchPopularStocks(query: string, limit = 8): PopularStock[] {
   if (!query || !query.trim()) return [];
   const q = query.trim().toLowerCase();
+  const normQ = normalizeSearchQuery(query);
+  const normQUpper = normQ.toUpperCase();
 
   // Curated popular stocks first
-  const popularMatches = POPULAR_STOCKS.filter(
-    (s) =>
-      s.ticker.toLowerCase().includes(q) ||
-      s.name.toLowerCase().includes(q) ||
-      s.theme.toLowerCase().includes(q),
-  );
+  const popularMatches = POPULAR_STOCKS.filter((s) => {
+    const sNormName = normalizeSearchQuery(s.name);
+    const sTicker = s.ticker.toUpperCase();
+    const sNameLower = s.name.toLowerCase();
+    const sThemeLower = s.theme.toLowerCase();
+    const uStock = getUniverseStockByTicker(s.ticker);
+    return (
+      sTicker === normQUpper ||
+      sTicker.includes(normQUpper) ||
+      sTicker.toLowerCase().includes(q) ||
+      sNormName.startsWith(normQ) ||
+      sNormName.includes(normQ) ||
+      sNameLower.includes(q) ||
+      sNameLower.includes(normQ) ||
+      sThemeLower.includes(q) ||
+      sThemeLower.includes(normQ) ||
+      (uStock?.normAliases && uStock.normAliases.includes(normQ)) ||
+      (uStock?.aliases && uStock.aliases.toLowerCase().includes(q))
+    );
+  });
 
   const seen = new Set<string>();
   const results: PopularStock[] = [];

@@ -26,9 +26,14 @@ describe("Currency Utilities (Enhanced & Hardened)", () => {
       expect(detectStockCurrency("^TOPX")).toBe("JPY");
       expect(detectStockCurrency("^TOPIXG")).toBe("JPY");
       expect(detectStockCurrency("INDEX:NKY")).toBe("JPY");
-      // Currency pair
+      // Currency pairs quoted in Yen
       expect(detectStockCurrency("USDJPY=X")).toBe("JPY");
+      expect(detectStockCurrency("EURJPY=X")).toBe("JPY");
+      expect(detectStockCurrency("GBPJPY=X")).toBe("JPY");
       expect(detectStockCurrency("FX_IDC:USDJPY")).toBe("JPY");
+      expect(detectStockCurrency("FX:EURJPY")).toBe("JPY");
+      // Full-width Japanese ticker code
+      expect(detectStockCurrency("７２０３")).toBe("JPY");
       // Market flags
       expect(detectStockCurrency("ANY", "PRIME")).toBe("JPY");
       expect(detectStockCurrency("ANY", "STANDARD")).toBe("JPY");

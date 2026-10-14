@@ -47,7 +47,7 @@ describe("TradingView Link Accuracy & Symbol Resolution (404 Prevention)", () =>
   });
 
   describe("Forex and Crypto Pairs", () => {
-    it("resolves currencies and cryptos without TSE- prefix corruption", () => {
+    it("resolves currencies, commodities, and cryptos without TSE- prefix corruption", () => {
       expect(getTradingViewWebUrl("USDJPY=X")).toBe(
         "https://jp.tradingview.com/symbols/FX-USDJPY/",
       );
@@ -57,6 +57,20 @@ describe("TradingView Link Accuracy & Symbol Resolution (404 Prevention)", () =>
       expect(getTradingViewWebUrl("BTC-USD")).toBe(
         "https://jp.tradingview.com/symbols/COINBASE-BTCUSD/",
       );
+      expect(getTradingViewWebUrl("GC=F")).toBe(
+        "https://jp.tradingview.com/symbols/TVC-GOLD/",
+      );
+      expect(getTradingViewWebUrl("CL=F")).toBe(
+        "https://jp.tradingview.com/symbols/TVC-USOIL/",
+      );
+      expect(getTradingViewWebUrl("^TNX")).toBe(
+        "https://jp.tradingview.com/symbols/TVC-US10Y/",
+      );
+
+      // Verify widget resolution
+      expect(resolveTradingViewSymbol("GC=F").symbol).toBe("TVC:GOLD");
+      expect(resolveTradingViewSymbol("CL=F").symbol).toBe("TVC:USOIL");
+      expect(resolveTradingViewSymbol("^TNX").symbol).toBe("TVC:US10Y");
     });
 
     it("handles colon-prefixed symbols from ticker tape", () => {

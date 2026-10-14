@@ -56,7 +56,10 @@ export function AddStockModal({
       return;
     }
 
-    const cleanTicker = ticker.trim().toUpperCase();
+    const cleanTicker = ticker
+      .trim()
+      .replace(/[！-～]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0xfee0))
+      .toUpperCase();
     const cleanName = name.trim();
     if (!cleanTicker || !cleanName) {
       setError("銘柄コードと銘柄名は必須です");

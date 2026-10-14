@@ -64,6 +64,36 @@ describe("Stock Universe & Zero Server Load Suggestion System", () => {
       expect(sonyMatches.some((s) => s.ticker === "6758")).toBe(true);
     });
 
+    it("finds stocks with Hiragana names via either Hiragana or Katakana queries (bidirectional)", () => {
+      // 8227 (しまむら) has official Hiragana name
+      const shimamuraHira = searchStockUniverse("しまむら");
+      expect(shimamuraHira.length).toBeGreaterThan(0);
+      expect(shimamuraHira.some((s) => s.ticker === "8227")).toBe(true);
+
+      const shimamuraKata = searchStockUniverse("シマムラ");
+      expect(shimamuraKata.length).toBeGreaterThan(0);
+      expect(shimamuraKata.some((s) => s.ticker === "8227")).toBe(true);
+
+      // 3778 (さくらインターネット)
+      const sakuraHira = searchStockUniverse("さくら");
+      expect(sakuraHira.length).toBeGreaterThan(0);
+      expect(sakuraHira.some((s) => s.ticker === "3778")).toBe(true);
+    });
+
+    it("finds stocks via full-width alphanumeric codes (e.g. ７２０３, １３０１, ＡＡＰＬ)", () => {
+      const toyotaFull = searchStockUniverse("７２０３");
+      expect(toyotaFull.length).toBeGreaterThan(0);
+      expect(toyotaFull[0].ticker).toBe("7203");
+
+      const kyokuyoFull = searchStockUniverse("１３０１");
+      expect(kyokuyoFull.length).toBeGreaterThan(0);
+      expect(kyokuyoFull[0].ticker).toBe("1301");
+
+      const aaplFull = searchStockUniverse("ＡＡＰＬ");
+      expect(aaplFull.length).toBeGreaterThan(0);
+      expect(aaplFull[0].ticker).toBe("AAPL");
+    });
+
     it("finds stocks by 4-digit code prefix or exact code", () => {
       const exact = searchStockUniverse("7203");
       expect(exact.length).toBeGreaterThan(0);
@@ -103,6 +133,30 @@ describe("Stock Universe & Zero Server Load Suggestion System", () => {
       expect(results[0].ticker).toBe("7203");
       expect(results[0].name).toBe("トヨタ自動車");
       expect(results[0].theme).toBe("モビリティ");
+    });
+
+    it("matches curated popular stocks via Hiragana query or full-width code", () => {
+      const toyotaHira = searchPopularStocks("とよた");
+      expect(toyotaHira.length).toBeGreaterThan(0);
+      expect(toyotaHira[0].ticker).toBe("7203");
+
+      const toyotaFull = searchPopularStocks("７２０３");
+      expect(toyotaFull.length).toBeGreaterThan(0);
+      expect(toyotaFull[0].ticker).toBe("7203");
+
+      const sonyHira = searchPopularStocks("そにー");
+      expect(sonyHira.length).toBeGreaterThan(0);
+      expect(sonyHira[0].ticker).toBe("6758");
+    });
+
+    it("retrieves universe stocks by ticker handling full-width chars and .T suffixes", () => {
+      const toyotaFull = getUniverseStockByTicker("７２０３");
+      expect(toyotaFull).toBeDefined();
+      expect(toyotaFull?.ticker).toBe("7203");
+
+      const toyotaSuffixed = getUniverseStockByTicker("7203.T");
+      expect(toyotaSuffixed).toBeDefined();
+      expect(toyotaSuffixed?.ticker).toBe("7203");
     });
 
     it("finds non-preset TSE stocks that were previously absent", () => {

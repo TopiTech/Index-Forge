@@ -27,6 +27,9 @@ const SPECIAL_EMBED_MAP: Record<string, string> = {
   "FX_IDC:USDJPY": "FX:USDJPY",
   "BTC-USD": "COINBASE:BTCUSD",
   "ETH-USD": "COINBASE:ETHUSD",
+  "GC=F": "TVC:GOLD",
+  "CL=F": "TVC:USOIL",
+  "^TNX": "TVC:US10Y",
 };
 
 /**
@@ -49,6 +52,9 @@ const SPECIAL_WEB_SLUGS: Record<string, string> = {
   "FX_IDC:USDJPY": "FX-USDJPY",
   "BTC-USD": "COINBASE-BTCUSD",
   "ETH-USD": "COINBASE-ETHUSD",
+  "GC=F": "TVC-GOLD",
+  "CL=F": "TVC-USOIL",
+  "^TNX": "TVC-US10Y",
 };
 
 /**

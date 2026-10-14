@@ -4,7 +4,10 @@
  * US/global tickers (e.g. AAPL) and index/forex symbols (^N225, USDJPY=X) remain as-is.
  */
 export function toYahooSymbol(ticker: string): string {
-  const trimmed = ticker.trim().toUpperCase();
+  const trimmed = ticker
+    .trim()
+    .replace(/[！-～]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0xfee0))
+    .toUpperCase();
   if (trimmed.includes(".") || trimmed.startsWith("^") || trimmed.endsWith("=X")) {
     return trimmed;
   }

@@ -11,7 +11,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { POPULAR_STOCKS, type PopularStock } from "../data/popularStocks";
-import { searchStockUniverse, ALL_UNIVERSE_STOCKS, type StockMarket } from "../data/stockUniverse";
+import { searchStockUniverse, ALL_UNIVERSE_STOCKS, normalizeSearchQuery, type StockMarket } from "../data/stockUniverse";
 import { DEFAULT_MARKET_OVERVIEW, isMacroAsset } from "../lib/marketDataService";
 import { useModalFocus } from "../hooks/useModalFocus";
 import { isInteractiveKeyTarget } from "../lib/keyboardTarget";
@@ -214,7 +214,8 @@ export function GlobalSearchModal({
             raw: idx,
           }));
 
-    const upperQuery = q.toUpperCase();
+    const upperQuery =
+      normalizeSearchQuery(query).toUpperCase() || q.toUpperCase();
     const isTickerPattern = /^[A-Z0-9.]{2,8}$/.test(upperQuery);
     const hasExactTicker = matchedStocks.some((s) => s.id.toUpperCase() === upperQuery);
     const hasExactMacro = matchedMacro.some((m) => m.id.toUpperCase() === upperQuery);
@@ -496,7 +497,7 @@ export function GlobalSearchModal({
                           onClick={(e) => {
                             e.stopPropagation();
                             const s = item.raw as PopularStock;
-                            onAddToIndex(s.ticker, s.name, s.theme);
+                            onAddToIndex(s.ticker, s.name, s.theme || "その他");
                             onClose();
                           }}
                         >

@@ -34,17 +34,27 @@ export function detectStockCurrency(
     return "JPY";
   }
 
-  const trimmed = typeof ticker === "string" ? ticker.trim().toUpperCase() : "";
-  if (!trimmed) return "USD";
+  const rawTrimmed = typeof ticker === "string" ? ticker.trim() : "";
+  if (!rawTrimmed) return "USD";
+  const trimmed = rawTrimmed
+    .replace(/[！-～]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0xfee0))
+    .toUpperCase();
 
-  // Japanese benchmarks and currency pairs quoted in JPY
+  // Japanese benchmarks and currency pairs quoted in JPY (USD/JPY, EUR/JPY, GBP/JPY, etc.)
   if (
     trimmed === "^N225" ||
     trimmed === "^TOPX" ||
     trimmed === "^TOPIXG" ||
     trimmed === "INDEX:NKY" ||
-    trimmed === "USDJPY=X" ||
-    trimmed === "FX_IDC:USDJPY"
+    trimmed === "TSE:TOPIX" ||
+    trimmed === "TSE:2516" ||
+    trimmed.endsWith("JPY=X") ||
+    trimmed.endsWith("/JPY") ||
+    trimmed.startsWith("FX_IDC:USDJPY") ||
+    trimmed.startsWith("FX:USDJPY") ||
+    trimmed.startsWith("FX:EURJPY") ||
+    trimmed.startsWith("FX:GBPJPY") ||
+    (trimmed.startsWith("FX") && trimmed.includes("JPY"))
   ) {
     return "JPY";
   }

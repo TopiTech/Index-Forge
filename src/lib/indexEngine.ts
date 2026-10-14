@@ -2,7 +2,10 @@ import type { BasketItem, PricePoint, StockSeries } from "../types";
 
 export function normalizeTicker(ticker?: string | null): string {
   if (typeof ticker !== "string") return "";
-  return ticker.trim().toUpperCase();
+  return ticker
+    .trim()
+    .replace(/[！-～]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0xfee0))
+    .toUpperCase();
 }
 
 export function normalizeWeights(items: BasketItem[]): BasketItem[] {

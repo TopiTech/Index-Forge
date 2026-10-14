@@ -35,6 +35,13 @@ describe("toYahooSymbol", () => {
     expect(toYahooSymbolLib("  usdjpy=x  ")).toBe("USDJPY=X");
   });
 
+  it("normalizes full-width alphanumeric input correctly", () => {
+    expect(toYahooSymbolLib("７２０３")).toBe("7203.T");
+    expect(toYahooSymbolLib("９９８４.Ｔ")).toBe("9984.T");
+    expect(toYahooSymbolLib("ａａｐｌ")).toBe("AAPL");
+    expect(toYahooSymbolLib("  ７２０３  ")).toBe("7203.T");
+  });
+
   it("maintains full parity across yahooSymbol, legacy yahuuSymbol re-export, and worker implementation", () => {
     const testCases = ["7203", "9984.T", "AAPL", "BRK.A", "^N225", "USDJPY=X", "  6758  "];
     for (const testCase of testCases) {

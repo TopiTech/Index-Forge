@@ -28,6 +28,8 @@ export interface UniverseStock {
   market: StockMarket;
   sector: string;
   aliases?: string;
+  normName?: string;
+  normAliases?: string;
 }
 
 type RawTuple = [string, string, StockMarket, string] | [string, string, StockMarket, string, string];
@@ -3806,7 +3808,7 @@ const RAW_UNIVERSE: readonly RawTuple[] = [
   ["7970", "信越ポリマー", "PRIME", "化学"],
   ["7971", "東リ", "STANDARD", "化学"],
   ["7972", "イトーキ", "PRIME", "その他製品"],
-  ["7974", "任天堂", "PRIME", "その他製品", "nintendo,任天堂,ニンテンドー"],
+  ["7974", "任天堂", "PRIME", "その他製品", "nintendo,任天堂,ニンテンドー,ニンテンドウ,にんてんどう,switch"],
   ["7975", "リヒトラブ", "STANDARD", "その他製品"],
   ["7976", "三菱鉛筆", "PRIME", "その他製品"],
   ["7979", "松風", "PRIME", "精密機器"],
@@ -4590,6 +4592,8 @@ export const ALL_UNIVERSE_STOCKS: UniverseStock[] = RAW_UNIVERSE.map((row) => ({
   market: row[2],
   sector: row[3],
   aliases: row[4],
+  normName: normalizeSearchQuery(row[1]),
+  normAliases: row[4] ? normalizeSearchQuery(row[4]) : undefined,
 }));
 
 /**
@@ -4602,6 +4606,7 @@ export function normalizeSearchQuery(query: string): string {
   if (!query) return "";
   return query
     .trim()
+    .replace(/\u3000/g, " ")
     .replace(/[！-～]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0xfee0))
     .replace(/[ぁ-ゖ]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) + 0x60))
     .toLowerCase();
@@ -4635,7 +4640,9 @@ export function searchStockUniverse(
     return pool.slice(0, limit);
   }
 
+  const normUpper = norm.toUpperCase();
   const rawUpper = query.trim().toUpperCase();
+  const rawLower = query.trim().toLowerCase();
 
   const exactMatches: UniverseStock[] = [];
   const tickerPrefixMatches: UniverseStock[] = [];
@@ -4653,31 +4660,41 @@ export function searchStockUniverse(
 
     const tUpper = s.ticker.toUpperCase();
     const nNorm = s.name.toLowerCase();
+    const normName = s.normName || normalizeSearchQuery(s.name);
+    const normAliases = s.normAliases || (s.aliases ? normalizeSearchQuery(s.aliases) : undefined);
 
-    // 1. Exact ticker match (e.g. "7203", "AAPL")
-    if (tUpper === rawUpper) {
+    // 1. Exact ticker match (e.g. "7203", "AAPL", "７２０３")
+    if (tUpper === normUpper || tUpper === rawUpper) {
       exactMatches.push(s);
       continue;
     }
 
-    // 2. Ticker prefix match (e.g. "720" -> "7203", "AA" -> "AAPL")
-    if (tUpper.startsWith(rawUpper)) {
+    // 2. Ticker prefix match (e.g. "720" -> "7203", "AA" -> "AAPL", "７２０")
+    if (tUpper.startsWith(normUpper) || tUpper.startsWith(rawUpper)) {
       tickerPrefixMatches.push(s);
       continue;
     }
 
-    // 3. Name starts with query (normalized)
-    if (nNorm.startsWith(norm)) {
+    // 3. Name starts with query (normalized both sides)
+    if (
+      normName.startsWith(norm) ||
+      nNorm.startsWith(norm) ||
+      nNorm.startsWith(rawLower)
+    ) {
       namePrefixMatches.push(s);
       continue;
     }
 
     // 4. Substring or alias match
     if (
+      tUpper.includes(normUpper) ||
       tUpper.includes(rawUpper) ||
+      normName.includes(norm) ||
       nNorm.includes(norm) ||
+      nNorm.includes(rawLower) ||
       (s.sector && s.sector.toLowerCase().includes(norm)) ||
-      (s.aliases && s.aliases.toLowerCase().includes(norm))
+      (normAliases && normAliases.includes(norm)) ||
+      (s.aliases && s.aliases.toLowerCase().includes(rawLower))
     ) {
       substringMatches.push(s);
     }
@@ -4703,7 +4720,7 @@ export function searchStockUniverse(
 }
 
 /**
- * Quick lookup by ticker (case-insensitive)
+ * Quick lookup by ticker (case-insensitive, full-width normalized, .T suffix tolerant)
  */
 const TICKER_MAP = new Map<string, UniverseStock>();
 for (const s of ALL_UNIVERSE_STOCKS) {
@@ -4712,5 +4729,9 @@ for (const s of ALL_UNIVERSE_STOCKS) {
 
 export function getUniverseStockByTicker(ticker: string): UniverseStock | undefined {
   if (!ticker) return undefined;
-  return TICKER_MAP.get(ticker.trim().toUpperCase());
+  const clean = normalizeSearchQuery(ticker).replace(/\.T$/i, "").toUpperCase();
+  const found = TICKER_MAP.get(clean);
+  if (found) return found;
+  const rawClean = ticker.trim().replace(/\.T$/i, "").toUpperCase();
+  return TICKER_MAP.get(rawClean);
 }

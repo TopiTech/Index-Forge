@@ -238,8 +238,10 @@ export function CalendarPage({
 
       // Find events matching this date
       const cellEvents = filteredEvents.filter((e) => {
-        if (e.fullDate && e.fullDate.startsWith(dateKeyFull)) return true;
-        return e.date === dateKeyShort;
+        if (e.fullDate) {
+          return e.fullDate.startsWith(dateKeyFull);
+        }
+        return e.date === dateKeyShort && cellYear === today.getFullYear();
       });
 
       cells.push({
