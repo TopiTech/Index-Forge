@@ -14,6 +14,9 @@ export default defineConfig({
             if (id.includes("framer-motion")) return "motion";
             if (id.includes("lucide-react")) return "lucide";
           }
+          if (id.includes("stockUniverse")) {
+            return "stock-universe";
+          }
         },
       },
     },

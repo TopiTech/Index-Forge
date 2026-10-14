@@ -37,7 +37,7 @@ export function AddStockModal({
   const popularSuggestions = useMemo(() => {
     const query = ticker || name;
     if (!query.trim() || query.trim().length < 1) return [];
-    return searchPopularStocks(query, 4);
+    return searchPopularStocks(query, 8);
   }, [ticker, name]);
 
   const isLimitReached = maxStocks !== null && maxStocks > 0 && currentCount >= maxStocks;

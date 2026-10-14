@@ -141,8 +141,48 @@ export function StockDetailPage({
         </div>
       )}
 
+      {/* Breadcrumb Navigation Bar */}
+      <nav aria-label="パンくずリスト" className="stock-detail-breadcrumb-nav">
+        <ol className="stock-breadcrumb-list">
+          <li className="stock-breadcrumb-item">
+            <button
+              type="button"
+              className="stock-breadcrumb-link"
+              onClick={() => onNavigate("dashboard")}
+            >
+              ホーム
+            </button>
+          </li>
+          <li className="stock-breadcrumb-separator" aria-hidden="true">/</li>
+          <li className="stock-breadcrumb-item">
+            <button
+              type="button"
+              className="stock-breadcrumb-link"
+              onClick={() => onNavigate("market")}
+            >
+              マーケット
+            </button>
+          </li>
+          <li className="stock-breadcrumb-separator" aria-hidden="true">/</li>
+          <li className="stock-breadcrumb-item">
+            <button
+              type="button"
+              className="stock-breadcrumb-link"
+              onClick={() => onNavigate("screener")}
+            >
+              スクリーナー
+            </button>
+          </li>
+          <li className="stock-breadcrumb-separator" aria-hidden="true">/</li>
+          <li className="stock-breadcrumb-item current" aria-current="page">
+            <span className="stock-breadcrumb-current-text">{stock.name} ({stock.ticker})</span>
+          </li>
+        </ol>
+      </nav>
+
       {/* Top Back Nav & Actions Bar */}
       <div
+        className="stock-detail-actions-bar"
         style={{
           display: "flex",
           justifyContent: "space-between",
@@ -161,7 +201,7 @@ export function StockDetailPage({
           <span>ダッシュボードへ戻る</span>
         </button>
 
-        <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+        <div className="stock-detail-actions-group" style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
           <div className="sr-only" role="status" aria-live="polite">
             {loading ? "銘柄データを読み込み中..." : `${stock.name} の最新データを表示中`}
           </div>
@@ -242,6 +282,7 @@ export function StockDetailPage({
         }}
       >
         <div
+          className="stock-hero-inner"
           style={{
             display: "flex",
             justifyContent: "space-between",
@@ -350,6 +391,7 @@ export function StockDetailPage({
 
       {/* Key Financial Fundamentals Metrics Grid */}
       <div
+        className="stock-metrics-grid stock-fundamentals-grid"
         style={{
           display: "grid",
           gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))",

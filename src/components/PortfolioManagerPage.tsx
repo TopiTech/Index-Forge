@@ -1793,7 +1793,7 @@ export function PortfolioManagerPage({
             {/* Suggestions dropdown if user is typing query */}
             {newTicker.trim().length >= 1 && (
               <div style={{ marginTop: 4, display: "flex", flexWrap: "wrap", gap: 4 }}>
-                {searchPopularStocks(newTicker, 3)
+                {searchPopularStocks(newTicker, 8)
                   .filter((s) => s.ticker.toUpperCase() !== newTicker.trim().toUpperCase())
                   .map((s) => (
                     <button

@@ -51,6 +51,7 @@ import { LoadingScreen } from "./components/LoadingScreen";
 import { buildChartData } from "./lib/chartData";
 import { filterByTimeframe } from "./lib/timeframe";
 import { Footer } from "./components/Footer";
+import { MobileBottomNav } from "./components/MobileBottomNav";
 const DisclaimerPage = lazy(() =>
   import("./components/DisclaimerPage").then((m) => ({ default: m.DisclaimerPage })),
 );
@@ -183,6 +184,7 @@ function PageLayout({
       </div>
       {overlays}
       {searchModal}
+      <MobileBottomNav currentView={currentView} onNavigate={navigateTo} />
     </>
   );
 }

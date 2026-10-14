@@ -79,15 +79,48 @@ export const POPULAR_STOCKS: PopularStock[] = [
   { ticker: "TSLA", name: "Tesla", theme: "EV・自動運転" },
 ];
 
+import { searchStockUniverse } from "./stockUniverse";
+
 export function searchPopularStocks(query: string, limit = 8): PopularStock[] {
   if (!query || !query.trim()) return [];
   const q = query.trim().toLowerCase();
-  return POPULAR_STOCKS.filter(
+
+  // Curated popular stocks first
+  const popularMatches = POPULAR_STOCKS.filter(
     (s) =>
       s.ticker.toLowerCase().includes(q) ||
       s.name.toLowerCase().includes(q) ||
-      s.theme.toLowerCase().includes(q)
-  ).slice(0, limit);
+      s.theme.toLowerCase().includes(q),
+  );
+
+  const seen = new Set<string>();
+  const results: PopularStock[] = [];
+
+  for (const s of popularMatches) {
+    const tUpper = s.ticker.toUpperCase();
+    if (!seen.has(tUpper)) {
+      seen.add(tUpper);
+      results.push(s);
+      if (results.length >= limit) return results;
+    }
+  }
+
+  // Supplement with 4,500+ stock universe
+  const universeMatches = searchStockUniverse(query, { limit: limit * 2 });
+  for (const u of universeMatches) {
+    const tUpper = u.ticker.toUpperCase();
+    if (!seen.has(tUpper)) {
+      seen.add(tUpper);
+      results.push({
+        ticker: u.ticker,
+        name: u.name,
+        theme: u.sector || u.market,
+      });
+      if (results.length >= limit) break;
+    }
+  }
+
+  return results;
 }
 
 /**

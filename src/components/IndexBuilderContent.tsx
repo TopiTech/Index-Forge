@@ -229,7 +229,7 @@ export function IndexBuilderContent({
   const popularSuggestions = useMemo(() => {
     const query = customTicker || customName;
     if (!query.trim() || query.trim().length < 1) return [];
-    return searchPopularStocks(query, 5).filter(
+    return searchPopularStocks(query, 10).filter(
       (s) => !basket.some((b) => normalizeTicker(b.ticker) === normalizeTicker(s.ticker)),
     );
   }, [customTicker, customName, basket]);
