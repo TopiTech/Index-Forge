@@ -9,7 +9,7 @@
  * タイピング毎のサーバーAPI呼び出しをゼロ（0負荷・0ミリ秒遅延）に抑えます。
  */
 
-import { POPULAR_STOCKS } from "./popularStocks";
+import { POPULAR_STOCKS } from "./popularStocksData";
 
 export type StockMarket =
   | "PRIME"
