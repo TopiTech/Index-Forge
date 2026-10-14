@@ -101,8 +101,8 @@ describe("Comprehensive Audit Session Verification", () => {
     });
 
     it("formats US stock prices with 2 decimal places", () => {
-      expect(stockDetailCode).toContain('minimumFractionDigits: stock.market === "US" ? 2 : 1');
-      expect(stockDetailCode).toContain('maximumFractionDigits: stock.market === "US" ? 2 : 1');
+      expect(stockDetailCode).toMatch(/minimumFractionDigits:\s*stock\.market === "US" \? 2 :/);
+      expect(stockDetailCode).toContain("maximumFractionDigits: 2");
     });
 
     it("supports keyboard arrow navigation across tabs in the WAI-ARIA tablist", () => {

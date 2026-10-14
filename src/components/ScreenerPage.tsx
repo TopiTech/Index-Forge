@@ -255,14 +255,27 @@ export function ScreenerPage({
   }, [market, minDividend, maxPbr, maxPer, searchQuery]);
 
   // Selection logic
-  const isAllSelected = results.length > 0 && results.every((r) => selectedTickers.has(r.ticker));
-  const isPartiallySelected = results.some((r) => selectedTickers.has(r.ticker)) && !isAllSelected;
+  const selectedInResults = useMemo(
+    () => results.filter((r) => selectedTickers.has(r.ticker)),
+    [results, selectedTickers],
+  );
+  const isAllSelected = results.length > 0 && selectedInResults.length === results.length;
+  const isPartiallySelected = selectedInResults.length > 0 && !isAllSelected;
 
   const handleToggleSelectAll = () => {
     if (isAllSelected) {
-      setSelectedTickers(new Set());
+      // Unselect only the currently visible results
+      setSelectedTickers((prev) => {
+        const next = new Set(prev);
+        results.forEach((r) => next.delete(r.ticker));
+        return next;
+      });
     } else {
-      setSelectedTickers(new Set(results.map((r) => r.ticker)));
+      setSelectedTickers((prev) => {
+        const next = new Set(prev);
+        results.forEach((r) => next.add(r.ticker));
+        return next;
+      });
     }
   };
 
@@ -283,9 +296,14 @@ export function ScreenerPage({
   const handleBatchIndexCreation = () => {
     if (results.length === 0) return;
     const chosenStocks =
-      selectedTickers.size > 0
-        ? results.filter((s) => selectedTickers.has(s.ticker))
+      selectedInResults.length > 0
+        ? selectedInResults
         : results.slice(0, 10);
+
+    if (chosenStocks.length === 0) {
+      info("指数化の対象となる銘柄がありません。");
+      return;
+    }
 
     const weights = allocateEvenWeights(chosenStocks.length);
     const basket = chosenStocks.map((s, index) => ({
@@ -491,16 +509,17 @@ export function ScreenerPage({
             className="btn btn-sm btn-accent"
             onClick={handleBatchIndexCreation}
             disabled={results.length === 0}
+            aria-disabled={results.length === 0}
             title={
-              selectedTickers.size > 0
-                ? `選択中の ${selectedTickers.size} 銘柄でカスタム指数を作成`
+              selectedInResults.length > 0
+                ? `現在の抽出結果から選択中の ${selectedInResults.length} 銘柄でカスタム指数を作成`
                 : "表示中の上位10銘柄を均等配分でカスタム指数に変換"
             }
           >
             <Sparkles size={14} />
             <span>
-              {selectedTickers.size > 0
-                ? `選択した${selectedTickers.size}銘柄で指数化`
+              {selectedInResults.length > 0
+                ? `選択した${selectedInResults.length}銘柄で指数化`
                 : "抽出結果を一括指数化"}
             </span>
           </button>
@@ -807,7 +826,22 @@ export function ScreenerPage({
               件
             </span>
             {selectedTickers.size > 0 && (
-              <span className="badge badge-accent tiny mono">{selectedTickers.size} 件選択中</span>
+              <div style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                <span className="badge badge-accent tiny mono">
+                  {selectedInResults.length === selectedTickers.size
+                    ? `${selectedTickers.size} 件選択中`
+                    : `表示中 ${selectedInResults.length} / 全体 ${selectedTickers.size} 件選択中`}
+                </span>
+                <button
+                  type="button"
+                  className="btn btn-ghost tiny text-muted"
+                  onClick={() => setSelectedTickers(new Set())}
+                  style={{ padding: "0 4px", fontSize: "0.72rem" }}
+                  title="選択をすべて解除"
+                >
+                  解除
+                </button>
+              </div>
             )}
           </div>
 

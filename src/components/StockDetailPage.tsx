@@ -318,9 +318,9 @@ export function StockDetailPage({
           <div className="stock-hero-price" style={{ textAlign: "right" }}>
             <div style={{ fontSize: "2.2rem", fontWeight: 800 }} className="mono">
               {currencyMeta.symbol}
-              {stock.price.toLocaleString("en-US", {
-                minimumFractionDigits: stock.market === "US" ? 2 : 1,
-                maximumFractionDigits: stock.market === "US" ? 2 : 1,
+              {stock.price.toLocaleString(currencyMeta.isJPY ? "ja-JP" : "en-US", {
+                minimumFractionDigits: stock.market === "US" ? 2 : Number.isInteger(stock.price) ? 0 : 2,
+                maximumFractionDigits: 2,
               })}
               <span className="tiny muted" style={{ fontSize: "1rem", marginLeft: "6px", fontWeight: 400 }}>
                 {currencyMeta.code}

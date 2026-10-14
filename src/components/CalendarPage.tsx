@@ -245,17 +245,21 @@ export function CalendarPage({
         if (e.fullDate) {
           return e.fullDate.startsWith(dateKeyFull);
         }
-        if (e.date !== dateKeyShort) return false;
-        const parts = e.date.split("/");
+        if (!e.date) return false;
+        const parts = e.date.trim().split("/");
+        if (parts.length !== 2) return false;
         const mNum = parseInt(parts[0], 10);
+        const dNum = parseInt(parts[1], 10);
+        if (Number.isNaN(mNum) || Number.isNaN(dNum)) return false;
+        const normalizedShort = `${pad(mNum)}/${pad(dNum)}`;
+        if (normalizedShort !== dateKeyShort) return false;
+
         let eventYear = today.getFullYear();
         const currentMonth = today.getMonth() + 1;
-        if (!Number.isNaN(mNum)) {
-          if (mNum < currentMonth && currentMonth - mNum >= 6) {
-            eventYear += 1;
-          } else if (mNum > currentMonth && mNum - currentMonth >= 6) {
-            eventYear -= 1;
-          }
+        if (mNum < currentMonth && currentMonth - mNum >= 6) {
+          eventYear += 1;
+        } else if (mNum > currentMonth && mNum - currentMonth >= 6) {
+          eventYear -= 1;
         }
         return cellYear === eventYear;
       });

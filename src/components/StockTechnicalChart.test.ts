@@ -55,7 +55,7 @@ describe("StockTechnicalChart & StockDetailPage Integration", () => {
     });
 
     it("uses hardened currency formatting for hero price and range", () => {
-      expect(detailTsx).toContain('minimumFractionDigits: stock.market === "US" ? 2 : 1');
+      expect(detailTsx).toMatch(/minimumFractionDigits:\s*stock\.market === "US" \? 2 :/);
       expect(detailTsx).toContain("formatStockPrice(stock.previousClose, stock.ticker");
       expect(detailTsx).toContain("formatUsdWithJpyEstimate");
       expect(detailTsx).toContain("formatStockChange");
