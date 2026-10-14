@@ -265,7 +265,7 @@ export function MarketOverviewPage({
           </p>
         </div>
 
-        <div style={{ display: "flex", gap: "8px" }}>
+        <div className="market-overview-header-actions" style={{ display: "flex", gap: "8px" }}>
           <button
             type="button"
             className="btn btn-sm btn-outline"
@@ -341,7 +341,7 @@ export function MarketOverviewPage({
 
         <div>
           <span className="tiny muted mono uppercase block">東証プライム 騰落銘柄数</span>
-          <div style={{ display: "flex", gap: "16px", marginTop: "6px" }}>
+          <div className="market-breadth-counts" style={{ display: "flex", gap: "16px", marginTop: "6px" }}>
             <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
               <TrendingUp size={15} style={{ color: "var(--color-positive)" }} />
               <span className="mono bold" style={{ color: "var(--color-positive)" }}>
@@ -358,7 +358,7 @@ export function MarketOverviewPage({
           </div>
         </div>
 
-        <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px" }}>
+        <div className="market-breadth-action-group" style={{ display: "flex", justifyContent: "flex-end", gap: "8px" }}>
           <button
             type="button"
             className="btn btn-sm btn-ghost"
@@ -552,7 +552,7 @@ export function MarketOverviewPage({
         }}
       >
         {/* Sector Performance Bar */}
-        <div className="card" style={{ padding: "20px" }}>
+        <div className="card market-sectors-card" style={{ padding: "20px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "16px" }}>
             <Layers size={18} className="muted" />
             <h3 style={{ fontSize: "1.15rem", fontWeight: 600, margin: 0 }}>
@@ -565,8 +565,8 @@ export function MarketOverviewPage({
               const isPos = sector.changePercent >= 0;
               const barWidth = Math.min(100, Math.abs(sector.changePercent) * 25);
               return (
-                <div key={sector.name} style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                  <span style={{ width: "110px", fontSize: "0.85rem", fontWeight: 500 }} className="ellipsis">
+                <div key={sector.name} className="market-sector-row" style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                  <span style={{ width: "110px", fontSize: "0.85rem", fontWeight: 500 }} className="market-sector-name ellipsis">
                     {sector.name}
                   </span>
                   <div
@@ -591,7 +591,7 @@ export function MarketOverviewPage({
                     />
                   </div>
                   <span
-                    className="mono bold tiny"
+                    className="mono bold tiny market-sector-pct"
                     style={{
                       width: "55px",
                       textAlign: "right",
@@ -608,7 +608,7 @@ export function MarketOverviewPage({
         </div>
 
         {/* Live Market News Feed */}
-        <div className="card" style={{ padding: "20px" }}>
+        <div className="card market-news-card" style={{ padding: "20px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "16px" }}>
             <Newspaper size={18} className="muted" />
             <h3 style={{ fontSize: "1.15rem", fontWeight: 600, margin: 0 }}>

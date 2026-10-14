@@ -6957,3 +6957,402 @@ a.footer-creator-note:hover .footer-icon-accent {
     grid-template-columns: 1fr !important;
   }
 }
+
+/* ==========================================================================
+   ADVANCED MOBILE UI & RESPONSIVE DESIGN ENHANCEMENTS
+   ========================================================================== */
+
+/* 1. Universal Mobile Touch & Form Input Polish */
+@media (max-width: 768px) {
+  html, body {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+
+  input[type="text"],
+  input[type="number"],
+  input[type="password"],
+  select,
+  textarea {
+    font-size: 16px !important; /* Prevents auto-zoom on iOS Safari */
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Smooth momentum scrolling for all scroll regions on touch devices */
+  .calendar-month-container,
+  .screener-presets-group,
+  .table-scroll-container,
+  div[style*="overflow-x: auto"],
+  div[style*="overflowX: auto"],
+  div[style*="overflow-x:auto"],
+  div[style*="overflowX:auto"] {
+    -webkit-overflow-scrolling: touch;
+    scroll-behavior: smooth;
+  }
+}
+
+/* 2. Portfolio Manager Mobile Cards & Header Responsive Styles */
+.portfolio-desktop-table-container {
+  display: block;
+}
+
+.portfolio-mobile-list {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .portfolio-desktop-table-container {
+    display: none !important;
+  }
+
+  .portfolio-mobile-list {
+    display: flex !important;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .portfolio-mobile-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-subtle);
+    border-radius: 12px;
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .portfolio-mobile-card:active {
+    transform: scale(0.985);
+  }
+
+  [data-theme="light"] .portfolio-mobile-card {
+    background: #ffffff;
+    border-color: rgba(15, 23, 42, 0.08);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  }
+
+  .portfolio-mobile-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 8px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .portfolio-mobile-identity {
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .portfolio-mobile-ticker {
+    color: var(--accent-text);
+    font-size: 0.92rem;
+  }
+
+  .portfolio-mobile-name {
+    font-size: 0.95rem;
+    color: var(--text-primary);
+  }
+
+  .portfolio-mobile-delete-btn {
+    min-width: 36px;
+    min-height: 36px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 6px;
+  }
+
+  .portfolio-mobile-card-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px 14px;
+  }
+
+  .portfolio-mobile-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .portfolio-mobile-stat-label {
+    font-size: 10px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+
+  .portfolio-mobile-stat-val {
+    font-size: 13.5px;
+  }
+
+  /* Portfolio Action Buttons on Mobile */
+  .portfolio-header-actions {
+    width: 100%;
+    display: grid !important;
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 8px !important;
+  }
+
+  .portfolio-header-actions .btn {
+    width: 100%;
+    justify-content: center;
+    min-height: 38px;
+  }
+
+  /* Accent "One-click Index creation" stretches full width */
+  .portfolio-header-actions .btn-accent {
+    grid-column: span 2;
+  }
+}
+
+@media (max-width: 420px) {
+  .portfolio-mobile-card-grid {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .portfolio-header-actions {
+    grid-template-columns: 1fr !important;
+  }
+
+  .portfolio-header-actions .btn-accent {
+    grid-column: span 1;
+  }
+}
+
+/* 3. Screener Page Mobile Cards & Filter Polish */
+.screener-desktop-table-container {
+  display: block;
+}
+
+.screener-mobile-list {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .screener-desktop-table-container {
+    display: none !important;
+  }
+
+  .screener-mobile-list {
+    display: flex !important;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .screener-mobile-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-subtle);
+    border-radius: 12px;
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    transition: transform 0.15s ease, border-color 0.15s ease, background-color 0.15s ease;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .screener-mobile-card:active {
+    transform: scale(0.985);
+  }
+
+  .screener-mobile-card.selected-card {
+    border-color: var(--accent-border-glow);
+    background: rgba(6, 182, 212, 0.08);
+  }
+
+  [data-theme="light"] .screener-mobile-card {
+    background: #ffffff;
+    border-color: rgba(15, 23, 42, 0.08);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  }
+
+  [data-theme="light"] .screener-mobile-card.selected-card {
+    background: rgba(6, 182, 212, 0.06);
+    border-color: var(--accent-color);
+  }
+
+  .screener-mobile-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .screener-mobile-checkbox {
+    min-width: 36px;
+    min-height: 36px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .screener-mobile-ticker {
+    color: var(--accent-text);
+    font-size: 0.92rem;
+  }
+
+  .screener-mobile-name {
+    font-size: 0.95rem;
+    color: var(--text-primary);
+  }
+
+  .screener-mobile-card-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px 14px;
+  }
+
+  .screener-mobile-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .screener-mobile-stat-label {
+    font-size: 10px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+
+  .screener-mobile-stat-val {
+    font-size: 13.5px;
+  }
+
+  .screener-mobile-card-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-top: 8px;
+    border-top: 1px dashed var(--border-subtle);
+  }
+
+  /* Preset Strategy Horizontal Scroll on Mobile */
+  .screener-presets-group {
+    overflow-x: auto;
+    flex-wrap: nowrap !important;
+    padding-bottom: 8px;
+    -webkit-overflow-scrolling: touch;
+    width: 100%;
+  }
+
+  .screener-presets-group .btn {
+    flex-shrink: 0;
+    min-height: 36px;
+  }
+
+  /* Screener Filter Card */
+  .screener-filter-card {
+    grid-template-columns: 1fr !important;
+    gap: 12px !important;
+    padding: 14px 16px !important;
+  }
+
+  .screener-filter-card select,
+  .screener-filter-card input {
+    min-height: 40px;
+  }
+}
+
+/* 4. Market Overview Page Mobile Enhancements */
+@media (max-width: 640px) {
+  .market-overview-header-actions {
+    width: 100%;
+    display: grid !important;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  .market-overview-header-actions .btn {
+    width: 100%;
+    justify-content: center;
+    min-height: 38px;
+  }
+
+  .market-breadth-counts {
+    flex-wrap: wrap !important;
+    gap: 8px 16px !important;
+  }
+
+  .market-breadth-action-group {
+    width: 100%;
+  }
+
+  .market-breadth-action-group .btn {
+    width: 100%;
+    justify-content: center;
+    min-height: 38px;
+  }
+
+  .market-sectors-card {
+    padding: 14px 16px !important;
+  }
+
+  .market-sector-row {
+    gap: 8px !important;
+  }
+
+  .market-sector-name {
+    width: 90px !important;
+    font-size: 0.8rem !important;
+  }
+
+  .market-sector-pct {
+    width: 50px !important;
+    font-size: 0.75rem !important;
+  }
+}
+
+/* 5. Calendar Page Mobile Enhancements */
+@media (max-width: 768px) {
+  .calendar-header-actions {
+    width: 100%;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .calendar-header-actions .btn {
+    flex: 1 1 calc(50% - 6px);
+    justify-content: center;
+    min-height: 36px;
+  }
+
+  .calendar-filter-bar {
+    padding: 12px 14px !important;
+    flex-direction: column;
+    align-items: stretch !important;
+    gap: 10px !important;
+  }
+
+  .calendar-event-item {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 10px !important;
+    padding: 12px 14px !important;
+  }
+
+  .calendar-month-header {
+    flex-direction: column;
+    gap: 8px;
+    align-items: stretch !important;
+    text-align: center;
+  }
+
+  .calendar-month-header > div:first-child {
+    justify-content: center;
+  }
+}

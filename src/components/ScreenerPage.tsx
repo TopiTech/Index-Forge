@@ -540,6 +540,7 @@ export function ScreenerPage({
         <div
           role="group"
           aria-label="プリセット戦略フィルター"
+          className="screener-presets-group"
           style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}
         >
           <span className="tiny muted mono" style={{ marginRight: 4 }}>
@@ -925,8 +926,10 @@ export function ScreenerPage({
             </button>
           </div>
         ) : (
-          <div style={{ overflowX: "auto" }} tabIndex={0} role="region" aria-label="銘柄スクリーナー結果テーブル">
-            <table className="constituents-table screener-grid-table" style={{ width: "100%" }}>
+          <>
+            <div className="screener-desktop-table-container">
+              <div style={{ overflowX: "auto" }} tabIndex={0} role="region" aria-label="銘柄スクリーナー結果テーブル">
+                <table className="constituents-table screener-grid-table" style={{ width: "100%" }}>
               <thead>
                 <tr>
                   <th style={{ width: "38px", textAlign: "center" }}>
@@ -1130,7 +1133,135 @@ export function ScreenerPage({
               </tbody>
             </table>
           </div>
-        )}
+        </div>
+
+          {/* Mobile Card List View (<= 768px) */}
+          <div className="screener-mobile-list" aria-label="スクリーナー結果カードリスト">
+            {results.map((stock) => {
+              const isPos = stock.changePercent >= 0;
+              const isSelected = selectedTickers.has(stock.ticker);
+              return (
+                <article
+                  key={stock.ticker}
+                  className={`screener-mobile-card ${isSelected ? "selected-card" : ""}`}
+                  onClick={() => onOpenStockDetail(stock.ticker)}
+                  tabIndex={0}
+                  role="button"
+                  aria-label={`${stock.name} (${stock.ticker}) の詳細を見る`}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      onOpenStockDetail(stock.ticker);
+                    }
+                  }}
+                >
+                  <div className="screener-mobile-card-header">
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <button
+                        type="button"
+                        role="checkbox"
+                        aria-checked={isSelected ? "true" : "false"}
+                        className="btn btn-ghost tiny screener-mobile-checkbox"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleToggleSelect(stock.ticker, e);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.stopPropagation();
+                            handleToggleSelect(stock.ticker, e);
+                          }
+                        }}
+                        aria-label={`${stock.name} の選択切り替え`}
+                      >
+                        {isSelected ? (
+                          <CheckSquare size={16} style={{ color: "var(--accent-text)" }} />
+                        ) : (
+                          <Square size={16} className="muted" />
+                        )}
+                      </button>
+                      <div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                          <span className="mono bold screener-mobile-ticker">{stock.ticker}</span>
+                          <strong className="screener-mobile-name">{stock.name}</strong>
+                          {stock.isDemoData && (
+                            <span
+                              className="badge badge-default mono tiny"
+                              style={{ fontSize: "0.62rem", padding: "1px 5px" }}
+                              title="実データ未取得のため推計デモ値を表示しています"
+                            >
+                              参考値
+                            </span>
+                          )}
+                        </div>
+                        <span className="tiny muted mono">{stock.theme} · {stock.market === "US" ? "米国市場" : "東証プライム"}</span>
+                      </div>
+                    </div>
+                    <div className="screener-mobile-sparkline">
+                      <TableSparkline data={stock.sparkline} isPositive={isPos} />
+                    </div>
+                  </div>
+
+                  <div className="screener-mobile-card-grid">
+                    <div className="screener-mobile-stat">
+                      <span className="screener-mobile-stat-label">現在値</span>
+                      <span className="screener-mobile-stat-val mono bold tabular-nums">
+                        {stock.market === "US"
+                          ? stock.price.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                          : stock.price.toLocaleString("ja-JP")}
+                        <span className="tiny muted" style={{ marginLeft: 3 }}>
+                          {stock.market === "US" ? "USD" : "円"}
+                        </span>
+                      </span>
+                    </div>
+                    <div className="screener-mobile-stat">
+                      <span className="screener-mobile-stat-label">前日比</span>
+                      <span
+                        className="screener-mobile-stat-val mono bold tabular-nums"
+                        style={{ color: isPos ? "var(--color-positive)" : "var(--color-negative)" }}
+                      >
+                        {isPos ? "+" : ""}
+                        {stock.changePercent.toFixed(2)}%
+                      </span>
+                    </div>
+                    <div className="screener-mobile-stat">
+                      <span className="screener-mobile-stat-label">予想配当利回り</span>
+                      <span className="screener-mobile-stat-val mono bold tabular-nums" style={{ color: "var(--accent-text)" }}>
+                        {typeof stock.dividendYield === "number" ? `${stock.dividendYield.toFixed(2)}%` : "--"}
+                      </span>
+                    </div>
+                    <div className="screener-mobile-stat">
+                      <span className="screener-mobile-stat-label">PER / PBR</span>
+                      <span className="screener-mobile-stat-val mono tabular-nums">
+                        {typeof stock.per === "number" ? `${stock.per.toFixed(1)}倍` : "--"} / {typeof stock.pbr === "number" ? `${stock.pbr.toFixed(2)}倍` : "--"}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="screener-mobile-card-footer">
+                    <span className="tiny muted mono">
+                      ROE: {typeof stock.roe === "number" ? `${stock.roe.toFixed(1)}%` : "--"}
+                    </span>
+                    <span
+                      className={`badge ${
+                        stock.technicalSignal === "STRONG_BUY"
+                          ? "badge-accent"
+                          : stock.technicalSignal.includes("BUY")
+                            ? "badge-success"
+                            : stock.technicalSignal.includes("SELL")
+                              ? "badge-danger"
+                              : "badge-default"
+                      } tiny mono`}
+                    >
+                      {stock.technicalSignal}
+                    </span>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        </>
+      )}
       </div>
     </motion.div>
   );

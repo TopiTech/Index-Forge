@@ -308,7 +308,7 @@ export function CalendarPage({
         </div>
 
         {/* Global Toolbar Controls */}
-        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+        <div className="calendar-header-actions" style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
           {/* Dual View Toggle */}
           <div
             role="group"
@@ -405,7 +405,7 @@ export function CalendarPage({
 
       {/* Filter and Search Bar */}
       <div
-        className="card"
+        className="card calendar-filter-bar"
         style={{
           padding: "14px 18px",
           marginBottom: "16px",
@@ -607,6 +607,7 @@ export function CalendarPage({
               return (
                 <div
                   key={evt.id}
+                  className="calendar-event-item"
                   role={ticker ? "button" : undefined}
                   tabIndex={ticker ? 0 : undefined}
                   aria-label={ticker ? `${evt.title} (${ticker}) の詳細を見る` : undefined}
@@ -755,6 +756,7 @@ export function CalendarPage({
           <div className="calendar-month-container" tabIndex={0} role="region" aria-label="月間カレンダーグリッド">
             {/* Month Header Controller */}
             <div
+              className="calendar-month-header"
               style={{
                 display: "flex",
                 justifyContent: "space-between",

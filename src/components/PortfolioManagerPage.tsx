@@ -1094,7 +1094,7 @@ export function PortfolioManagerPage({
           </p>
         </div>
 
-        <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
+        <div className="portfolio-header-actions" style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
           <button
             type="button"
             className="btn btn-sm btn-outline"
@@ -1489,7 +1489,8 @@ export function PortfolioManagerPage({
               </button>
             </div>
           ) : (
-            <div tabIndex={0} role="region" aria-label="保有銘柄一覧テーブル" style={{ overflowX: "auto" }}>
+            <>
+              <div tabIndex={0} role="region" aria-label="保有銘柄一覧テーブル" className="portfolio-desktop-table-container" style={{ overflowX: "auto" }}>
               <table className="constituents-table" style={{ width: "100%" }}>
                 <thead>
                   <tr>
@@ -1612,7 +1613,111 @@ export function PortfolioManagerPage({
                 </tbody>
               </table>
             </div>
-          )}
+
+            {/* Mobile Card List View (<= 768px) */}
+            <div className="portfolio-mobile-list" aria-label="保有銘柄一覧カードリスト">
+              {summary.positions.map((p) => {
+                const isProfit = p.unrealizedProfit >= 0;
+                const curr = getStockCurrency(p.ticker);
+                return (
+                  <article key={p.id} className="portfolio-mobile-card">
+                    <div className="portfolio-mobile-card-header">
+                      <div
+                        role="button"
+                        tabIndex={0}
+                        className="portfolio-mobile-identity"
+                        onClick={() => onOpenStockDetail(p.ticker)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            onOpenStockDetail(p.ticker);
+                          }
+                        }}
+                        aria-label={`${p.name} (${p.ticker}) の詳細を見る`}
+                      >
+                        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                          <span className="mono bold portfolio-mobile-ticker">{p.ticker}</span>
+                          <strong className="portfolio-mobile-name">{p.name}</strong>
+                          {p.isDemoData && (
+                            <span
+                              className="badge badge-default mono tiny"
+                              style={{ fontSize: "0.62rem", padding: "1px 5px" }}
+                              title="実データ未取得のため推計デモ値を表示しています"
+                            >
+                              参考値
+                            </span>
+                          )}
+                        </div>
+                        <span className="tiny muted mono">{p.theme}</span>
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span className="badge badge-default tiny mono">{p.weightPercent}%</span>
+                        <button
+                          type="button"
+                          className="icon-button danger portfolio-mobile-delete-btn"
+                          onClick={() => handleDeletePosition(p.id, p.name)}
+                          title="削除"
+                          aria-label={`保有銘柄「${p.name}」を削除`}
+                        >
+                          <Trash2 size={15} aria-hidden="true" />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="portfolio-mobile-card-grid">
+                      <div className="portfolio-mobile-stat">
+                        <span className="portfolio-mobile-stat-label">保有数量 / 取得単価</span>
+                        <span className="portfolio-mobile-stat-val mono tabular-nums">
+                          {p.shares.toLocaleString()}株 @ {curr}
+                          {p.averageCost.toLocaleString("en-US", {
+                            minimumFractionDigits: curr === "$" ? 2 : 0,
+                            maximumFractionDigits: 2,
+                          })}
+                        </span>
+                      </div>
+                      <div className="portfolio-mobile-stat">
+                        <span className="portfolio-mobile-stat-label">現在値</span>
+                        <span className="portfolio-mobile-stat-val mono bold tabular-nums">
+                          {curr}
+                          {p.currentPrice.toLocaleString("en-US", {
+                            minimumFractionDigits: curr === "$" ? 2 : 0,
+                            maximumFractionDigits: 2,
+                          })}
+                        </span>
+                      </div>
+                      <div className="portfolio-mobile-stat">
+                        <span className="portfolio-mobile-stat-label">評価額</span>
+                        <span className="portfolio-mobile-stat-val mono bold tabular-nums" style={{ color: "var(--accent-text)" }}>
+                          {curr}
+                          {p.marketValue.toLocaleString("en-US", {
+                            minimumFractionDigits: curr === "$" ? 2 : 0,
+                            maximumFractionDigits: 2,
+                          })}
+                        </span>
+                      </div>
+                      <div className="portfolio-mobile-stat">
+                        <span className="portfolio-mobile-stat-label">含み損益 (損益率)</span>
+                        <span
+                          className="portfolio-mobile-stat-val mono bold tabular-nums"
+                          style={{ color: isProfit ? "var(--color-positive)" : "var(--color-negative)" }}
+                        >
+                          {isProfit ? "+" : ""}
+                          {curr}
+                          {p.unrealizedProfit.toLocaleString("en-US", {
+                            minimumFractionDigits: curr === "$" ? 2 : 0,
+                            maximumFractionDigits: 2,
+                          })}{" "}
+                          ({isProfit ? "+" : ""}
+                          {p.unrealizedProfitPercent.toFixed(2)}%)
+                        </span>
+                      </div>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          </>
+        )}
         </div>
       )}
 
