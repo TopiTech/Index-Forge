@@ -29,6 +29,7 @@ import {
 } from "../lib/marketDataService";
 import { formatStockPrice, formatStockChange, getCurrencyMeta } from "../lib/currency";
 import { POPULAR_STOCKS } from "../data/popularStocks";
+import { searchStockUniverse } from "../data/stockUniverse";
 import { getRecentSearches } from "./GlobalSearchModal";
 import type { PageView } from "../lib/navigation";
 import { useToast } from "./Toast";
@@ -190,20 +191,26 @@ export function StockAnalysisPage({
     });
   }, [stocks, selectedTheme]);
 
-  // Search filtered results
+  // Search filtered results (supplemented with full TSE universe)
   const searchResults = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     if (!q) return [];
-    return stocks
-      .filter((s) => {
-        return (
-          s.ticker.toLowerCase().includes(q) ||
-          s.name.toLowerCase().includes(q) ||
-          (s.theme && s.theme.toLowerCase().includes(q)) ||
-          (s.sector && s.sector.toLowerCase().includes(q))
-        );
-      })
-      .slice(0, 10);
+    const localMatches = stocks.filter((s) => {
+      return (
+        s.ticker.toLowerCase().includes(q) ||
+        s.name.toLowerCase().includes(q) ||
+        (s.theme && s.theme.toLowerCase().includes(q)) ||
+        (s.sector && s.sector.toLowerCase().includes(q))
+      );
+    });
+
+    const seenTickers = new Set(localMatches.map((s) => s.ticker.toUpperCase()));
+    const universeMatches = searchStockUniverse(searchQuery, { limit: 8 });
+    const additional = universeMatches
+      .filter((u) => !seenTickers.has(u.ticker.toUpperCase()))
+      .map((u) => getCachedStockFundamentals(u.ticker));
+
+    return [...localMatches, ...additional].slice(0, 10);
   }, [stocks, searchQuery]);
 
   // Market movers
@@ -644,7 +651,13 @@ export function StockAnalysisPage({
                   <div className="stock-card-badges">
                     <span className="stock-card-ticker">{stock.ticker}</span>
                     <span className="stock-card-market">
-                      {stock.market === "US" ? "米国株" : "東証プライム"}
+                      {stock.market === "US"
+                        ? "米国株"
+                        : stock.market === "GROWTH"
+                        ? "東証グロース"
+                        : stock.market === "STANDARD"
+                        ? "東証スタンダード"
+                        : "東証プライム"}
                     </span>
                     {stock.theme && <span className="stock-card-theme">{stock.theme}</span>}
                   </div>
@@ -749,28 +762,47 @@ export function StockAnalysisPage({
         </div>
 
         <div className="stock-analysis-macro-grid">
-          {MACRO_QUICK_PICKS.map((macro) => (
-            <div
-              key={macro.symbol}
-              role="button"
-              tabIndex={0}
-              className="stock-analysis-macro-card"
-              onClick={() => onOpenStockDetail(macro.symbol)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  onOpenStockDetail(macro.symbol);
-                }
-              }}
-            >
-              <div className="macro-card-left">
-                <span className="macro-symbol">{macro.symbol}</span>
-                <span className="macro-name">{macro.name}</span>
-                <span className="macro-cat">{macro.category}</span>
+          {MACRO_QUICK_PICKS.map((macro) => {
+            const macroFund = getCachedStockFundamentals(macro.symbol);
+            const isPos = macroFund.changePercent >= 0;
+            const isUsdJpy = macro.symbol.includes("USDJPY");
+            const formattedPrice = isUsdJpy
+              ? `¥${macroFund.price.toFixed(2)}`
+              : macro.symbol.startsWith("^")
+              ? macroFund.price.toLocaleString("ja-JP", { maximumFractionDigits: 1 })
+              : macroFund.price.toLocaleString("ja-JP", { maximumFractionDigits: 2 });
+
+            return (
+              <div
+                key={macro.symbol}
+                role="button"
+                tabIndex={0}
+                className="stock-analysis-macro-card"
+                onClick={() => onOpenStockDetail(macro.symbol)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    onOpenStockDetail(macro.symbol);
+                  }
+                }}
+              >
+                <div className="macro-card-left">
+                  <span className="macro-symbol">{macro.symbol}</span>
+                  <span className="macro-name">{macro.name}</span>
+                  <span className="macro-cat">{macro.category}</span>
+                </div>
+                <div className="macro-card-right">
+                  <div className="macro-card-price-block">
+                    <div className="macro-card-price mono">{formattedPrice}</div>
+                    <div className={`macro-card-change mono tiny ${isPos ? "text-positive" : "text-negative"}`}>
+                      {isPos ? "+" : ""}{macroFund.changePercent.toFixed(2)}%
+                    </div>
+                  </div>
+                  <ChevronRight size={16} className="macro-card-arrow" />
+                </div>
               </div>
-              <ChevronRight size={16} className="macro-card-arrow" />
-            </div>
-          ))}
+            );
+          })}
         </div>
       </section>
 

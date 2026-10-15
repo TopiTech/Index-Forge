@@ -330,8 +330,12 @@ export function StockTechnicalChart({
               }
 
               const rawVol = (rawSeries[i] as { volume?: number })?.volume;
+              const rawOpen = (rawSeries[i] as { open?: number })?.open;
+              const rawHigh = (rawSeries[i] as { high?: number })?.high;
+              const rawLow = (rawSeries[i] as { low?: number })?.low;
+
               const baseVol = stock.volume > 0 ? stock.volume : 500000;
-              const prevP = i > 0 ? rawSeries[i - 1]?.close : p;
+              const prevP = i > 0 ? (rawSeries[i - 1]?.close ?? p) : p;
               const priceChangeRate = prevP > 0 ? Math.abs(p - prevP) / prevP : 0.01;
               const dynamicVol = Math.round(
                 baseVol * (0.65 + Math.min(priceChangeRate * 12, 1.2) + ((i * 13 + Math.round(p)) % 10) * 0.035),
@@ -340,13 +344,28 @@ export function StockTechnicalChart({
                 ? rawVol
                 : dynamicVol;
 
+              let candleOpen = typeof rawOpen === "number" && Number.isFinite(rawOpen) && rawOpen > 0 ? rawOpen : prevP;
+              let candleHigh = typeof rawHigh === "number" && Number.isFinite(rawHigh) && rawHigh > 0 ? rawHigh : null;
+              let candleLow = typeof rawLow === "number" && Number.isFinite(rawLow) && rawLow > 0 ? rawLow : null;
+
+              if (i === total - 1) {
+                if (stock.dayHigh && stock.dayHigh > 0) candleHigh = stock.dayHigh;
+                if (stock.dayLow && stock.dayLow > 0) candleLow = stock.dayLow;
+                if (stock.previousClose && stock.previousClose > 0 && (!rawOpen || rawOpen <= 0)) {
+                  candleOpen = stock.previousClose;
+                }
+              }
+
+              const finalHigh = candleHigh ?? Math.max(p, candleOpen) * 1.008;
+              const finalLow = candleLow ?? Math.min(p, candleOpen) * 0.992;
+
               points.push({
                 date: dateStr,
                 displayDate,
                 close: p,
-                open: prevP,
-                high: p * 1.008,
-                low: p * 0.992,
+                open: candleOpen,
+                high: finalHigh,
+                low: finalLow,
                 volume: pointVolume,
                 sma25,
                 sma75,

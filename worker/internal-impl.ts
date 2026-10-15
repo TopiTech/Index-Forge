@@ -2129,38 +2129,41 @@ interface YahooQuoteSummaryResponse {
         recommendationKey?: string;
       };
       defaultKeyStatistics?: {
-        trailingPE?: { raw?: number };
-        forwardPE?: { raw?: number };
-        priceToBook?: { raw?: number };
-        lastDividendValue?: { raw?: number };
         trailingEps?: { raw?: number };
-        debtToEquity?: { raw?: number };
+        forwardEps?: { raw?: number };
+        priceToBook?: { raw?: number };
+        sharesOutstanding?: { raw?: number };
       };
       summaryDetail?: {
         trailingPE?: { raw?: number };
+        forwardPE?: { raw?: number };
         dividendYield?: { raw?: number };
         dividendRate?: { raw?: number };
-        volume?: { raw?: number };
-        dayHigh?: { raw?: number };
-        dayLow?: { raw?: number };
         fiftyTwoWeekHigh?: { raw?: number };
         fiftyTwoWeekLow?: { raw?: number };
-        marketCap?: { raw?: number };
       };
       earnings?: {
         financialsChart?: {
           yearly?: Array<{
-            date: number;
+            date?: number;
             revenue?: { raw?: number };
             earnings?: { raw?: number };
           }>;
         };
       };
+      incomeStatementHistory?: {
+        incomeStatementHistory?: Array<{
+          endDate?: { fmt?: string; raw?: number };
+          totalRevenue?: { raw?: number };
+          operatingIncome?: { raw?: number };
+          netIncome?: { raw?: number };
+        }>;
+      };
     }>;
   };
 }
 
-export async function fetchLiveStockFundamentals(ticker: string): Promise<StockQuoteFundamentals> {
+export async function fetchLiveStockFundamentals(ticker: string, env?: Env): Promise<StockQuoteFundamentals> {
   const input = ticker.trim().toUpperCase();
   const matchedPreset =
     POPULAR_STOCKS.find((s) => s.ticker.toUpperCase() === input) ??
@@ -2179,11 +2182,13 @@ export async function fetchLiveStockFundamentals(ticker: string): Promise<StockQ
     (baselineAsset && (baselineAsset.category === "COMMODITY" || baselineAsset.category === "BOND")),
   );
 
+  const baseline = getStockFundamentals(normTicker);
+
   let name = baselineAsset
     ? baselineAsset.name
     : matchedPreset
       ? matchedPreset.name
-      : `銘柄 ${normTicker}`;
+      : baseline.name;
   const theme = isIndex
     ? "株価指数"
     : isFx
@@ -2192,89 +2197,44 @@ export async function fetchLiveStockFundamentals(ticker: string): Promise<StockQ
         ? "暗号資産"
         : baselineAsset
           ? "指数・ETF"
-          : matchedPreset
-            ? matchedPreset.theme
-            : "株式";
+          : baseline.theme;
   const isUS = baselineAsset ? baselineAsset.currency === "USD" : !/^\d/.test(normTicker);
-  const market: StockQuoteFundamentals["market"] = isUS ? "US" : "PRIME";
+  const market: StockQuoteFundamentals["market"] = baselineAsset ? (isUS ? "US" : "PRIME") : baseline.market;
   const yahooSymbol = baselineAsset ? baselineAsset.querySymbol : toYahooSymbol(normTicker);
 
-  let currentPrice = baselineAsset ? baselineAsset.baselinePrice : isUS ? 180 : 3000;
-  let change = baselineAsset ? baselineAsset.baselineChange : 0;
-  let changePct = baselineAsset ? baselineAsset.baselineChangePercent : 0;
-  let prevClose = currentPrice;
-  let volume = isFx ? 0 : 1500000;
-  let dayHigh = currentPrice * 1.01;
-  let dayLow = currentPrice * 0.99;
-  let yearHigh = currentPrice * 1.25;
-  let yearLow = currentPrice * 0.75;
-  let marketCap = isMacroAsset ? 0 : isUS ? 50000 : 25000;
-  let per: number | null = isMacroAsset ? null : 15;
-  let pbr: number | null = isMacroAsset ? null : 1.2;
-  let dividendYield: number | null = isMacroAsset ? null : 2.5;
-  let dps: number | null = isMacroAsset ? null : 60;
-  let eps: number | null = isMacroAsset ? null : 200;
-  let roe: number | null = isMacroAsset ? null : 10.5;
-  let equityRatio: number | null = isMacroAsset ? null : 50;
-  let sparkline: number[] = [];
-  let technicalSignal: StockQuoteFundamentals["technicalSignal"] = "BUY";
-  let sector = isIndex
-    ? isUS
-      ? "米国株価指数"
-      : "国内主要株価指数"
-    : isFx
-      ? "外国為替"
-      : isCrypto
-        ? "暗号資産"
-        : isUS
-          ? "Information Technology"
-          : "電気機器・精密";
+  let currentPrice = baselineAsset ? baselineAsset.baselinePrice : baseline.price;
+  let change = baselineAsset ? baselineAsset.baselineChange : baseline.change;
+  let changePct = baselineAsset ? baselineAsset.baselineChangePercent : baseline.changePercent;
+  let prevClose = baseline.previousClose;
+  let volume = isFx ? 0 : baseline.volume;
+  let dayHigh = baseline.dayHigh;
+  let dayLow = baseline.dayLow;
+  let yearHigh = baseline.yearHigh;
+  let yearLow = baseline.yearLow;
+  let marketCap = isMacroAsset ? 0 : baseline.marketCap;
+  let per: number | null = isMacroAsset ? null : baseline.per;
+  let pbr: number | null = isMacroAsset ? null : baseline.pbr;
+  let dividendYield: number | null = isMacroAsset ? null : baseline.dividendYield;
+  let dps: number | null = isMacroAsset ? null : baseline.dps;
+  let eps: number | null = isMacroAsset ? null : baseline.eps;
+  let roe: number | null = isMacroAsset ? null : baseline.roe;
+  let equityRatio: number | null = isMacroAsset ? null : baseline.equityRatio;
+  let sparkline: number[] = baseline.sparkline && baseline.sparkline.length > 0 ? baseline.sparkline : [];
+  let technicalSignal: StockQuoteFundamentals["technicalSignal"] = baseline.technicalSignal;
+  let sector = baseline.sector;
+  let historicalFinances: StockQuoteFundamentals["historicalFinances"] = isMacroAsset
+    ? []
+    : baseline.historicalFinances;
   let hasLivePrice = false;
 
   const currentYear = new Date().getFullYear();
-  let historicalFinances: StockQuoteFundamentals["historicalFinances"] = isMacroAsset
-    ? []
-    : [
-        {
-          fiscalYear: isUS ? `${currentYear - 3} FY` : `${currentYear - 3}/3`,
-          revenue: Math.round(marketCap * 0.75),
-          operatingIncome: Math.round(marketCap * 0.08),
-          netIncome: Math.round(marketCap * 0.055),
-          eps: Math.round((eps || 100) * 0.8),
-          dps: Math.round((dps || 50) * 0.85),
-        },
-        {
-          fiscalYear: isUS ? `${currentYear - 2} FY` : `${currentYear - 2}/3`,
-          revenue: Math.round(marketCap * 0.83),
-          operatingIncome: Math.round(marketCap * 0.095),
-          netIncome: Math.round(marketCap * 0.065),
-          eps: Math.round((eps || 100) * 0.88),
-          dps: Math.round((dps || 50) * 0.9),
-        },
-        {
-          fiscalYear: isUS ? `${currentYear - 1} FY` : `${currentYear - 1}/3`,
-          revenue: Math.round(marketCap * 0.92),
-          operatingIncome: Math.round(marketCap * 0.11),
-          netIncome: Math.round(marketCap * 0.078),
-          eps: Math.round((eps || 100) * 0.95),
-          dps: Math.round((dps || 50) * 0.95),
-        },
-        {
-          fiscalYear: isUS ? `${currentYear} FY (予)` : `${currentYear}/3 (予)`,
-          revenue: Math.round(marketCap * 1.03),
-          operatingIncome: Math.round(marketCap * 0.125),
-          netIncome: Math.round(marketCap * 0.088),
-          eps: eps || 100,
-          dps: dps || 50,
-        },
-      ];
 
   try {
     const auth = await getYahooCrumb();
     const [summaryRes, chartRes] = await Promise.all([
       auth
         ? fetch(
-            `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(yahooSymbol)}?modules=financialData,defaultKeyStatistics,summaryDetail,earnings,price&crumb=${encodeURIComponent(auth.crumb)}`,
+            `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(yahooSymbol)}?modules=financialData,defaultKeyStatistics,summaryDetail,earnings,price,incomeStatementHistory&crumb=${encodeURIComponent(auth.crumb)}`,
             {
               signal: AbortSignal.timeout(6000),
               headers: {
@@ -2323,11 +2283,10 @@ export async function fetchLiveStockFundamentals(ticker: string): Promise<StockQ
     const detail = result.summaryDetail || {};
     const earnings = result.earnings || {};
 
-    hasLivePrice = false;
-    if (typeof priceObj.regularMarketPrice?.raw === "number") {
+    if (typeof priceObj.regularMarketPrice?.raw === "number" && priceObj.regularMarketPrice.raw > 0) {
       currentPrice = priceObj.regularMarketPrice.raw;
       hasLivePrice = true;
-    } else if (typeof chartMeta.regularMarketPrice === "number") {
+    } else if (typeof chartMeta.regularMarketPrice === "number" && chartMeta.regularMarketPrice > 0) {
       currentPrice = chartMeta.regularMarketPrice;
       hasLivePrice = true;
     } else if (chartCloses.length > 0) {
@@ -2368,6 +2327,7 @@ export async function fetchLiveStockFundamentals(ticker: string): Promise<StockQ
       detail.volume?.raw ||
       chartMeta.regularMarketVolume ||
       volume;
+
     dayHigh =
       detail.dayHigh?.raw ||
       priceObj.regularMarketDayHigh?.raw ||
@@ -2378,8 +2338,8 @@ export async function fetchLiveStockFundamentals(ticker: string): Promise<StockQ
       priceObj.regularMarketDayLow?.raw ||
       chartMeta.regularMarketDayLow ||
       currentPrice;
-    yearHigh = detail.fiftyTwoWeekHigh?.raw || chartMeta.fiftyTwoWeekHigh || currentPrice * 1.25;
-    yearLow = detail.fiftyTwoWeekLow?.raw || chartMeta.fiftyTwoWeekLow || currentPrice * 0.75;
+    yearHigh = detail.fiftyTwoWeekHigh?.raw || chartMeta.fiftyTwoWeekHigh || yearHigh;
+    yearLow = detail.fiftyTwoWeekLow?.raw || chartMeta.fiftyTwoWeekLow || yearLow;
 
     if (!isMacroAsset) {
       const rawCap = detail.marketCap?.raw || priceObj.marketCap?.raw || 0;
@@ -2387,22 +2347,29 @@ export async function fetchLiveStockFundamentals(ticker: string): Promise<StockQ
         marketCap = isUS ? Math.round(rawCap / 1_000_000) : Math.round(rawCap / 100_000_000);
       }
 
-      per = stats.trailingPE?.raw || detail.trailingPE?.raw || stats.forwardPE?.raw || null;
-      if (per) per = Number(per.toFixed(1));
-      pbr = stats.priceToBook?.raw || null;
-      if (pbr) pbr = Number(pbr.toFixed(2));
+      const livePer = stats.trailingPE?.raw || detail.trailingPE?.raw || stats.forwardPE?.raw || null;
+      if (livePer && livePer > 0) per = Number(livePer.toFixed(1));
+      const livePbr = stats.priceToBook?.raw || null;
+      if (livePbr && livePbr > 0) pbr = Number(livePbr.toFixed(2));
 
       const rawDiv = detail.dividendYield?.raw;
       if (typeof rawDiv === "number") {
         dividendYield = Number((rawDiv * 100).toFixed(2));
       }
-      dps =
-        detail.dividendRate?.raw ||
-        stats.lastDividendValue?.raw ||
-        (dividendYield ? Number(((currentPrice * dividendYield) / 100).toFixed(1)) : null);
-      eps =
-        stats.trailingEps?.raw ||
-        (per && currentPrice ? Number((currentPrice / per).toFixed(1)) : null);
+      const liveDps = detail.dividendRate?.raw || stats.lastDividendValue?.raw;
+      if (typeof liveDps === "number") {
+        dps = Number(liveDps.toFixed(1));
+      } else if (dividendYield && dividendYield > 0) {
+        dps = Number(((currentPrice * dividendYield) / 100).toFixed(1));
+      }
+
+      const liveEps = stats.trailingEps?.raw;
+      if (typeof liveEps === "number") {
+        eps = Number(liveEps.toFixed(1));
+      } else if (per && currentPrice) {
+        eps = Number((currentPrice / per).toFixed(1));
+      }
+
       const rawRoe = fin.returnOnEquity?.raw;
       if (typeof rawRoe === "number") {
         roe = Number((rawRoe * 100).toFixed(1));
@@ -2412,8 +2379,6 @@ export async function fetchLiveStockFundamentals(ticker: string): Promise<StockQ
         const denom = 1 + debtEquity / 100;
         if (denom > 0) {
           equityRatio = Number((100 / denom).toFixed(1));
-        } else {
-          equityRatio = null;
         }
       }
     } else {
@@ -2441,37 +2406,138 @@ export async function fetchLiveStockFundamentals(ticker: string): Promise<StockQ
 
     if (!isMacroAsset && priceObj.sector) sector = priceObj.sector;
 
+    // Financial statement extraction
     if (!isMacroAsset) {
-      const yearlyChart = earnings.financialsChart?.yearly;
-      if (Array.isArray(yearlyChart) && yearlyChart.length > 0) {
-        const baseEarningsRaw = yearlyChart[yearlyChart.length - 1]?.earnings?.raw;
-        historicalFinances = yearlyChart.map((y) => {
-          const rev = Math.round((y.revenue?.raw || 0) / (isUS ? 1_000_000 : 100_000_000));
-          const net = Math.round((y.earnings?.raw || 0) / (isUS ? 1_000_000 : 100_000_000));
-          const opInc = Math.round(net * 1.3);
-          const earningsRatio =
-            typeof baseEarningsRaw === "number" &&
-            baseEarningsRaw > 0 &&
-            typeof y.earnings?.raw === "number"
-              ? y.earnings.raw / baseEarningsRaw
-              : 1;
-          const yEps = eps ? Math.round(eps * earningsRatio) : 0;
-          const yDps = dps ? Math.round(dps * (y.date < currentYear ? 0.9 : 1)) : 0;
+      const ish = (result as { incomeStatementHistory?: { incomeStatementHistory?: Array<Record<string, { raw?: number; fmt?: string }>> } })?.incomeStatementHistory?.incomeStatementHistory;
+      if (Array.isArray(ish) && ish.length > 0) {
+        historicalFinances = ish.map((stmt) => {
+          const rawDate = stmt.endDate?.fmt || String(stmt.endDate?.raw || "");
+          const dateYear = rawDate.match(/\d{4}/)?.[0] || String(currentYear);
+          const revRaw = stmt.totalRevenue?.raw || 0;
+          const opRaw = stmt.operatingIncome?.raw || 0;
+          const netRaw = stmt.netIncome?.raw || 0;
+          const rev = Math.round(revRaw / (isUS ? 1_000_000 : 100_000_000));
+          const opInc = Math.round(opRaw / (isUS ? 1_000_000 : 100_000_000));
+          const net = Math.round(netRaw / (isUS ? 1_000_000 : 100_000_000));
           return {
-            fiscalYear: isUS ? `${y.date} FY` : `${y.date}/3`,
+            fiscalYear: isUS ? `${dateYear} FY` : `${dateYear}/3`,
             revenue: rev,
             operatingIncome: opInc,
             netIncome: net,
-            eps: yEps,
-            dps: yDps,
+            eps: eps ? Math.round(eps) : 0,
+            dps: dps ? Math.round(dps) : 0,
           };
-        });
+        }).reverse();
+      } else {
+        const yearlyChart = earnings.financialsChart?.yearly;
+        if (Array.isArray(yearlyChart) && yearlyChart.length > 0) {
+          const baseEarningsRaw = yearlyChart[yearlyChart.length - 1]?.earnings?.raw;
+          historicalFinances = yearlyChart.map((y) => {
+            const rev = Math.round((y.revenue?.raw || 0) / (isUS ? 1_000_000 : 100_000_000));
+            const net = Math.round((y.earnings?.raw || 0) / (isUS ? 1_000_000 : 100_000_000));
+            const opInc = Math.round(net * 1.3);
+            const earningsRatio =
+              typeof baseEarningsRaw === "number" &&
+              baseEarningsRaw > 0 &&
+              typeof y.earnings?.raw === "number"
+                ? y.earnings.raw / baseEarningsRaw
+                : 1;
+            const yEps = eps ? Math.round(eps * earningsRatio) : 0;
+            const yDps = dps ? Math.round(dps * (y.date < currentYear ? 0.9 : 1)) : 0;
+            return {
+              fiscalYear: isUS ? `${y.date} FY` : `${y.date}/3`,
+              revenue: rev,
+              operatingIncome: opInc,
+              netIncome: net,
+              eps: yEps,
+              dps: yDps,
+            };
+          });
+        }
       }
     } else {
       historicalFinances = [];
     }
+
+    // Secondary fallback: if summaryData was missing, attempt quote endpoint for real valuation metrics
+    if (!summaryData && !isMacroAsset) {
+      try {
+        const qUrl = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(yahooSymbol)}`;
+        const qRes = await fetch(qUrl, {
+          signal: AbortSignal.timeout(4000),
+          headers: {
+            "User-Agent":
+              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+          },
+        });
+        if (qRes.ok) {
+          const qJson = (await qRes.json()) as {
+            quoteResponse?: { result?: Array<Record<string, unknown>> };
+          };
+          const q = qJson.quoteResponse?.result?.[0];
+          if (q) {
+            if (typeof q.regularMarketPrice === "number" && q.regularMarketPrice > 0) {
+              currentPrice = q.regularMarketPrice;
+              hasLivePrice = true;
+            }
+            if (typeof q.regularMarketChange === "number") change = q.regularMarketChange;
+            if (typeof q.regularMarketChangePercent === "number") changePct = Number(q.regularMarketChangePercent.toFixed(2));
+            if (typeof q.regularMarketPreviousClose === "number") prevClose = q.regularMarketPreviousClose;
+            if (typeof q.regularMarketVolume === "number") volume = q.regularMarketVolume;
+            if (typeof q.regularMarketDayHigh === "number") dayHigh = q.regularMarketDayHigh;
+            if (typeof q.regularMarketDayLow === "number") dayLow = q.regularMarketDayLow;
+            if (typeof q.fiftyTwoWeekHigh === "number") yearHigh = q.fiftyTwoWeekHigh;
+            if (typeof q.fiftyTwoWeekLow === "number") yearLow = q.fiftyTwoWeekLow;
+            if (typeof q.marketCap === "number" && q.marketCap > 0) {
+              marketCap = isUS ? Math.round(q.marketCap / 1_000_000) : Math.round(q.marketCap / 100_000_000);
+            }
+            if (typeof q.trailingPE === "number" && q.trailingPE > 0) per = Number(q.trailingPE.toFixed(1));
+            else if (typeof q.forwardPE === "number" && q.forwardPE > 0) per = Number(q.forwardPE.toFixed(1));
+            if (typeof q.priceToBook === "number" && q.priceToBook > 0) pbr = Number(q.priceToBook.toFixed(2));
+            if (typeof q.trailingAnnualDividendYield === "number") {
+              dividendYield = Number((q.trailingAnnualDividendYield * 100).toFixed(2));
+            } else if (typeof q.dividendYield === "number") {
+              dividendYield = Number(q.dividendYield.toFixed(2));
+            }
+            if (typeof q.dividendRate === "number") dps = Number(q.dividendRate.toFixed(1));
+            else if (typeof q.trailingAnnualDividendRate === "number") dps = Number(q.trailingAnnualDividendRate.toFixed(1));
+            if (typeof q.epsTrailingTwelveMonths === "number") eps = Number(q.epsTrailingTwelveMonths.toFixed(1));
+            const companyName = q.shortName || q.longName;
+            if (typeof companyName === "string" && companyName.trim().length > 0 && !matchedPreset && !baselineAsset) {
+              name = companyName.trim();
+            }
+          }
+        }
+      } catch {
+        // Best effort
+      }
+    }
   } catch {
     // Ignore error and return populated fundamentals
+  }
+
+  // D1 database fallback if offline / Yahoo completely blocked
+  if (!hasLivePrice && env?.DB) {
+    try {
+      const dbRow = await env.DB.prepare("SELECT prices FROM stock_series WHERE ticker = ?").bind(normTicker).first<{ prices?: string }>();
+      if (dbRow?.prices) {
+        const parsedPrices = JSON.parse(dbRow.prices) as Array<{ date: string; close: number }>;
+        if (Array.isArray(parsedPrices) && parsedPrices.length >= 2) {
+          const lastPt = parsedPrices[parsedPrices.length - 1];
+          const prevPt = parsedPrices[parsedPrices.length - 2];
+          if (lastPt && prevPt && Number.isFinite(lastPt.close) && lastPt.close > 0) {
+            currentPrice = lastPt.close;
+            prevClose = prevPt.close;
+            change = Number((currentPrice - prevClose).toFixed(isUS ? 2 : 1));
+            changePct = Number((((currentPrice - prevClose) / prevPt.close) * 100).toFixed(2));
+            sparkline = parsedPrices.slice(-10).map((p) => p.close);
+            hasLivePrice = true;
+          }
+        }
+      }
+    } catch {
+      // DB best effort
+    }
   }
 
   return {
@@ -2499,7 +2565,7 @@ export async function fetchLiveStockFundamentals(ticker: string): Promise<StockQ
     dps,
     sparkline: sparkline.length > 0 ? sparkline : [prevClose * 0.99, prevClose, currentPrice],
     technicalSignal,
-    ...(!hasLivePrice ? { isDemoData: true } : {}),
+    ...((!hasLivePrice && baseline.isDemoData) ? { isDemoData: true } : {}),
     historicalFinances,
   };
 }
@@ -5494,7 +5560,7 @@ export default {
             });
           }
 
-          const stockData = await fetchLiveStockFundamentals(norm);
+          const stockData = await fetchLiveStockFundamentals(norm, env);
           setMemoryCache(memKey, stockData, 300);
           const cacheControl = `public, max-age=60, s-maxage=180, stale-while-revalidate=600, stale-if-error=86400`;
           const etag = await generateETag(JSON.stringify(stockData));

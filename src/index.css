@@ -8142,6 +8142,27 @@ a.footer-creator-note:hover .footer-icon-accent {
   transition: transform 0.15s;
 }
 
+.macro-card-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.macro-card-price-block {
+  text-align: right;
+}
+
+.macro-card-price {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.macro-card-change {
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
 .stock-analysis-macro-card:hover .macro-card-arrow {
   transform: translateX(2px);
   color: var(--neon-cyan, #06b6d4);

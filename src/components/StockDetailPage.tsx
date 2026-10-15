@@ -19,6 +19,7 @@ import {
   formatMarketCapDisplay,
   isMacroAsset,
   getSectorAveragePer,
+  evaluateTechnicalSignal,
   type StockQuoteFundamentals,
 } from "../lib/marketDataService";
 import { useTheme } from "../lib/theme";
@@ -31,6 +32,49 @@ import {
 import { StockTechnicalChart } from "./StockTechnicalChart";
 import { getTradingViewWebUrl } from "../lib/tradingView";
 import type { PageView } from "../lib/navigation";
+
+function getRoeEvaluation(roe: number | null | undefined, isMacro: boolean): string {
+  if (isMacro || roe === null || roe === undefined) return "指数・マクロ指標対象外";
+  if (roe >= 15) return "極めて高い資本効率 (>15%)";
+  if (roe >= 8) return "資本効率良好 (目安: 8%以上)";
+  if (roe > 0) return "標準水準 (8%未満)";
+  return "収益性要改善 (低水準)";
+}
+
+function getMarketCapEvaluation(cap: number | null | undefined, market: string, isMacro: boolean): string {
+  if (isMacro) return "指数・マクロ資産";
+  if (market === "US") {
+    if (cap && cap >= 100000) return "米国メガキャップ (1,000億ドル超)";
+    if (cap && cap >= 10000) return "米国大型優良株 (100億ドル超)";
+    return "米国市場上場株";
+  }
+  if (market === "GROWTH") return "東証グロース市場";
+  if (market === "STANDARD") return "東証スタンダード市場";
+  if (cap && cap >= 100000) return "超大型優良株 (時価総額10兆円超)";
+  if (cap && cap >= 10000) return "大型優良株 (時価総額1兆円超)";
+  if (cap && cap >= 1000) return "中型株 (時価総額1,000億円超)";
+  return "東証プライム市場";
+}
+
+function getPbrEvaluation(pbr: number | null | undefined, isMacro: boolean): string {
+  if (isMacro || pbr === null || pbr === undefined || pbr <= 0) return "指数・マクロ指標対象外";
+  if (pbr < 1.0) return "割安 (解散価値1倍割れ)";
+  if (pbr <= 2.5) return "適正〜標準水準 (1.0〜2.5倍)";
+  if (pbr <= 5.0) return "成長期待水準 (2.5〜5.0倍)";
+  return "高PBR・成長期待水準 (>5.0倍)";
+}
+
+function getDividendEvaluation(dividendYield: number | null | undefined, dps: number | null | undefined, currencyCode: string, isMacro: boolean): string {
+  if (isMacro) return "1株配当: --";
+  if (dividendYield === 0) return "無配・内部留保/成長投資重視";
+  if (dps !== null && dps !== undefined && dps > 0) {
+    return `1株配当: ${dps} ${currencyCode}${dividendYield && dividendYield >= 3.5 ? " (高配当水準)" : ""}`;
+  }
+  if (dividendYield && dividendYield > 0) {
+    return dividendYield >= 3.5 ? "高配当水準 (利回り3.5%超)" : "配当実施中";
+  }
+  return "1株配当: --";
+}
 
 interface StockDetailPageProps {
   ticker?: string;
@@ -426,19 +470,17 @@ export function StockDetailPage({
             {!isMacro && stock.pbr ? `${stock.pbr.toFixed(2)}倍` : "--"}
           </div>
           <span className="tiny muted">
-            {isMacro ? "指数・マクロ指標対象外" : stock.pbr && stock.pbr < 1.0 ? "割安 (1倍割れ)" : "適正水準"}
+            {getPbrEvaluation(stock.pbr, isMacro)}
           </span>
         </div>
 
         <div className="card" style={{ padding: "14px 16px" }}>
           <span className="tiny muted mono uppercase">予想配当利回り</span>
           <div className="mono bold" style={{ fontSize: "1.3rem", marginTop: 4, color: "var(--neon-green)" }}>
-            {!isMacro && stock.dividendYield ? `${stock.dividendYield.toFixed(2)}%` : "--"}
+            {!isMacro && stock.dividendYield !== null && stock.dividendYield !== undefined ? `${stock.dividendYield.toFixed(2)}%` : "--"}
           </div>
           <span className="tiny muted">
-            {isMacro
-              ? "1株配当: --"
-              : `1株配当: ${stock.dps !== null && stock.dps !== undefined ? `${stock.dps} ${currencyMeta.code}` : "--"}`}
+            {getDividendEvaluation(stock.dividendYield, stock.dps, currencyMeta.code, isMacro)}
           </span>
         </div>
 
@@ -448,7 +490,7 @@ export function StockDetailPage({
             {isMacro ? "--" : formatMarketCapDisplay(stock.marketCap, stock.market)}
           </div>
           <span className="tiny muted">
-            {isMacro ? "指数・マクロ資産" : stock.market === "US" ? "グローバル大型株" : "東証大型優良株"}
+            {getMarketCapEvaluation(stock.marketCap, stock.market, isMacro)}
           </span>
         </div>
 
@@ -457,16 +499,41 @@ export function StockDetailPage({
           <div className="mono bold" style={{ fontSize: "1.3rem", marginTop: 4 }}>
             {!isMacro && stock.roe ? `${stock.roe.toFixed(1)}%` : "--"}
           </div>
-          <span className="tiny muted">{isMacro ? "指数・マクロ指標対象外" : "高資本効率 (>8%)"}</span>
+          <span className="tiny muted">{getRoeEvaluation(stock.roe, isMacro)}</span>
         </div>
 
-        <div className="card" style={{ padding: "14px 16px" }}>
-          <span className="tiny muted mono uppercase">テクニカル総合判定</span>
-          <div className="mono bold" style={{ fontSize: "1.1rem", marginTop: 6, color: "var(--accent-text)" }}>
-            {stock.technicalSignal}
-          </div>
-          <span className="tiny muted">移動平均線 & RSI</span>
-        </div>
+        {(() => {
+          const techEval = evaluateTechnicalSignal(stock.changePercent, stock.sparkline, stock.price);
+          const techSignalLabel =
+            stock.technicalSignal === "STRONG_BUY"
+              ? "強気買い"
+              : stock.technicalSignal === "BUY"
+              ? "買い"
+              : stock.technicalSignal === "SELL"
+              ? "売り"
+              : stock.technicalSignal === "STRONG_SELL"
+              ? "強気売り"
+              : "中立";
+
+          const techSignalColor =
+            stock.technicalSignal === "STRONG_BUY" || stock.technicalSignal === "BUY"
+              ? "var(--color-positive, #10b981)"
+              : stock.technicalSignal === "SELL" || stock.technicalSignal === "STRONG_SELL"
+              ? "var(--color-negative, #f43f5e)"
+              : "var(--accent-text, #38bdf8)";
+
+          return (
+            <div className="card" style={{ padding: "14px 16px" }}>
+              <span className="tiny muted mono uppercase">テクニカル総合判定</span>
+              <div className="mono bold" style={{ fontSize: "1.1rem", marginTop: 6, color: techSignalColor }}>
+                {techSignalLabel}
+              </div>
+              <span className="tiny muted" title={techEval.reason}>
+                {techEval.reason}
+              </span>
+            </div>
+          );
+        })()}
       </div>
 
       {/* Tabs: Interactive Chart / Financials */}
