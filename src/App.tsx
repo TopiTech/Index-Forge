@@ -35,6 +35,9 @@ const MarketOverviewPage = lazy(() =>
 const StockDetailPage = lazy(() =>
   import("./components/StockDetailPage").then((m) => ({ default: m.StockDetailPage })),
 );
+const StockAnalysisPage = lazy(() =>
+  import("./components/StockAnalysisPage").then((m) => ({ default: m.StockAnalysisPage })),
+);
 const PortfolioManagerPage = lazy(() =>
   import("./components/PortfolioManagerPage").then((m) => ({ default: m.PortfolioManagerPage })),
 );
@@ -223,11 +226,11 @@ export default function App({
   const sidebarRef = useRef<HTMLElement>(null);
   const sidebarWasOpenRef = useRef(false);
   const [currentView, setCurrentView] = useState<PageView>(getInitialView);
-  const [activeStockTicker, setActiveStockTicker] = useState<string>(() => {
-    if (typeof window === "undefined") return "7203";
+  const [activeStockTicker, setActiveStockTicker] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
     // Deep links come in as both `/stock?ticker=7203` and `/stock/7203`.
     return (
-      resolveStockTicker(window.location.pathname, window.location.search) || "7203"
+      resolveStockTicker(window.location.pathname, window.location.search) || null
     );
   });
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
@@ -394,7 +397,7 @@ export default function App({
 
       if (view === "stock") {
         const ticker = resolveStockTicker(basePath, searchParams);
-        if (ticker) setActiveStockTicker(ticker);
+        setActiveStockTicker(ticker || null);
       }
 
       if (view === "dashboard" && searchParams) {
@@ -498,13 +501,12 @@ export default function App({
       const newView = parseViewFromLocation(window.location.pathname, window.location.search);
       setCurrentView(newView);
       if (newView === "stock") {
-        // Back/forward between two detail pages must follow the URL instead
-        // of keeping whatever ticker was selected last in-app.
+        // Back/forward between detail page and hub must follow the URL
         const ticker = resolveStockTicker(
           window.location.pathname,
           window.location.search,
         );
-        if (ticker) setActiveStockTicker(ticker);
+        setActiveStockTicker(ticker || null);
       }
       if (newView === "dashboard") {
         const params = parseDashboardParams(window.location.search);
@@ -755,7 +757,7 @@ export default function App({
     );
   }
 
-  // Stock Deep-Dive Detail
+  // Stock Analysis Hub & Detail
   if (currentView === "stock") {
     return (
       <PageLayout
@@ -765,13 +767,26 @@ export default function App({
         searchModal={commonSearchModal}
       >
         <Suspense fallback={<LoadingScreen />}>
-          <StockDetailPage
-            ticker={activeStockTicker}
-            onNavigate={navigateTo}
-            onAddToIndex={handleAddStockToIndex}
-            onAddToWatchlist={handleAddToWatchlist}
-            onAddToPortfolio={handleAddToPortfolio}
-          />
+          {activeStockTicker ? (
+            <StockDetailPage
+              ticker={activeStockTicker}
+              onNavigate={navigateTo}
+              onAddToIndex={handleAddStockToIndex}
+              onAddToWatchlist={handleAddToWatchlist}
+              onAddToPortfolio={handleAddToPortfolio}
+            />
+          ) : (
+            <StockAnalysisPage
+              onNavigate={navigateTo}
+              onOpenStockDetail={(t) => {
+                setActiveStockTicker(t);
+                navigateTo("stock", `?ticker=${t}`);
+              }}
+              onAddToIndex={handleAddStockToIndex}
+              onAddToWatchlist={handleAddToWatchlist}
+              onAddToPortfolio={handleAddToPortfolio}
+            />
+          )}
         </Suspense>
       </PageLayout>
     );

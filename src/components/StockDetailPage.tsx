@@ -158,6 +158,16 @@ export function StockDetailPage({
             <button
               type="button"
               className="stock-breadcrumb-link"
+              onClick={() => onNavigate("stock")}
+            >
+              銘柄分析
+            </button>
+          </li>
+          <li className="stock-breadcrumb-separator" aria-hidden="true">/</li>
+          <li className="stock-breadcrumb-item">
+            <button
+              type="button"
+              className="stock-breadcrumb-link"
               onClick={() => onNavigate("market")}
             >
               マーケット
@@ -195,10 +205,11 @@ export function StockDetailPage({
         <button
           type="button"
           className="btn btn-default btn-sm"
-          onClick={() => onNavigate("dashboard")}
+          onClick={() => onNavigate("stock")}
+          aria-label="銘柄分析トップへ戻る"
         >
           <ArrowLeft size={15} />
-          <span>ダッシュボードへ戻る</span>
+          <span>銘柄分析へ戻る</span>
         </button>
 
         <div className="stock-detail-actions-group" style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>

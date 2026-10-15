@@ -1,0 +1,811 @@
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { motion } from "framer-motion";
+import {
+  TrendingUp,
+  TrendingDown,
+  Search,
+  Sparkles,
+  Zap,
+  BarChart2,
+  Sliders,
+  ArrowRight,
+  PieChart,
+  Clock,
+  Layers,
+  ShieldCheck,
+  RefreshCw,
+  ExternalLink,
+  ChevronRight,
+  Globe,
+  Plus,
+  BookmarkPlus,
+  Check,
+} from "lucide-react";
+import {
+  fetchScreenerStocks,
+  getCachedStockFundamentals,
+  formatMarketCapDisplay,
+  type StockQuoteFundamentals,
+} from "../lib/marketDataService";
+import { formatStockPrice, formatStockChange, getCurrencyMeta } from "../lib/currency";
+import { POPULAR_STOCKS } from "../data/popularStocks";
+import { getRecentSearches } from "./GlobalSearchModal";
+import type { PageView } from "../lib/navigation";
+import { useToast } from "./Toast";
+
+export interface StockAnalysisPageProps {
+  onNavigate: (view: PageView, searchParams?: string) => void;
+  onOpenStockDetail: (ticker: string) => void;
+  onAddToIndex?: (ticker: string, name: string, theme: string) => void;
+  onAddToWatchlist?: (ticker: string) => void;
+  onAddToPortfolio?: (ticker: string, currentPrice: number) => void;
+}
+
+type ThemeCategory =
+  | "ALL"
+  | "SEMICONDUCTOR"
+  | "AI_TECH"
+  | "MOBILITY_DEFENSE"
+  | "FINANCE_TRADING"
+  | "HIGH_DIVIDEND"
+  | "US_TECH";
+
+const THEME_TABS: { id: ThemeCategory; label: string; icon: string }[] = [
+  { id: "ALL", label: "主要注目銘柄", icon: "⭐" },
+  { id: "SEMICONDUCTOR", label: "半導体・電子", icon: "⚡" },
+  { id: "AI_TECH", label: "AI・通信・IT", icon: "🤖" },
+  { id: "MOBILITY_DEFENSE", label: "モビリティ・防衛", icon: "🚗" },
+  { id: "FINANCE_TRADING", label: "メガバンク・商社", icon: "🏦" },
+  { id: "HIGH_DIVIDEND", label: "高配当・バリュー", icon: "💰" },
+  { id: "US_TECH", label: "米国メガキャップ", icon: "🇺🇸" },
+];
+
+const POPULAR_SEARCH_CHIPS = [
+  { ticker: "7203", label: "トヨタ (7203)" },
+  { ticker: "NVDA", label: "NVIDIA (NVDA)" },
+  { ticker: "8035", label: "東エレク (8035)" },
+  { ticker: "6758", label: "ソニーG (6758)" },
+  { ticker: "9984", label: "ソフトバンクG (9984)" },
+  { ticker: "8306", label: "三菱UFJ (8306)" },
+  { ticker: "7011", label: "三菱重工 (7011)" },
+  { ticker: "AAPL", label: "Apple (AAPL)" },
+];
+
+const MACRO_QUICK_PICKS = [
+  { symbol: "^N225", name: "日経平均株価", category: "日本主要指数" },
+  { symbol: "^TOPX", name: "TOPIX", category: "東証市場全体" },
+  { symbol: "^GSPC", name: "S&P 500", category: "米国主要500社" },
+  { symbol: "^IXIC", name: "NASDAQ", category: "米国ハイテク指数" },
+  { symbol: "USDJPY=X", name: "米ドル / 円", category: "為替レート" },
+];
+
+export function StockAnalysisPage({
+  onNavigate,
+  onOpenStockDetail,
+  onAddToIndex,
+  onAddToWatchlist,
+  onAddToPortfolio,
+}: StockAnalysisPageProps) {
+  const [stocks, setStocks] = useState<StockQuoteFundamentals[]>(() => {
+    // Initial sync populate from cache to prevent blank screens
+    return POPULAR_STOCKS.map((p) => getCachedStockFundamentals(p.ticker));
+  });
+  const [loading, setLoading] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedTheme, setSelectedTheme] = useState<ThemeCategory>("ALL");
+  const [recentItems, setRecentItems] = useState<{ id: string; title: string; subtitle: string }[]>([]);
+  const [addedWatchlistMap, setAddedWatchlistMap] = useState<Record<string, boolean>>({});
+
+  const { success } = useToast();
+  const mountedRef = useRef(true);
+  const requestIdRef = useRef(0);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    try {
+      const recents = getRecentSearches();
+      setRecentItems(
+        recents
+          .filter((r) => r.type === "stock")
+          .slice(0, 8)
+          .map((r) => ({ id: r.id, title: r.title, subtitle: r.subtitle })),
+      );
+    } catch {
+      // Ignore local storage error
+    }
+    return () => {
+      mountedRef.current = false;
+      requestIdRef.current += 1;
+    };
+  }, []);
+
+  const loadData = useCallback(async (forceRefresh = false) => {
+    const requestId = ++requestIdRef.current;
+    setLoading(true);
+    try {
+      const data = await fetchScreenerStocks({}, forceRefresh);
+      if (!mountedRef.current || requestId !== requestIdRef.current) return;
+      if (data && data.length > 0) {
+        setStocks(data);
+      }
+    } catch {
+      // Keep cached data
+    } finally {
+      if (mountedRef.current && requestId === requestIdRef.current) {
+        setLoading(false);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadData();
+  }, [loadData]);
+
+  // Filter stocks by theme category
+  const themeFilteredStocks = useMemo(() => {
+    if (selectedTheme === "ALL") return stocks;
+    return stocks.filter((stock) => {
+      const theme = stock.theme || "";
+      const sector = stock.sector || "";
+      const isUS = stock.market === "US";
+
+      switch (selectedTheme) {
+        case "SEMICONDUCTOR":
+          return (
+            theme.includes("半導体") ||
+            sector.includes("半導体") ||
+            theme.includes("電子") ||
+            ["8035", "6857", "6920", "6723", "7735", "6146", "4063"].includes(stock.ticker)
+          );
+        case "AI_TECH":
+          return (
+            theme.includes("AI") ||
+            theme.includes("通信") ||
+            theme.includes("クラウド") ||
+            theme.includes("IT") ||
+            ["9984", "9432", "9433", "9434", "3778", "4689", "6702"].includes(stock.ticker)
+          );
+        case "MOBILITY_DEFENSE":
+          return (
+            theme.includes("自動車") ||
+            theme.includes("モビリティ") ||
+            theme.includes("防衛") ||
+            ["7203", "7267", "7269", "7201", "6902", "7011", "7012", "7013"].includes(stock.ticker)
+          );
+        case "FINANCE_TRADING":
+          return (
+            theme.includes("メガバンク") ||
+            theme.includes("総合商社") ||
+            theme.includes("金融") ||
+            theme.includes("保険") ||
+            ["8306", "8316", "8411", "8058", "8001", "8031", "8053", "8002", "8766", "8604"].includes(stock.ticker)
+          );
+        case "HIGH_DIVIDEND":
+          return (stock.dividendYield ?? 0) >= 3.0 || (stock.pbr !== null && stock.pbr < 1.2);
+        case "US_TECH":
+          return isUS || ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA"].includes(stock.ticker);
+        default:
+          return true;
+      }
+    });
+  }, [stocks, selectedTheme]);
+
+  // Search filtered results
+  const searchResults = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return [];
+    return stocks
+      .filter((s) => {
+        return (
+          s.ticker.toLowerCase().includes(q) ||
+          s.name.toLowerCase().includes(q) ||
+          (s.theme && s.theme.toLowerCase().includes(q)) ||
+          (s.sector && s.sector.toLowerCase().includes(q))
+        );
+      })
+      .slice(0, 10);
+  }, [stocks, searchQuery]);
+
+  // Market movers
+  const topGainers = useMemo(() => {
+    return [...stocks].sort((a, b) => b.changePercent - a.changePercent).slice(0, 4);
+  }, [stocks]);
+
+  const topLosers = useMemo(() => {
+    return [...stocks].sort((a, b) => a.changePercent - b.changePercent).slice(0, 4);
+  }, [stocks]);
+
+  const highYieldPicks = useMemo(() => {
+    return [...stocks]
+      .filter((s) => (s.dividendYield ?? 0) > 0)
+      .sort((a, b) => (b.dividendYield ?? 0) - (a.dividendYield ?? 0))
+      .slice(0, 4);
+  }, [stocks]);
+
+  const handleSearchSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (searchResults.length > 0) {
+      onOpenStockDetail(searchResults[0].ticker);
+    } else if (searchQuery.trim()) {
+      onOpenStockDetail(searchQuery.trim().toUpperCase());
+    }
+  };
+
+  const handleToggleWatchlist = (e: React.MouseEvent, ticker: string, name: string) => {
+    e.stopPropagation();
+    onAddToWatchlist?.(ticker);
+    setAddedWatchlistMap((prev) => ({ ...prev, [ticker]: true }));
+    success(`${name} (${ticker}) を監視リストに追加しました`);
+  };
+
+  const renderSparkline = (data?: number[], isPositive = true) => {
+    if (!data || data.length < 2) return null;
+    const min = Math.min(...data);
+    const max = Math.max(...data);
+    const range = max - min || 1;
+    const width = 80;
+    const height = 28;
+
+    const points = data
+      .map((val, idx) => {
+        const x = (idx / (data.length - 1)) * width;
+        const y = height - ((val - min) / range) * (height - 6) - 3;
+        return `${x.toFixed(1)},${y.toFixed(1)}`;
+      })
+      .join(" ");
+
+    const strokeColor = isPositive ? "var(--neon-green, #10b981)" : "var(--neon-pink, #f43f5e)";
+
+    return (
+      <svg width={width} height={height} className="stock-analysis-sparkline" aria-hidden="true">
+        <polyline
+          fill="none"
+          stroke={strokeColor}
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          points={points}
+        />
+      </svg>
+    );
+  };
+
+  return (
+    <div className="page-container stock-analysis-hub-page">
+      {/* Hero Header Section */}
+      <motion.div
+        initial={{ opacity: 0, y: -8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.3 }}
+        className="stock-analysis-hero-card"
+      >
+        <div className="stock-analysis-hero-header">
+          <div className="stock-analysis-hero-badge">
+            <Sparkles size={13} className="text-cyan animate-pulse" />
+            <span>INDIVIDUAL STOCK ANALYSIS PORTAL</span>
+          </div>
+          <div className="stock-analysis-hero-actions">
+            <button
+              type="button"
+              className="btn btn-sm btn-outline"
+              onClick={() => onNavigate("screener")}
+              title="詳細スクリーナーで4,500銘柄から条件検索"
+            >
+              <Zap size={14} />
+              <span>スクリーナーを開く</span>
+            </button>
+            <button
+              type="button"
+              className="btn btn-sm btn-ghost"
+              onClick={() => void loadData(true)}
+              disabled={loading}
+              title="市場データを再取得"
+              aria-label="市場データを再取得"
+            >
+              <RefreshCw size={14} className={loading ? "spin animate-spin" : ""} />
+            </button>
+          </div>
+        </div>
+
+        <div className="stock-analysis-hero-content">
+          <h1 className="stock-analysis-title">銘柄分析ハブ</h1>
+          <p className="stock-analysis-subtitle">
+            日本株・米国株の財務指標、テクニカルチャート、業績推移を深掘り分析。気になる銘柄を検索・選択して詳細レポートを展開します。
+          </p>
+
+          {/* Interactive Search Bar */}
+          <form
+            onSubmit={handleSearchSubmit}
+            className="stock-analysis-search-form"
+            role="search"
+            aria-label="銘柄検索"
+          >
+            <div className="stock-analysis-search-input-wrapper">
+              <Search size={18} className="stock-analysis-search-icon" aria-hidden="true" />
+              <input
+                type="text"
+                className="stock-analysis-search-input"
+                placeholder="銘柄コード（例: 7203）、企業名（例: トヨタ）、米国株（例: NVDA）で即座に分析..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                aria-label="銘柄コード・企業名を入力"
+                autoComplete="off"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  className="stock-analysis-search-clear"
+                  onClick={() => setSearchQuery("")}
+                  aria-label="検索キーワードをクリア"
+                >
+                  ✕
+                </button>
+              )}
+              <button
+                type="submit"
+                className="btn btn-primary stock-analysis-search-submit-btn"
+                disabled={!searchQuery.trim()}
+              >
+                <span>分析する</span>
+                <ArrowRight size={15} />
+              </button>
+            </div>
+
+            {/* Instant Search Suggestions Dropdown */}
+            {searchQuery.trim() && (
+              <div className="stock-analysis-search-dropdown" role="listbox">
+                {searchResults.length > 0 ? (
+                  searchResults.map((item) => (
+                    <div
+                      key={item.ticker}
+                      role="option"
+                      tabIndex={0}
+                      aria-selected={false}
+                      className="stock-analysis-search-dropdown-item"
+                      onClick={() => onOpenStockDetail(item.ticker)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          onOpenStockDetail(item.ticker);
+                        }
+                      }}
+                    >
+                      <div className="stock-analysis-search-item-info">
+                        <span className="stock-analysis-search-ticker">{item.ticker}</span>
+                        <span className="stock-analysis-search-name">{item.name}</span>
+                        <span className="stock-analysis-search-theme">{item.theme || item.sector}</span>
+                      </div>
+                      <div className="stock-analysis-search-item-price">
+                        <span className="price-val">
+                          {formatStockPrice(item.price, item.ticker, { market: item.market })}
+                        </span>
+                        <span
+                          className={`change-val ${item.changePercent >= 0 ? "positive" : "negative"}`}
+                        >
+                          {formatStockChange(item.change, item.ticker, { market: item.market })} ({item.changePercent >= 0 ? "+" : ""}{item.changePercent.toFixed(2)}%)
+                        </span>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="stock-analysis-search-empty">
+                    <span>一致する銘柄が見つかりませんでした。「{searchQuery}」のコードで直接分析を開くことができます。</span>
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-outline mt-2"
+                      onClick={() => onOpenStockDetail(searchQuery.trim().toUpperCase())}
+                    >
+                      コード「{searchQuery.trim().toUpperCase()}」で詳細を開く
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </form>
+
+          {/* Quick Search Chips */}
+          <div className="stock-analysis-chips-row">
+            <span className="stock-analysis-chips-label">人気の銘柄:</span>
+            <div className="stock-analysis-chips-list">
+              {POPULAR_SEARCH_CHIPS.map((chip) => (
+                <button
+                  key={chip.ticker}
+                  type="button"
+                  className="stock-analysis-chip-btn"
+                  onClick={() => onOpenStockDetail(chip.ticker)}
+                >
+                  {chip.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </motion.div>
+
+      {/* Recent Viewed Stocks (if any) */}
+      {recentItems.length > 0 && (
+        <section className="stock-analysis-section" aria-label="最近閲覧した銘柄">
+          <div className="stock-analysis-section-header">
+            <div className="stock-analysis-section-title-wrap">
+              <Clock size={16} className="text-secondary" />
+              <h2 className="stock-analysis-section-title">最近閲覧した銘柄</h2>
+            </div>
+          </div>
+          <div className="stock-analysis-recent-grid">
+            {recentItems.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                className="stock-analysis-recent-card"
+                onClick={() => onOpenStockDetail(item.id)}
+              >
+                <div className="stock-analysis-recent-id">{item.id}</div>
+                <div className="stock-analysis-recent-name">{item.title}</div>
+                <ChevronRight size={14} className="stock-analysis-recent-arrow" />
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* Market Movers: Gainers, Losers, and High Dividend Spotlight */}
+      <section className="stock-analysis-section" aria-label="マーケット動向と注目銘柄">
+        <div className="stock-analysis-section-header">
+          <div className="stock-analysis-section-title-wrap">
+            <BarChart2 size={18} className="text-cyan" />
+            <h2 className="stock-analysis-section-title">本日の市場注目銘柄</h2>
+          </div>
+          <span className="stock-analysis-section-caption">急騰・急落および割安高配当のピックアップ</span>
+        </div>
+
+        <div className="stock-analysis-movers-grid">
+          {/* Top Gainers Column */}
+          <div className="stock-analysis-mover-col">
+            <div className="stock-analysis-mover-header gainers">
+              <TrendingUp size={16} />
+              <span>本日の値上がり上位</span>
+            </div>
+            <div className="stock-analysis-mover-list">
+              {topGainers.map((item) => (
+                <div
+                  key={item.ticker}
+                  role="button"
+                  tabIndex={0}
+                  className="stock-analysis-mover-row"
+                  onClick={() => onOpenStockDetail(item.ticker)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      onOpenStockDetail(item.ticker);
+                    }
+                  }}
+                >
+                  <div className="stock-analysis-mover-left">
+                    <span className="stock-mover-ticker">{item.ticker}</span>
+                    <span className="stock-mover-name" title={item.name}>
+                      {item.name}
+                    </span>
+                  </div>
+                  <div className="stock-analysis-mover-right">
+                    <span className="stock-mover-price">
+                      {formatStockPrice(item.price, item.ticker, { market: item.market })}
+                    </span>
+                    <span className="stock-mover-change positive">
+                      +{item.changePercent.toFixed(2)}%
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Top Losers Column */}
+          <div className="stock-analysis-mover-col">
+            <div className="stock-analysis-mover-header losers">
+              <TrendingDown size={16} />
+              <span>本日の値下がり上位</span>
+            </div>
+            <div className="stock-analysis-mover-list">
+              {topLosers.map((item) => (
+                <div
+                  key={item.ticker}
+                  role="button"
+                  tabIndex={0}
+                  className="stock-analysis-mover-row"
+                  onClick={() => onOpenStockDetail(item.ticker)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      onOpenStockDetail(item.ticker);
+                    }
+                  }}
+                >
+                  <div className="stock-analysis-mover-left">
+                    <span className="stock-mover-ticker">{item.ticker}</span>
+                    <span className="stock-mover-name" title={item.name}>
+                      {item.name}
+                    </span>
+                  </div>
+                  <div className="stock-analysis-mover-right">
+                    <span className="stock-mover-price">
+                      {formatStockPrice(item.price, item.ticker, { market: item.market })}
+                    </span>
+                    <span className="stock-mover-change negative">
+                      {item.changePercent.toFixed(2)}%
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* High Dividend Spotlight Column */}
+          <div className="stock-analysis-mover-col">
+            <div className="stock-analysis-mover-header dividend">
+              <Sparkles size={16} />
+              <span>高配当・バリュー注目株</span>
+            </div>
+            <div className="stock-analysis-mover-list">
+              {highYieldPicks.map((item) => (
+                <div
+                  key={item.ticker}
+                  role="button"
+                  tabIndex={0}
+                  className="stock-analysis-mover-row"
+                  onClick={() => onOpenStockDetail(item.ticker)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      onOpenStockDetail(item.ticker);
+                    }
+                  }}
+                >
+                  <div className="stock-analysis-mover-left">
+                    <span className="stock-mover-ticker">{item.ticker}</span>
+                    <span className="stock-mover-name" title={item.name}>
+                      {item.name}
+                    </span>
+                  </div>
+                  <div className="stock-analysis-mover-right">
+                    <span className="stock-mover-price">
+                      利回り {(item.dividendYield ?? 0).toFixed(2)}%
+                    </span>
+                    <span className="stock-mover-change neutral">
+                      PBR {item.pbr !== null ? `${item.pbr.toFixed(2)}x` : "-"}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Featured Stock Explorer by Theme */}
+      <section className="stock-analysis-section" aria-label="テーマ別個別銘柄一覧">
+        <div className="stock-analysis-section-header flex-col-sm">
+          <div>
+            <div className="stock-analysis-section-title-wrap">
+              <Layers size={18} className="text-cyan" />
+              <h2 className="stock-analysis-section-title">注目セクター・テーマ別銘柄</h2>
+            </div>
+            <span className="stock-analysis-section-caption">
+              主要代表銘柄の株価・ファンダメンタルズ・テクニカル評価
+            </span>
+          </div>
+
+          {/* Theme Selector Tabs */}
+          <div className="stock-analysis-theme-tabs" role="tablist" aria-label="テーマ切り替え">
+            {THEME_TABS.map((tab) => {
+              const isActive = selectedTheme === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={isActive}
+                  className={`stock-analysis-theme-tab ${isActive ? "active" : ""}`}
+                  onClick={() => setSelectedTheme(tab.id)}
+                >
+                  <span className="tab-icon" aria-hidden="true">
+                    {tab.icon}
+                  </span>
+                  <span>{tab.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Stock Cards Grid */}
+        <div className="stock-analysis-cards-grid">
+          {themeFilteredStocks.map((stock) => {
+            const isPositive = stock.changePercent >= 0;
+            const isAdded = Boolean(addedWatchlistMap[stock.ticker]);
+
+            return (
+              <motion.div
+                key={stock.ticker}
+                whileHover={{ y: -3 }}
+                transition={{ duration: 0.18 }}
+                className="stock-analysis-card"
+                onClick={() => onOpenStockDetail(stock.ticker)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    onOpenStockDetail(stock.ticker);
+                  }
+                }}
+              >
+                {/* Card Top: Ticker, Market, Theme & Actions */}
+                <div className="stock-card-top">
+                  <div className="stock-card-badges">
+                    <span className="stock-card-ticker">{stock.ticker}</span>
+                    <span className="stock-card-market">
+                      {stock.market === "US" ? "米国株" : "東証プライム"}
+                    </span>
+                    {stock.theme && <span className="stock-card-theme">{stock.theme}</span>}
+                  </div>
+                  <div className="stock-card-actions">
+                    <button
+                      type="button"
+                      className={`stock-card-action-btn ${isAdded ? "added" : ""}`}
+                      onClick={(e) => handleToggleWatchlist(e, stock.ticker, stock.name)}
+                      title={isAdded ? "監視リスト追加済み" : "監視リストに追加"}
+                      aria-label={`${stock.name}を監視リストに追加`}
+                    >
+                      {isAdded ? <Check size={13} /> : <BookmarkPlus size={13} />}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Card Body: Name, Price, Change */}
+                <div className="stock-card-body">
+                  <h3 className="stock-card-name" title={stock.name}>
+                    {stock.name}
+                  </h3>
+                  <div className="stock-card-price-row">
+                    <div>
+                      <div className="stock-card-price">
+                        {formatStockPrice(stock.price, stock.ticker, { market: stock.market })}
+                      </div>
+                      <div className={`stock-card-change ${isPositive ? "positive" : "negative"}`}>
+                        {formatStockChange(stock.change, stock.ticker, { market: stock.market })} ({isPositive ? "+" : ""}{stock.changePercent.toFixed(2)}%)
+                      </div>
+                    </div>
+                    <div className="stock-card-sparkline-wrap">
+                      {renderSparkline(stock.sparkline, isPositive)}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Card Metrics Grid: PER, PBR, Dividend, Signal */}
+                <div className="stock-card-metrics">
+                  <div className="stock-card-metric-item">
+                    <span className="metric-label">PER</span>
+                    <span className="metric-value">
+                      {stock.per !== null ? `${stock.per.toFixed(1)}x` : "-"}
+                    </span>
+                  </div>
+                  <div className="stock-card-metric-item">
+                    <span className="metric-label">PBR</span>
+                    <span className="metric-value">
+                      {stock.pbr !== null ? `${stock.pbr.toFixed(2)}x` : "-"}
+                    </span>
+                  </div>
+                  <div className="stock-card-metric-item">
+                    <span className="metric-label">配当利回り</span>
+                    <span className="metric-value">
+                      {stock.dividendYield !== null ? `${stock.dividendYield.toFixed(2)}%` : "-"}
+                    </span>
+                  </div>
+                  <div className="stock-card-metric-item">
+                    <span className="metric-label">評価シグナル</span>
+                    <span
+                      className={`metric-signal-badge ${
+                        stock.technicalSignal === "STRONG_BUY" || stock.technicalSignal === "BUY"
+                          ? "bullish"
+                          : stock.technicalSignal === "SELL" || stock.technicalSignal === "STRONG_SELL"
+                          ? "bearish"
+                          : "neutral"
+                      }`}
+                    >
+                      {stock.technicalSignal === "STRONG_BUY"
+                        ? "強気買い"
+                        : stock.technicalSignal === "BUY"
+                        ? "買い"
+                        : stock.technicalSignal === "SELL"
+                        ? "売り"
+                        : stock.technicalSignal === "STRONG_SELL"
+                        ? "強気売り"
+                        : "中立"}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Card Footer: Detail Link Indicator */}
+                <div className="stock-card-footer">
+                  <span className="stock-card-explore-text">詳細チャート・財務を見る</span>
+                  <ChevronRight size={14} className="stock-card-arrow" />
+                </div>
+              </motion.div>
+            );
+          })}
+        </div>
+      </section>
+
+      {/* Macro & Index Quick Access Section */}
+      <section className="stock-analysis-section" aria-label="主要市場指数と為替">
+        <div className="stock-analysis-section-header">
+          <div className="stock-analysis-section-title-wrap">
+            <Globe size={18} className="text-cyan" />
+            <h2 className="stock-analysis-section-title">主要指数・マクロ市場の分析</h2>
+          </div>
+          <span className="stock-analysis-section-caption">
+            日経平均・S&P500・為替などマクロ資産のチャート分析
+          </span>
+        </div>
+
+        <div className="stock-analysis-macro-grid">
+          {MACRO_QUICK_PICKS.map((macro) => (
+            <div
+              key={macro.symbol}
+              role="button"
+              tabIndex={0}
+              className="stock-analysis-macro-card"
+              onClick={() => onOpenStockDetail(macro.symbol)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  onOpenStockDetail(macro.symbol);
+                }
+              }}
+            >
+              <div className="macro-card-left">
+                <span className="macro-symbol">{macro.symbol}</span>
+                <span className="macro-name">{macro.name}</span>
+                <span className="macro-cat">{macro.category}</span>
+              </div>
+              <ChevronRight size={16} className="macro-card-arrow" />
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* Platform Synergy Footer Banner */}
+      <div className="stock-analysis-synergy-banner">
+        <div className="synergy-banner-content">
+          <div className="synergy-banner-icon-wrap">
+            <Sliders size={24} className="text-cyan" />
+          </div>
+          <div>
+            <h3 className="synergy-banner-title">気になる銘柄を組み合わせてオリジナル指数を作成</h3>
+            <p className="synergy-banner-desc">
+              お気に入りの銘柄や分析した銘柄を束ねて、世界にひとつだけのカスタム株価指数やポートフォリオをシミュレーションできます。
+            </p>
+          </div>
+        </div>
+        <div className="synergy-banner-buttons">
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={() => onNavigate("builder")}
+          >
+            <Sliders size={15} />
+            <span>指数ビルダーへ移動</span>
+          </button>
+          <button
+            type="button"
+            className="btn btn-outline"
+            onClick={() => onNavigate("portfolio")}
+          >
+            <PieChart size={15} />
+            <span>ポートフォリオ管理へ</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
