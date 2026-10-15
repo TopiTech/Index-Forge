@@ -12,9 +12,7 @@ import {
   PieChart,
   Clock,
   Layers,
-  ShieldCheck,
   RefreshCw,
-  ExternalLink,
   ChevronRight,
   Globe,
   Plus,
@@ -27,7 +25,7 @@ import {
   formatMarketCapDisplay,
   type StockQuoteFundamentals,
 } from "../lib/marketDataService";
-import { formatStockPrice, formatStockChange, getCurrencyMeta } from "../lib/currency";
+import { formatStockPrice, formatStockChange } from "../lib/currency";
 import { POPULAR_STOCKS } from "../data/popularStocks";
 import { searchStockUniverse } from "../data/stockUniverse";
 import { getRecentSearches } from "./GlobalSearchModal";
@@ -93,6 +91,7 @@ export function StockAnalysisPage({
   });
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [isSearchDropdownOpen, setIsSearchDropdownOpen] = useState(false);
   const [selectedTheme, setSelectedTheme] = useState<ThemeCategory>("ALL");
   const [recentItems, setRecentItems] = useState<{ id: string; title: string; subtitle: string }[]>([]);
   const [addedWatchlistMap, setAddedWatchlistMap] = useState<Record<string, boolean>>({});
@@ -100,6 +99,17 @@ export function StockAnalysisPage({
   const { success } = useToast();
   const mountedRef = useRef(true);
   const requestIdRef = useRef(0);
+  const searchFormRef = useRef<HTMLFormElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (searchFormRef.current && !searchFormRef.current.contains(e.target as Node)) {
+        setIsSearchDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -231,6 +241,7 @@ export function StockAnalysisPage({
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    setIsSearchDropdownOpen(false);
     if (searchResults.length > 0) {
       onOpenStockDetail(searchResults[0].ticker);
     } else if (searchQuery.trim()) {
@@ -322,6 +333,7 @@ export function StockAnalysisPage({
 
           {/* Interactive Search Bar */}
           <form
+            ref={searchFormRef}
             onSubmit={handleSearchSubmit}
             className="stock-analysis-search-form"
             role="search"
@@ -334,7 +346,18 @@ export function StockAnalysisPage({
                 className="stock-analysis-search-input"
                 placeholder="銘柄コード（例: 7203）、企業名（例: トヨタ）、米国株（例: NVDA）で即座に分析..."
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                onFocus={() => {
+                  if (searchQuery.trim()) setIsSearchDropdownOpen(true);
+                }}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  setIsSearchDropdownOpen(true);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") {
+                    setIsSearchDropdownOpen(false);
+                  }
+                }}
                 aria-label="銘柄コード・企業名を入力"
                 autoComplete="off"
               />
@@ -342,7 +365,10 @@ export function StockAnalysisPage({
                 <button
                   type="button"
                   className="stock-analysis-search-clear"
-                  onClick={() => setSearchQuery("")}
+                  onClick={() => {
+                    setSearchQuery("");
+                    setIsSearchDropdownOpen(false);
+                  }}
                   aria-label="検索キーワードをクリア"
                 >
                   ✕
@@ -359,7 +385,7 @@ export function StockAnalysisPage({
             </div>
 
             {/* Instant Search Suggestions Dropdown */}
-            {searchQuery.trim() && (
+            {isSearchDropdownOpen && searchQuery.trim() && (
               <div className="stock-analysis-search-dropdown" role="listbox">
                 {searchResults.length > 0 ? (
                   searchResults.map((item) => (
@@ -369,11 +395,18 @@ export function StockAnalysisPage({
                       tabIndex={0}
                       aria-selected={false}
                       className="stock-analysis-search-dropdown-item"
-                      onClick={() => onOpenStockDetail(item.ticker)}
+                      onClick={() => {
+                        setIsSearchDropdownOpen(false);
+                        onOpenStockDetail(item.ticker);
+                      }}
                       onKeyDown={(e) => {
                         if (e.key === "Enter" || e.key === " ") {
                           e.preventDefault();
+                          setIsSearchDropdownOpen(false);
                           onOpenStockDetail(item.ticker);
+                        } else if (e.key === "Escape") {
+                          e.preventDefault();
+                          setIsSearchDropdownOpen(false);
                         }
                       }}
                     >
@@ -660,8 +693,43 @@ export function StockAnalysisPage({
                         : "東証プライム"}
                     </span>
                     {stock.theme && <span className="stock-card-theme">{stock.theme}</span>}
+                    {stock.marketCap > 0 && (
+                      <span className="stock-card-cap" title="時価総額">
+                        {formatMarketCapDisplay(stock.marketCap, stock.market)}
+                      </span>
+                    )}
                   </div>
                   <div className="stock-card-actions">
+                    {onAddToIndex && (
+                      <button
+                        type="button"
+                        className="stock-card-action-btn"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onAddToIndex(stock.ticker, stock.name, stock.theme || "その他");
+                          success(`${stock.name} (${stock.ticker}) を指数に追加しました`);
+                        }}
+                        title="指数に追加"
+                        aria-label={`${stock.name}を指数に追加`}
+                      >
+                        <Plus size={13} />
+                      </button>
+                    )}
+                    {onAddToPortfolio && (
+                      <button
+                        type="button"
+                        className="stock-card-action-btn"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onAddToPortfolio(stock.ticker, stock.price);
+                          success(`${stock.name} (${stock.ticker}) をポートフォリオに追加しました`);
+                        }}
+                        title="ポートフォリオに追加"
+                        aria-label={`${stock.name}をポートフォリオに追加`}
+                      >
+                        <PieChart size={13} />
+                      </button>
+                    )}
                     <button
                       type="button"
                       className={`stock-card-action-btn ${isAdded ? "added" : ""}`}

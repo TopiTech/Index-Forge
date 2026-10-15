@@ -1475,11 +1475,6 @@ export function getStockFundamentals(ticker: string): StockQuoteFundamentals {
           ? "CRYPTO"
           : (anchor?.sector ?? (isUS ? "Information Tech" : "電気機器・精密"));
 
-  let technicalSignal: StockQuoteFundamentals["technicalSignal"] = "BUY";
-  if (changePct > 2.0) technicalSignal = "STRONG_BUY";
-  else if (changePct > 0) technicalSignal = "BUY";
-  else if (changePct > -1.5) technicalSignal = "NEUTRAL";
-  else technicalSignal = "SELL";
 
   // 4 years historical financial performance
   const currentYear = new Date().getFullYear();

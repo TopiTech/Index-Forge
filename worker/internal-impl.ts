@@ -2252,6 +2252,10 @@ interface YahooQuoteSummaryResponse {
         forwardEps?: { raw?: number };
         priceToBook?: { raw?: number };
         sharesOutstanding?: { raw?: number };
+        trailingPE?: { raw?: number };
+        forwardPE?: { raw?: number };
+        lastDividendValue?: { raw?: number };
+        debtToEquity?: { raw?: number };
       };
       summaryDetail?: {
         trailingPE?: { raw?: number };
@@ -2260,6 +2264,10 @@ interface YahooQuoteSummaryResponse {
         dividendRate?: { raw?: number };
         fiftyTwoWeekHigh?: { raw?: number };
         fiftyTwoWeekLow?: { raw?: number };
+        volume?: { raw?: number };
+        dayHigh?: { raw?: number };
+        dayLow?: { raw?: number };
+        marketCap?: { raw?: number };
       };
       earnings?: {
         financialsChart?: {
@@ -2597,9 +2605,10 @@ export async function fetchLiveStockFundamentals(ticker: string, env?: Env): Pro
                 ? y.earnings.raw / baseEarningsRaw
                 : 1;
             const yEps = eps ? Math.round(eps * earningsRatio) : 0;
-            const yDps = dps ? Math.round(dps * (y.date < currentYear ? 0.9 : 1)) : 0;
+            const yDate = typeof y.date === "number" ? y.date : currentYear;
+            const yDps = dps ? Math.round(dps * (yDate < currentYear ? 0.9 : 1)) : 0;
             return {
-              fiscalYear: isUS ? `${y.date} FY` : `${y.date}/3`,
+              fiscalYear: isUS ? `${yDate} FY` : `${yDate}/3`,
               revenue: rev,
               operatingIncome: opInc,
               netIncome: net,
@@ -5555,30 +5564,36 @@ export default {
             return json({ error: "Rate limit exceeded. Please try again later." }, 429, request);
           }
 
+          const forceRefresh =
+            url.searchParams.get("refresh") !== null ||
+            requestsFreshCalculation(request);
+
           const memKey = "ticker:quotes";
-          const memCachedEntry = getMemoryCacheEntry<{
-            updatedAt: string;
-            quotes: TickerPriceQuote[];
-            allStale?: boolean;
-          }>(memKey);
-          if (memCachedEntry) {
-            const memCached = memCachedEntry.data;
-            const remainingTtl = memCachedEntry.remainingSeconds;
-            const isStale = Boolean(memCached.allStale);
-            const edgeTtl = isStale ? Math.min(10, remainingTtl) : Math.min(60, remainingTtl);
-            const browserTtl = isStale ? Math.min(5, remainingTtl) : Math.min(30, remainingTtl);
-            const cacheControl = `public, max-age=${browserTtl}, s-maxage=${edgeTtl}, stale-while-revalidate=120, stale-if-error=86400`;
-            const etag = await generateETag(JSON.stringify(memCached));
-            if (matchesIfNoneMatch(request.headers.get("if-none-match"), etag)) {
-              return notModified(request, {
+          if (!forceRefresh) {
+            const memCachedEntry = getMemoryCacheEntry<{
+              updatedAt: string;
+              quotes: TickerPriceQuote[];
+              allStale?: boolean;
+            }>(memKey);
+            if (memCachedEntry) {
+              const memCached = memCachedEntry.data;
+              const remainingTtl = memCachedEntry.remainingSeconds;
+              const isStale = Boolean(memCached.allStale);
+              const edgeTtl = isStale ? Math.min(10, remainingTtl) : Math.min(60, remainingTtl);
+              const browserTtl = isStale ? Math.min(5, remainingTtl) : Math.min(30, remainingTtl);
+              const cacheControl = `public, max-age=${browserTtl}, s-maxage=${edgeTtl}, stale-while-revalidate=120, stale-if-error=86400`;
+              const etag = await generateETag(JSON.stringify(memCached));
+              if (matchesIfNoneMatch(request.headers.get("if-none-match"), etag)) {
+                return notModified(request, {
+                  etag,
+                  "cache-control": cacheControl,
+                });
+              }
+              return json(memCached, 200, request, {
                 etag,
                 "cache-control": cacheControl,
               });
             }
-            return json(memCached, 200, request, {
-              etag,
-              "cache-control": cacheControl,
-            });
           }
 
           const quotes = await fetchAllTickerQuotes(lastKnownTickerQuotes);
@@ -5602,7 +5617,7 @@ export default {
           const browserTtl = allStale ? 5 : 30;
           const cacheControl = `public, max-age=${browserTtl}, s-maxage=${edgeTtl}, stale-while-revalidate=120, stale-if-error=86400`;
           const etag = await generateETag(JSON.stringify(responseData));
-          if (matchesIfNoneMatch(request.headers.get("if-none-match"), etag)) {
+          if (!forceRefresh && matchesIfNoneMatch(request.headers.get("if-none-match"), etag)) {
             return notModified(request, {
               etag,
               "cache-control": cacheControl,
@@ -5635,25 +5650,31 @@ export default {
             return json({ error: "Rate limit exceeded. Please try again later." }, 429, request);
           }
 
+          const forceRefresh =
+            url.searchParams.get("refresh") !== null ||
+            requestsFreshCalculation(request);
+
           const memKey = "overview:market";
-          const memCachedEntry = getMemoryCacheEntry<MarketOverviewData>(memKey);
-          if (memCachedEntry) {
-            const memCached = memCachedEntry.data;
-            const remainingTtl = memCachedEntry.remainingSeconds;
-            const edgeTtl = Math.min(60, remainingTtl);
-            const browserTtl = Math.min(30, remainingTtl);
-            const cacheControl = `public, max-age=${browserTtl}, s-maxage=${edgeTtl}, stale-while-revalidate=300, stale-if-error=86400`;
-            const etag = await generateETag(JSON.stringify(memCached));
-            if (matchesIfNoneMatch(request.headers.get("if-none-match"), etag)) {
-              return notModified(request, {
+          if (!forceRefresh) {
+            const memCachedEntry = getMemoryCacheEntry<MarketOverviewData>(memKey);
+            if (memCachedEntry) {
+              const memCached = memCachedEntry.data;
+              const remainingTtl = memCachedEntry.remainingSeconds;
+              const edgeTtl = Math.min(60, remainingTtl);
+              const browserTtl = Math.min(30, remainingTtl);
+              const cacheControl = `public, max-age=${browserTtl}, s-maxage=${edgeTtl}, stale-while-revalidate=300, stale-if-error=86400`;
+              const etag = await generateETag(JSON.stringify(memCached));
+              if (matchesIfNoneMatch(request.headers.get("if-none-match"), etag)) {
+                return notModified(request, {
+                  etag,
+                  "cache-control": cacheControl,
+                });
+              }
+              return json(memCached, 200, request, {
                 etag,
                 "cache-control": cacheControl,
               });
             }
-            return json(memCached, 200, request, {
-              etag,
-              "cache-control": cacheControl,
-            });
           }
 
           const liveData = await fetchLiveMarketOverview(lastKnownMarketOverview);
@@ -5662,7 +5683,7 @@ export default {
           setMemoryCache(memKey, liveData, 45);
           const cacheControl = `public, max-age=30, s-maxage=60, stale-while-revalidate=300, stale-if-error=86400`;
           const etag = await generateETag(JSON.stringify(liveData));
-          if (matchesIfNoneMatch(request.headers.get("if-none-match"), etag)) {
+          if (!forceRefresh && matchesIfNoneMatch(request.headers.get("if-none-match"), etag)) {
             return notModified(request, {
               etag,
               "cache-control": cacheControl,
@@ -5705,32 +5726,38 @@ export default {
             return json({ error: "Rate limit exceeded. Please try again later." }, 429, request);
           }
 
+          const forceRefresh =
+            url.searchParams.get("refresh") !== null ||
+            requestsFreshCalculation(request);
+
           const memKey = `stock:${norm}`;
-          const memCachedEntry = getMemoryCacheEntry<StockQuoteFundamentals>(memKey);
-          if (memCachedEntry) {
-            const memCached = memCachedEntry.data;
-            const remainingTtl = memCachedEntry.remainingSeconds;
-            const edgeTtl = Math.min(180, remainingTtl);
-            const browserTtl = Math.min(60, remainingTtl);
-            const cacheControl = `public, max-age=${browserTtl}, s-maxage=${edgeTtl}, stale-while-revalidate=600, stale-if-error=86400`;
-            const etag = await generateETag(JSON.stringify(memCached));
-            if (matchesIfNoneMatch(request.headers.get("if-none-match"), etag)) {
-              return notModified(request, {
+          if (!forceRefresh) {
+            const memCachedEntry = getMemoryCacheEntry<StockQuoteFundamentals>(memKey);
+            if (memCachedEntry) {
+              const memCached = memCachedEntry.data;
+              const remainingTtl = memCachedEntry.remainingSeconds;
+              const edgeTtl = Math.min(180, remainingTtl);
+              const browserTtl = Math.min(60, remainingTtl);
+              const cacheControl = `public, max-age=${browserTtl}, s-maxage=${edgeTtl}, stale-while-revalidate=600, stale-if-error=86400`;
+              const etag = await generateETag(JSON.stringify(memCached));
+              if (matchesIfNoneMatch(request.headers.get("if-none-match"), etag)) {
+                return notModified(request, {
+                  etag,
+                  "cache-control": cacheControl,
+                });
+              }
+              return json(memCached, 200, request, {
                 etag,
                 "cache-control": cacheControl,
               });
             }
-            return json(memCached, 200, request, {
-              etag,
-              "cache-control": cacheControl,
-            });
           }
 
           const stockData = await fetchLiveStockFundamentals(norm, env);
           setMemoryCache(memKey, stockData, 300);
           const cacheControl = `public, max-age=60, s-maxage=180, stale-while-revalidate=600, stale-if-error=86400`;
           const etag = await generateETag(JSON.stringify(stockData));
-          if (matchesIfNoneMatch(request.headers.get("if-none-match"), etag)) {
+          if (!forceRefresh && matchesIfNoneMatch(request.headers.get("if-none-match"), etag)) {
             return notModified(request, {
               etag,
               "cache-control": cacheControl,
@@ -5763,25 +5790,31 @@ export default {
             return json({ error: "Rate limit exceeded. Please try again later." }, 429, request);
           }
 
+          const forceRefresh =
+            url.searchParams.get("refresh") !== null ||
+            requestsFreshCalculation(request);
+
           const memKey = "screener:universe";
-          const memCachedEntry = getMemoryCacheEntry<StockQuoteFundamentals[]>(memKey);
-          if (memCachedEntry) {
-            const memCached = memCachedEntry.data;
-            const remainingTtl = memCachedEntry.remainingSeconds;
-            const edgeTtl = Math.min(120, remainingTtl);
-            const browserTtl = Math.min(60, remainingTtl);
-            const cacheControl = `public, max-age=${browserTtl}, s-maxage=${edgeTtl}, stale-while-revalidate=600, stale-if-error=86400`;
-            const etag = await generateETag(JSON.stringify(memCached));
-            if (matchesIfNoneMatch(request.headers.get("if-none-match"), etag)) {
-              return notModified(request, {
+          if (!forceRefresh) {
+            const memCachedEntry = getMemoryCacheEntry<StockQuoteFundamentals[]>(memKey);
+            if (memCachedEntry) {
+              const memCached = memCachedEntry.data;
+              const remainingTtl = memCachedEntry.remainingSeconds;
+              const edgeTtl = Math.min(120, remainingTtl);
+              const browserTtl = Math.min(60, remainingTtl);
+              const cacheControl = `public, max-age=${browserTtl}, s-maxage=${edgeTtl}, stale-while-revalidate=600, stale-if-error=86400`;
+              const etag = await generateETag(JSON.stringify(memCached));
+              if (matchesIfNoneMatch(request.headers.get("if-none-match"), etag)) {
+                return notModified(request, {
+                  etag,
+                  "cache-control": cacheControl,
+                });
+              }
+              return json(memCached, 200, request, {
                 etag,
                 "cache-control": cacheControl,
               });
             }
-            return json(memCached, 200, request, {
-              etag,
-              "cache-control": cacheControl,
-            });
           }
 
           const universeData = await fetchLiveScreenerUniverse(lastKnownScreenerUniverse);
@@ -5790,7 +5823,7 @@ export default {
 
           const cacheControl = `public, max-age=60, s-maxage=120, stale-while-revalidate=600, stale-if-error=86400`;
           const etag = await generateETag(JSON.stringify(universeData));
-          if (matchesIfNoneMatch(request.headers.get("if-none-match"), etag)) {
+          if (!forceRefresh && matchesIfNoneMatch(request.headers.get("if-none-match"), etag)) {
             return notModified(request, {
               etag,
               "cache-control": cacheControl,
