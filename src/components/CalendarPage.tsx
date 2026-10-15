@@ -25,6 +25,7 @@ import {
 } from "../lib/marketDataService";
 import { toSafeDownloadFileName } from "../lib/downloadFileName";
 import { ModalBase } from "./ModalBase";
+import { useToast } from "./Toast";
 import type { PageView } from "../lib/navigation";
 
 interface CalendarPageProps {
@@ -94,6 +95,8 @@ export function CalendarPage({
     events: CalendarEvent[];
   } | null>(null);
 
+  const { success: toastSuccess, info: toastInfo } = useToast();
+
   const mountedRef = useRef(true);
   const requestIdRef = useRef(0);
   useEffect(() => {
@@ -148,7 +151,10 @@ export function CalendarPage({
 
   // Export handlers
   const handleExportIcs = () => {
-    if (filteredEvents.length === 0) return;
+    if (filteredEvents.length === 0) {
+      toastInfo("エクスポート対象のイベントがありません");
+      return;
+    }
     const icsContent = exportCalendarToIcs(filteredEvents);
     const blob = new Blob([icsContent], { type: "text/calendar;charset=utf-8" });
     const url = URL.createObjectURL(blob);
@@ -161,10 +167,14 @@ export function CalendarPage({
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+    toastSuccess("カレンダー (.ics) をダウンロードしました");
   };
 
   const handleExportCsv = () => {
-    if (filteredEvents.length === 0) return;
+    if (filteredEvents.length === 0) {
+      toastInfo("エクスポート対象のイベントがありません");
+      return;
+    }
     const csvContent = exportCalendarToCsv(filteredEvents);
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
@@ -177,6 +187,7 @@ export function CalendarPage({
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+    toastSuccess(`${filteredEvents.length}件のイベントをCSVエクスポートしました`);
   };
 
   // Month Calendar Navigation & Grid Generation

@@ -6681,12 +6681,11 @@ export default {
           }
 
           const nowMs = Math.floor(Date.now() / 1000);
-          const creatorId =
-            isExisting && isAdmin && !existingCreatorId
-              ? null
-              : auth.authenticated && auth.id
-                ? auth.id
-                : null;
+          const creatorId = isExisting
+            ? existingCreatorId
+            : auth.authenticated && auth.id
+              ? auth.id
+              : null;
 
           const buildIndexStatements = (columns: IndexWriteColumns): D1PreparedStatement[] => {
             const quotaGuarded = userIndexLimit !== null && columns.creatorId;
