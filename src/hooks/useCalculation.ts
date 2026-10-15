@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import type { CustomIndex } from "../data/indices";
 import type { BasketItem, PricePoint, StockDetail, StockSeries } from "../types";
 import { calculateStockDetails } from "../lib/analytics";
+import { sanitizeBasketForRequest } from "../lib/indexEngine";
 import { getAuthHeaders } from "../lib/auth";
 import { isPriceCacheFresh } from "../lib/marketCache";
 import { useAuth } from "./useAuth";
@@ -228,6 +229,27 @@ export function useCalculation(selectedIndex: CustomIndex | null, enabled = true
       setSyncing(false);
       setSyncProgress(0);
       setSyncWarnings([]);
+
+      // POST /api/calculate は1件の不正エントリで全体を400にする。レガシー行の
+      // weight NULL(GET /api/indices が 0 と返す)や全角ティッカーが混ざると
+      // ダッシュボードがエラーのまま永久に空になるため、送信前に修復する。
+      const sanitizedBasket = sanitizeBasketForRequest(selectedIndex.basket);
+      const requestBasket = sanitizedBasket.basket;
+      if (requestBasket.length === 0) {
+        setCustomSeries([]);
+        setStockUniverse([]);
+        setLastUpdatedAt(null);
+        setError("構成銘柄に有効なティッカーが含まれていないため計算できません。銘柄を編集してください。");
+        setLoading(false);
+        setSyncing(false);
+        return;
+      }
+      if (sanitizedBasket.dropped.length > 0) {
+        setSyncWarnings((prev) => [
+          ...prev,
+          `無効な構成銘柄を除外しました: ${sanitizedBasket.dropped.join(", ")}`,
+        ]);
+      }
       // A sync request may be handled by a different warm Worker isolate than
       // the subsequent calculation request. Bypass the Worker calculation cache
       // whenever this run had to contact the sync endpoint (and on an explicit
@@ -239,7 +261,7 @@ export function useCalculation(selectedIndex: CustomIndex | null, enabled = true
         // Worker と同じ市場時間ポリシーで同期済み銘柄を判定する。固定12時間の
         // ブラウザキャッシュでは、場中に開いた画面が引け後の終値を取りこぼす。
         if (selectedIndex.basket.length > 0) {
-          const allTickers = selectedIndex.basket.map((b) => b.ticker);
+          const allTickers = requestBasket.map((b) => b.ticker);
           const localSyncCache = getLocalSyncCache();
           const nowMs = Date.now();
 
@@ -335,7 +357,9 @@ export function useCalculation(selectedIndex: CustomIndex | null, enabled = true
             if (controller.signal.aborted) return;
             setSyncing(false);
             if (warnings.length > 0) {
-              setSyncWarnings(warnings);
+              // 機能的更新に変更: 直前に追加した「除外した銘柄」の警告を
+              // 上書きせず、同期警告と合わせて提示するため。
+              setSyncWarnings((prev) => [...prev, ...warnings]);
             }
           }
         }
@@ -350,7 +374,7 @@ export function useCalculation(selectedIndex: CustomIndex | null, enabled = true
             ...getAuthHeaders(session),
           },
           body: JSON.stringify({
-            basket: selectedIndex.basket,
+            basket: requestBasket,
             baseValue: selectedIndex.baseValue,
           }),
           signal: controller.signal,
@@ -369,8 +393,8 @@ export function useCalculation(selectedIndex: CustomIndex | null, enabled = true
         const universe = Array.isArray(data.stockUniverse) ? data.stockUniverse : [];
         setStockUniverse(universe);
 
-        if (selectedIndex.basket.length > 0) {
-          const missingTickers = getMissingPriceDataTickers(selectedIndex.basket, universe);
+        if (requestBasket.length > 0) {
+          const missingTickers = getMissingPriceDataTickers(requestBasket, universe);
           if (missingTickers.length > 0) {
             try {
               const cache = getLocalSyncCache();

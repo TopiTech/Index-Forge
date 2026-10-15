@@ -80,6 +80,87 @@ export function redistributeWeightsExact<T extends { weight: number }>(items: T[
 }
 
 
+export interface BasketSanitizationResult {
+  /** Items that satisfy the Worker's strict `/api/calculate` contract. */
+  basket: BasketItem[];
+  /** Original ticker labels that could not be repaired (invalid or duplicate). */
+  dropped: string[];
+}
+
+/**
+ * Repairs a basket so it always satisfies the Worker contract
+ * (`POST /api/calculate` rejects the whole request on a single bad entry:
+ * ticker `^[A-Za-z0-9.-]{1,20}$`, 1-100 char name, theme ≤ 100 chars,
+ * `0 < weight <= 100`).
+ *
+ * The client can receive baskets the Worker itself would refuse to write:
+ * legacy D1 rows carry NULL weights that `GET /api/indices` coerces to `0`,
+ * imports can produce full-width tickers or weights above 100, and
+ * localStorage copies can be hand-edited. Sending such a basket verbatim
+ * turned one malformed constituent into a permanently broken dashboard, so
+ * each field is normalized here and only unrepairable items are dropped.
+ * A basket whose weights are *all* invalid (e.g. a single legacy zero-weight
+ * row) is re-balanced instead of dropped, because an empty request would be
+ * rejected as well and would leave the user with no calculation at all.
+ */
+export function sanitizeBasketForRequest(items: readonly BasketItem[]): BasketSanitizationResult {
+  const dropped: string[] = [];
+  const seen = new Set<string>();
+  const repaired: BasketItem[] = [];
+
+  for (const item of items) {
+    const rawTicker = typeof item?.ticker === "string" ? item.ticker : "";
+    const ticker = normalizeTicker(rawTicker);
+    if (!ticker || ticker.length > 20 || !/^[A-Za-z0-9.-]+$/.test(ticker)) {
+      dropped.push(rawTicker.trim() || "(ティッカーなし)");
+      continue;
+    }
+    if (seen.has(ticker)) {
+      dropped.push(ticker);
+      continue;
+    }
+    seen.add(ticker);
+
+    const rawName = typeof item.name === "string" ? item.name.trim() : "";
+    const name = rawName ? rawName.slice(0, 100) : ticker;
+    const rawTheme = typeof item.theme === "string" ? item.theme.trim() : "";
+    const theme = (rawTheme ? rawTheme : "カスタム").slice(0, 100);
+    const weight = item.weight;
+
+    // Weights above 100 are clamped rather than dropped so a single mistyped
+    // row cannot delete a constituent from the index; only non-positive or
+    // non-finite weights (the legacy NULL case) are treated as missing.
+    const normalizedWeight =
+      typeof weight === "number" && Number.isFinite(weight) && weight > 0
+        ? Math.min(weight, 100)
+        : Number.NaN;
+
+    repaired.push({
+      ticker,
+      name,
+      theme,
+      weight: normalizedWeight,
+    });
+  }
+
+  const withWeight = repaired.filter((item) => !Number.isNaN(item.weight));
+  if (withWeight.length === 0 && repaired.length > 0) {
+    // Every weight is unusable: fall back to an exact equal split so the
+    // index stays computable instead of being rejected or silently empty.
+    return {
+      basket: equalizeWeightsExact(
+        repaired.map((item) => ({ ...item, weight: 100 })),
+      ),
+      dropped,
+    };
+  }
+
+  for (const item of repaired) {
+    if (Number.isNaN(item.weight)) dropped.push(item.ticker);
+  }
+  return { basket: withWeight, dropped };
+}
+
 export function calculateCustomIndex(
   basket: BasketItem[],
   stockUniverse: StockSeries[],

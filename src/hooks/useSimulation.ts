@@ -7,7 +7,12 @@ import type {
   RiskMetrics,
   Timeframe,
 } from "../types";
-import { calculateCustomIndex, normalizeWeights, normalizeTicker } from "../lib/indexEngine";
+import {
+  calculateCustomIndex,
+  normalizeWeights,
+  normalizeTicker,
+  sanitizeBasketForRequest,
+} from "../lib/indexEngine";
 import { calculateRiskMetrics } from "../lib/analytics";
 import { filterByTimeframe } from "../lib/timeframe";
 import { isPriceCacheFresh } from "../lib/marketCache";
@@ -169,8 +174,22 @@ export function useSimulation(
       setError(null);
       setUsingDemoData(false);
 
+      // POST /api/calculate は1件の不正エントリで全体を400にする。レガシー行の
+      // weight 0 や全角ティッカーをそのまま送ると、原因表示もなくデモデータへ
+      // フォールバックし続けるため、送信前に Worker 契約へ揃える。
+      const sanitizedBasket = sanitizeBasketForRequest(basket);
+      const requestBasket = sanitizedBasket.basket;
+      if (requestBasket.length === 0) {
+        setCustomSeries([]);
+        setStockUniverse([]);
+        setError("構成銘柄に有効なティッカーが含まれていないため計算できません。銘柄を編集してください。");
+        setUsingDemoData(false);
+        setLoading(false);
+        return;
+      }
+
       try {
-        const allTickers = basket.map((b) => normalizeTicker(b.ticker));
+        const allTickers = requestBasket.map((b) => normalizeTicker(b.ticker));
         const localSyncCache = parseLocalSyncCache(
           typeof localStorage === "undefined" ? null : localStorage.getItem(SYNC_STORAGE_KEY),
         );
@@ -240,7 +259,7 @@ export function useSimulation(
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            basket: basket.map(({ ticker, name, theme, weight }) => ({
+            basket: requestBasket.map(({ ticker, name, theme, weight }) => ({
               ticker,
               name,
               theme,
@@ -253,24 +272,40 @@ export function useSimulation(
 
         let universe: StockSeries[] = [];
         let series: PricePoint[] = [];
+        let serverErrorMessage: string | null = null;
 
         if (calcRes.ok) {
           const data = await calcRes.json();
           universe = Array.isArray(data.stockUniverse) ? data.stockUniverse : [];
           series = Array.isArray(data.series) ? data.series : [];
+        } else {
+          // 非2xx応答でもプレビューは動かしつつ、理由を捨てない。バリデーション
+          // エラー(400)やレート制限(429)を黙ってデモ表示に置き換えていたため、
+          // 利用者は「なぜ数値が違うのか」を知らされなかった。
+          const errBody = (await calcRes.json().catch(() => ({}))) as Record<string, unknown>;
+          serverErrorMessage =
+            typeof errBody.error === "string" && errBody.error.trim()
+              ? errBody.error.trim()
+              : `指数の計算に失敗しました (HTTP ${calcRes.status})`;
         }
 
         // If server failed or returned empty universe, use robust client fallback calculation
         const isFallback = universe.length === 0 || series.length === 0;
         if (isFallback) {
-          universe = generateFallbackStockUniverse(basket);
-          series = calculateCustomIndex(basket, universe, baseValue);
+          universe = generateFallbackStockUniverse(requestBasket);
+          series = calculateCustomIndex(requestBasket, universe, baseValue);
         }
 
         setStockUniverse(universe);
         setCustomSeries(series);
         knownTickersRef.current = currentTickersKey;
-        setError(null);
+        // サーバーが明示的なエラーを返した場合のみ理由を提示する(データ欠如による
+        // 静かなフォールバックは従来どおりバッジのみ)。
+        setError(
+          isFallback && serverErrorMessage
+            ? `${serverErrorMessage} — デモデータで表示しているため数値は参考値です`
+            : null,
+        );
         // The simulated preview must never present generated demo prices as if
         // they were real market data: surface an explicit warning whenever the
         // displayed series did not come from the calculation API.
@@ -283,8 +318,8 @@ export function useSimulation(
           return;
         }
         // Even on fetch error, generate client-side simulation so guest users always see results
-        const fallbackUniverse = generateFallbackStockUniverse(basket);
-        const fallbackSeries = calculateCustomIndex(basket, fallbackUniverse, baseValue);
+        const fallbackUniverse = generateFallbackStockUniverse(requestBasket);
+        const fallbackSeries = calculateCustomIndex(requestBasket, fallbackUniverse, baseValue);
         setStockUniverse(fallbackUniverse);
         setCustomSeries(fallbackSeries);
         knownTickersRef.current = currentTickersKey;
@@ -375,14 +410,18 @@ export function useSimulation(
 
   // The benchmark line and the alpha metric must never read as real market
   // data when the snapshot API is unavailable: disclose the generated fallback
-  // the same way the custom series does.
-  const usingDemoBenchmark = useMemo(
-    () =>
-      !benchmarkLoading &&
-      !(activeBenchmarkData && activeBenchmarkData.series.length > 0) &&
-      filteredBenchmarkSeries.length > 0,
-    [benchmarkLoading, activeBenchmarkData, filteredBenchmarkSeries],
-  );
+  // the same way the custom series does. A single-point series cannot yield a
+  // return (it is 0% by construction), so alpha would silently equal the whole
+  // custom return — that applies to the Worker's baseline placeholder as well
+  // as to a comparison window that the timeframe filter collapsed to one point.
+  const usingDemoBenchmark = useMemo(() => {
+    if (benchmarkLoading || filteredBenchmarkSeries.length === 0) return false;
+    return (
+      !activeBenchmarkData ||
+      activeBenchmarkData.series.length < 2 ||
+      filteredBenchmarkSeries.length < 2
+    );
+  }, [benchmarkLoading, activeBenchmarkData, filteredBenchmarkSeries]);
 
   // Calculate quantitative risk metrics
   const metrics = useMemo<RiskMetrics>(() => {
@@ -440,6 +479,19 @@ function sanitizeMetricPct(val: number): number {
   return Math.abs(val) < 0.005 || Object.is(val, -0) ? 0 : Number(val.toFixed(2));
 }
 
+/** Last point whose date is on or before `date` (series are ISO-dated and ordered). */
+function lastPointOnOrBefore(series: PricePoint[], date: string): PricePoint | undefined {
+  let match: PricePoint | undefined;
+  for (const p of series) {
+    if (p.date <= date) {
+      match = p;
+    } else if (p.date > date) {
+      break;
+    }
+  }
+  return match;
+}
+
 export function calculatePeriodReturns(
   filteredCustomSeries: PricePoint[],
   filteredBenchmarkSeries: PricePoint[],
@@ -495,18 +547,45 @@ export function calculatePeriodReturns(
       endPoint &&
       startPoint.close > 0 &&
       endPoint.close > 0 &&
-      startPoint !== endPoint
+      startPoint !== endPoint &&
+      startPoint.date !== endPoint.date
     ) {
       benchmarkReturn = sanitizeMetricPct(
         ((endPoint.close - startPoint.close) / startPoint.close) * 100,
       );
+
+      // The benchmark is capped at 1y of history while a basket can keep a
+      // longer legacy history (and a benchmark may simply lack the custom
+      // series' holidays). Whenever the chosen benchmark baseline/end lies
+      // outside the custom window, the two returns would cover different
+      // spans and alpha would silently absorb the uncovered gap, so the
+      // custom return is rebased onto exactly the benchmark's window.
+      if (startPoint.date > customStartDate || endPoint.date < customEndDate) {
+        const alignedStart =
+          lastPointOnOrBefore(filteredCustomSeries, startPoint.date) ?? filteredCustomSeries[0];
+        const alignedEnd =
+          lastPointOnOrBefore(filteredCustomSeries, endPoint.date) ??
+          filteredCustomSeries[filteredCustomSeries.length - 1];
+        const startValue = alignedStart.value ?? alignedStart.close;
+        const endValue = alignedEnd.value ?? alignedEnd.close;
+        if (alignedStart === alignedEnd) {
+          // No custom observation inside the shared window: report no change
+          // rather than a return measured outside the comparison period.
+          customReturn = 0;
+        } else if (startValue > 0 && Number.isFinite(startValue) && Number.isFinite(endValue)) {
+          customReturn = sanitizeMetricPct(((endValue - startValue) / startValue) * 100);
+        }
+      }
     } else if (
       startPoint &&
       endPoint &&
       startPoint.close > 0 &&
       endPoint.close > 0 &&
-      startPoint === endPoint
+      (startPoint === endPoint || startPoint.date === endPoint.date)
     ) {
+      // A single usable benchmark point cannot express a return (0% by
+      // construction). Keep the custom window so the index's own return stays
+      // accurate; `usingDemoBenchmark` discloses that alpha is not comparable.
       benchmarkReturn = 0;
     }
   } else if (filteredBenchmarkSeries.length >= 2) {

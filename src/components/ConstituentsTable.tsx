@@ -835,13 +835,19 @@ export function ConstituentsTable({
         </table>
       </div>
 
-      <div className="constituents-mobile-list" aria-label="構成銘柄一覧">
+      {/* `aria-label` is only valid on non-generic roles: with items the block
+          is a real list, while the empty state keeps it a labelled group. */}
+      <div
+        className="constituents-mobile-list"
+        role={filteredAndSorted.length > 0 ? "list" : "group"}
+        aria-label="構成銘柄一覧"
+      >
         {filteredAndSorted.length > 0 ? (
           filteredAndSorted.map((item) => {
             const isUp = item.changePct > 0;
             const isDown = item.changePct < 0;
             return (
-              <article key={item.ticker} className="constituent-mobile-card">
+              <article key={item.ticker} role="listitem" className="constituent-mobile-card">
                 <div className="constituent-mobile-heading">
                   <div className="constituent-mobile-identity">
                     <a

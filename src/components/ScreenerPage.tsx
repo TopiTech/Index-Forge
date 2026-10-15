@@ -1006,6 +1006,10 @@ export function ScreenerPage({
                           }}
                           onKeyDown={(e) => {
                             if (e.key === "Enter" || e.key === " ") {
+                              // preventDefault が無いとブラウザ既定のボタン活性化
+                              // (Enter=keydown / Space=keyup での click)が続けて発火し、
+                              // 純粋に反転するトグルが2回実行されて元の状態に戻ってしまう。
+                              e.preventDefault();
                               e.stopPropagation();
                               handleToggleSelect(stock.ticker, e);
                             }
@@ -1135,8 +1139,15 @@ export function ScreenerPage({
           </div>
         </div>
 
-          {/* Mobile Card List View (<= 768px) */}
-          <div className="screener-mobile-list" aria-label="スクリーナー結果カードリスト">
+          {/* Mobile Card List View (<= 768px). `role="group"` (not "list")
+              because each card is itself an activatable `role="button"`
+              container — `aria-label` would be prohibited on the generic
+              default role, while a list would require listitem children. */}
+          <div
+            className="screener-mobile-list"
+            role="group"
+            aria-label="スクリーナー結果カードリスト"
+          >
             {results.map((stock) => {
               const isPos = stock.changePercent >= 0;
               const isSelected = selectedTickers.has(stock.ticker);
@@ -1168,6 +1179,9 @@ export function ScreenerPage({
                         }}
                         onKeyDown={(e) => {
                           if (e.key === "Enter" || e.key === " ") {
+                            // デスクトップ表と同じく既定の click 発火を抑止し、
+                            // キーボードでの選択が1回だけトグルされるようにする。
+                            e.preventDefault();
                             e.stopPropagation();
                             handleToggleSelect(stock.ticker, e);
                           }

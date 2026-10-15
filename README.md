@@ -59,6 +59,20 @@ npx wrangler secret put ADMIN_PASSWORD
 
 初回ログイン後に管理画面からマスター管理者パスワードを変更すると、以後は D1 に保存された PBKDF2 ハッシュだけが有効になります。旧バージョンで `plain_password` 列を持つ D1 を利用している場合は、バックアップを取得したうえで `schema.migration.sql` を一度だけ実行し、既存の平文値を消去してください。
 
+### 4. 管理者ログインの2要素認証(秘密の暗号 + Turnstile)の設定
+
+管理者ログイン (`/api/auth/admin-login`) はパスワードに加えて「秘密の暗号」と Cloudflare Turnstile(ロボット確認)の両方を要求します。リポジトリに同梱された開発用の既定値は **localhost などローカル開発環境とテスト時のみ** 使用でき、その他のホストでは本番用の設定が必須です(公開リポジトリに置かれた既定値を本番の第二要素にすると、2要素目が誰でも知り得る定数になってしまうため)。
+
+```bash
+npx wrangler secret put ADMIN_SECRET_CODE     # 秘密の暗号(未設定なら管理画面で変更する前に必須)
+npx wrangler secret put TURNSTILE_SITE_KEY    # Turnstile のサイトキー(公開鍵)
+npx wrangler secret put TURNSTILE_SECRET_KEY  # Turnstile のシークレットキー
+```
+
+- Turnstile のキーは Cloudflare ダッシュボードで発行します。テスト用キーの挙動は[公式ドキュメント](https://developers.cloudflare.com/turnstile/troubleshooting/testing/)を参照してください。
+- 管理画面で秘密の暗号を変更済みの環境では D1 のハッシュが優先されるため、`ADMIN_SECRET_CODE` は不要です。
+- **移行(既存の本番環境)**: 上記を設定しないと次回以降の管理者ログインが失敗します(エラーメッセージに設定すべき Secret 名が表示されます)。一般ユーザーログイン、公開 API、サイト表示には影響しません。
+
 ## 主要ファイル
 
 - `wrangler.jsonc`: Workers 設定（データベース ID は CI/CD で自動注入されます）

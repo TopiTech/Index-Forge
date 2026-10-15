@@ -196,14 +196,35 @@ export function loadPortfolioPositions(): PortfolioPosition[] {
   return DEFAULT_PRESET_POSITIONS;
 }
 
+/**
+ * 直近の保存失敗を自動保存 effect へ渡すためのモジュール内フラグ。
+ * 保存ヘルパーは boolean を返すが、PortfolioManagerPage の自動保存 effect は
+ * 既存の文言テストにより `savePortfolioPositions(positions);` という生の呼び出しを
+ * if ブロック先頭に置く必要があるため、直後の consumeSaveFailure() で成否を受け取る。
+ * 各 save 関数は成功時に必ず false へ戻すので、consume は直前の自分の保存結果だけを観測する。
+ */
+let lastSaveFailed = false;
+
+/** 直近の保存失敗フラグを取得してクリアする。save 直後に必ず呼ぶこと。 */
+export function consumeSaveFailure(): boolean {
+  const failed = lastSaveFailed;
+  lastSaveFailed = false;
+  return failed;
+}
+
 // Save positions to localStorage
 export function savePortfolioPositions(positions: PortfolioPosition[]): boolean {
   const storage = getLocalStorage();
-  if (!storage) return false;
+  if (!storage) {
+    lastSaveFailed = true;
+    return false;
+  }
   try {
     storage.setItem(STORAGE_KEY_PORTFOLIO, JSON.stringify(positions));
+    lastSaveFailed = false;
     return true;
   } catch {
+    lastSaveFailed = true;
     return false;
   }
 }
@@ -305,11 +326,16 @@ export function addWatchlistTicker(ticker: string): boolean {
 // Save watchlist to localStorage
 export function saveWatchlist(tickers: string[]): boolean {
   const storage = getLocalStorage();
-  if (!storage) return false;
+  if (!storage) {
+    lastSaveFailed = true;
+    return false;
+  }
   try {
     storage.setItem(STORAGE_KEY_WATCHLIST, JSON.stringify(tickers));
+    lastSaveFailed = false;
     return true;
   } catch {
+    lastSaveFailed = true;
     return false;
   }
 }

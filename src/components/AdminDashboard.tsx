@@ -1043,7 +1043,7 @@ export function AdminDashboard({
                   </button>
                 </div>
                 <div className="muted tiny" style={{ marginTop: 6, lineHeight: 1.4 }}>
-                  ※ 不正アクセス防御のため、秘密の暗号の入力が必須です（ひらがな・カタカナ・英数字・記号入力対応）。未変更時の初期値は環境変数 <code>ADMIN_SECRET_CODE</code> または開発用暗号です。
+                  ※ 不正アクセス防御のため、秘密の暗号の入力が必須です（ひらがな・カタカナ・英数字・記号入力対応）。未変更時の初期値は、ローカル開発（localhost）とテスト環境のみ、環境変数 <code>ADMIN_SECRET_CODE</code> 未設定時に開発用暗号を許可します。本番ホストでは <code>ADMIN_SECRET_CODE</code> の設定が必須です。
                 </div>
               </div>
 

@@ -175,7 +175,8 @@ export function IndexBuilderContent({
   isFullPage = false,
 }: IndexBuilderContentProps) {
   const { session, isAuthenticated, isUser, maxStocks } = useAuth();
-  const { success: toastSuccess, info: toastInfo, error: toastError } = useToast();
+  const { success: toastSuccess, info: toastInfo, error: toastError, warning: toastWarning } =
+    useToast();
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   // Incremented once the authenticated session has been committed, so the retry
   // effect re-runs after login with the post-login role and limits.
@@ -419,6 +420,9 @@ export function IndexBuilderContent({
         if (res.ok && res.data) {
           setBasket(res.data);
           toastSuccess(`CSVから${res.data.length}銘柄を取り込みました`);
+          // 重み列を解決できなかった場合、全重みが既定値 1 で取り込まれる。
+          // 配分が意図と違うと気づけるよう警告を表示する。
+          if (res.error) toastWarning(res.error);
         } else {
           setError(res.error || "CSVインポートに失敗しました");
         }

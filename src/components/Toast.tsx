@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback, type ReactNode } from "react";
+import { createContext, useContext, useState, useCallback, useMemo, type ReactNode } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { CheckCircle2, AlertTriangle, AlertCircle, Info, X } from "lucide-react";
 
@@ -79,8 +79,16 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     [showToast],
   );
 
+  // Context value を memo しないと ToastProvider の再レンダーごとに
+  // success/error 等の参照が変わり、それらを effect 依存に持つ呼び出し側
+  // (自動保存など) が不要な再実行を起こす。
+  const contextValue = useMemo(
+    () => ({ showToast, success, error, warning, info, removeToast }),
+    [showToast, success, error, warning, info, removeToast],
+  );
+
   return (
-    <ToastContext.Provider value={{ showToast, success, error, warning, info, removeToast }}>
+    <ToastContext.Provider value={contextValue}>
       {children}
       <div className="toast-container" aria-live="polite" role="region" aria-label="通知一覧">
         <AnimatePresence>

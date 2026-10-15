@@ -7,6 +7,7 @@ import { useCalculation } from "./hooks/useCalculation";
 import { useAuth } from "./hooks/useAuth";
 import { useToast } from "./components/Toast";
 import { addWatchlistTicker, addPortfolioPosition } from "./lib/portfolioStorage";
+import { reportAddStockResult } from "./lib/addStockFeedback";
 import { getStockFundamentals } from "./lib/marketDataService";
 import { Header } from "./components/Header";
 import { Sidebar } from "./components/Sidebar";
@@ -235,7 +236,7 @@ export default function App({
   });
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
   const { isAdmin, isAuthenticated } = useAuth();
-  const { success: toastSuccess, info: toastInfo } = useToast();
+  const { success: toastSuccess, info: toastInfo, error: toastError } = useToast();
 
   // Global Cmd+K / Ctrl+K keyboard shortcut
   useEffect(() => {
@@ -569,8 +570,14 @@ export default function App({
   const handleAddStockToIndex = useCallback(
     (ticker: string, name: string, theme: string) => {
       if (selectedIndex && canEditSelectedIndex) {
-        void addStockToIndex(selectedIndex.id, { ticker, name, theme, weight: 10 });
-        toastSuccess(`「${name}」を指数に追加しました`);
+        // 挿入は非同期で失敗し得る(レート制限・クォータ・サーバ障害など)。
+        // 結果を確認せずに成功トーストを出すと、実際は指数に入っていない銘柄を
+        // 追加済みと誤認させるため、Worker の応答を待って報告する。
+        reportAddStockResult(
+          addStockToIndex(selectedIndex.id, { ticker, name, theme, weight: 10 }),
+          name,
+          { success: toastSuccess, error: toastError },
+        );
       } else {
         handleOpenBuilder();
         toastInfo("編集可能な指数が無いため指数ビルダーを開きました");
@@ -583,6 +590,7 @@ export default function App({
       handleOpenBuilder,
       toastSuccess,
       toastInfo,
+      toastError,
     ],
   );
 

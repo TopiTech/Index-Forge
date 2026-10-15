@@ -672,6 +672,38 @@ h3 {
   }
 }
 
+/* ==========================================================================
+   769–1080px header: keep the menu/login controls on screen
+   --------------------------------------------------------------------------
+   In this band the status row is still rendered (it is only hidden at ≤768),
+   the hamburger is visible and — because the rail is hidden below 1080 — it is
+   the only entry to the global navigation. Every row child is non-shrinkable
+   and `body { overflow-x: hidden }` removes the horizontal scroll fallback, so
+   once the freshness readout (~300px, `white-space: nowrap`) no longer fits,
+   the rightmost controls spill past the viewport and become unreachable.
+   The freshness readout is duplicated in the drawer's utility section for the
+   whole ≤1080 range (see `.global-sidebar-drawer .sidebar-utility` above), so
+   it is dropped here instead of letting the controls be clipped; the brand may
+   additionally shrink with an ellipsis, and wrapping remains as a safety net
+   if the remaining content ever exceeds the row width again.
+   ========================================================================== */
+@media (max-width: 1080px) {
+  .header-status-desktop {
+    display: none !important;
+  }
+
+  .header-brand {
+    flex-shrink: 1;
+  }
+}
+
+@media (min-width: 769px) and (max-width: 1080px) {
+  .header-inner-row {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+}
+
 @media (max-width: 768px) {
   .header-inner-row {
     width: 100%;
@@ -6835,6 +6867,14 @@ a.footer-creator-note:hover .footer-icon-accent {
     transform: scale(0.94);
   }
 
+  /* Toasts must clear the fixed bottom nav (56px + safe-area inset) instead of
+     painting over the 資産管理 / カレンダー tap targets for the ~3.5s the toast
+     is visible. */
+  .toast-container {
+    bottom: calc(56px + env(safe-area-inset-bottom, 0px) + 12px);
+    right: 12px;
+  }
+
   .mobile-bottom-nav-item.active {
     color: var(--color-brand-cyan, #06b6d4);
     font-weight: 700;
@@ -6871,7 +6911,15 @@ a.footer-creator-note:hover .footer-icon-accent {
     padding-bottom: calc(58px + env(safe-area-inset-bottom, 0px));
   }
 
-  /* Fullscreen mobile search */
+  /* Fullscreen mobile search: the dialog is sized to the full viewport, so its
+     overlay must not keep `padding: 16px` — otherwise the dialog is centred
+     inside a smaller content box and the viewport clips ~16px off the top and
+     bottom (dialog border off-screen, last results row below the fold) and
+     ~8px off the right. Padding is dropped for this overlay only; browsers
+     without `:has()` keep the previous, slightly-clipped layout. */
+  .modal-overlay:has(.global-search-modal) {
+    padding: 0 !important;
+  }
   .global-search-modal {
     width: 100vw !important;
     height: 100dvh !important;

@@ -1746,8 +1746,24 @@ function withFallbackMetadata(data: MarketOverviewData): MarketOverviewData {
 /** Cache for stock fundamentals fetched from the backend API. */
 const stockFundamentalsClientCache = new Map<string, StockQuoteFundamentals>();
 
+/**
+ * 失敗した fundamentals 取得の記録 (ティッカー → 失敗時刻と返却したフォールバック)。
+ * 取得失敗時に成功キャッシュへベースライン値を書き込むと、一時的な障害が
+ * 「本物のデータ」として恒久キャッシュされ、復帰後も再取得されない。
+ * かわりに短時間のクールダウンだけ記録し、連続再試行 (スクロールや再描画ごとの
+ * ファンアウト) を抑えつつ、クールダウン経過後は必ず再取得を試みる。
+ */
+const stockFundamentalsFailureCache = new Map<
+  string,
+  { failedAt: number; fallback: StockQuoteFundamentals }
+>();
+
+/** fundamentals 取得失敗後の再試行抑制時間。経過後は次の呼び出しで再取得を試す。 */
+const STOCK_FUNDAMENTALS_FAILURE_COOLDOWN_MS = 30_000;
+
 export function clearStockFundamentalsClientCache(): void {
   stockFundamentalsClientCache.clear();
+  stockFundamentalsFailureCache.clear();
 }
 
 /**
@@ -1807,9 +1823,17 @@ export async function fetchStockFundamentals(
 
   if (forceRefresh) {
     stockFundamentalsClientCache.delete(normTicker);
+    stockFundamentalsFailureCache.delete(normTicker);
   } else {
     const cached = stockFundamentalsClientCache.get(normTicker);
     if (cached) return cached;
+
+    // 直近に失敗したティッカーはクールダウン中、再試行せず記録済みの
+    // フォールバックを返してリクエストの扇出を止める (30秒で自動解除)。
+    const failure = stockFundamentalsFailureCache.get(normTicker);
+    if (failure && Date.now() - failure.failedAt < STOCK_FUNDAMENTALS_FAILURE_COOLDOWN_MS) {
+      return failure.fallback;
+    }
   }
 
   const isBrowser = typeof globalThis !== "undefined" && "window" in globalThis;
@@ -1832,6 +1856,7 @@ export async function fetchStockFundamentals(
           ) {
             const data = raw as StockQuoteFundamentals;
             stockFundamentalsClientCache.set(normTicker, data);
+            stockFundamentalsFailureCache.delete(normTicker);
             return data;
           }
         }
@@ -1839,6 +1864,11 @@ export async function fetchStockFundamentals(
     } catch {
       // Graceful fallback to rich baseline
     }
+    // 取得失敗: 成功キャッシュにはベースラインを書かず (障害復帰後に本物の
+    // データへ戻せるように)、失敗時刻と返却済みフォールバックだけ記録する。
+    const fallback = getStockFundamentals(normTicker);
+    stockFundamentalsFailureCache.set(normTicker, { failedAt: Date.now(), fallback });
+    return fallback;
   }
 
   const baseline = getStockFundamentals(normTicker);

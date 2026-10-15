@@ -755,22 +755,67 @@ export const TURNSTILE_DEFAULT_SECRET_KEY = "1x0000000000000000000000000000000AA
 export const DEFAULT_DEV_ADMIN_SECRET_CODE = "indexforge-admin-secret-2026";
 
 /**
+ * True only for local development hostnames. Purely host-based (no runtime
+ * detection) so the rule can be asserted directly.
+ */
+export function isLocalHostname(hostname: string): boolean {
+  const raw = (hostname || "").trim().toLowerCase();
+  // IPv6 literals arrive bracketed ("[::1]:8787") — splitting on ":" first
+  // would destroy them.
+  if (raw.startsWith("[")) {
+    const end = raw.indexOf("]");
+    const inside = end > 0 ? raw.slice(1, end) : raw.slice(1);
+    return inside === "::1" || inside === "0:0:0:0:0:0:0:1";
+  }
+  const host = raw.split(":")[0];
+  return host === "localhost" || host === "127.0.0.1" || host.endsWith(".localhost");
+}
+
+/**
+ * True for the contexts where the repository's built-in development
+ * credentials (the default Turnstile test keys and `DEFAULT_DEV_ADMIN_SECRET_CODE`)
+ * may be used: local development and the unit-test runtime.
+ *
+ * On any other host those defaults would make the admin second factor a
+ * publicly known constant, so the handlers fail closed instead and tell the
+ * operator which Worker Secret to configure.
+ */
+export function isLocalOrTestHost(hostname: string): boolean {
+  return isTestRuntime() || isLocalHostname(hostname);
+}
+
+/**
  * Verify Cloudflare Turnstile token via Cloudflare siteverify endpoint.
- * In development or testing with official test keys, allows offline fallback for resilience.
+ *
+ * `allowTestKeys` gates the two development conveniences that would otherwise
+ * silently disable CAPTCHA in production: the official always-passing test
+ * secret and the offline/mock-token fallbacks. Callers pass `false` for
+ * non-local hosts, where a missing `TURNSTILE_SECRET_KEY` must be reported
+ * instead of treated as success.
  */
 export async function verifyTurnstileToken(
   secretKey: string | undefined,
   token: string | undefined,
   remoteIp?: string,
+  allowTestKeys: boolean = isTestRuntime(),
 ): Promise<{ success: boolean; error?: string }> {
-  const effectiveSecret = secretKey?.trim() || TURNSTILE_DEFAULT_SECRET_KEY;
+  const configuredSecret = secretKey?.trim();
+  const effectiveSecret = configuredSecret || TURNSTILE_DEFAULT_SECRET_KEY;
   const trimmedToken = token?.trim();
 
   if (!trimmedToken) {
     return { success: false, error: "Turnstile認証トークンが指定されていません" };
   }
 
-  const isTestSecret = effectiveSecret === TURNSTILE_DEFAULT_SECRET_KEY;
+  const isTestSecret =
+    !configuredSecret || configuredSecret === TURNSTILE_DEFAULT_SECRET_KEY;
+  if (isTestSecret && !allowTestKeys) {
+    return {
+      success: false,
+      error:
+        "Turnstileが未設定です。CloudflareのTurnstileシークレットキーをWorker Secret「TURNSTILE_SECRET_KEY」(と公開用の「TURNSTILE_SITE_KEY」)に設定してください。",
+    };
+  }
   const isMockToken =
     trimmedToken === "dummy-turnstile-token" ||
     trimmedToken === "test-token" ||
@@ -786,6 +831,9 @@ export async function verifyTurnstileToken(
       method: "POST",
       body: formData,
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      // siteverify is the only external call without a deadline otherwise; a
+      // hung connection would hold the admin-login request open indefinitely.
+      signal: AbortSignal.timeout(5000),
     });
 
     const data = (await res.json().catch(() => ({}))) as {
@@ -798,7 +846,7 @@ export async function verifyTurnstileToken(
 
     // In unit test or development environment using the official test secret key,
     // allow mock tokens to pass even if live siteverify returns false
-    if (isTestSecret && isMockToken) {
+    if (allowTestKeys && isTestSecret && isMockToken) {
       return { success: true };
     }
 
@@ -808,7 +856,7 @@ export async function verifyTurnstileToken(
     };
   } catch (err) {
     console.error("Turnstile verification network error:", err);
-    if (isTestSecret) {
+    if (allowTestKeys && isTestSecret) {
       return { success: true };
     }
     return {
@@ -820,11 +868,13 @@ export async function verifyTurnstileToken(
 
 /**
  * Verify secret code for admin login. Checks D1 admin-master hash first,
- * then falls back to env.ADMIN_SECRET_CODE or the default dev code.
+ * then falls back to env.ADMIN_SECRET_CODE (and, only in local/test contexts,
+ * to the built-in development code).
  */
 export async function verifyAdminSecretCode(
   env: Env,
   inputCode: string,
+  allowDevDefault: boolean = isTestRuntime(),
 ): Promise<boolean> {
   const trimmed = typeof inputCode === "string" ? inputCode.normalize("NFC").trim() : "";
   if (!trimmed) return false;
@@ -840,15 +890,30 @@ export async function verifyAdminSecretCode(
       return await verifyPasswordHash(trimmed, row.secret_code_hash);
     }
   } catch (err) {
-    console.error("Failed to query secret_code_hash from D1:", err);
+    // A lookup failure must never fall back to a public default: the hash may
+    // exist and simply be unreadable right now, in which case accepting the
+    // development code would bypass the customized second factor.
+    if (!isMissingColumnError(err, "secret_code_hash") && !isMissingTableError(err, "access_passwords")) {
+      console.error("Failed to query secret_code_hash from D1:", err);
+      return false;
+    }
   }
 
-  // Fallback to configured environment variable or default dev code
-  const rawConfigured = env.ADMIN_SECRET_CODE?.trim() || DEFAULT_DEV_ADMIN_SECRET_CODE;
-  const configuredSecret = rawConfigured.normalize("NFC");
+  // Explicitly configured environment secret: valid on every host.
+  const envSecret = env.ADMIN_SECRET_CODE?.trim();
+  if (envSecret) {
+    const inputHash = await hashToken(trimmed);
+    const configuredHash = await hashToken(envSecret.normalize("NFC"));
+    if (timingSafeEqual(inputHash, configuredHash)) return true;
+    return false;
+  }
+
+  // No secret configured at all: the committed development default is only
+  // acceptable where the deployment cannot be a public one.
+  if (!allowDevDefault) return false;
   const inputHash = await hashToken(trimmed);
-  const configuredHash = await hashToken(configuredSecret);
-  return timingSafeEqual(inputHash, configuredHash);
+  const defaultHash = await hashToken(DEFAULT_DEV_ADMIN_SECRET_CODE.normalize("NFC"));
+  return timingSafeEqual(inputHash, defaultHash);
 }
 
 /**
@@ -900,6 +965,14 @@ export async function checkAdminLoginLockout(
 
 /**
  * Record a failed admin login attempt for the given IP and apply lockout if max reached.
+ *
+ * The increment happens inside the statement: the previous SELECT-then-write
+ * sequence computed `failed_count` in JavaScript, so N concurrent wrong
+ * guesses all read the same value and wrote the same `+1` result — a batch of
+ * parallel attempts counted as a single failure and crossed the advertised
+ * 5-attempt threshold far more often than 5 guesses. The response values are
+ * read back afterwards (best-effort reporting; the authoritative gate is
+ * `checkAdminLoginLockout`, which runs before every attempt).
  */
 export async function recordAdminLoginFailure(
   env: Env,
@@ -908,6 +981,20 @@ export async function recordAdminLoginFailure(
   await ensurePasswordTable(env);
   const now = Math.floor(Date.now() / 1000);
   try {
+    await env.DB.prepare(
+      `INSERT INTO admin_login_attempts (ip, failed_count, last_failed_at, locked_until)
+       VALUES (?, 1, ?, 0)
+       ON CONFLICT(ip) DO UPDATE SET
+         failed_count = CASE WHEN admin_login_attempts.last_failed_at >= ? THEN admin_login_attempts.failed_count + 1 ELSE 1 END,
+         last_failed_at = excluded.last_failed_at,
+         locked_until = CASE
+           WHEN (CASE WHEN admin_login_attempts.last_failed_at >= ? THEN admin_login_attempts.failed_count + 1 ELSE 1 END) >= ? THEN ?
+           ELSE 0
+         END`,
+    )
+      .bind(ip, now, now - ADMIN_LOGIN_LOCKOUT_SECONDS, now - ADMIN_LOGIN_LOCKOUT_SECONDS, ADMIN_LOGIN_MAX_ATTEMPTS, now + ADMIN_LOGIN_LOCKOUT_SECONDS)
+      .run();
+
     const { results } = await env.DB.prepare(
       "SELECT failed_count, last_failed_at, locked_until FROM admin_login_attempts WHERE ip = ?",
     )
@@ -917,32 +1004,16 @@ export async function recordAdminLoginFailure(
       | { failed_count?: number; last_failed_at?: number; locked_until?: number }
       | undefined;
 
-    let newCount = 1;
-    if (row) {
-      const lastFailedAt = Number(row.last_failed_at) || 0;
-      if (now - lastFailedAt <= ADMIN_LOGIN_LOCKOUT_SECONDS) {
-        newCount = (Number(row.failed_count) || 0) + 1;
-      }
-    }
-
-    let lockedUntil = 0;
-    let locked = false;
-    let remainingSeconds = 0;
-
-    if (newCount >= ADMIN_LOGIN_MAX_ATTEMPTS) {
-      lockedUntil = now + ADMIN_LOGIN_LOCKOUT_SECONDS;
-      locked = true;
-      remainingSeconds = ADMIN_LOGIN_LOCKOUT_SECONDS;
-    }
-
-    await env.DB.prepare(
-      "INSERT INTO admin_login_attempts (ip, failed_count, last_failed_at, locked_until) VALUES (?, ?, ?, ?) ON CONFLICT(ip) DO UPDATE SET failed_count = excluded.failed_count, last_failed_at = excluded.last_failed_at, locked_until = excluded.locked_until",
-    )
-      .bind(ip, newCount, now, lockedUntil)
-      .run();
-
-    const remainingAttempts = Math.max(0, ADMIN_LOGIN_MAX_ATTEMPTS - newCount);
-    return { locked, remainingSeconds, remainingAttempts, failedCount: newCount };
+    const failedCount = Number(row?.failed_count) || 1;
+    const lockedUntil = Number(row?.locked_until) || 0;
+    const locked = lockedUntil > now;
+    const remainingAttempts = Math.max(0, ADMIN_LOGIN_MAX_ATTEMPTS - failedCount);
+    return {
+      locked,
+      remainingSeconds: locked ? lockedUntil - now : 0,
+      remainingAttempts,
+      failedCount,
+    };
   } catch (err) {
     console.error("Failed to record admin login failure:", err);
     return { locked: false, remainingSeconds: 0, remainingAttempts: ADMIN_LOGIN_MAX_ATTEMPTS - 1, failedCount: 1 };
@@ -1344,9 +1415,25 @@ export async function authenticatePassword(
 export interface MemoryCacheEntry<T> {
   data: T;
   expiresAt: number;
+  /** Approximate payload size (JSON length) used for the byte budgets below. */
+  bytes: number;
 }
 export const MAX_GENERAL_CACHE_SIZE = 400;
 export const MAX_CALC_CACHE_SIZE = 100;
+/**
+ * Byte budgets for the in-memory caches.
+ *
+ * Counting entries alone is not enough: one `/api/calculate` response embeds
+ * the full price series of every constituent (up to 500 × ~250 points), so 100
+ * "small" entries can still be hundreds of MB of V8 heap. The isolate limit is
+ * 128 MB, so an unauthenticated client that varies the basket fingerprint can
+ * otherwise evict the isolate mid-request (HTTP 500 for every user in that
+ * colo). Entries larger than a single-entry cap are simply not cached — the
+ * request still succeeds, it is just recomputed next time.
+ */
+export const MAX_CALC_CACHE_BYTES = 32 * 1024 * 1024;
+export const MAX_GENERAL_CACHE_BYTES = 16 * 1024 * 1024;
+export const MAX_MEMORY_CACHE_ENTRY_BYTES = 8 * 1024 * 1024;
 export const memoryCache = new Map<string, MemoryCacheEntry<unknown>>();
 export const calcMemoryCache = new Map<string, MemoryCacheEntry<unknown>>();
 
@@ -1418,17 +1505,82 @@ export function getMemoryCache<T>(key: string): T | null {
   return entry ? entry.data : null;
 }
 
+/**
+ * Approximate serialized size of a cache payload.
+ *
+ * `Infinity` means "must not be cached": a payload that cannot be serialized
+ * would also never be servable through `json()`, and a payload above the
+ * entry budget could push the isolate over its memory limit.
+ */
+export function approxMemoryCacheBytes(data: unknown): number {
+  try {
+    const json = JSON.stringify(data);
+    return typeof json === "string" ? json.length : Number.POSITIVE_INFINITY;
+  } catch {
+    return Number.POSITIVE_INFINITY;
+  }
+}
+
+export interface MemoryCacheStats {
+  entries: number;
+  bytes: number;
+}
+
+/** Current occupancy of the in-memory caches (optionally restricted by key prefix). */
+export function getMemoryCacheStats(prefix?: string): MemoryCacheStats {
+  const collect = (map: Map<string, MemoryCacheEntry<unknown>>): MemoryCacheStats => {
+    const stats = { entries: 0, bytes: 0 };
+    for (const [key, entry] of map) {
+      if (prefix && !key.startsWith(prefix)) continue;
+      stats.entries += 1;
+      stats.bytes += entry.bytes || 0;
+    }
+    return stats;
+  };
+  const general = collect(memoryCache);
+  const calc = collect(calcMemoryCache);
+  return { entries: general.entries + calc.entries, bytes: general.bytes + calc.bytes };
+}
+
 export function setMemoryCache(key: string, data: unknown, ttlSeconds: number): void {
   const isCalc = key.startsWith("calc:");
   const targetMap = isCalc ? calcMemoryCache : memoryCache;
-  const maxSize = isCalc ? MAX_CALC_CACHE_SIZE : MAX_GENERAL_CACHE_SIZE;
-  if (targetMap.size >= maxSize) {
-    const oldestKey = targetMap.keys().next().value;
-    if (oldestKey) targetMap.delete(oldestKey);
+  const maxEntries = isCalc ? MAX_CALC_CACHE_SIZE : MAX_GENERAL_CACHE_SIZE;
+  const maxTotalBytes = isCalc ? MAX_CALC_CACHE_BYTES : MAX_GENERAL_CACHE_BYTES;
+  const bytes = approxMemoryCacheBytes(data);
+  // Oversized or unserializable payloads are simply not cached: the request
+  // still succeeds, it is only recomputed on the next call. Admitting them
+  // would let one multi-MB basket response evict every other cached value (or
+  // the whole isolate) instead of costing a single recomputation.
+  if (bytes > MAX_MEMORY_CACHE_ENTRY_BYTES || bytes > maxTotalBytes) return;
+
+  const now = Date.now();
+  let totalBytes = 0;
+  for (const [existingKey, existing] of targetMap) {
+    if (existing.expiresAt <= now) {
+      targetMap.delete(existingKey);
+      continue;
+    }
+    if (existingKey === key) continue; // replaced by this write
+    totalBytes += existing.bytes || 0;
   }
+
+  // Evict oldest entries until both budgets (count and bytes) are satisfied.
+  while (
+    targetMap.size - (targetMap.has(key) ? 1 : 0) >= maxEntries ||
+    totalBytes + bytes > maxTotalBytes
+  ) {
+    const oldestKey = targetMap.keys().next().value;
+    if (oldestKey === undefined) break;
+    const oldest = targetMap.get(oldestKey);
+    targetMap.delete(oldestKey);
+    totalBytes -= oldest?.bytes || 0;
+  }
+
   targetMap.set(key, {
     data,
-    expiresAt: Date.now() + ttlSeconds * 1000,
+    expiresAt: now + ttlSeconds * 1000,
+    bytes,
   });
 }
 
@@ -4034,7 +4186,12 @@ export default {
           }
 
           // 1. Turnstile トークン検証
-          const tsRes = await verifyTurnstileToken(env.TURNSTILE_SECRET_KEY, turnstileToken, ip);
+          const tsRes = await verifyTurnstileToken(
+            env.TURNSTILE_SECRET_KEY,
+            turnstileToken,
+            ip,
+            isLocalOrTestHost(url.hostname),
+          );
           if (!tsRes.success) {
             return json(
               {
@@ -4047,7 +4204,11 @@ export default {
           }
 
           // 2. 秘密の暗号検証
-          const isSecretValid = await verifyAdminSecretCode(env, secretCode);
+          const isSecretValid = await verifyAdminSecretCode(
+            env,
+            secretCode,
+            isLocalOrTestHost(url.hostname),
+          );
           if (!isSecretValid) {
             const fail = await recordAdminLoginFailure(env, ip);
             if (fail.locked) {
@@ -4658,7 +4819,11 @@ export default {
           if (!currentSecretCode) {
             return json({ error: "現在の秘密の暗号を入力してください" }, 400, request);
           }
-          const isCurrentValid = await verifyAdminSecretCode(env, currentSecretCode);
+          const isCurrentValid = await verifyAdminSecretCode(
+            env,
+            currentSecretCode,
+            isLocalOrTestHost(url.hostname),
+          );
           if (!isCurrentValid) {
             return json({ error: "現在の秘密の暗号が正しくありません" }, 401, request);
           }
@@ -5954,6 +6119,7 @@ export default {
             ORDER BY
               COALESCE(i.sort_order, 99),
               i.name,
+              i.id,
               b.ticker
           `,
             ).all();
@@ -5972,6 +6138,7 @@ export default {
               ORDER BY
                 COALESCE(i.sort_order, 99),
                 i.name,
+                i.id,
                 b.ticker
               LIMIT 1000 OFFSET ?
             `,
@@ -5995,6 +6162,7 @@ export default {
             LEFT JOIN basket_items b ON i.id = b.index_id
             ORDER BY
               i.name,
+              i.id,
               b.ticker
           `,
             ).all();
@@ -6010,6 +6178,7 @@ export default {
               LEFT JOIN basket_items b ON i.id = b.index_id
               ORDER BY
                 i.name,
+                i.id,
                 b.ticker
               LIMIT 1000 OFFSET ?
             `,

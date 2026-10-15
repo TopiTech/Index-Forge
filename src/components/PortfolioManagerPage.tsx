@@ -36,6 +36,7 @@ import {
   hasPersistedWatchlist,
   calculatePortfolioSummary,
   convertPortfolioToCustomIndexBasket,
+  consumeSaveFailure,
   type PortfolioPosition,
 } from "../lib/portfolioStorage";
 import {
@@ -102,7 +103,11 @@ export function PortfolioManagerPage({
   const watchlistPersistedRef = useRef(hasPersistedWatchlist());
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const { success, info } = useToast();
+  const { success, info, error: notifySaveError } = useToast();
+  // 自動保存失敗は同一エラーの連打を避けるため1回だけ通知し、
+  // 次の成功保存で再通知を許可する。
+  const positionsSaveFailureNotifiedRef = useRef(false);
+  const watchlistSaveFailureNotifiedRef = useRef(false);
 
   // Auth gate inline login state
   const [authMode, setAuthMode] = useState<"admin" | "user">("admin");
@@ -207,8 +212,21 @@ export function PortfolioManagerPage({
     }
     if (isAuthenticated && positionsPersistedRef.current) {
       savePortfolioPositions(positions);
+      // 保存結果を黙って捨てると、クォータ超過やストレージ無効で
+      // 「保存済み」のままデータを失う。失敗はトーストで明示する
+      // (同一エラーは1回だけ通知し、成功保存で再通知を再開)。
+      if (consumeSaveFailure()) {
+        if (!positionsSaveFailureNotifiedRef.current) {
+          positionsSaveFailureNotifiedRef.current = true;
+          notifySaveError(
+            "保有銘柄の自動保存に失敗しました。ブラウザのストレージ容量を確認してください(保存されていない変更がある可能性があります)",
+          );
+        }
+      } else {
+        positionsSaveFailureNotifiedRef.current = false;
+      }
     }
-  }, [positions, isAuthenticated]);
+  }, [positions, isAuthenticated, notifySaveError]);
 
   useEffect(() => {
     if (isAuthTransitionRef.current) {
@@ -216,8 +234,19 @@ export function PortfolioManagerPage({
     }
     if (isAuthenticated && watchlistPersistedRef.current) {
       saveWatchlist(watchlist);
+      // 保有銘柄と同じ理由で、ウォッチリストの自動保存失敗も通知する。
+      if (consumeSaveFailure()) {
+        if (!watchlistSaveFailureNotifiedRef.current) {
+          watchlistSaveFailureNotifiedRef.current = true;
+          notifySaveError(
+            "ウォッチリストの自動保存に失敗しました。ブラウザのストレージ容量を確認してください(保存されていない変更がある可能性があります)",
+          );
+        }
+      } else {
+        watchlistSaveFailureNotifiedRef.current = false;
+      }
     }
-  }, [watchlist, isAuthenticated]);
+  }, [watchlist, isAuthenticated, notifySaveError]);
 
   useEffect(() => {
     if (isAuthTransitionRef.current) {
@@ -1614,13 +1643,15 @@ export function PortfolioManagerPage({
               </table>
             </div>
 
-            {/* Mobile Card List View (<= 768px) */}
-            <div className="portfolio-mobile-list" aria-label="保有銘柄一覧カードリスト">
+            {/* Mobile Card List View (<= 768px) — a labelled list so screen
+                readers can announce/navigate the holdings as a collection
+                (`aria-label` is prohibited on a role-less generic element). */}
+            <div className="portfolio-mobile-list" role="list" aria-label="保有銘柄一覧カードリスト">
               {summary.positions.map((p) => {
                 const isProfit = p.unrealizedProfit >= 0;
                 const curr = getStockCurrency(p.ticker);
                 return (
-                  <article key={p.id} className="portfolio-mobile-card">
+                  <article key={p.id} role="listitem" className="portfolio-mobile-card">
                     <div className="portfolio-mobile-card-header">
                       <div
                         role="button"

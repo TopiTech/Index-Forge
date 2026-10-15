@@ -59,15 +59,26 @@ function createTestEnv() {
 
   const executeRun = async (query: string, params: unknown[] = []) => {
     if (query.includes("INSERT INTO admin_login_attempts")) {
-      const ip = params[0] as string;
-      const count = params[1] as number;
-      const lastFailed = params[2] as number;
-      const lockedUntil = params[3] as number;
+      // Faithful emulation of the atomic upsert sent by the Worker:
+      //   (ip, now, now-WINDOW, now-WINDOW, maxAttempts, lockedUntil)
+      // The increment happens in SQL, so the mock must apply it here rather
+      // than trusting a counter computed in JavaScript beforehand.
+      const [ip, now, windowStart, , maxAttempts, lockedUntil] = params as [
+        string,
+        number,
+        number,
+        number,
+        number,
+        number,
+      ];
+      const existing = attempts.get(ip);
+      const withinWindow = existing ? existing.last_failed_at >= windowStart : false;
+      const failedCount = existing && withinWindow ? (existing.failed_count || 0) + 1 : 1;
       attempts.set(ip, {
         ip,
-        failed_count: count,
-        last_failed_at: lastFailed,
-        locked_until: lockedUntil,
+        failed_count: failedCount,
+        last_failed_at: now,
+        locked_until: failedCount >= maxAttempts ? lockedUntil : 0,
       });
       return { meta: { changes: 1 } };
     }

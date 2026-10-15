@@ -9,6 +9,7 @@ import {
   isIndexOwner,
 } from "../lib/ownership";
 import { getAuthHeaders } from "../lib/auth";
+import { sanitizeBasketForRequest } from "../lib/indexEngine";
 
 const API_BASE = "/api";
 const INDICES_CACHE_KEY = "osi_indices_cache";
@@ -88,12 +89,23 @@ export function buildSaveIndexRequest(
   ownerToken: string,
   authHeaders: Record<string, string> = {},
 ): { headers: Record<string, string>; body: string } {
+  // Worker 契約 (POST /api/indices) は weight 0< w <=100・ティッカー文字種・
+  // 重複なし・name/theme 100 字以内を要求する。インポート由来の壊れた値の
+  // ままだと 400 になり「保存できない」理由が分からないままデータが失われる
+  // ため、リクエスト境界で補正する (計算系と同じ sanitizeBasketForRequest)。
+  const { basket: requestBasket } = sanitizeBasketForRequest(newIndex.basket);
+  const baseValue =
+    typeof newIndex.baseValue === "number" &&
+    Number.isFinite(newIndex.baseValue) &&
+    newIndex.baseValue > 0
+      ? Math.min(newIndex.baseValue, 1_000_000)
+      : 1000;
   return {
     headers: {
       "Content-Type": "application/json",
       ...withOwnerTokenHeader(authHeaders, ownerToken),
     },
-    body: JSON.stringify({ ...newIndex, ownerToken }),
+    body: JSON.stringify({ ...newIndex, basket: requestBasket, baseValue, ownerToken }),
   };
 }
 
