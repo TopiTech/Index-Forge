@@ -1742,27 +1742,146 @@ export async function getYahooCrumb(
       .map((c) => c.split(";")[0]?.trim())
       .filter((c): c is string => Boolean(c && c.includes("=")))
       .join("; ");
-    const res2 = await fetch("https://query2.finance.yahoo.com/v1/test/getcrumb", {
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        ...(cookie ? { Cookie: cookie } : {}),
-      },
-      signal: AbortSignal.timeout(4000),
-    });
-    if (res2.ok) {
-      const crumb = await res2.text();
-      if (crumb && !crumb.includes("<html>")) {
-        cachedYahooCrumb = crumb;
-        cachedYahooCookie = cookie;
-        yahooCrumbExpiresAt = Date.now() + 1000 * 60 * 60; // 1 hour
-        return { crumb, cookie };
+    let crumbText = "";
+    try {
+      const res2 = await fetch("https://query2.finance.yahoo.com/v1/test/getcrumb", {
+        headers: {
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+          ...(cookie ? { Cookie: cookie } : {}),
+        },
+        signal: AbortSignal.timeout(4000),
+      });
+      if (res2.ok) {
+        crumbText = (await res2.text()).trim();
       }
+    } catch {
+      // try query1
+    }
+
+    if (!crumbText || crumbText.includes("<")) {
+      try {
+        const resAlt = await fetch("https://query1.finance.yahoo.com/v1/test/getcrumb", {
+          headers: {
+            "User-Agent":
+              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            ...(cookie ? { Cookie: cookie } : {}),
+          },
+          signal: AbortSignal.timeout(4000),
+        });
+        if (resAlt.ok) {
+          crumbText = (await resAlt.text()).trim();
+        }
+      } catch {
+        // best effort
+      }
+    }
+
+    const tokenCandidate = crumbText.split("\n").pop()?.trim() || crumbText;
+    if (tokenCandidate && !tokenCandidate.includes("<") && /^[A-Za-z0-9_.~-]{5,50}$/.test(tokenCandidate)) {
+      cachedYahooCrumb = tokenCandidate;
+      cachedYahooCookie = cookie;
+      yahooCrumbExpiresAt = Date.now() + 1000 * 60 * 60; // 1 hour
+      return { crumb: tokenCandidate, cookie };
     }
   } catch {
     // fallback
   }
   return null;
+}
+
+export const US_CIK_LOOKUP: Record<string, string> = {
+  NVDA: "0001045810",
+  AAPL: "0000320193",
+  MSFT: "0000789019",
+  AMZN: "0001018724",
+  GOOGL: "0001652044",
+  GOOG: "0001652044",
+  META: "0001326801",
+  TSLA: "0001318605",
+  INTC: "0000050863",
+  AMD: "0000002488",
+  NFLX: "0001065280",
+  AVGO: "0001730168",
+  QCOM: "0000804328",
+  ORCL: "0001341439",
+  CRM: "0001108524",
+  ADBE: "0000796343",
+  CSCO: "0000858877",
+};
+
+/**
+ * SEC EDGAR Company Facts API から米国株の確定年次決算 (10-K) 財務諸表を動的取得
+ */
+export async function fetchSecEdgarFinancials(
+  ticker: string,
+): Promise<Array<{ fiscalYear: string; revenue: number; operatingIncome: number; netIncome: number; eps: number; dps: number }>> {
+  const norm = ticker.trim().toUpperCase();
+  const cik = US_CIK_LOOKUP[norm];
+  if (!cik) return [];
+
+  try {
+    const res = await fetch(`https://data.sec.gov/api/xbrl/companyfacts/CIK${cik}.json`, {
+      headers: {
+        "User-Agent": "IndexForgePlatform/1.0 (compliance-contact@indexforge.dev)",
+        Accept: "application/json",
+      },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) return [];
+    const data = (await res.json()) as {
+      facts?: {
+        "us-gaap"?: Record<string, { units?: { USD?: Array<{ form?: string; fy?: number; val?: number; fp?: string }> } }>;
+      };
+    };
+    const usGaap = data.facts?.["us-gaap"];
+    if (!usGaap) return [];
+
+    const revList = (
+      usGaap.Revenues?.units?.USD ||
+      usGaap.RevenueFromContractWithCustomerExcludingAssessedTax?.units?.USD ||
+      usGaap.SalesRevenueNet?.units?.USD ||
+      []
+    ).filter((r) => r.form === "10-K" && typeof r.fy === "number" && r.val);
+
+    const netList = (usGaap.NetIncomeLoss?.units?.USD || []).filter(
+      (r) => r.form === "10-K" && typeof r.fy === "number" && r.val,
+    );
+
+    const opList = (usGaap.OperatingIncomeLoss?.units?.USD || []).filter(
+      (r) => r.form === "10-K" && typeof r.fy === "number" && r.val,
+    );
+
+    const epsList = (usGaap.EarningsPerShareDiluted?.units?.USD || []).filter(
+      (r) => r.form === "10-K" && typeof r.fy === "number" && r.val,
+    );
+
+    const years = [...new Set(revList.map((r) => r.fy!))].sort((a, b) => a - b).slice(-4);
+    if (years.length === 0) return [];
+
+    return years.map((fy) => {
+      const revItem = revList.filter((r) => r.fy === fy).pop();
+      const netItem = netList.filter((r) => r.fy === fy).pop();
+      const opItem = opList.filter((r) => r.fy === fy).pop();
+      const epsItem = epsList.filter((r) => r.fy === fy).pop();
+
+      const rev = revItem ? Math.round(revItem.val! / 1_000_000) : 0;
+      const net = netItem ? Math.round(netItem.val! / 1_000_000) : 0;
+      const op = opItem ? Math.round(opItem.val! / 1_000_000) : Math.round(net * 1.25);
+      const safeEps = epsItem ? Number(epsItem.val!.toFixed(2)) : 0;
+
+      return {
+        fiscalYear: `${fy} FY`,
+        revenue: rev,
+        operatingIncome: op,
+        netIncome: net,
+        eps: safeEps,
+        dps: 0,
+      };
+    });
+  } catch {
+    return [];
+  }
 }
 
 export interface OverviewAssetDef {
@@ -2259,7 +2378,38 @@ export async function fetchLiveStockFundamentals(ticker: string, env?: Env): Pro
 
     let summaryData: YahooQuoteSummaryResponse | null = null;
     if (summaryRes && summaryRes.ok) {
-      summaryData = (await summaryRes.json()) as YahooQuoteSummaryResponse;
+      try {
+        summaryData = (await summaryRes.json()) as YahooQuoteSummaryResponse;
+      } catch {
+        summaryData = null;
+      }
+    }
+
+    // Tier 2 Fallback: If Tier 1 (with crumb) failed or was skipped, try query1/query2 quoteSummary without crumb
+    if (!summaryData?.quoteSummary?.result?.[0] && !isMacroAsset) {
+      for (const host of ["query1.finance.yahoo.com", "query2.finance.yahoo.com"]) {
+        try {
+          const altRes = await fetch(
+            `https://${host}/v10/finance/quoteSummary/${encodeURIComponent(yahooSymbol)}?modules=financialData,defaultKeyStatistics,summaryDetail,earnings,price,incomeStatementHistory`,
+            {
+              signal: AbortSignal.timeout(4500),
+              headers: {
+                "User-Agent":
+                  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+              },
+            },
+          );
+          if (altRes.ok) {
+            const altJson = (await altRes.json()) as YahooQuoteSummaryResponse;
+            if (altJson?.quoteSummary?.result?.[0]) {
+              summaryData = altJson;
+              break;
+            }
+          }
+        } catch {
+          // continue to next host
+        }
+      }
     }
     let chartData: YahooChartResponse | null = null;
     if (chartRes && chartRes.ok) {
@@ -2406,19 +2556,23 @@ export async function fetchLiveStockFundamentals(ticker: string, env?: Env): Pro
 
     if (!isMacroAsset && priceObj.sector) sector = priceObj.sector;
 
-    // Financial statement extraction
+    // Financial statement extraction from dynamic external sources
     if (!isMacroAsset) {
       const ish = (result as { incomeStatementHistory?: { incomeStatementHistory?: Array<Record<string, { raw?: number; fmt?: string }>> } })?.incomeStatementHistory?.incomeStatementHistory;
-      if (Array.isArray(ish) && ish.length > 0) {
-        historicalFinances = ish.map((stmt) => {
+      const validIsh = Array.isArray(ish)
+        ? ish.filter((s) => (s.totalRevenue?.raw && s.totalRevenue.raw > 0) || (s.netIncome?.raw && s.netIncome.raw > 0))
+        : [];
+
+      if (validIsh.length > 0) {
+        historicalFinances = validIsh.map((stmt) => {
           const rawDate = stmt.endDate?.fmt || String(stmt.endDate?.raw || "");
           const dateYear = rawDate.match(/\d{4}/)?.[0] || String(currentYear);
           const revRaw = stmt.totalRevenue?.raw || 0;
           const opRaw = stmt.operatingIncome?.raw || 0;
           const netRaw = stmt.netIncome?.raw || 0;
           const rev = Math.round(revRaw / (isUS ? 1_000_000 : 100_000_000));
-          const opInc = Math.round(opRaw / (isUS ? 1_000_000 : 100_000_000));
           const net = Math.round(netRaw / (isUS ? 1_000_000 : 100_000_000));
+          const opInc = opRaw > 0 ? Math.round(opRaw / (isUS ? 1_000_000 : 100_000_000)) : Math.round(net * 1.25);
           return {
             fiscalYear: isUS ? `${dateYear} FY` : `${dateYear}/3`,
             revenue: rev,
@@ -2435,7 +2589,7 @@ export async function fetchLiveStockFundamentals(ticker: string, env?: Env): Pro
           historicalFinances = yearlyChart.map((y) => {
             const rev = Math.round((y.revenue?.raw || 0) / (isUS ? 1_000_000 : 100_000_000));
             const net = Math.round((y.earnings?.raw || 0) / (isUS ? 1_000_000 : 100_000_000));
-            const opInc = Math.round(net * 1.3);
+            const opInc = Math.round(net * 1.25);
             const earningsRatio =
               typeof baseEarningsRaw === "number" &&
               baseEarningsRaw > 0 &&
@@ -2453,6 +2607,18 @@ export async function fetchLiveStockFundamentals(ticker: string, env?: Env): Pro
               dps: yDps,
             };
           });
+        }
+      }
+
+      // Tier 3: SEC EDGAR official XBRL facts API for US stocks
+      if (isUS && (!historicalFinances || historicalFinances.length === 0)) {
+        try {
+          const secFinances = await fetchSecEdgarFinancials(normTicker);
+          if (secFinances.length > 0) {
+            historicalFinances = secFinances;
+          }
+        } catch {
+          // best effort
         }
       }
     } else {

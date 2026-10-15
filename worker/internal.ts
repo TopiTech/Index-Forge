@@ -90,6 +90,8 @@ export {
   checkRateLimit,
   clearMemoryRateLimits,
   getClientIp,
+  fetchSecEdgarFinancials,
+  US_CIK_LOOKUP,
 } from "./internal-impl";
 
 export type {

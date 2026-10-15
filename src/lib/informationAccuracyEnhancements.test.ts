@@ -119,4 +119,156 @@ describe("Information Accuracy & Hardcoding Elimination Enhancements", () => {
       expect(tickers).toContain("NVDA");
     });
   });
+
+  describe("4. Multi-Tier Dynamic Financial Statements Fetching", () => {
+    it("exports known US CIK mappings for SEC EDGAR XBRL lookup", async () => {
+      const { US_CIK_LOOKUP } = await import("../../worker/internal");
+      expect(US_CIK_LOOKUP).toBeDefined();
+      expect(US_CIK_LOOKUP["NVDA"]).toBe("0001045810");
+      expect(US_CIK_LOOKUP["AAPL"]).toBe("0000320193");
+      expect(US_CIK_LOOKUP["MSFT"]).toBe("0000789019");
+    });
+
+    it("dynamically parses SEC EDGAR XBRL company facts payload into historicalFinances", async () => {
+      const { fetchSecEdgarFinancials } = await import("../../worker/internal");
+      const sampleFacts = {
+        facts: {
+          "us-gaap": {
+            Revenues: {
+              units: {
+                USD: [
+                  { form: "10-K", fy: 2023, val: 26974000000 },
+                  { form: "10-K", fy: 2024, val: 60922000000 },
+                  { form: "10-K", fy: 2025, val: 130497000000 },
+                ],
+              },
+            },
+            NetIncomeLoss: {
+              units: {
+                USD: [
+                  { form: "10-K", fy: 2023, val: 4368000000 },
+                  { form: "10-K", fy: 2024, val: 29760000000 },
+                  { form: "10-K", fy: 2025, val: 72880000000 },
+                ],
+              },
+            },
+            OperatingIncomeLoss: {
+              units: {
+                USD: [
+                  { form: "10-K", fy: 2023, val: 4224000000 },
+                  { form: "10-K", fy: 2024, val: 32972000000 },
+                  { form: "10-K", fy: 2025, val: 81453000000 },
+                ],
+              },
+            },
+          },
+        },
+      };
+
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = async (input: RequestInfo | URL) => {
+        const urlStr = String(input);
+        if (urlStr.includes("data.sec.gov")) {
+          return new Response(JSON.stringify(sampleFacts), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        return originalFetch(input);
+      };
+
+      try {
+        const finances = await fetchSecEdgarFinancials("NVDA");
+        expect(finances.length).toBe(3);
+        expect(finances[0].fiscalYear).toBe("2023 FY");
+        expect(finances[0].revenue).toBe(26974); // in million USD
+        expect(finances[0].netIncome).toBe(4368);
+        expect(finances[0].operatingIncome).toBe(4224);
+
+        expect(finances[2].fiscalYear).toBe("2025 FY");
+        expect(finances[2].revenue).toBe(130497);
+        expect(finances[2].netIncome).toBe(72880);
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+
+    it("dynamically parses Yahoo quoteSummary incomeStatementHistory in fetchLiveStockFundamentals", async () => {
+      const { fetchLiveStockFundamentals } = await import("../../worker/internal");
+      const sampleSummary = {
+        quoteSummary: {
+          result: [
+            {
+              price: {
+                regularMarketPrice: { raw: 5000 },
+                regularMarketChange: { raw: 100 },
+                regularMarketChangePercent: { raw: 0.02 },
+                regularMarketPreviousClose: { raw: 4900 },
+                shortName: "テスト電気",
+              },
+              incomeStatementHistory: {
+                incomeStatementHistory: [
+                  {
+                    endDate: { fmt: "2025-03-31" },
+                    totalRevenue: { raw: 800000000000 }, // 8000億円
+                    operatingIncome: { raw: 150000000000 }, // 1500億円
+                    netIncome: { raw: 100000000000 }, // 1000億円
+                  },
+                  {
+                    endDate: { fmt: "2024-03-31" },
+                    totalRevenue: { raw: 700000000000 },
+                    operatingIncome: { raw: 120000000000 },
+                    netIncome: { raw: 80000000000 },
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      };
+
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = async (input: RequestInfo | URL) => {
+        const urlStr = String(input);
+        if (urlStr.includes("quoteSummary")) {
+          return new Response(JSON.stringify(sampleSummary), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        if (urlStr.includes("chart")) {
+          return new Response(
+            JSON.stringify({
+              chart: {
+                result: [
+                  {
+                    meta: { regularMarketPrice: 5000 },
+                    indicators: { quote: [{ close: [4800, 4900, 5000] }] },
+                  },
+                ],
+              },
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+        return originalFetch(input);
+      };
+
+      try {
+        const data = await fetchLiveStockFundamentals("6857");
+        expect(data.historicalFinances).toBeDefined();
+        expect(data.historicalFinances.length).toBe(2);
+        // Reversed chronological order
+        expect(data.historicalFinances[0].fiscalYear).toBe("2024/3");
+        expect(data.historicalFinances[0].revenue).toBe(7000); // 7000億円
+        expect(data.historicalFinances[1].fiscalYear).toBe("2025/3");
+        expect(data.historicalFinances[1].revenue).toBe(8000); // 8000億円
+        expect(data.historicalFinances[1].operatingIncome).toBe(1500);
+        expect(data.historicalFinances[1].netIncome).toBe(1000);
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+  });
 });
+
