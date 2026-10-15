@@ -2478,6 +2478,9 @@ export async function fetchLiveStockFundamentals(ticker: string, env?: Env): Pro
           ? "指数・ETF"
           : baseline.theme;
   const isUS = baselineAsset ? baselineAsset.currency === "USD" : !/^\d/.test(normTicker);
+  const priceDecimals = isFx
+    ? (normTicker.includes("JPY") || baselineAsset?.currency === "JPY" ? 2 : 4)
+    : (isUS ? 2 : 1);
   const market: StockQuoteFundamentals["market"] = baselineAsset ? (isUS ? "US" : "PRIME") : baseline.market;
   const yahooSymbol = baselineAsset ? baselineAsset.querySymbol : toYahooSymbol(normTicker);
 
@@ -2616,7 +2619,7 @@ export async function fetchLiveStockFundamentals(ticker: string, env?: Env): Pro
     } else if (typeof chartMeta.regularMarketChange === "number") {
       change = chartMeta.regularMarketChange;
     } else if (typeof chartMeta.chartPreviousClose === "number") {
-      change = Number((currentPrice - chartMeta.chartPreviousClose).toFixed(2));
+      change = Number((currentPrice - chartMeta.chartPreviousClose).toFixed(priceDecimals));
     }
 
     if (typeof priceObj.regularMarketChangePercent?.raw === "number") {
@@ -2630,7 +2633,7 @@ export async function fetchLiveStockFundamentals(ticker: string, env?: Env): Pro
         ? priceObj.regularMarketPreviousClose.raw
         : typeof chartMeta.chartPreviousClose === "number"
           ? chartMeta.chartPreviousClose
-          : Number((currentPrice - change).toFixed(2));
+          : Number((currentPrice - change).toFixed(priceDecimals));
 
     volume =
       priceObj.regularMarketVolume?.raw ||
@@ -2873,15 +2876,15 @@ export async function fetchLiveStockFundamentals(ticker: string, env?: Env): Pro
     theme,
     sector,
     market,
-    price: Number(currentPrice.toFixed(isUS ? 2 : 1)),
-    change: Number(change.toFixed(isUS ? 2 : 1)),
+    price: Number(currentPrice.toFixed(priceDecimals)),
+    change: Number(change.toFixed(priceDecimals)),
     changePercent: Number(changePct.toFixed(2)),
     volume,
-    previousClose: Number(prevClose.toFixed(isUS ? 2 : 1)),
-    dayHigh: Number(dayHigh.toFixed(isUS ? 2 : 1)),
-    dayLow: Number(dayLow.toFixed(isUS ? 2 : 1)),
-    yearHigh: Number(yearHigh.toFixed(isUS ? 2 : 1)),
-    yearLow: Number(yearLow.toFixed(isUS ? 2 : 1)),
+    previousClose: Number(prevClose.toFixed(priceDecimals)),
+    dayHigh: Number(dayHigh.toFixed(priceDecimals)),
+    dayLow: Number(dayLow.toFixed(priceDecimals)),
+    yearHigh: Number(yearHigh.toFixed(priceDecimals)),
+    yearLow: Number(yearLow.toFixed(priceDecimals)),
     marketCap,
     per,
     pbr,

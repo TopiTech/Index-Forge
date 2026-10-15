@@ -395,10 +395,10 @@ export function deserializePortfolioFromCsv(
   for (let rowIdx = 1; rowIdx < rows.length; rowIdx++) {
     const fields = rows[rowIdx];
     if (fields.length <= tickerIdx) continue;
-    const ticker = fields[tickerIdx]?.toUpperCase().trim();
-    if (!ticker) continue;
+    const ticker = normalizeTicker(fields[tickerIdx] ?? "");
+    if (!ticker || ticker.length > 20 || !/^[A-Za-z0-9.-]+$/.test(ticker)) continue;
 
-    const name = (nameIdx !== -1 && nameIdx < fields.length ? fields[nameIdx] : "") || ticker;
+    const name = ((nameIdx !== -1 && nameIdx < fields.length ? fields[nameIdx] : "") || ticker).slice(0, 100);
     const rawShares = sharesIdx !== -1 && sharesIdx < fields.length ? parseNumericValue(fields[sharesIdx]) : NaN;
     const shares = Number.isFinite(rawShares) && rawShares > 0 ? rawShares : 100;
 
@@ -406,7 +406,7 @@ export function deserializePortfolioFromCsv(
     const averageCost = Number.isFinite(rawCost) && rawCost > 0 ? rawCost : 1000;
 
     const acquiredAt = dateIdx !== -1 && dateIdx < fields.length ? fields[dateIdx] : undefined;
-    const notes = notesIdx !== -1 && notesIdx < fields.length ? fields[notesIdx] : undefined;
+    const notes = (notesIdx !== -1 && notesIdx < fields.length ? fields[notesIdx] : undefined)?.slice(0, 500);
 
     positions.push({
       id: `pos-${ticker}-${Date.now()}-${rowIdx}`,

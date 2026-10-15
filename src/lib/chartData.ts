@@ -93,7 +93,8 @@ export function downsampleLTTB<T extends { date: string; value: number }>(
 
     for (let j = nextBucketStart; j < nextBucketEnd; j++) {
       avgX += j;
-      avgY += data[j].value;
+      const val = data[j]?.value;
+      avgY += Number.isFinite(val) ? (val as number) : 0;
     }
     if (nextBucketLength > 0) {
       avgX /= nextBucketLength;
@@ -105,17 +106,20 @@ export function downsampleLTTB<T extends { date: string; value: number }>(
     const currentBucketEnd = Math.min(Math.floor((i + 1) * bucketSize) + 1, data.length);
 
     const aPoint = data[aIndex];
+    const aVal = Number.isFinite(aPoint?.value) ? aPoint.value : 0;
     let maxArea = -1;
-    let maxAreaIndex = currentBucketStart;
+    let maxAreaIndex = Math.min(currentBucketStart, data.length - 1);
 
     for (let j = currentBucketStart; j < currentBucketEnd; j++) {
       const bPoint = data[j];
+      if (!bPoint) continue;
+      const bVal = Number.isFinite(bPoint.value) ? bPoint.value : 0;
       const area = Math.abs(
-        (aIndex - avgX) * (bPoint.value - aPoint.value) -
-        (aIndex - j) * (avgY - aPoint.value),
+        (aIndex - avgX) * (bVal - aVal) -
+        (aIndex - j) * (avgY - aVal),
       ) * 0.5;
 
-      if (area > maxArea) {
+      if (Number.isFinite(area) && area > maxArea) {
         maxArea = area;
         maxAreaIndex = j;
       }

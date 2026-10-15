@@ -176,10 +176,21 @@ export function formatDynamicRelativeTime(
 ): string {
   let diffMs: number;
   if (typeof offsetMinutesOrDate === "number") {
-    diffMs = offsetMinutesOrDate * 60 * 1000;
+    if (!Number.isFinite(offsetMinutesOrDate) || offsetMinutesOrDate <= 0) {
+      diffMs = 0;
+    } else if (offsetMinutesOrDate > 1e11) {
+      // Unix timestamp in milliseconds (e.g. Date.now() >= 1e11)
+      diffMs = Math.max(0, now.getTime() - offsetMinutesOrDate);
+    } else if (offsetMinutesOrDate > 1e8) {
+      // Unix timestamp in seconds (e.g. SQLite cached_at / created_at >= 1e8)
+      diffMs = Math.max(0, now.getTime() - offsetMinutesOrDate * 1000);
+    } else {
+      // Relative offset in minutes
+      diffMs = Math.max(0, offsetMinutesOrDate * 60 * 1000);
+    }
   } else {
     const target = new Date(offsetMinutesOrDate).getTime();
-    diffMs = Math.max(0, now.getTime() - target);
+    diffMs = Number.isFinite(target) ? Math.max(0, now.getTime() - target) : 0;
   }
 
   const diffMins = Math.floor(diffMs / (60 * 1000));

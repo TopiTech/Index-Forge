@@ -1,3 +1,4 @@
+DROP TABLE IF EXISTS admin_login_attempts;
 DROP TABLE IF EXISTS benchmark_cache;
 DROP TABLE IF EXISTS rate_limits;
 DROP TABLE IF EXISTS snapshot_cache;
@@ -7,4 +8,5 @@ DROP TABLE IF EXISTS stock_prices;
 DROP TABLE IF EXISTS basket_items;
 DROP TABLE IF EXISTS access_passwords;
 DROP TABLE IF EXISTS indices;
+
 
