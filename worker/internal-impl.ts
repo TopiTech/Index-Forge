@@ -6133,7 +6133,7 @@ export default {
 
           const cacheControl = `public, max-age=120, s-maxage=300, stale-while-revalidate=3600, stale-if-error=86400`;
           const etag = await generateETag(JSON.stringify(events));
-          if (matchesIfNoneMatch(request.headers.get("if-none-match"), etag)) {
+          if (!forceRefresh && matchesIfNoneMatch(request.headers.get("if-none-match"), etag)) {
             return notModified(request, {
               etag,
               "cache-control": cacheControl,

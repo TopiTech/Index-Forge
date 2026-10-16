@@ -30,7 +30,6 @@ import { POPULAR_STOCKS } from "../data/popularStocks";
 import { searchStockUniverse, normalizeSearchQuery } from "../data/stockUniverse";
 import { getRecentSearches } from "./GlobalSearchModal";
 import type { PageView } from "../lib/navigation";
-import { useToast } from "./Toast";
 
 export interface StockAnalysisPageProps {
   onNavigate: (view: PageView, searchParams?: string) => void;
@@ -95,8 +94,6 @@ export function StockAnalysisPage({
   const [selectedTheme, setSelectedTheme] = useState<ThemeCategory>("ALL");
   const [recentItems, setRecentItems] = useState<{ id: string; title: string; subtitle: string }[]>([]);
   const [addedWatchlistMap, setAddedWatchlistMap] = useState<Record<string, boolean>>({});
-
-  const { success } = useToast();
   const mountedRef = useRef(true);
   const requestIdRef = useRef(0);
   const searchFormRef = useRef<HTMLFormElement>(null);
@@ -255,11 +252,10 @@ export function StockAnalysisPage({
     }
   };
 
-  const handleToggleWatchlist = (e: React.MouseEvent, ticker: string, name: string) => {
+  const handleToggleWatchlist = (e: React.MouseEvent, ticker: string) => {
     e.stopPropagation();
     onAddToWatchlist?.(ticker);
     setAddedWatchlistMap((prev) => ({ ...prev, [ticker]: true }));
-    success(`${name} (${ticker}) を監視リストに追加しました`);
   };
 
   const renderSparkline = (data?: number[], isPositive = true) => {
@@ -720,7 +716,6 @@ export function StockAnalysisPage({
                         onClick={(e) => {
                           e.stopPropagation();
                           onAddToIndex(stock.ticker, stock.name, stock.theme || "その他");
-                          success(`${stock.name} (${stock.ticker}) を指数に追加しました`);
                         }}
                         title="指数に追加"
                         aria-label={`${stock.name}を指数に追加`}
@@ -735,7 +730,6 @@ export function StockAnalysisPage({
                         onClick={(e) => {
                           e.stopPropagation();
                           onAddToPortfolio(stock.ticker, stock.price);
-                          success(`${stock.name} (${stock.ticker}) をポートフォリオに追加しました`);
                         }}
                         title="ポートフォリオに追加"
                         aria-label={`${stock.name}をポートフォリオに追加`}
@@ -746,7 +740,7 @@ export function StockAnalysisPage({
                     <button
                       type="button"
                       className={`stock-card-action-btn ${isAdded ? "added" : ""}`}
-                      onClick={(e) => handleToggleWatchlist(e, stock.ticker, stock.name)}
+                      onClick={(e) => handleToggleWatchlist(e, stock.ticker)}
                       title={isAdded ? "監視リスト追加済み" : "監視リストに追加"}
                       aria-label={`${stock.name}を監視リストに追加`}
                     >

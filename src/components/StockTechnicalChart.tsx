@@ -342,14 +342,20 @@ export function StockTechnicalChart({
               let sma25: number | null = null;
               if (i >= 24) {
                 let sum = 0;
-                for (let k = i - 24; k <= i; k++) sum += rawSeries[k]?.close || p;
+                for (let k = i - 24; k <= i; k++) {
+                  const c = rawSeries[k]?.close;
+                  sum += typeof c === "number" && Number.isFinite(c) && c > 0 ? c : p;
+                }
                 sma25 = Math.round((sum / 25) * 100) / 100;
               }
 
               let sma75: number | null = null;
               if (i >= 74) {
                 let sum = 0;
-                for (let k = i - 74; k <= i; k++) sum += rawSeries[k]?.close || p;
+                for (let k = i - 74; k <= i; k++) {
+                  const c = rawSeries[k]?.close;
+                  sum += typeof c === "number" && Number.isFinite(c) && c > 0 ? c : p;
+                }
                 sma75 = Math.round((sum / 75) * 100) / 100;
               }
 
@@ -887,20 +893,20 @@ export function StockTechnicalChart({
                     }}
                     labelStyle={{ color: "var(--text-primary)", fontWeight: 600, marginBottom: "4px" }}
                     formatter={(val: unknown, name: unknown) => {
-                      const num = typeof val === "number" ? val : 0;
+                      const isValidNum = typeof val === "number" && Number.isFinite(val);
                       if (name === "volume") {
-                        return [num.toLocaleString(), "出来高"];
+                        return [isValidNum ? val.toLocaleString() : "--", "出来高"];
                       }
                       if (name === "close") {
-                        return [formatStockPrice(num, stock.ticker), "終値"];
+                        return [isValidNum ? formatStockPrice(val, stock.ticker) : "--", "終値"];
                       }
                       if (name === "sma25") {
-                        return [formatStockPrice(num, stock.ticker), "SMA 25日"];
+                        return [isValidNum ? formatStockPrice(val, stock.ticker) : "--", "SMA 25日"];
                       }
                       if (name === "sma75") {
-                        return [formatStockPrice(num, stock.ticker), "SMA 75日"];
+                        return [isValidNum ? formatStockPrice(val, stock.ticker) : "--", "SMA 75日"];
                       }
-                      return [num, String(name)];
+                      return [isValidNum ? val : "--", String(name)];
                     }}
                   />
 
