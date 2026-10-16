@@ -27,7 +27,7 @@ import {
 } from "../lib/marketDataService";
 import { formatStockPrice, formatStockChange } from "../lib/currency";
 import { POPULAR_STOCKS } from "../data/popularStocks";
-import { searchStockUniverse } from "../data/stockUniverse";
+import { searchStockUniverse, normalizeSearchQuery } from "../data/stockUniverse";
 import { getRecentSearches } from "./GlobalSearchModal";
 import type { PageView } from "../lib/navigation";
 import { useToast } from "./Toast";
@@ -203,12 +203,18 @@ export function StockAnalysisPage({
 
   // Search filtered results (supplemented with full TSE universe)
   const searchResults = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    if (!q) return [];
+    const rawQ = searchQuery.trim();
+    if (!rawQ) return [];
+    const normQ = normalizeSearchQuery(rawQ);
+    const q = rawQ.toLowerCase();
     const localMatches = stocks.filter((s) => {
+      const sNormName = normalizeSearchQuery(s.name);
+      const sNormTicker = normalizeSearchQuery(s.ticker);
       return (
         s.ticker.toLowerCase().includes(q) ||
         s.name.toLowerCase().includes(q) ||
+        sNormTicker.includes(normQ) ||
+        sNormName.includes(normQ) ||
         (s.theme && s.theme.toLowerCase().includes(q)) ||
         (s.sector && s.sector.toLowerCase().includes(q))
       );
@@ -419,11 +425,18 @@ export function StockAnalysisPage({
                         <span className="price-val">
                           {formatStockPrice(item.price, item.ticker, { market: item.market })}
                         </span>
-                        <span
-                          className={`change-val ${item.changePercent >= 0 ? "positive" : "negative"}`}
-                        >
-                          {formatStockChange(item.change, item.ticker, { market: item.market })} ({item.changePercent >= 0 ? "+" : ""}{item.changePercent.toFixed(2)}%)
-                        </span>
+                        {(() => {
+                          const isZero = Math.abs(item.changePercent) < 0.005 || item.changePercent === 0;
+                          const isPos = item.changePercent > 0;
+                          return (
+                            <span
+                              className={`change-val ${isZero ? "neutral" : isPos ? "positive" : "negative"}`}
+                              style={isZero ? { color: "var(--text-muted)" } : undefined}
+                            >
+                              {formatStockChange(item.change, item.ticker, { market: item.market })} ({!isZero && isPos ? "+" : ""}{item.changePercent.toFixed(2)}%)
+                            </span>
+                          );
+                        })()}
                       </div>
                     </div>
                   ))
@@ -752,9 +765,22 @@ export function StockAnalysisPage({
                       <div className="stock-card-price">
                         {formatStockPrice(stock.price, stock.ticker, { market: stock.market })}
                       </div>
-                      <div className={`stock-card-change ${isPositive ? "positive" : "negative"}`}>
-                        {formatStockChange(stock.change, stock.ticker, { market: stock.market })} ({isPositive ? "+" : ""}{stock.changePercent.toFixed(2)}%)
-                      </div>
+                      {(() => {
+                        const isZero =
+                          Math.abs(stock.changePercent) < 0.005 || stock.changePercent === 0;
+                        return (
+                          <div
+                            className={`stock-card-change ${
+                              isZero ? "neutral" : isPositive ? "positive" : "negative"
+                            }`}
+                            style={isZero ? { color: "var(--text-muted)" } : undefined}
+                          >
+                            {formatStockChange(stock.change, stock.ticker, { market: stock.market })}{" "}
+                            ({!isZero && isPositive ? "+" : ""}
+                            {stock.changePercent.toFixed(2)}%)
+                          </div>
+                        );
+                      })()}
                     </div>
                     <div className="stock-card-sparkline-wrap">
                       {renderSparkline(stock.sparkline, isPositive)}

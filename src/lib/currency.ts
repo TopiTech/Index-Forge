@@ -165,8 +165,9 @@ export function formatStockChange(
 ): string {
   if (typeof change !== "number" || !Number.isFinite(change)) return "---";
   const meta = getCurrencyMeta(ticker, options?.market);
-  const sign = change >= 0 ? "+" : "-";
-  const abs = Math.abs(change);
+  const isZero = Math.abs(change) < 0.005 || Object.is(change, -0) || change === 0;
+  const sign = isZero ? "" : change > 0 ? "+" : "-";
+  const abs = isZero ? 0 : Math.abs(change);
 
   if (options?.showCode) {
     if (meta.isJPY) {

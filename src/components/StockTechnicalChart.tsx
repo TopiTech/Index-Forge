@@ -252,46 +252,70 @@ export function StockTechnicalChart({
 
     async function fetchHistoricalPrices() {
       try {
-        // Preflight sync to ensure stock prices are refreshed into D1 cache
-        try {
-          await fetch("/api/sync-prices", {
+        let rawSeries: Array<{ date: string; close: number }> | undefined;
+
+        const isBenchmark =
+          stock.ticker.startsWith("^") ||
+          stock.ticker.includes("=") ||
+          stock.ticker === "BTC-USD";
+
+        if (isBenchmark) {
+          try {
+            const snapRes = await fetch(`/api/snapshot?symbol=${encodeURIComponent(stock.ticker)}`);
+            if (snapRes.ok) {
+              const snapData = (await snapRes.json()) as {
+                series?: Array<{ date: string; close: number }>;
+              };
+              if (Array.isArray(snapData.series) && snapData.series.length >= 3) {
+                rawSeries = snapData.series;
+              }
+            }
+          } catch {
+            // Snapshot query is best-effort
+          }
+        } else {
+          // Preflight sync to ensure stock prices are refreshed into D1 cache
+          try {
+            await fetch("/api/sync-prices", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ tickers: [stock.ticker] }),
+            });
+          } catch {
+            // Preflight sync is best-effort; proceed to query /api/calculate
+          }
+
+          const calcRes = await fetch("/api/calculate", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ tickers: [stock.ticker] }),
+            body: JSON.stringify({
+              basket: [
+                {
+                  ticker: stock.ticker,
+                  name: stock.name,
+                  theme: stock.theme || "その他",
+                  weight: 100,
+                },
+              ],
+              baseValue: 1000,
+            }),
           });
-        } catch {
-          // Preflight sync is best-effort; proceed to query /api/calculate
+
+          if (calcRes.ok) {
+            const calcData = (await calcRes.json()) as {
+              stockUniverse?: Array<{
+                ticker: string;
+                series?: Array<{ date: string; close: number }>;
+              }>;
+            };
+            const found = calcData.stockUniverse?.find(
+              (s) => s.ticker.toUpperCase() === stock.ticker.toUpperCase(),
+            );
+            rawSeries = found?.series;
+          }
         }
 
-        const calcRes = await fetch("/api/calculate", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            basket: [
-              {
-                ticker: stock.ticker,
-                name: stock.name,
-                theme: stock.theme || "その他",
-                weight: 100,
-              },
-            ],
-            baseValue: 1000,
-          }),
-        });
-
-        if (calcRes.ok) {
-          const calcData = (await calcRes.json()) as {
-            stockUniverse?: Array<{
-              ticker: string;
-              series?: Array<{ date: string; close: number }>;
-            }>;
-          };
-          const found = calcData.stockUniverse?.find(
-            (s) => s.ticker.toUpperCase() === stock.ticker.toUpperCase(),
-          );
-          const rawSeries = found?.series;
-
-          if (Array.isArray(rawSeries) && rawSeries.length >= 5) {
+        if (Array.isArray(rawSeries) && rawSeries.length >= 5) {
             const total = rawSeries.length;
             const points: PriceDataPoint[] = [];
             for (let i = 0; i < total; i++) {
@@ -377,8 +401,7 @@ export function StockTechnicalChart({
               return;
             }
           }
-        }
-      } catch {
+        } catch {
         // Fall back gracefully to deterministic series
       }
 

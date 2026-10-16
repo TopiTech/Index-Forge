@@ -29,19 +29,20 @@ import {
   formatUsdWithJpyEstimate,
   getCurrencyMeta,
 } from "../lib/currency";
+import { DEFAULT_USD_JPY_RATE } from "../data/marketConstants";
 import { StockTechnicalChart } from "./StockTechnicalChart";
 import { getTradingViewWebUrl } from "../lib/tradingView";
 import type { PageView } from "../lib/navigation";
 
-function getRoeEvaluation(roe: number | null | undefined, isMacro: boolean): string {
-  if (isMacro || roe === null || roe === undefined) return "指数・マクロ指標対象外";
+export function getRoeEvaluation(roe: number | null | undefined, isMacro: boolean): string {
+  if (isMacro || roe === null || roe === undefined || !Number.isFinite(roe)) return "指数・マクロ指標対象外";
   if (roe >= 15) return "極めて高い資本効率 (>15%)";
   if (roe >= 8) return "資本効率良好 (目安: 8%以上)";
   if (roe > 0) return "標準水準 (8%未満)";
   return "収益性要改善 (低水準)";
 }
 
-function getMarketCapEvaluation(cap: number | null | undefined, market: string, isMacro: boolean): string {
+export function getMarketCapEvaluation(cap: number | null | undefined, market: string, isMacro: boolean): string {
   if (isMacro) return "指数・マクロ資産";
   if (market === "US") {
     if (cap && cap >= 100000) return "米国メガキャップ (1,000億ドル超)";
@@ -56,19 +57,30 @@ function getMarketCapEvaluation(cap: number | null | undefined, market: string, 
   return "東証プライム市場";
 }
 
-function getPbrEvaluation(pbr: number | null | undefined, isMacro: boolean): string {
-  if (isMacro || pbr === null || pbr === undefined || pbr <= 0) return "指数・マクロ指標対象外";
+export function getPbrEvaluation(pbr: number | null | undefined, isMacro: boolean): string {
+  if (isMacro || pbr === null || pbr === undefined || !Number.isFinite(pbr) || pbr <= 0) return "指数・マクロ指標対象外";
   if (pbr < 1.0) return "割安 (解散価値1倍割れ)";
   if (pbr <= 2.5) return "適正〜標準水準 (1.0〜2.5倍)";
   if (pbr <= 5.0) return "成長期待水準 (2.5〜5.0倍)";
   return "高PBR・成長期待水準 (>5.0倍)";
 }
 
-function getDividendEvaluation(dividendYield: number | null | undefined, dps: number | null | undefined, currencyCode: string, isMacro: boolean): string {
+export function getDividendEvaluation(
+  dividendYield: number | null | undefined,
+  dps: number | null | undefined,
+  currencyCode: string,
+  isMacro: boolean,
+): string {
   if (isMacro) return "1株配当: --";
-  if (dividendYield === 0) return "無配・内部留保/成長投資重視";
-  if (dps !== null && dps !== undefined && dps > 0) {
-    return `1株配当: ${dps} ${currencyCode}${dividendYield && dividendYield >= 3.5 ? " (高配当水準)" : ""}`;
+  if (dividendYield === 0 || dps === 0) return "無配・内部留保/成長投資重視";
+  if (dps !== null && dps !== undefined && Number.isFinite(dps) && dps > 0) {
+    const formattedDps =
+      currencyCode === "JPY"
+        ? `${Number.isInteger(dps) ? dps : dps.toFixed(1)} 円`
+        : currencyCode === "USD"
+        ? `$${dps.toFixed(2)}`
+        : `${dps} ${currencyCode}`;
+    return `1株配当: ${formattedDps}${dividendYield && dividendYield >= 3.5 ? " (高配当水準)" : ""}`;
   }
   if (dividendYield && dividendYield > 0) {
     return dividendYield >= 3.5 ? "高配当水準 (利回り3.5%超)" : "配当実施中";
@@ -384,30 +396,48 @@ export function StockDetailPage({
 
             {currencyMeta.isUSD && (
               <div className="tiny muted mono" style={{ fontSize: "0.82rem", marginTop: 2, marginBottom: 4 }}>
-                {formatUsdWithJpyEstimate(stock.price)}
+                {formatUsdWithJpyEstimate(
+                  stock.price,
+                  getCachedStockFundamentals("USDJPY=X")?.price || DEFAULT_USD_JPY_RATE,
+                )}
               </div>
             )}
 
-            <div
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "6px",
-                fontSize: "1rem",
-                fontWeight: 700,
-                color: isPositive ? "var(--color-positive)" : "var(--color-negative)",
-              }}
-              className="mono"
-            >
-              {isPositive ? <TrendingUp size={16} /> : <TrendingDown size={16} />}
-              <span>
-                {formatStockChange(stock.change, stock.ticker, { market: stock.market })} ({isPositive ? "+" : ""}
-                {stock.changePercent.toFixed(2)}%)
-              </span>
-              <span className="tiny muted" style={{ fontWeight: 400, marginLeft: 4 }}>
-                前日終値: {formatStockPrice(stock.previousClose, stock.ticker, { market: stock.market })}
-              </span>
-            </div>
+            {(() => {
+              const isZero =
+                Math.abs(stock.changePercent) < 0.005 ||
+                Object.is(stock.changePercent, -0) ||
+                stock.changePercent === 0;
+              const changeColor = isZero
+                ? "var(--text-muted)"
+                : isPositive
+                ? "var(--color-positive)"
+                : "var(--color-negative)";
+
+              return (
+                <div
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "6px",
+                    fontSize: "1rem",
+                    fontWeight: 700,
+                    color: changeColor,
+                  }}
+                  className="mono"
+                >
+                  {!isZero && (isPositive ? <TrendingUp size={16} /> : <TrendingDown size={16} />)}
+                  <span>
+                    {formatStockChange(stock.change, stock.ticker, { market: stock.market })} (
+                    {!isZero && isPositive ? "+" : ""}
+                    {stock.changePercent.toFixed(2)}%)
+                  </span>
+                  <span className="tiny muted" style={{ fontWeight: 400, marginLeft: 4 }}>
+                    前日終値: {formatStockPrice(stock.previousClose, stock.ticker, { market: stock.market })}
+                  </span>
+                </div>
+              );
+            })()}
             {stock.dayHigh > 0 && stock.dayLow > 0 && (
               <div className="tiny muted mono" style={{ marginTop: 4 }}>
                 当日レンジ: {formatStockPrice(stock.dayLow, stock.ticker, { market: stock.market })} - {formatStockPrice(stock.dayHigh, stock.ticker, { market: stock.market })}
@@ -418,30 +448,32 @@ export function StockDetailPage({
         </div>
 
         {/* 52-Week Range Bar */}
-        <div style={{ marginTop: "24px", paddingTop: "18px", borderTop: "1px solid var(--border-subtle)" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.78rem", color: "var(--text-muted)", marginBottom: "6px", flexWrap: "wrap", gap: "4px" }}>
-            <span>52週安値: <strong className="mono">{formatStockPrice(stock.yearLow, stock.ticker, { market: stock.market })}</strong></span>
-            <span>現在位置: <strong className="mono" style={{ color: "var(--accent-text)" }}>{yearPositionPct.toFixed(0)}% レンジ</strong></span>
-            <span>52週高値: <strong className="mono">{formatStockPrice(stock.yearHigh, stock.ticker, { market: stock.market })}</strong></span>
-          </div>
-          <div
-            style={{
-              height: "8px",
-              background: "var(--surface-control)",
-              borderRadius: "4px",
-              position: "relative",
-            }}
-          >
+        {!isMacro && stock.yearHigh > 0 && stock.yearLow > 0 && stock.yearHigh >= stock.yearLow && (
+          <div style={{ marginTop: "24px", paddingTop: "18px", borderTop: "1px solid var(--border-subtle)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.78rem", color: "var(--text-muted)", marginBottom: "6px", flexWrap: "wrap", gap: "4px" }}>
+              <span>52週安値: <strong className="mono">{formatStockPrice(stock.yearLow, stock.ticker, { market: stock.market })}</strong></span>
+              <span>現在位置: <strong className="mono" style={{ color: "var(--accent-text)" }}>{yearPositionPct.toFixed(0)}% レンジ</strong></span>
+              <span>52週高値: <strong className="mono">{formatStockPrice(stock.yearHigh, stock.ticker, { market: stock.market })}</strong></span>
+            </div>
             <div
               style={{
-                height: "100%",
-                width: `${yearPositionPct}%`,
-                background: "linear-gradient(90deg, #38bdf8, #818cf8)",
+                height: "8px",
+                background: "var(--surface-control)",
                 borderRadius: "4px",
+                position: "relative",
               }}
-            />
+            >
+              <div
+                style={{
+                  height: "100%",
+                  width: `${yearPositionPct}%`,
+                  background: "linear-gradient(90deg, #38bdf8, #818cf8)",
+                  borderRadius: "4px",
+                }}
+              />
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       {/* Key Financial Fundamentals Metrics Grid */}
@@ -457,7 +489,9 @@ export function StockDetailPage({
         <div className="card" style={{ padding: "14px 16px" }}>
           <span className="tiny muted mono uppercase">PER (株価収益率)</span>
           <div className="mono bold" style={{ fontSize: "1.3rem", marginTop: 4 }}>
-            {!isMacro && stock.per ? `${stock.per.toFixed(1)}倍` : "--"}
+            {!isMacro && typeof stock.per === "number" && Number.isFinite(stock.per) && stock.per > 0
+              ? `${stock.per.toFixed(1)}倍`
+              : "--"}
           </div>
           <span className="tiny muted">
             {isMacro ? "指数・マクロ指標対象外" : `業界平均: ${getSectorAveragePer(stock.sector).toFixed(1)}倍`}
@@ -467,7 +501,9 @@ export function StockDetailPage({
         <div className="card" style={{ padding: "14px 16px" }}>
           <span className="tiny muted mono uppercase">PBR (株価純資産倍率)</span>
           <div className="mono bold" style={{ fontSize: "1.3rem", marginTop: 4 }}>
-            {!isMacro && stock.pbr ? `${stock.pbr.toFixed(2)}倍` : "--"}
+            {!isMacro && typeof stock.pbr === "number" && Number.isFinite(stock.pbr) && stock.pbr > 0
+              ? `${stock.pbr.toFixed(2)}倍`
+              : "--"}
           </div>
           <span className="tiny muted">
             {getPbrEvaluation(stock.pbr, isMacro)}
@@ -477,7 +513,9 @@ export function StockDetailPage({
         <div className="card" style={{ padding: "14px 16px" }}>
           <span className="tiny muted mono uppercase">予想配当利回り</span>
           <div className="mono bold" style={{ fontSize: "1.3rem", marginTop: 4, color: "var(--neon-green)" }}>
-            {!isMacro && stock.dividendYield !== null && stock.dividendYield !== undefined ? `${stock.dividendYield.toFixed(2)}%` : "--"}
+            {!isMacro && stock.dividendYield !== null && stock.dividendYield !== undefined && Number.isFinite(stock.dividendYield)
+              ? `${stock.dividendYield.toFixed(2)}%`
+              : "--"}
           </div>
           <span className="tiny muted">
             {getDividendEvaluation(stock.dividendYield, stock.dps, currencyMeta.code, isMacro)}
@@ -497,7 +535,7 @@ export function StockDetailPage({
         <div className="card" style={{ padding: "14px 16px" }}>
           <span className="tiny muted mono uppercase">ROE (自己資本利益率)</span>
           <div className="mono bold" style={{ fontSize: "1.3rem", marginTop: 4 }}>
-            {!isMacro && stock.roe ? `${stock.roe.toFixed(1)}%` : "--"}
+            {!isMacro && typeof stock.roe === "number" && Number.isFinite(stock.roe) ? `${stock.roe.toFixed(1)}%` : "--"}
           </div>
           <span className="tiny muted">{getRoeEvaluation(stock.roe, isMacro)}</span>
         </div>
@@ -673,7 +711,11 @@ export function StockDetailPage({
                         {f.netIncome.toLocaleString()}
                       </td>
                       <td style={{ textAlign: "right" }} className="mono">
-                        {stock.market === "US" && !Number.isInteger(f.eps) ? Number(f.eps).toFixed(2) : f.eps}
+                        {f.eps !== null && f.eps !== undefined && Number.isFinite(f.eps)
+                          ? stock.market === "US" && !Number.isInteger(f.eps)
+                            ? Number(f.eps).toFixed(2)
+                            : f.eps
+                          : "--"}
                       </td>
                       <td style={{ textAlign: "right", color: rawDps > 0 ? "var(--neon-green)" : "var(--text-muted)" }} className="mono bold">
                         {formattedDps}

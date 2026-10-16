@@ -1685,6 +1685,9 @@ export async function fetchYahooFinance(symbol: string, range = "1y"): Promise<P
 }
 
 export function formatTickerPrice(price: number): string {
+  if (!Number.isFinite(price) || price < 0) {
+    return "0.00";
+  }
   return price.toLocaleString("en-US", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
@@ -7034,7 +7037,7 @@ export default {
               typeof t !== "string" ||
               t.trim().length === 0 ||
               t.trim().length > 20 ||
-              !/^[A-Za-z0-9.^=-]+$/.test(t.trim())
+              !/^[A-Za-z0-9.^=_-]+$/.test(t.trim())
             ) {
               return json({ error: "Invalid ticker value" }, 400, request);
             }

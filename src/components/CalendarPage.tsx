@@ -23,6 +23,7 @@ import {
   exportCalendarToCsv,
   type CalendarEvent,
 } from "../lib/marketDataService";
+import { detectStockCurrency } from "../lib/currency";
 import { toSafeDownloadFileName } from "../lib/downloadFileName";
 import { ModalBase } from "./ModalBase";
 import { useToast } from "./Toast";
@@ -133,7 +134,9 @@ export function CalendarPage({
       if (activeFilter !== "ALL" && e.type !== activeFilter) return false;
       if (importanceFilter !== "ALL" && e.importance !== importanceFilter) return false;
       if (marketFilter !== "ALL") {
-        const isUS = e.market === "US" || e.ticker === "AAPL" || e.ticker === "NVDA";
+        const isUS =
+          e.market === "US" ||
+          (e.ticker ? detectStockCurrency(e.ticker, e.market) === "USD" : false);
         if (marketFilter === "US" && !isUS) return false;
         if (marketFilter === "JP" && isUS) return false;
       }
