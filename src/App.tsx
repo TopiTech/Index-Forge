@@ -419,11 +419,11 @@ export default function App({
         }
       }
 
-      if (
-        typeof window !== "undefined" &&
-        (window.location.pathname !== basePath ||
-          (searchParams && window.location.search !== searchParams))
-      ) {
+      const currentPathWithSearch =
+        typeof window !== "undefined"
+          ? `${window.location.pathname}${window.location.search}`
+          : "";
+      if (typeof window !== "undefined" && currentPathWithSearch !== targetPath) {
         window.history.pushState({}, "", targetPath);
       }
       if (typeof window !== "undefined") {

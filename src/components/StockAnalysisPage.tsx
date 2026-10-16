@@ -204,20 +204,43 @@ export function StockAnalysisPage({
     if (!rawQ) return [];
     const normQ = normalizeSearchQuery(rawQ);
     const q = rawQ.toLowerCase();
+    const tokens = normQ ? normQ.split(/\s+/).filter(Boolean) : [];
     const localMatches = stocks.filter((s) => {
       const sNormName = normalizeSearchQuery(s.name);
       const sNormTicker = normalizeSearchQuery(s.ticker);
+      const sNameLower = s.name.toLowerCase();
+      const sTickerLower = s.ticker.toLowerCase();
+      const sThemeLower = s.theme ? s.theme.toLowerCase() : "";
+      const sThemeNorm = s.theme ? normalizeSearchQuery(s.theme) : "";
+      const sSectorLower = s.sector ? s.sector.toLowerCase() : "";
+      const sSectorNorm = s.sector ? normalizeSearchQuery(s.sector) : "";
       const uStock = getUniverseStockByTicker(s.ticker);
       const sAliasesNorm = uStock?.normAliases || "";
       const sAliasesRaw = uStock?.rawAliasesLower || (uStock?.aliases ? uStock.aliases.toLowerCase() : "");
+
+      const matchesToken = (tok: string): boolean => {
+        const tokLower = tok.toLowerCase();
+        return (
+          sTickerLower.includes(tokLower) ||
+          sNameLower.includes(tokLower) ||
+          sNormTicker.includes(tok) ||
+          sNormName.includes(tok) ||
+          sThemeLower.includes(tokLower) ||
+          sThemeNorm.includes(tok) ||
+          sSectorLower.includes(tokLower) ||
+          sSectorNorm.includes(tok) ||
+          sAliasesNorm.includes(tok) ||
+          sAliasesRaw.includes(tokLower)
+        );
+      };
+
+      if (tokens.length > 1) {
+        return tokens.every(matchesToken);
+      }
       return (
-        s.ticker.toLowerCase().includes(q) ||
-        s.name.toLowerCase().includes(q) ||
-        sNormTicker.includes(normQ) ||
-        sNormName.includes(normQ) ||
-        (s.theme && s.theme.toLowerCase().includes(q)) ||
-        (s.sector && s.sector.toLowerCase().includes(q)) ||
-        sAliasesNorm.includes(normQ) ||
+        matchesToken(normQ) ||
+        sTickerLower.includes(q) ||
+        sNameLower.includes(q) ||
         sAliasesRaw.includes(q)
       );
     });

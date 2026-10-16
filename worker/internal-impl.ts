@@ -1684,27 +1684,28 @@ export async function fetchYahooFinance(symbol: string, range = "1y"): Promise<P
   }
 }
 
-export function formatTickerPrice(price: number): string {
+export function formatTickerPrice(price: number, decimals: number = 2): string {
   if (!Number.isFinite(price) || price < 0) {
-    return "0.00";
+    return decimals === 4 ? "0.0000" : "0.00";
   }
   return price.toLocaleString("en-US", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
   });
 }
 
-export function formatTickerChange(change: number): string {
-  if (!Number.isFinite(change) || Math.abs(change) < 0.005 || Object.is(change, -0)) {
-    return "0.00";
+export function formatTickerChange(change: number, decimals: number = 2): string {
+  const threshold = decimals === 4 ? 0.00005 : 0.005;
+  if (!Number.isFinite(change) || Math.abs(change) < threshold || Object.is(change, -0)) {
+    return decimals === 4 ? "0.0000" : "0.00";
   }
   const formatted = Math.abs(change).toLocaleString("en-US", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
   });
   if (change > 0) return `+${formatted}`;
   if (change < 0) return `-${formatted}`;
-  return "0.00";
+  return decimals === 4 ? "0.0000" : "0.00";
 }
 
 export function formatTickerChangePercent(pct: number): string {
@@ -1793,11 +1794,16 @@ export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteSummary
       prevClose = price;
     }
 
-    const change = Number((price - prevClose).toFixed(2));
+    const isFx = symbol.endsWith("=X") || symbol.startsWith("FX_");
+    const isJpyFx = isFx && symbol.includes("JPY");
+    const isSubTenFx = isFx && !isJpyFx;
+    const decimals = isSubTenFx ? 4 : 2;
+
+    const change = Number((price - prevClose).toFixed(decimals));
     const changePercent = prevClose > 0 ? Number(((change / prevClose) * 100).toFixed(2)) : 0;
 
     return {
-      price: Number(price.toFixed(2)),
+      price: Number(price.toFixed(decimals)),
       change,
       changePercent,
     };
@@ -1811,6 +1817,8 @@ export async function fetchAllTickerQuotes(
   prevQuotes?: Map<string, TickerPriceQuote>,
 ): Promise<TickerPriceQuote[]> {
   const promises = TICKER_MAPPINGS.map(async (mapping) => {
+    const isSubTenFx = mapping.symbol.endsWith("=X") && !mapping.symbol.includes("JPY");
+    const decimals = isSubTenFx ? 4 : 2;
     try {
       const quote = await fetchYahooQuote(mapping.symbol);
       if (quote) {
@@ -1820,8 +1828,8 @@ export async function fetchAllTickerQuotes(
           price: quote.price,
           change: quote.change,
           changePercent: quote.changePercent,
-          formattedPrice: formatTickerPrice(quote.price),
-          formattedChange: formatTickerChange(quote.change),
+          formattedPrice: formatTickerPrice(quote.price, decimals),
+          formattedChange: formatTickerChange(quote.change, decimals),
           formattedChangePercent: formatTickerChangePercent(quote.changePercent),
           isPositive: quote.change >= 0,
           stale: false,
@@ -1845,8 +1853,8 @@ export async function fetchAllTickerQuotes(
       price: mapping.defaultPrice,
       change: mapping.defaultChange,
       changePercent: mapping.defaultChangePercent,
-      formattedPrice: formatTickerPrice(mapping.defaultPrice),
-      formattedChange: formatTickerChange(mapping.defaultChange),
+      formattedPrice: formatTickerPrice(mapping.defaultPrice, decimals),
+      formattedChange: formatTickerChange(mapping.defaultChange, decimals),
       formattedChangePercent: formatTickerChangePercent(mapping.defaultChangePercent),
       isPositive: mapping.defaultChange >= 0,
       stale: true,

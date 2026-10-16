@@ -37,12 +37,13 @@ interface CalendarPageProps {
 
 export function getEventDayOfWeek(dateStr: string, fullDate?: string): string {
   const days = ["日", "月", "火", "水", "木", "金", "土"];
-  if (fullDate) {
-    const match = fullDate.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
-    if (match) {
-      const y = parseInt(match[1], 10);
-      const m = parseInt(match[2], 10);
-      const d = parseInt(match[3], 10);
+  const target = fullDate || dateStr;
+  if (target) {
+    const fullMatch = target.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+    if (fullMatch) {
+      const y = parseInt(fullMatch[1], 10);
+      const m = parseInt(fullMatch[2], 10);
+      const d = parseInt(fullMatch[3], 10);
       if (
         !isNaN(y) &&
         !isNaN(m) &&
@@ -59,23 +60,27 @@ export function getEventDayOfWeek(dateStr: string, fullDate?: string): string {
       }
     }
   }
-  const parts = dateStr.split("/");
-  if (parts.length !== 2) return "";
-  const m = parseInt(parts[0], 10);
-  const d = parseInt(parts[1], 10);
-  if (isNaN(m) || isNaN(d) || m < 1 || m > 12 || d < 1 || d > 31) return "";
-  const now = new Date();
-  const currentMonth = now.getMonth() + 1;
-  const currentYear = now.getFullYear();
-  let year = currentYear;
-  if (m < currentMonth && currentMonth - m >= 6) {
-    year = currentYear + 1;
-  } else if (m > currentMonth && m - currentMonth >= 6) {
-    year = currentYear - 1;
+  const shortMatch = dateStr.match(/^(\d{1,2})[-/](\d{1,2})$/);
+  if (shortMatch) {
+    const m = parseInt(shortMatch[1], 10);
+    const d = parseInt(shortMatch[2], 10);
+    if (!isNaN(m) && !isNaN(d) && m >= 1 && m <= 12 && d >= 1 && d <= 31) {
+      const now = new Date();
+      const currentMonth = now.getMonth() + 1;
+      const currentYear = now.getFullYear();
+      let year = currentYear;
+      if (m < currentMonth && currentMonth - m >= 6) {
+        year = currentYear + 1;
+      } else if (m > currentMonth && m - currentMonth >= 6) {
+        year = currentYear - 1;
+      }
+      const dateObj = new Date(year, m - 1, d);
+      if (!isNaN(dateObj.getTime()) && dateObj.getMonth() === m - 1) {
+        return days[dateObj.getDay()] || "";
+      }
+    }
   }
-  const dateObj = new Date(year, m - 1, d);
-  if (isNaN(dateObj.getTime()) || dateObj.getMonth() !== m - 1) return "";
-  return days[dateObj.getDay()] || "";
+  return "";
 }
 
 export function CalendarPage({
@@ -160,17 +165,18 @@ export function CalendarPage({
 
         const matchesToken = (tok: string): boolean => {
           const tokUpper = tok.toUpperCase();
+          const tokLower = tok.toLowerCase();
           return (
             (tickerUpper.length > 0 &&
-              (tickerUpper === tokUpper || tickerUpper.includes(tokUpper) || tickerLower.includes(tok))) ||
+              (tickerUpper === tokUpper || tickerUpper.includes(tokUpper) || tickerLower.includes(tokLower))) ||
             titleNorm.includes(tok) ||
-            titleLower.includes(tok) ||
+            titleLower.includes(tokLower) ||
             compNorm.includes(tok) ||
-            compLower.includes(tok) ||
+            compLower.includes(tokLower) ||
             descNorm.includes(tok) ||
-            descLower.includes(tok) ||
+            descLower.includes(tokLower) ||
             aliasesNorm.includes(tok) ||
-            aliasesRaw.includes(tok)
+            aliasesRaw.includes(tokLower)
           );
         };
 
@@ -303,7 +309,21 @@ export function CalendarPage({
           return e.fullDate.startsWith(dateKeyFull);
         }
         if (!e.date) return false;
-        const parts = e.date.trim().split("/");
+        if (
+          e.date.startsWith(dateKeyFull) ||
+          e.date.replace(/\//g, "-").startsWith(dateKeyFull)
+        ) {
+          return true;
+        }
+        const parts = e.date.trim().split(/[-/]/);
+        if (parts.length === 3) {
+          const yNum = parseInt(parts[0], 10);
+          const mNum = parseInt(parts[1], 10);
+          const dNum = parseInt(parts[2], 10);
+          if (!Number.isNaN(yNum) && !Number.isNaN(mNum) && !Number.isNaN(dNum)) {
+            return `${yNum}-${pad(mNum)}-${pad(dNum)}` === dateKeyFull;
+          }
+        }
         if (parts.length !== 2) return false;
         const mNum = parseInt(parts[0], 10);
         const dNum = parseInt(parts[1], 10);
@@ -1201,8 +1221,11 @@ export function CalendarPage({
             <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
               <CalendarIcon size={18} style={{ color: "var(--accent-text)" }} />
               <span>
-                {selectedDayOverview.fullDate || selectedDayOverview.dateStr} のイベント一覧 (
-                {selectedDayOverview.events.length}件)
+                {selectedDayOverview.fullDate || selectedDayOverview.dateStr}
+                {getEventDayOfWeek(selectedDayOverview.dateStr, selectedDayOverview.fullDate)
+                  ? ` (${getEventDayOfWeek(selectedDayOverview.dateStr, selectedDayOverview.fullDate)})`
+                  : ""}{" "}
+                のイベント一覧 ({selectedDayOverview.events.length}件)
               </span>
             </div>
           }
