@@ -27,7 +27,7 @@ import {
 } from "../lib/marketDataService";
 import { formatStockPrice, formatStockChange } from "../lib/currency";
 import { POPULAR_STOCKS } from "../data/popularStocks";
-import { searchStockUniverse, normalizeSearchQuery } from "../data/stockUniverse";
+import { searchStockUniverse, normalizeSearchQuery, getUniverseStockByTicker } from "../data/stockUniverse";
 import { getRecentSearches } from "./GlobalSearchModal";
 import type { PageView } from "../lib/navigation";
 
@@ -207,13 +207,18 @@ export function StockAnalysisPage({
     const localMatches = stocks.filter((s) => {
       const sNormName = normalizeSearchQuery(s.name);
       const sNormTicker = normalizeSearchQuery(s.ticker);
+      const uStock = getUniverseStockByTicker(s.ticker);
+      const sAliasesNorm = uStock?.normAliases || "";
+      const sAliasesRaw = uStock?.rawAliasesLower || (uStock?.aliases ? uStock.aliases.toLowerCase() : "");
       return (
         s.ticker.toLowerCase().includes(q) ||
         s.name.toLowerCase().includes(q) ||
         sNormTicker.includes(normQ) ||
         sNormName.includes(normQ) ||
         (s.theme && s.theme.toLowerCase().includes(q)) ||
-        (s.sector && s.sector.toLowerCase().includes(q))
+        (s.sector && s.sector.toLowerCase().includes(q)) ||
+        sAliasesNorm.includes(normQ) ||
+        sAliasesRaw.includes(q)
       );
     });
 

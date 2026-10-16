@@ -23,6 +23,7 @@ import {
   exportCalendarToCsv,
   type CalendarEvent,
 } from "../lib/marketDataService";
+import { normalizeSearchQuery, getUniverseStockByTicker } from "../data/stockUniverse";
 import { detectStockCurrency } from "../lib/currency";
 import { toSafeDownloadFileName } from "../lib/downloadFileName";
 import { ModalBase } from "./ModalBase";
@@ -130,6 +131,10 @@ export function CalendarPage({
 
   // Multi-axis filtering & text search
   const filteredEvents = useMemo(() => {
+    const rawQ = searchQuery.trim().toLowerCase();
+    const normQ = normalizeSearchQuery(searchQuery);
+    const tokens = normQ ? normQ.split(/\s+/).filter(Boolean) : [];
+
     return events.filter((e) => {
       if (activeFilter !== "ALL" && e.type !== activeFilter) return false;
       if (importanceFilter !== "ALL" && e.importance !== importanceFilter) return false;
@@ -140,13 +145,51 @@ export function CalendarPage({
         if (marketFilter === "US" && !isUS) return false;
         if (marketFilter === "JP" && isUS) return false;
       }
-      if (searchQuery.trim()) {
-        const q = searchQuery.trim().toLowerCase();
-        const matchTitle = e.title.toLowerCase().includes(q);
-        const matchTicker = e.ticker ? e.ticker.toLowerCase().includes(q) : false;
-        const matchCompany = e.companyName ? e.companyName.toLowerCase().includes(q) : false;
-        const matchDesc = e.description ? e.description.toLowerCase().includes(q) : false;
-        if (!matchTitle && !matchTicker && !matchCompany && !matchDesc) return false;
+      if (rawQ) {
+        const uStock = e.ticker ? getUniverseStockByTicker(e.ticker) : undefined;
+        const titleNorm = normalizeSearchQuery(e.title);
+        const titleLower = e.title.toLowerCase();
+        const tickerUpper = e.ticker ? e.ticker.toUpperCase() : "";
+        const tickerLower = e.ticker ? e.ticker.toLowerCase() : "";
+        const compNorm = e.companyName ? normalizeSearchQuery(e.companyName) : "";
+        const compLower = e.companyName ? e.companyName.toLowerCase() : "";
+        const descNorm = e.description ? normalizeSearchQuery(e.description) : "";
+        const descLower = e.description ? e.description.toLowerCase() : "";
+        const aliasesNorm = uStock?.normAliases || "";
+        const aliasesRaw = uStock?.rawAliasesLower || (uStock?.aliases ? uStock.aliases.toLowerCase() : "");
+
+        const matchesToken = (tok: string): boolean => {
+          const tokUpper = tok.toUpperCase();
+          return (
+            (tickerUpper.length > 0 &&
+              (tickerUpper === tokUpper || tickerUpper.includes(tokUpper) || tickerLower.includes(tok))) ||
+            titleNorm.includes(tok) ||
+            titleLower.includes(tok) ||
+            compNorm.includes(tok) ||
+            compLower.includes(tok) ||
+            descNorm.includes(tok) ||
+            descLower.includes(tok) ||
+            aliasesNorm.includes(tok) ||
+            aliasesRaw.includes(tok)
+          );
+        };
+
+        if (tokens.length > 1) {
+          if (!tokens.every(matchesToken)) return false;
+        } else {
+          const match =
+            (tickerUpper.length > 0 &&
+              (tickerUpper.includes(normQ.toUpperCase()) || tickerLower.includes(rawQ))) ||
+            titleNorm.includes(normQ) ||
+            titleLower.includes(rawQ) ||
+            compNorm.includes(normQ) ||
+            compLower.includes(rawQ) ||
+            descNorm.includes(normQ) ||
+            descLower.includes(rawQ) ||
+            aliasesNorm.includes(normQ) ||
+            aliasesRaw.includes(rawQ);
+          if (!match) return false;
+        }
       }
       return true;
     });

@@ -11,6 +11,7 @@ import {
   getNextScheduledMeetings,
   MACRO_METRICS_DEFAULTS,
 } from "../data/macroSchedule";
+import { normalizeSearchQuery } from "../data/stockUniverse";
 import { escapeCsvCell } from "./csv";
 
 export interface MarketAssetQuote {
@@ -1939,6 +1940,11 @@ export function runStockScreener(
 
   const allStocks = customUniverse ?? POPULAR_STOCKS.map((s) => getStockFundamentals(s.ticker));
 
+  const rawQ = searchQuery.trim().toLowerCase();
+  const normQ = normalizeSearchQuery(searchQuery);
+  const normQUpper = normQ.toUpperCase();
+  const tokens = normQ ? normQ.split(/\s+/).filter(Boolean) : [];
+
   const filtered = allStocks.filter((stock) => {
     if (market !== "ALL" && stock.market !== market) {
       return false;
@@ -1960,14 +1966,44 @@ export function runStockScreener(
       return false;
     }
 
-    if (searchQuery.trim()) {
-      const q = searchQuery.trim().toLowerCase();
-      const match =
-        stock.ticker.toLowerCase().includes(q) ||
-        stock.name.toLowerCase().includes(q) ||
-        stock.theme.toLowerCase().includes(q) ||
-        (stock.sector && stock.sector.toLowerCase().includes(q));
-      if (!match) return false;
+    if (rawQ) {
+      const tickerUpper = stock.ticker.toUpperCase();
+      const tickerLower = stock.ticker.toLowerCase();
+      const sNameNorm = normalizeSearchQuery(stock.name);
+      const sNameLower = stock.name.toLowerCase();
+      const sThemeNorm = normalizeSearchQuery(stock.theme || "");
+      const sThemeLower = (stock.theme || "").toLowerCase();
+      const sSectorNorm = stock.sector ? normalizeSearchQuery(stock.sector) : "";
+      const sSectorLower = stock.sector ? stock.sector.toLowerCase() : "";
+
+      const matchesToken = (tok: string): boolean => {
+        const tokUpper = tok.toUpperCase();
+        return (
+          tickerUpper === tokUpper ||
+          tickerUpper.includes(tokUpper) ||
+          tickerLower.includes(tok) ||
+          sNameNorm.includes(tok) ||
+          sNameLower.includes(tok) ||
+          sThemeNorm.includes(tok) ||
+          sThemeLower.includes(tok) ||
+          (stock.sector ? sSectorNorm.includes(tok) || sSectorLower.includes(tok) : false)
+        );
+      };
+
+      if (tokens.length > 1) {
+        if (!tokens.every(matchesToken)) return false;
+      } else {
+        const match =
+          tickerUpper === normQUpper ||
+          tickerUpper.includes(normQUpper) ||
+          tickerLower.includes(rawQ) ||
+          sNameNorm.includes(normQ) ||
+          sNameLower.includes(rawQ) ||
+          sThemeNorm.includes(normQ) ||
+          sThemeLower.includes(rawQ) ||
+          (stock.sector ? sSectorNorm.includes(normQ) || sSectorLower.includes(rawQ) : false);
+        if (!match) return false;
+      }
     }
 
     return true;
