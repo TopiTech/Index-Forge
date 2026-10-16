@@ -2666,21 +2666,38 @@ export async function fetchLiveStockFundamentals(ticker: string, env?: Env): Pro
       if (livePbr && livePbr > 0) pbr = Number(livePbr.toFixed(2));
 
       const rawDiv = detail.dividendYield?.raw;
-      if (typeof rawDiv === "number") {
+      if (typeof rawDiv === "number" && Number.isFinite(rawDiv)) {
         dividendYield = Number((rawDiv * 100).toFixed(2));
       }
-      const liveDps = detail.dividendRate?.raw || stats.lastDividendValue?.raw;
-      if (typeof liveDps === "number") {
-        dps = Number(liveDps.toFixed(1));
+      const rawDivRate = detail.dividendRate?.raw;
+      if (typeof rawDivRate === "number" && Number.isFinite(rawDivRate)) {
+        dps = Number(rawDivRate.toFixed(isUS ? 2 : 1));
+      } else if (
+        typeof stats.lastDividendValue?.raw === "number" &&
+        Number.isFinite(stats.lastDividendValue.raw) &&
+        (!dividendYield || dividendYield > 0)
+      ) {
+        dps = Number(stats.lastDividendValue.raw.toFixed(isUS ? 2 : 1));
+      }
+
+      // 予想配当利回りと1株配当の相互整合性チェック・無配の厳格保証
+      if (dividendYield === 0) {
+        dps = 0;
+      } else if (dps === 0 && (dividendYield === null || dividendYield === undefined)) {
+        dividendYield = 0;
       } else if (dividendYield && dividendYield > 0) {
-        dps = Number(((currentPrice * dividendYield) / 100).toFixed(1));
+        if (dps === null || dps === undefined || dps <= 0) {
+          dps = Number(((currentPrice * dividendYield) / 100).toFixed(isUS ? 2 : 1));
+        }
+      } else if (dps && dps > 0 && currentPrice > 0 && (dividendYield === null || dividendYield === undefined)) {
+        dividendYield = Number(((dps / currentPrice) * 100).toFixed(2));
       }
 
       const liveEps = stats.trailingEps?.raw;
-      if (typeof liveEps === "number") {
-        eps = Number(liveEps.toFixed(1));
+      if (typeof liveEps === "number" && Number.isFinite(liveEps)) {
+        eps = Number(liveEps.toFixed(isUS ? 2 : 1));
       } else if (per && currentPrice) {
-        eps = Number((currentPrice / per).toFixed(1));
+        eps = Number((currentPrice / per).toFixed(isUS ? 2 : 1));
       }
 
       const rawRoe = fin.returnOnEquity?.raw;
@@ -2726,8 +2743,12 @@ export async function fetchLiveStockFundamentals(ticker: string, env?: Env): Pro
         ? ish.filter((s) => (s.totalRevenue?.raw && s.totalRevenue.raw > 0) || (s.netIncome?.raw && s.netIncome.raw > 0))
         : [];
 
+      const isZeroDiv = dividendYield === 0 || dps === 0;
+      const safeDpsVal = isZeroDiv ? 0 : (dps ?? 0);
+      const safeEpsVal = eps ?? 0;
+
       if (validIsh.length > 0) {
-        historicalFinances = validIsh.map((stmt) => {
+        historicalFinances = validIsh.map((stmt, idx) => {
           const rawDate = stmt.endDate?.fmt || String(stmt.endDate?.raw || "");
           const dateYear = rawDate.match(/\d{4}/)?.[0] || String(currentYear);
           const revRaw = stmt.totalRevenue?.raw || 0;
@@ -2736,20 +2757,29 @@ export async function fetchLiveStockFundamentals(ticker: string, env?: Env): Pro
           const rev = Math.round(revRaw / (isUS ? 1_000_000 : 100_000_000));
           const net = Math.round(netRaw / (isUS ? 1_000_000 : 100_000_000));
           const opInc = opRaw > 0 ? Math.round(opRaw / (isUS ? 1_000_000 : 100_000_000)) : Math.round(net * 1.25);
+          const isLatest = idx === 0; // validIsh は新しい順に並んでおり、後で reverse される
+          const periodDps = isZeroDiv
+            ? 0
+            : isLatest
+              ? safeDpsVal
+              : Number((safeDpsVal * 0.9).toFixed(isUS ? 2 : 1));
+          const periodEps = isUS
+            ? Number((safeEpsVal * (isLatest ? 1 : 0.9)).toFixed(2))
+            : Math.round(safeEpsVal * (isLatest ? 1 : 0.9));
           return {
             fiscalYear: isUS ? `${dateYear} FY` : `${dateYear}/3`,
             revenue: rev,
             operatingIncome: opInc,
             netIncome: net,
-            eps: eps ? Math.round(eps) : 0,
-            dps: dps ? Math.round(dps) : 0,
+            eps: periodEps,
+            dps: periodDps,
           };
         }).reverse();
       } else {
         const yearlyChart = earnings.financialsChart?.yearly;
         if (Array.isArray(yearlyChart) && yearlyChart.length > 0) {
           const baseEarningsRaw = yearlyChart[yearlyChart.length - 1]?.earnings?.raw;
-          historicalFinances = yearlyChart.map((y) => {
+          historicalFinances = yearlyChart.map((y, idx) => {
             const rev = Math.round((y.revenue?.raw || 0) / (isUS ? 1_000_000 : 100_000_000));
             const net = Math.round((y.earnings?.raw || 0) / (isUS ? 1_000_000 : 100_000_000));
             const opInc = Math.round(net * 1.25);
@@ -2759,16 +2789,24 @@ export async function fetchLiveStockFundamentals(ticker: string, env?: Env): Pro
               typeof y.earnings?.raw === "number"
                 ? y.earnings.raw / baseEarningsRaw
                 : 1;
-            const yEps = eps ? Math.round(eps * earningsRatio) : 0;
+            const yEps = eps
+              ? (isUS ? Number((eps * earningsRatio).toFixed(2)) : Math.round(eps * earningsRatio))
+              : 0;
             const yDate = typeof y.date === "number" ? y.date : currentYear;
-            const yDps = dps ? Math.round(dps * (yDate < currentYear ? 0.9 : 1)) : 0;
+            const isLatest = idx === yearlyChart.length - 1;
+            const rawYDps = isZeroDiv
+              ? 0
+              : isLatest
+                ? safeDpsVal
+                : safeDpsVal * (yDate < currentYear ? 0.9 : 1);
+            const yDps = isUS ? Number(rawYDps.toFixed(2)) : Number(rawYDps.toFixed(1));
             return {
               fiscalYear: isUS ? `${yDate} FY` : `${yDate}/3`,
               revenue: rev,
               operatingIncome: opInc,
               netIncome: net,
               eps: yEps,
-              dps: yDps,
+              dps: isZeroDiv ? 0 : yDps,
             };
           });
         }
@@ -2824,14 +2862,28 @@ export async function fetchLiveStockFundamentals(ticker: string, env?: Env): Pro
             if (typeof q.trailingPE === "number" && q.trailingPE > 0) per = Number(q.trailingPE.toFixed(1));
             else if (typeof q.forwardPE === "number" && q.forwardPE > 0) per = Number(q.forwardPE.toFixed(1));
             if (typeof q.priceToBook === "number" && q.priceToBook > 0) pbr = Number(q.priceToBook.toFixed(2));
-            if (typeof q.trailingAnnualDividendYield === "number") {
+            if (typeof q.trailingAnnualDividendYield === "number" && Number.isFinite(q.trailingAnnualDividendYield)) {
               dividendYield = Number((q.trailingAnnualDividendYield * 100).toFixed(2));
-            } else if (typeof q.dividendYield === "number") {
+            } else if (typeof q.dividendYield === "number" && Number.isFinite(q.dividendYield)) {
               dividendYield = Number(q.dividendYield.toFixed(2));
             }
-            if (typeof q.dividendRate === "number") dps = Number(q.dividendRate.toFixed(1));
-            else if (typeof q.trailingAnnualDividendRate === "number") dps = Number(q.trailingAnnualDividendRate.toFixed(1));
-            if (typeof q.epsTrailingTwelveMonths === "number") eps = Number(q.epsTrailingTwelveMonths.toFixed(1));
+            if (typeof q.dividendRate === "number" && Number.isFinite(q.dividendRate)) {
+              dps = Number(q.dividendRate.toFixed(isUS ? 2 : 1));
+            } else if (typeof q.trailingAnnualDividendRate === "number" && Number.isFinite(q.trailingAnnualDividendRate)) {
+              dps = Number(q.trailingAnnualDividendRate.toFixed(isUS ? 2 : 1));
+            }
+
+            if (dividendYield === 0) {
+              dps = 0;
+            } else if (dps === 0 && (dividendYield === null || dividendYield === undefined)) {
+              dividendYield = 0;
+            } else if (dividendYield && dividendYield > 0 && (!dps || dps <= 0)) {
+              dps = Number(((currentPrice * dividendYield) / 100).toFixed(isUS ? 2 : 1));
+            }
+
+            if (typeof q.epsTrailingTwelveMonths === "number" && Number.isFinite(q.epsTrailingTwelveMonths)) {
+              eps = Number(q.epsTrailingTwelveMonths.toFixed(isUS ? 2 : 1));
+            }
             const companyName = q.shortName || q.longName;
             if (typeof companyName === "string" && companyName.trim().length > 0 && !matchedPreset && !baselineAsset) {
               name = companyName.trim();
@@ -3061,25 +3113,32 @@ export async function fetchLiveScreenerUniverse(
       }
 
       if (typeof q.dividendRate === "number" && Number.isFinite(q.dividendRate)) {
-        dps = Number(q.dividendRate.toFixed(1));
+        dps = Number(q.dividendRate.toFixed(isUS ? 2 : 1));
       } else if (
         typeof q.trailingAnnualDividendRate === "number" &&
         Number.isFinite(q.trailingAnnualDividendRate)
       ) {
-        dps = Number(q.trailingAnnualDividendRate.toFixed(1));
+        dps = Number(q.trailingAnnualDividendRate.toFixed(isUS ? 2 : 1));
       } else if (dividendYield && dividendYield > 0) {
-        dps = Number(((price * dividendYield) / 100).toFixed(1));
+        dps = Number(((price * dividendYield) / 100).toFixed(isUS ? 2 : 1));
       } else {
         dps = prev?.dps ?? null;
+      }
+
+      // 利回り0（無配）の確実な反映
+      if (dividendYield === 0) {
+        dps = 0;
+      } else if (dps === 0 && (dividendYield === null || dividendYield === undefined)) {
+        dividendYield = 0;
       }
 
       if (
         typeof q.epsTrailingTwelveMonths === "number" &&
         Number.isFinite(q.epsTrailingTwelveMonths)
       ) {
-        eps = Number(q.epsTrailingTwelveMonths.toFixed(1));
+        eps = Number(q.epsTrailingTwelveMonths.toFixed(isUS ? 2 : 1));
       } else if (per && per > 0) {
-        eps = Number((price / per).toFixed(1));
+        eps = Number((price / per).toFixed(isUS ? 2 : 1));
       } else {
         eps = prev?.eps ?? null;
       }
@@ -3147,38 +3206,42 @@ export async function fetchLiveScreenerUniverse(
     else technicalSignal = "SELL";
 
     const currentYear = new Date().getFullYear();
+    const isZeroDiv = dividendYield === 0 || dps === 0;
+    const safeDps = isZeroDiv ? 0 : (dps ?? (dividendYield ? Number(((price * dividendYield) / 100).toFixed(isUS ? 2 : 1)) : 0));
+    const safeEps = eps ?? (per && per > 0 ? Number((price / per).toFixed(isUS ? 2 : 1)) : (isUS ? 2.5 : 100));
+
     const historicalFinances = [
       {
-        fiscalYear: `${currentYear - 3}/3`,
+        fiscalYear: isUS ? `${currentYear - 3} FY` : `${currentYear - 3}/3`,
         revenue: Math.round(marketCap * 0.72),
         operatingIncome: Math.round(marketCap * 0.08),
         netIncome: Math.round(marketCap * 0.055),
-        eps: Math.round((eps || 100) * 0.75),
-        dps: Math.round((dps || 50) * 0.8),
+        eps: isUS ? Number((safeEps * 0.75).toFixed(2)) : Math.round(safeEps * 0.75),
+        dps: isZeroDiv ? 0 : (isUS ? Number((safeDps * 0.8).toFixed(2)) : Math.round(safeDps * 0.8)),
       },
       {
-        fiscalYear: `${currentYear - 2}/3`,
+        fiscalYear: isUS ? `${currentYear - 2} FY` : `${currentYear - 2}/3`,
         revenue: Math.round(marketCap * 0.81),
         operatingIncome: Math.round(marketCap * 0.095),
         netIncome: Math.round(marketCap * 0.065),
-        eps: Math.round((eps || 100) * 0.88),
-        dps: Math.round((dps || 50) * 0.9),
+        eps: isUS ? Number((safeEps * 0.88).toFixed(2)) : Math.round(safeEps * 0.88),
+        dps: isZeroDiv ? 0 : (isUS ? Number((safeDps * 0.9).toFixed(2)) : Math.round(safeDps * 0.9)),
       },
       {
-        fiscalYear: `${currentYear - 1}/3`,
+        fiscalYear: isUS ? `${currentYear - 1} FY` : `${currentYear - 1}/3`,
         revenue: Math.round(marketCap * 0.92),
         operatingIncome: Math.round(marketCap * 0.11),
         netIncome: Math.round(marketCap * 0.078),
-        eps: Math.round((eps || 100) * 0.96),
-        dps: Math.round((dps || 50) * 0.95),
+        eps: isUS ? Number((safeEps * 0.96).toFixed(2)) : Math.round(safeEps * 0.96),
+        dps: isZeroDiv ? 0 : (isUS ? Number((safeDps * 0.95).toFixed(2)) : Math.round(safeDps * 0.95)),
       },
       {
-        fiscalYear: `${currentYear}/3 (予)`,
+        fiscalYear: isUS ? `${currentYear} FY (予)` : `${currentYear}/3 (予)`,
         revenue: Math.round(marketCap * 1.04),
         operatingIncome: Math.round(marketCap * 0.125),
         netIncome: Math.round(marketCap * 0.088),
-        eps: eps || 100,
-        dps: dps || 50,
+        eps: isUS ? Number(safeEps.toFixed(2)) : Math.round(safeEps),
+        dps: isZeroDiv ? 0 : (isUS ? Number(safeDps.toFixed(2)) : Math.round(safeDps)),
       },
     ];
 

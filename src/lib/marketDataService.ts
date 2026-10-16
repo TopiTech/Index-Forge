@@ -684,6 +684,12 @@ export const KNOWN_STOCK_ANCHORS: Record<string, KnownStockAnchor> = {
     dps: 0.0,
     sector: "電気機器・車載半導体",
     market: "PRIME",
+    historicalFinances: [
+      { fiscalYear: "2021/12", revenue: 9944, operatingIncome: 1836, netIncome: 1272, eps: 74.5, dps: 0.0 },
+      { fiscalYear: "2022/12", revenue: 15008, operatingIncome: 4241, netIncome: 3374, eps: 173.8, dps: 0.0 },
+      { fiscalYear: "2023/12", revenue: 14697, operatingIncome: 3908, netIncome: 3370, eps: 174.5, dps: 0.0 },
+      { fiscalYear: "2024/12 (予)", revenue: 13500, operatingIncome: 3200, netIncome: 2800, eps: 154.0, dps: 0.0 },
+    ],
   },
   "6981": {
     price: 2680.0,
@@ -1467,15 +1473,17 @@ export function getStockFundamentals(ticker: string): StockQuoteFundamentals {
     : anchor
       ? anchor.eps
       : per
-        ? Number((basePrice / per).toFixed(1))
+        ? Number((basePrice / per).toFixed(isUS ? 2 : 1))
         : null;
   const dps = isMacro
     ? null
     : anchor
-      ? anchor.dps
-      : dividendYield
-        ? Number(((basePrice * dividendYield) / 100).toFixed(1))
-        : null;
+      ? (anchor.dps ?? (anchor.dividendYield === 0 ? 0 : (anchor.dividendYield ? Number(((basePrice * anchor.dividendYield) / 100).toFixed(isUS ? 2 : 1)) : null)))
+      : dividendYield === 0
+        ? 0
+        : dividendYield
+          ? Number(((basePrice * dividendYield) / 100).toFixed(isUS ? 2 : 1))
+          : null;
   const sector = overviewAsset
     ? overviewAsset.category
     : isIndex
@@ -1490,7 +1498,8 @@ export function getStockFundamentals(ticker: string): StockQuoteFundamentals {
   // 4 years historical financial performance
   const currentYear = new Date().getFullYear();
   const safeEps = eps ?? 0;
-  const safeDps = dps ?? 0;
+  const isZeroDiv = dividendYield === 0 || dps === 0;
+  const safeDps = isZeroDiv ? 0 : (dps ?? 0);
   const historicalFinances = isMacro
     ? []
     : [
@@ -1499,32 +1508,32 @@ export function getStockFundamentals(ticker: string): StockQuoteFundamentals {
           revenue: Math.round(marketCap * 0.72),
           operatingIncome: Math.round(marketCap * 0.08),
           netIncome: Math.round(marketCap * 0.055),
-          eps: Math.round(safeEps * 0.75),
-          dps: Math.round(safeDps * 0.8),
+          eps: isUS ? Number((safeEps * 0.75).toFixed(2)) : Math.round(safeEps * 0.75),
+          dps: isZeroDiv ? 0 : (isUS ? Number((safeDps * 0.8).toFixed(2)) : Math.round(safeDps * 0.8)),
         },
         {
           fiscalYear: isUS ? `${currentYear - 2} FY` : `${currentYear - 2}/3`,
           revenue: Math.round(marketCap * 0.81),
           operatingIncome: Math.round(marketCap * 0.095),
           netIncome: Math.round(marketCap * 0.065),
-          eps: Math.round(safeEps * 0.88),
-          dps: Math.round(safeDps * 0.9),
+          eps: isUS ? Number((safeEps * 0.88).toFixed(2)) : Math.round(safeEps * 0.88),
+          dps: isZeroDiv ? 0 : (isUS ? Number((safeDps * 0.9).toFixed(2)) : Math.round(safeDps * 0.9)),
         },
         {
           fiscalYear: isUS ? `${currentYear - 1} FY` : `${currentYear - 1}/3`,
           revenue: Math.round(marketCap * 0.92),
           operatingIncome: Math.round(marketCap * 0.11),
           netIncome: Math.round(marketCap * 0.078),
-          eps: Math.round(safeEps * 0.96),
-          dps: Math.round(safeDps * 0.95),
+          eps: isUS ? Number((safeEps * 0.96).toFixed(2)) : Math.round(safeEps * 0.96),
+          dps: isZeroDiv ? 0 : (isUS ? Number((safeDps * 0.95).toFixed(2)) : Math.round(safeDps * 0.95)),
         },
         {
           fiscalYear: isUS ? `${currentYear} FY (予)` : `${currentYear}/3 (予)`,
           revenue: Math.round(marketCap * 1.04),
           operatingIncome: Math.round(marketCap * 0.125),
           netIncome: Math.round(marketCap * 0.088),
-          eps: safeEps,
-          dps: safeDps,
+          eps: isUS ? Number(safeEps.toFixed(2)) : Math.round(safeEps),
+          dps: isZeroDiv ? 0 : (isUS ? Number(safeDps.toFixed(2)) : Math.round(safeDps)),
         },
       ];
 

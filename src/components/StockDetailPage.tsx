@@ -647,6 +647,14 @@ export function StockDetailPage({
                       ? Number(((f.operatingIncome / f.revenue) * 100).toFixed(1))
                       : 0;
                   const isLatest = idx === stock.historicalFinances.length - 1;
+                  const isZeroDiv = stock.dividendYield === 0 || stock.dps === 0;
+                  // 予想配当利回りが0%の場合、通期予想期の1株配当は確実に0にする
+                  const rawDps = isZeroDiv && (isLatest || stock.dividendYield === 0)
+                    ? 0
+                    : (isLatest && stock.dps !== null && stock.dps !== undefined ? stock.dps : f.dps);
+                  const formattedDps = stock.market === "US"
+                    ? (rawDps === 0 ? "0.00" : Number(rawDps).toFixed(2))
+                    : (rawDps === 0 ? "0" : Number.isInteger(rawDps) ? String(rawDps) : Number(rawDps).toFixed(1));
                   return (
                     <tr key={f.fiscalYear} style={{ background: isLatest ? "rgba(56, 189, 248, 0.05)" : "transparent" }}>
                       <td style={{ fontWeight: isLatest ? 700 : 500 }} className="mono">
@@ -665,10 +673,10 @@ export function StockDetailPage({
                         {f.netIncome.toLocaleString()}
                       </td>
                       <td style={{ textAlign: "right" }} className="mono">
-                        {f.eps}
+                        {stock.market === "US" && !Number.isInteger(f.eps) ? Number(f.eps).toFixed(2) : f.eps}
                       </td>
-                      <td style={{ textAlign: "right", color: "var(--neon-green)" }} className="mono bold">
-                        {f.dps}
+                      <td style={{ textAlign: "right", color: rawDps > 0 ? "var(--neon-green)" : "var(--text-muted)" }} className="mono bold">
+                        {formattedDps}
                       </td>
                     </tr>
                   );
