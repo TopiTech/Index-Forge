@@ -340,15 +340,27 @@ export function saveWatchlist(tickers: string[]): boolean {
   }
 }
 
+export interface PortfolioLiveQuote {
+  price: number;
+  change?: number;
+  dps?: number | null;
+  dividendYield?: number | null;
+  name?: string;
+  isDemoData?: boolean;
+}
+
 // Calculate entire portfolio financials and breakdown
 export function calculatePortfolioSummary(
   positions: PortfolioPosition[],
   liveQuotesMap?:
-    Map<string, { price: number; change?: number; dps?: number | null; name?: string; isDemoData?: boolean }> | number,
+    | Map<string, PortfolioLiveQuote>
+    | ReadonlyMap<string, PortfolioLiveQuote>
+    | number,
   usdJpyRate?: number,
 ): PortfolioSummary {
   let quotesMap:
-    Map<string, { price: number; change?: number; dps?: number | null; name?: string; isDemoData?: boolean }> | undefined;
+    | ReadonlyMap<string, PortfolioLiveQuote>
+    | undefined;
   let effectiveUsdJpyRate = usdJpyRate;
 
   if (typeof liveQuotesMap === "number") {
@@ -413,7 +425,12 @@ export function calculatePortfolioSummary(
     const dailyChange = isUSD
       ? Number((pos.shares * change).toFixed(2))
       : Math.round(pos.shares * change);
-    const dps = live?.dps ?? fund.dps ?? 0;
+    const dps =
+      live?.dps !== undefined && live.dps !== null
+        ? live.dps
+        : live?.dividendYield === 0
+          ? 0
+          : (fund.dps ?? 0);
     const annualDividend = isUSD
       ? Number((pos.shares * dps).toFixed(2))
       : Math.round(pos.shares * dps);

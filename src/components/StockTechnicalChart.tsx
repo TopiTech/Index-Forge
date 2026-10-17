@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import type { StockQuoteFundamentals } from "../lib/marketDataService";
 import { detectStockCurrency, formatStockPrice } from "../lib/currency";
+import { resolveTradingViewSymbol, getTradingViewWebUrl } from "../lib/tradingView";
 
 export interface StockTechnicalChartProps {
   stock: StockQuoteFundamentals;
@@ -154,7 +155,6 @@ export function generateDeterministicHistory(
   return result;
 }
 
-import { resolveTradingViewSymbol, getTradingViewWebUrl } from "../lib/tradingView";
 export { resolveTradingViewSymbol, getTradingViewWebUrl };
 
 export function StockTechnicalChart({

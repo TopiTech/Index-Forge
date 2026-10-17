@@ -290,5 +290,23 @@ describe("PortfolioStorage & Engine", () => {
       expect(summary.positions[0].fxRate).toBe(155.5);
       expect(summary.totalMarketValue).toBe(Math.round(10 * 200 * 155.5));
     });
+
+    it("enforces zero dividend when live quote explicitly specifies dividendYield: 0", () => {
+      const position: PortfolioPosition = {
+        id: "p-zero-div",
+        ticker: "7203",
+        name: "トヨタ自動車",
+        shares: 100,
+        averageCost: 2000,
+      };
+      // 7203 baseline has positive dps, but live quote says dividendYield is 0
+      const quotes = new Map([
+        ["7203", { price: 2500, change: 10, dps: null, dividendYield: 0, name: "トヨタ" }],
+      ]);
+
+      const summary = calculatePortfolioSummary([position], quotes);
+      expect(summary.positions[0].annualDividend).toBe(0);
+      expect(summary.totalAnnualDividend).toBe(0);
+    });
   });
 });

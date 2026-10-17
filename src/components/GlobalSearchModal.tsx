@@ -682,8 +682,11 @@ export function GlobalSearchModal({
                           aria-label={`${item.title}を指数に追加`}
                           onClick={(e) => {
                             e.stopPropagation();
-                            const s = item.raw as PopularStock;
-                            onAddToIndex(s.ticker, s.name, s.theme || "その他");
+                            const s = item.raw as Partial<PopularStock> | undefined;
+                            const ticker = s?.ticker || item.id;
+                            const name = s?.name || item.title;
+                            const theme = s?.theme || "その他";
+                            onAddToIndex(ticker, name, theme);
                             onClose();
                           }}
                         >
