@@ -328,16 +328,19 @@ export function AdminDashboard({
   useEffect(() => {
     if (!isLocked || lockoutRemainingSeconds <= 0) return;
     const timer = setInterval(() => {
-      setLockoutRemainingSeconds((prev) => {
-        if (prev <= 1) {
-          setIsLocked(false);
-          clearInterval(timer);
-          return 0;
-        }
-        return prev - 1;
-      });
+      // Pure updater: side effects (unlock + interval teardown) live in the
+      // effect below. Running them inside the updater broke React's purity
+      // contract and misbehaved under StrictMode double-invocation.
+      setLockoutRemainingSeconds((prev) => (prev <= 1 ? 0 : prev - 1));
     }, 1000);
     return () => clearInterval(timer);
+  }, [isLocked, lockoutRemainingSeconds]);
+
+  // Release the lock once the countdown reaches zero.
+  useEffect(() => {
+    if (isLocked && lockoutRemainingSeconds <= 0) {
+      setIsLocked(false);
+    }
   }, [isLocked, lockoutRemainingSeconds]);
 
   // Admin login submit with Turnstile, secret code, and lockout handling

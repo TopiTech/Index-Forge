@@ -236,7 +236,8 @@ export default function App({
   });
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
   const { isAdmin, isAuthenticated } = useAuth();
-  const { success: toastSuccess, info: toastInfo, error: toastError } = useToast();
+  const { success: toastSuccess, info: toastInfo, error: toastError, warning: toastWarning } =
+    useToast();
 
   // Global Cmd+K / Ctrl+K keyboard shortcut
   useEffect(() => {
@@ -367,6 +368,18 @@ export default function App({
     isOwner,
   } = useIndices();
 
+  // The indices hook falls back to cached/built-in data on failure so the app
+  // keeps rendering, which made the error state unreachable and left users
+  // staring at default indices with no hint that their server data is
+  // unavailable. Surface it as a toast instead of failing silently.
+  useEffect(() => {
+    if (indicesError) {
+      toastWarning(
+        `指数一覧を取得できませんでした（${indicesError}）。内蔵の既定指数を表示しています。`,
+      );
+    }
+  }, [indicesError, toastWarning]);
+
   const {
     selectedBenchmark,
     setSelectedBenchmark,
@@ -485,7 +498,7 @@ export default function App({
   useEffect(() => {
     if (currentView !== "dashboard" || typeof window === "undefined") return;
     const targetQuery = buildDashboardQuery(window.location.search, {
-      indexId: selectedIndex?.id,
+      indexId: selectedIndex?.id ?? null,
       benchmark: selectedBenchmark,
       timeframe,
     });
@@ -618,7 +631,15 @@ export default function App({
           ? currentPrice
           : Number.isFinite(fund.price) && fund.price > 0
             ? fund.price
-            : 100;
+            : null;
+      if (safePrice === null) {
+        // A fabricated cost basis silently corrupts portfolio P/L, so refuse
+        // the add instead of guessing a price.
+        toastError(
+          `「${fund.name || ticker}」の現在価格を取得できないため、ポートフォリオに追加できませんでした`,
+        );
+        return;
+      }
       const ok = addPortfolioPosition({
         ticker,
         name: fund.name || ticker,
@@ -633,7 +654,7 @@ export default function App({
         toastInfo(`「${fund.name || ticker}」のポートフォリオ登録に失敗しました`);
       }
     },
-    [isAuthenticated, navigateTo, toastInfo, toastSuccess],
+    [isAuthenticated, navigateTo, toastInfo, toastSuccess, toastError],
   );
 
 

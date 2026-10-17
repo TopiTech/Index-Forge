@@ -55,6 +55,19 @@ export type DashboardQueryParams = {
 };
 
 /**
+ * Update payload for buildDashboardQuery. `null` explicitly removes the
+ * parameter from the URL; `undefined` leaves the existing value untouched.
+ * The old implementation compared against `null` while the type only allowed
+ * `undefined`, so the delete branches were dead code and a stale `index=`
+ * could survive an index deselection.
+ */
+export type DashboardQueryUpdates = {
+  indexId?: string | null;
+  benchmark?: string | null;
+  timeframe?: string | null;
+};
+
+/**
  * Parses dashboard-specific query parameters (index ID, benchmark symbol, timeframe).
  */
 export function parseDashboardParams(search: string = ""): DashboardQueryParams {
@@ -116,7 +129,7 @@ export function resolveStockTicker(pathname: string = "", search: string = ""): 
  */
 export function buildDashboardQuery(
   currentSearch: string,
-  updates: DashboardQueryParams,
+  updates: DashboardQueryUpdates,
 ): string {
   const params = new URLSearchParams(currentSearch);
 

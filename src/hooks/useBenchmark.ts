@@ -99,7 +99,13 @@ export function useBenchmark(initialSymbol: BenchmarkSymbol = "^N225", enabled =
         if (res.status === 304) {
           if (cached) {
             cached.timestamp = Date.now();
-            setLastUpdatedAt(cached.timestamp);
+            // State updates must respect the abort guard below: the module
+            // cache is safe to refresh (it is keyed by symbol), but writing
+            // lastUpdatedAt after the effect re-ran for another benchmark
+            // would resurrect stale metadata for the previous symbol.
+            if (!controller.signal.aborted) {
+              setLastUpdatedAt(cached.timestamp);
+            }
             return cached.data;
           }
           // If 304 received without memory cache, refetch fresh data bypassing cache
@@ -125,7 +131,9 @@ export function useBenchmark(initialSymbol: BenchmarkSymbol = "^N225", enabled =
             timestamp: Date.now(),
             etag: freshEtag,
           });
-          setLastUpdatedAt(Date.now());
+          if (!controller.signal.aborted) {
+            setLastUpdatedAt(Date.now());
+          }
           return freshData;
         }
         if (!res.ok) {
@@ -139,7 +147,9 @@ export function useBenchmark(initialSymbol: BenchmarkSymbol = "^N225", enabled =
           timestamp: Date.now(),
           etag,
         });
-        setLastUpdatedAt(Date.now());
+        if (!controller.signal.aborted) {
+          setLastUpdatedAt(Date.now());
+        }
         return data;
       })
       .then((data: BenchmarkData) => {
