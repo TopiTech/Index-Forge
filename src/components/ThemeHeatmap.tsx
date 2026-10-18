@@ -24,7 +24,10 @@ export function ThemeHeatmap({ stockDetails, selectedTheme, onSelectTheme }: The
   } | null>(null);
 
   const filteredStocks = useMemo(() => {
-    return [...stockDetails].sort((a, b) => b.weight - a.weight);
+    return [...stockDetails].sort((a, b) => {
+      if (b.weight !== a.weight) return b.weight - a.weight;
+      return a.ticker.localeCompare(b.ticker);
+    });
   }, [stockDetails]);
 
   // Group stocks by theme for the "By Theme" view
@@ -38,7 +41,8 @@ export function ThemeHeatmap({ stockDetails, selectedTheme, onSelectTheme }: The
     return Array.from(map.entries()).sort((a, b) => {
       const weightA = a[1].reduce((sum, s) => sum + s.weight, 0);
       const weightB = b[1].reduce((sum, s) => sum + s.weight, 0);
-      return weightB - weightA;
+      if (weightB !== weightA) return weightB - weightA;
+      return a[0].localeCompare(b[0], "ja");
     });
   }, [filteredStocks]);
 

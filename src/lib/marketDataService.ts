@@ -2036,20 +2036,21 @@ export function runStockScreener(
 
     if (typeof valA === "string" && typeof valB === "string") {
       const cmp = valA.localeCompare(valB, "ja");
-      return sortOrder === "asc" ? cmp : -cmp;
+      if (cmp !== 0) return sortOrder === "asc" ? cmp : -cmp;
+      return a.ticker.localeCompare(b.ticker);
     }
 
     const hasNumA = typeof valA === "number" && Number.isFinite(valA);
     const hasNumB = typeof valB === "number" && Number.isFinite(valB);
 
-    if (!hasNumA && !hasNumB) return 0;
+    if (!hasNumA && !hasNumB) return a.ticker.localeCompare(b.ticker);
     // Missing/null metrics always sort to the end
     if (!hasNumA) return 1;
     if (!hasNumB) return -1;
 
     const numA = valA as number;
     const numB = valB as number;
-    if (numA === numB) return 0;
+    if (numA === numB) return a.ticker.localeCompare(b.ticker);
     return sortOrder === "asc" ? (numA > numB ? 1 : -1) : numA < numB ? 1 : -1;
   });
 }

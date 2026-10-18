@@ -93,7 +93,7 @@ export function RiskMetricsCard({
     {
       label: "日次勝率 (Win Rate)",
       value: `${metrics.winRate.toFixed(1)}%`,
-      sub: `最良: ${metrics.bestDay > 0 ? "+" : ""}${metrics.bestDay}% / 最悪: ${metrics.worstDay > 0 ? "+" : ""}${metrics.worstDay}%`,
+      sub: `最良: ${metrics.bestDay > 0 ? "+" : ""}${pctFmt.format(metrics.bestDay)}% / 最悪: ${metrics.worstDay > 0 ? "+" : ""}${pctFmt.format(metrics.worstDay)}%`,
       icon: <Award size={15} style={{ color: "var(--neon-green)" }} />,
       color: metrics.winRate >= 50 ? "var(--neon-green)" : "var(--neon-red)",
     },

@@ -2000,24 +2000,21 @@ export async function fetchSecEdgarFinancials(
     const usGaap = data.facts?.["us-gaap"];
     if (!usGaap) return [];
 
+    const isUsableFact = (r: { form?: string; fy?: number; val?: number }) =>
+      r.form === "10-K" && typeof r.fy === "number" && typeof r.val === "number" && Number.isFinite(r.val);
+
     const revList = (
       usGaap.Revenues?.units?.USD ||
       usGaap.RevenueFromContractWithCustomerExcludingAssessedTax?.units?.USD ||
       usGaap.SalesRevenueNet?.units?.USD ||
       []
-    ).filter((r) => r.form === "10-K" && typeof r.fy === "number" && r.val);
+    ).filter(isUsableFact);
 
-    const netList = (usGaap.NetIncomeLoss?.units?.USD || []).filter(
-      (r) => r.form === "10-K" && typeof r.fy === "number" && r.val,
-    );
+    const netList = (usGaap.NetIncomeLoss?.units?.USD || []).filter(isUsableFact);
 
-    const opList = (usGaap.OperatingIncomeLoss?.units?.USD || []).filter(
-      (r) => r.form === "10-K" && typeof r.fy === "number" && r.val,
-    );
+    const opList = (usGaap.OperatingIncomeLoss?.units?.USD || []).filter(isUsableFact);
 
-    const epsList = (usGaap.EarningsPerShareDiluted?.units?.USD || []).filter(
-      (r) => r.form === "10-K" && typeof r.fy === "number" && r.val,
-    );
+    const epsList = (usGaap.EarningsPerShareDiluted?.units?.USD || []).filter(isUsableFact);
 
     const years = [...new Set(revList.map((r) => r.fy!))].sort((a, b) => a - b).slice(-4);
     if (years.length === 0) return [];
@@ -2028,10 +2025,18 @@ export async function fetchSecEdgarFinancials(
       const opItem = opList.filter((r) => r.fy === fy).pop();
       const epsItem = epsList.filter((r) => r.fy === fy).pop();
 
-      const rev = revItem ? Math.round(revItem.val! / 1_000_000) : 0;
-      const net = netItem ? Math.round(netItem.val! / 1_000_000) : 0;
-      const op = opItem ? Math.round(opItem.val! / 1_000_000) : Math.round(net * 1.25);
-      const safeEps = epsItem ? Number(epsItem.val!.toFixed(2)) : 0;
+      const rev = revItem && typeof revItem.val === "number" && Number.isFinite(revItem.val)
+        ? Math.round(revItem.val / 1_000_000)
+        : 0;
+      const net = netItem && typeof netItem.val === "number" && Number.isFinite(netItem.val)
+        ? Math.round(netItem.val / 1_000_000)
+        : 0;
+      const op = opItem && typeof opItem.val === "number" && Number.isFinite(opItem.val)
+        ? Math.round(opItem.val / 1_000_000)
+        : Math.round(net * 1.25);
+      const safeEps = epsItem && typeof epsItem.val === "number" && Number.isFinite(epsItem.val)
+        ? Number(epsItem.val.toFixed(2))
+        : 0;
 
       return {
         fiscalYear: `${fy} FY`,

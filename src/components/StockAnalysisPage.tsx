@@ -265,17 +265,45 @@ export function StockAnalysisPage({
 
   // Market movers
   const topGainers = useMemo(() => {
-    return [...stocks].sort((a, b) => b.changePercent - a.changePercent).slice(0, 4);
+    return [...stocks]
+      .filter((s) => Number.isFinite(s.changePercent))
+      .sort((a, b) => {
+        if (b.changePercent !== a.changePercent) {
+          return b.changePercent - a.changePercent;
+        }
+        return a.ticker.localeCompare(b.ticker);
+      })
+      .slice(0, 4);
   }, [stocks]);
 
   const topLosers = useMemo(() => {
-    return [...stocks].sort((a, b) => a.changePercent - b.changePercent).slice(0, 4);
+    return [...stocks]
+      .filter((s) => Number.isFinite(s.changePercent))
+      .sort((a, b) => {
+        if (a.changePercent !== b.changePercent) {
+          return a.changePercent - b.changePercent;
+        }
+        return a.ticker.localeCompare(b.ticker);
+      })
+      .slice(0, 4);
   }, [stocks]);
 
   const highYieldPicks = useMemo(() => {
     return [...stocks]
-      .filter((s) => (s.dividendYield ?? 0) > 0)
-      .sort((a, b) => (b.dividendYield ?? 0) - (a.dividendYield ?? 0))
+      .filter(
+        (s) =>
+          typeof s.dividendYield === "number" &&
+          Number.isFinite(s.dividendYield) &&
+          s.dividendYield > 0,
+      )
+      .sort((a, b) => {
+        const yieldA = a.dividendYield!;
+        const yieldB = b.dividendYield!;
+        if (yieldB !== yieldA) {
+          return yieldB - yieldA;
+        }
+        return a.ticker.localeCompare(b.ticker);
+      })
       .slice(0, 4);
   }, [stocks]);
 
