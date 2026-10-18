@@ -14,7 +14,8 @@ import {
 describe("Tab Data Freshness Enhancement & Permanent Loading Fix", () => {
   describe("1. DataFreshness Component Flexibility & Loading Fix", () => {
     it("renders formatted timestamp and LIVE badge when numeric updatedAt is provided", () => {
-      const fixedTimestamp = new Date(2026, 9, 18, 11, 30).getTime();
+      // Use explicit JST (+09:00) ISO string to avoid local timezone drift in CI runners (e.g. UTC)
+      const fixedTimestamp = Date.parse("2026-10-18T11:30:00+09:00");
       const html = renderToStaticMarkup(
         React.createElement(DataFreshness, {
           updatedAt: fixedTimestamp,
