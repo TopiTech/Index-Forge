@@ -1,4 +1,4 @@
-import React, { useRef, useState, useMemo } from "react";
+import React, { useRef, useState, useMemo, useEffect } from "react";
 import { Plus, AlertCircle, Sparkles } from "lucide-react";
 import type { BasketItem } from "../types";
 import { searchPopularStocks, PRESET_STOCKS } from "../data/popularStocks";
@@ -29,6 +29,16 @@ export function AddStockModal({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const tickerInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      setTicker("");
+      setName("");
+      setTheme("");
+      setWeight(10);
+      setError(null);
+    }
+  }, [isOpen]);
 
   const handleClose = () => {
     if (!loading) onClose();

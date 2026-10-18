@@ -325,15 +325,17 @@ export function StockAnalysisPage({
 
   const renderSparkline = (data?: number[], isPositive = true) => {
     if (!data || data.length < 2) return null;
-    const min = Math.min(...data);
-    const max = Math.max(...data);
+    const validData = data.filter((v) => typeof v === "number" && Number.isFinite(v));
+    if (validData.length < 2) return null;
+    const min = Math.min(...validData);
+    const max = Math.max(...validData);
     const range = max - min || 1;
     const width = 80;
     const height = 28;
 
-    const points = data
+    const points = validData
       .map((val, idx) => {
-        const x = (idx / (data.length - 1)) * width;
+        const x = (idx / (validData.length - 1)) * width;
         const y = height - ((val - min) / range) * (height - 6) - 3;
         return `${x.toFixed(1)},${y.toFixed(1)}`;
       })

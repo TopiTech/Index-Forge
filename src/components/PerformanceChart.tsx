@@ -209,21 +209,22 @@ export function PerformanceChart({
   // Key chart statistics
   const stats = useMemo(() => {
     if (filteredData.length === 0 || displayData.length === 0) return null;
-    const rawValues = filteredData.map((d) => d.value);
+    const rawValues = filteredData.map((d) => d.value).filter((v) => typeof v === "number" && Number.isFinite(v));
+    if (rawValues.length === 0) return null;
     const minVal = Math.min(...rawValues);
     const maxVal = Math.max(...rawValues);
-    const startVal = filteredData[0].value;
-    const endVal = filteredData[filteredData.length - 1].value;
+    const startVal = Number.isFinite(filteredData[0]?.value) ? filteredData[0].value : 0;
+    const endVal = Number.isFinite(filteredData[filteredData.length - 1]?.value) ? filteredData[filteredData.length - 1].value : 0;
     const periodReturn = startVal > 0 ? ((endVal - startVal) / startVal) * 100 : 0;
 
-    const startNikkei = filteredData[0].nikkei;
-    const lastNikkei = filteredData[filteredData.length - 1].nikkei;
+    const startNikkei = Number.isFinite(filteredData[0]?.nikkei) ? filteredData[0].nikkei : 0;
+    const lastNikkei = Number.isFinite(filteredData[filteredData.length - 1]?.nikkei) ? filteredData[filteredData.length - 1].nikkei : 0;
     const nikkeiReturn = startNikkei > 0 ? ((lastNikkei - startNikkei) / startNikkei) * 100 : 0;
     const alpha = periodReturn - nikkeiReturn;
 
-    const displayValues = displayData.map((d) => d.value);
-    const displayMin = Math.min(...displayValues);
-    const displayMax = Math.max(...displayValues);
+    const displayValues = displayData.map((d) => d.value).filter((v) => typeof v === "number" && Number.isFinite(v));
+    const displayMin = displayValues.length > 0 ? Math.min(...displayValues) : minVal;
+    const displayMax = displayValues.length > 0 ? Math.max(...displayValues) : maxVal;
 
     return {
       min: minVal,

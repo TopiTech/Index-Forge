@@ -1710,6 +1710,10 @@ export function normalizeMarketOverview(raw: unknown): MarketOverviewData | null
               title: item.title as string,
               source: item.source as string,
               publishedAt: item.publishedAt as string,
+              publishedTimestamp:
+                typeof (item as { publishedTimestamp?: unknown }).publishedTimestamp === "string"
+                  ? ((item as { publishedTimestamp: string }).publishedTimestamp)
+                  : undefined,
               url: safeUrl,
               relatedTicker:
                 typeof item.relatedTicker === "string" && item.relatedTicker
@@ -1973,17 +1977,26 @@ export function runStockScreener(
 
     if (
       minDividendYield !== undefined &&
-      (stock.dividendYield === null || stock.dividendYield < minDividendYield)
+      (stock.dividendYield == null || !Number.isFinite(stock.dividendYield) || stock.dividendYield < minDividendYield)
     ) {
       return false;
     }
-    if (maxPer !== undefined && (stock.per === null || stock.per > maxPer)) {
+    if (
+      maxPer !== undefined &&
+      (stock.per == null || !Number.isFinite(stock.per) || stock.per <= 0 || stock.per > maxPer)
+    ) {
       return false;
     }
-    if (maxPbr !== undefined && (stock.pbr === null || stock.pbr > maxPbr)) {
+    if (
+      maxPbr !== undefined &&
+      (stock.pbr == null || !Number.isFinite(stock.pbr) || stock.pbr <= 0 || stock.pbr > maxPbr)
+    ) {
       return false;
     }
-    if (minRoe !== undefined && (stock.roe === null || stock.roe < minRoe)) {
+    if (
+      minRoe !== undefined &&
+      (stock.roe == null || !Number.isFinite(stock.roe) || stock.roe < minRoe)
+    ) {
       return false;
     }
 

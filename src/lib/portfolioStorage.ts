@@ -414,11 +414,15 @@ export function calculatePortfolioSummary(
     const fxRate = isUSD ? (validCustomRate ?? fallbackRate) : 1;
 
     const currentPrice =
-      live?.price && live.price > 0
+      live?.price && Number.isFinite(live.price) && live.price > 0
         ? live.price
-        : pos.currentPrice && pos.currentPrice > 0
+        : pos.currentPrice && Number.isFinite(pos.currentPrice) && pos.currentPrice > 0
           ? pos.currentPrice
-          : fund.price;
+          : fund.price && Number.isFinite(fund.price) && fund.price > 0
+            ? fund.price
+            : pos.averageCost && Number.isFinite(pos.averageCost) && pos.averageCost > 0
+              ? pos.averageCost
+              : 0;
     const marketValue = isUSD
       ? Number((pos.shares * currentPrice).toFixed(2))
       : Math.round(pos.shares * currentPrice);
@@ -444,10 +448,10 @@ export function calculatePortfolioSummary(
       ? Number((pos.shares * dps).toFixed(2))
       : Math.round(pos.shares * dps);
 
-    const marketValueJpy = Math.round(marketValue * fxRate);
-    const totalCostJpy = Math.round(totalCost * fxRate);
-    const dailyChangeJpy = Math.round(dailyChange * fxRate);
-    const annualDividendJpy = Math.round(annualDividend * fxRate);
+    const marketValueJpy = Math.round(marketValue * fxRate) || 0;
+    const totalCostJpy = Math.round(totalCost * fxRate) || 0;
+    const dailyChangeJpy = Math.round(dailyChange * fxRate) || 0;
+    const annualDividendJpy = Math.round(annualDividend * fxRate) || 0;
 
     return {
       ...pos,
@@ -473,13 +477,13 @@ export function calculatePortfolioSummary(
   });
 
   // 2. Compute aggregate totals (converted to JPY base)
-  const totalMarketValue = enriched.reduce((sum, p) => sum + p.marketValueJpy, 0);
-  const totalCost = enriched.reduce((sum, p) => sum + p.totalCostJpy, 0);
+  const totalMarketValue = enriched.reduce((sum, p) => sum + (Number.isFinite(p.marketValueJpy) ? p.marketValueJpy : 0), 0);
+  const totalCost = enriched.reduce((sum, p) => sum + (Number.isFinite(p.totalCostJpy) ? p.totalCostJpy : 0), 0);
   const totalProfit = totalMarketValue - totalCost;
   const totalProfitPercent =
     totalCost > 0 ? Number(((totalProfit / totalCost) * 100).toFixed(2)) : 0;
-  const dailyTotalChange = enriched.reduce((sum, p) => sum + p.dailyChangeJpy, 0);
-  const totalAnnualDividend = enriched.reduce((sum, p) => sum + p.annualDividendJpy, 0);
+  const dailyTotalChange = enriched.reduce((sum, p) => sum + (Number.isFinite(p.dailyChangeJpy) ? p.dailyChangeJpy : 0), 0);
+  const totalAnnualDividend = enriched.reduce((sum, p) => sum + (Number.isFinite(p.annualDividendJpy) ? p.annualDividendJpy : 0), 0);
   const dividendYield =
     totalMarketValue > 0 ? Number(((totalAnnualDividend / totalMarketValue) * 100).toFixed(2)) : 0;
 

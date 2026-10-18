@@ -2338,6 +2338,7 @@ export async function fetchLiveMarketOverview(
             title: item.title,
             source: item.publisher || "市場速報",
             publishedAt: `${hh}:${mm}`,
+            publishedTimestamp: date.toISOString(),
             url: item.link,
             relatedTicker: item.relatedTickers?.[0],
           };
@@ -2349,12 +2350,16 @@ export async function fetchLiveMarketOverview(
   }
 
   if (newsList.length === 0) {
-    const nowJst = new Date(Date.now() + 9 * 60 * 60 * 1000);
+    const nowMs = Date.now();
+    const nowJst = new Date(nowMs + 9 * 60 * 60 * 1000);
     const getJstTimeStr = (offsetMinutes: number) => {
       const d = new Date(nowJst.getTime() - offsetMinutes * 60 * 1000);
       const hh = String(d.getUTCHours()).padStart(2, "0");
       const mm = String(d.getUTCMinutes()).padStart(2, "0");
       return `${hh}:${mm}`;
+    };
+    const getIsoTimestamp = (offsetMinutes: number) => {
+      return new Date(nowMs - offsetMinutes * 60 * 1000).toISOString();
     };
     newsList = [
       {
@@ -2362,6 +2367,7 @@ export async function fetchLiveMarketOverview(
         title: "日経平均は高水準推移、主要ハイテク・半導体関連株に実需買い",
         source: "市場速報",
         publishedAt: getJstTimeStr(5),
+        publishedTimestamp: getIsoTimestamp(5),
         relatedTicker: "8035",
       },
       {
@@ -2369,6 +2375,7 @@ export async function fetchLiveMarketOverview(
         title: "米ドル円は158円台で推移、日米金利動向と実需フローを見極め",
         source: "為替市況",
         publishedAt: getJstTimeStr(15),
+        publishedTimestamp: getIsoTimestamp(15),
         relatedTicker: "USDJPY=X",
       },
       {
@@ -2376,6 +2383,7 @@ export async function fetchLiveMarketOverview(
         title: "米ハイテク株と主要指数が堅調推移、インフラ・生成AI需要が下支え",
         source: "グローバル金融",
         publishedAt: getJstTimeStr(45),
+        publishedTimestamp: getIsoTimestamp(45),
         relatedTicker: "NVDA",
       },
       {
@@ -2383,6 +2391,7 @@ export async function fetchLiveMarketOverview(
         title: "東証プライム騰落レシオは良好、好業績バリュー銘柄に見直し買いが継続",
         source: "株式ニュース",
         publishedAt: getJstTimeStr(120),
+        publishedTimestamp: getIsoTimestamp(120),
       },
     ];
   }
@@ -2987,12 +2996,36 @@ export async function fetchLiveStockFundamentals(ticker: string, env?: Env): Pro
         if (Array.isArray(parsedPrices) && parsedPrices.length >= 2) {
           const lastPt = parsedPrices[parsedPrices.length - 1];
           const prevPt = parsedPrices[parsedPrices.length - 2];
-          if (lastPt && prevPt && Number.isFinite(lastPt.close) && lastPt.close > 0) {
+          if (
+            lastPt &&
+            Number.isFinite(lastPt.close) &&
+            lastPt.close > 0 &&
+            prevPt &&
+            Number.isFinite(prevPt.close) &&
+            prevPt.close > 0
+          ) {
             currentPrice = lastPt.close;
             prevClose = prevPt.close;
             change = Number((currentPrice - prevClose).toFixed(isUS ? 2 : 1));
             changePct = Number((((currentPrice - prevClose) / prevPt.close) * 100).toFixed(2));
             sparkline = parsedPrices.slice(-10).map((p) => p.close);
+            hasLivePrice = true;
+          } else if (lastPt && Number.isFinite(lastPt.close) && lastPt.close > 0) {
+            currentPrice = lastPt.close;
+            prevClose = currentPrice;
+            change = 0;
+            changePct = 0;
+            sparkline = parsedPrices.slice(-10).map((p) => p.close);
+            hasLivePrice = true;
+          }
+        } else if (Array.isArray(parsedPrices) && parsedPrices.length === 1) {
+          const singlePt = parsedPrices[0];
+          if (singlePt && Number.isFinite(singlePt.close) && singlePt.close > 0) {
+            currentPrice = singlePt.close;
+            prevClose = currentPrice;
+            change = 0;
+            changePct = 0;
+            sparkline = [singlePt.close];
             hasLivePrice = true;
           }
         }

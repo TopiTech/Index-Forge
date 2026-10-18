@@ -315,6 +315,7 @@ export function ThemeHeatmap({ stockDetails, selectedTheme, onSelectTheme }: The
 
       {/* Floating Precision Tooltip */}
       {typeof document !== "undefined" &&
+        document.body &&
         createPortal(
           <AnimatePresence>
             {hoveredStock && (

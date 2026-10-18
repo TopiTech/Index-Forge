@@ -438,13 +438,14 @@ export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModal
     script.src = "https://s3.tradingview.com/external-embedding/embed-widget-symbol-overview.js";
     script.type = "text/javascript";
     script.async = true;
+    let resizeTimerId: ReturnType<typeof setTimeout> | null = null;
     script.onload = () => {
       scriptLoaded = true;
       if (!isCancelled) {
         clearTimeout(timeoutId);
         setIsLoading(false);
         setScriptError(false);
-        setTimeout(notifyTradingViewResize, 100);
+        resizeTimerId = setTimeout(notifyTradingViewResize, 100);
       }
     };
     script.onerror = () => {
@@ -491,6 +492,7 @@ export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModal
     return () => {
       isCancelled = true;
       clearTimeout(timeoutId);
+      if (resizeTimerId) clearTimeout(resizeTimerId);
       container.innerHTML = "";
     };
   }, [symbol, theme, reloadKey, notifyTradingViewResize]);

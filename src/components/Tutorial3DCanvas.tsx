@@ -150,14 +150,25 @@ export const Tutorial3DCanvas = forwardRef<Tutorial3DCanvasHandle, Tutorial3DCan
     };
 
     // Wheel event for zoom (only when Ctrl/Cmd is pressed to prevent page scroll hijacking)
-    const handleWheel = (e: React.WheelEvent) => {
-      if (e.ctrlKey || e.metaKey) {
-        e.preventDefault();
-        if (!sceneRef.current) return;
-        const zoomSpeed = 0.015;
-        sceneRef.current.zoomCamera(e.deltaY * zoomSpeed);
-      }
-    };
+    // Attached with { passive: false } to allow preventDefault without console intervention warnings
+    useEffect(() => {
+      const container = containerRef.current;
+      if (!container) return;
+
+      const handleWheel = (e: WheelEvent) => {
+        if (e.ctrlKey || e.metaKey) {
+          e.preventDefault();
+          if (!sceneRef.current) return;
+          const zoomSpeed = 0.015;
+          sceneRef.current.zoomCamera(e.deltaY * zoomSpeed);
+        }
+      };
+
+      container.addEventListener("wheel", handleWheel, { passive: false });
+      return () => {
+        container.removeEventListener("wheel", handleWheel);
+      };
+    }, []);
 
     // Keyboard support on the canvas element itself
     const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -220,7 +231,6 @@ export const Tutorial3DCanvas = forwardRef<Tutorial3DCanvasHandle, Tutorial3DCan
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerUp}
-        onWheel={handleWheel}
         onKeyDown={handleKeyDown}
         tabIndex={0}
         role="region"

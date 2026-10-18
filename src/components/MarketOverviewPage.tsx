@@ -524,12 +524,14 @@ export function MarketOverviewPage({
 
                 {/* Sparkline Visual Simulation */}
                 {asset.sparkline && asset.sparkline.length > 0 && (() => {
-                  const min = Math.min(...asset.sparkline);
-                  const max = Math.max(...asset.sparkline);
+                  const validData = asset.sparkline.filter((v) => typeof v === "number" && Number.isFinite(v));
+                  if (validData.length === 0) return null;
+                  const min = Math.min(...validData);
+                  const max = Math.max(...validData);
                   const range = max - min || 1;
                   return (
                     <div style={{ width: "70px", height: "28px", display: "flex", alignItems: "flex-end", gap: "3px" }}>
-                      {asset.sparkline.map((val, idx) => {
+                      {validData.map((val, idx) => {
                         const heightPercent = Math.max(15, Math.min(100, ((val - min) / range) * 100));
                         return (
                           <div
@@ -538,7 +540,7 @@ export function MarketOverviewPage({
                               flex: 1,
                               height: `${heightPercent}%`,
                               background: isPositive ? "var(--color-positive)" : "var(--color-negative)",
-                              opacity: 0.35 + (idx / asset.sparkline!.length) * 0.65,
+                              opacity: 0.35 + (idx / validData.length) * 0.65,
                               borderRadius: "2px",
                             }}
                           />

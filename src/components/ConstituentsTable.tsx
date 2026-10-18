@@ -53,15 +53,17 @@ function getYahooFinanceUrl(ticker: string): string {
 
 function Sparkline({ data, isPositive }: { data: number[]; isPositive: boolean }) {
   if (!data || data.length < 2) return null;
-  const min = Math.min(...data);
-  const max = Math.max(...data);
+  const validData = data.filter((v) => typeof v === "number" && Number.isFinite(v));
+  if (validData.length < 2) return null;
+  const min = Math.min(...validData);
+  const max = Math.max(...validData);
   const range = max - min || 1;
   const width = 64;
   const height = 22;
 
-  const points = data
+  const points = validData
     .map((val, idx) => {
-      const x = (idx / (data.length - 1)) * width;
+      const x = (idx / (validData.length - 1)) * width;
       const y = height - ((val - min) / range) * (height - 4) - 2;
       return `${x.toFixed(1)},${y.toFixed(1)}`;
     })
