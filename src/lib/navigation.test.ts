@@ -83,11 +83,18 @@ describe("Navigation & View Routing Logic", () => {
       expect(resolveStockTicker("/stock/7203", "?ticker=NVDA")).toBe("NVDA");
     });
 
+    it("normalizes full-width tickers and case", () => {
+      expect(resolveStockTicker("/stock", "?ticker=７２０３")).toBe("7203");
+      expect(resolveStockTicker("/stock/ｎｖｄａ", "")).toBe("NVDA");
+      expect(resolveStockTicker("/stock", "?ticker=６７５８")).toBe("6758");
+    });
+
     it("rejects missing or malformed tickers from the URL", () => {
       expect(resolveStockTicker("/stock", "")).toBeUndefined();
       expect(resolveStockTicker("/stock/", "")).toBeUndefined();
       expect(resolveStockTicker("/stock/%3Cscript%3E", "")).toBeUndefined();
       expect(resolveStockTicker(`/stock/${"A".repeat(40)}`, "")).toBeUndefined();
+      expect(resolveStockTicker("/stock/AAPL&evil=1", "")).toBeUndefined();
       expect(resolveStockTicker("/other", "?ticker=")).toBeUndefined();
       expect(resolveStockTicker("/other", "")).toBeUndefined();
     });

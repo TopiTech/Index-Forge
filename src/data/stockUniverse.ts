@@ -4790,9 +4790,16 @@ for (const s of ALL_UNIVERSE_STOCKS) {
 
 export function getUniverseStockByTicker(ticker: string): UniverseStock | undefined {
   if (!ticker) return undefined;
-  const clean = normalizeSearchQuery(ticker).replace(/\.T$/i, "").toUpperCase();
+  const clean = normalizeSearchQuery(ticker)
+    .replace(/^(?:TSE|TYO):/i, "")
+    .replace(/\.T$/i, "")
+    .toUpperCase();
   const found = TICKER_MAP.get(clean);
   if (found) return found;
-  const rawClean = ticker.trim().replace(/\.T$/i, "").toUpperCase();
+  const rawClean = ticker
+    .trim()
+    .replace(/^(?:TSE|TYO):/i, "")
+    .replace(/\.T$/i, "")
+    .toUpperCase();
   return TICKER_MAP.get(rawClean);
 }

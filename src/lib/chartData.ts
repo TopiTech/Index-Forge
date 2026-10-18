@@ -36,32 +36,42 @@ export function buildChartData(
   let firstNikkei = 0;
   if (startDate) {
     for (const p of sortedNikkei) {
-      if (p.date <= startDate && p.close > 0) {
+      if (p.date <= startDate && typeof p.close === "number" && Number.isFinite(p.close) && p.close > 0) {
         firstNikkei = p.close;
       } else if (p.date > startDate) {
         break;
       }
     }
   }
-  if (firstNikkei <= 0) {
-    firstNikkei = sortedNikkei.find((p) => p.close > 0)?.close || safeBase;
+  if (!Number.isFinite(firstNikkei) || firstNikkei <= 0) {
+    const fallbackPoint = sortedNikkei.find(
+      (p) => typeof p.close === "number" && Number.isFinite(p.close) && p.close > 0,
+    );
+    firstNikkei = fallbackPoint?.close && fallbackPoint.close > 0 ? fallbackPoint.close : safeBase;
   }
 
   let lastKnownClose: number = firstNikkei;
   return alignedCustom.map((point) => {
     const nikkeiClose = nikkeiMap.get(point.date);
-    if (nikkeiClose !== undefined && nikkeiClose > 0) {
+    if (nikkeiClose !== undefined && typeof nikkeiClose === "number" && Number.isFinite(nikkeiClose) && nikkeiClose > 0) {
       lastKnownClose = nikkeiClose;
     }
-    const nikkeiPoint = nikkeiClose && nikkeiClose > 0 ? nikkeiClose : lastKnownClose;
+    const nikkeiPoint =
+      nikkeiClose !== undefined && typeof nikkeiClose === "number" && Number.isFinite(nikkeiClose) && nikkeiClose > 0
+        ? nikkeiClose
+        : lastKnownClose;
     const rawVal = point.value ?? point.close;
     const customVal = typeof rawVal === "number" && Number.isFinite(rawVal) && rawVal > 0 ? rawVal : safeBase;
+
+    const rawRatio = firstNikkei > 0 ? nikkeiPoint / firstNikkei : 1;
+    const calcNikkei = Number.isFinite(rawRatio) ? Number((safeBase * rawRatio).toFixed(2)) : safeBase;
+    const safeNikkei = Number.isFinite(calcNikkei) ? calcNikkei : safeBase;
 
     return {
       date: point.date,
       value: customVal,
       close: customVal,
-      nikkei: Number((safeBase * (nikkeiPoint / firstNikkei)).toFixed(2)),
+      nikkei: safeNikkei,
     };
   });
 }

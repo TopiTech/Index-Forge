@@ -102,6 +102,23 @@ describe("buildChartData", () => {
     expect(resultInvalid[1].nikkei).toBe(1200);
   });
 
+  it("handles zero, negative, or non-finite benchmark prices gracefully without division by zero", () => {
+    const zeroNikkei: PricePoint[] = [
+      { date: "2026-04-01", close: 0 },
+      { date: "2026-04-02", close: NaN as any },
+    ];
+    const custom: PricePoint[] = [
+      { date: "2026-04-01", close: 100, value: 1000 },
+      { date: "2026-04-02", close: 110, value: 1100 },
+    ];
+    const result = buildChartData(zeroNikkei, custom, base);
+    expect(result.length).toBe(2);
+    expect(Number.isFinite(result[0].nikkei)).toBe(true);
+    expect(Number.isFinite(result[1].nikkei)).toBe(true);
+    expect(result[0].nikkei).toBe(1000);
+    expect(result[1].nikkei).toBe(1000);
+  });
+
   it("filters out customSeries dates prior to nikkei start date to avoid flat line", () => {
     const nikkei: PricePoint[] = [
       { date: "2026-08-01", close: 38000 },

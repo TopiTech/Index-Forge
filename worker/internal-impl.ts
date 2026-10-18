@@ -1577,6 +1577,10 @@ export function setMemoryCache(key: string, data: unknown, ttlSeconds: number): 
     totalBytes -= oldest?.bytes || 0;
   }
 
+  if (targetMap.has(key)) {
+    targetMap.delete(key);
+  }
+
   targetMap.set(key, {
     data,
     expiresAt: now + ttlSeconds * 1000,

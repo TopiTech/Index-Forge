@@ -42,6 +42,12 @@ describe("Stock Universe & Zero Server Load Suggestion System", () => {
       expect(nvda).toBeDefined();
       expect(nvda?.name).toBe("NVIDIA");
       expect(nvda?.market).toBe("US");
+
+      // Exchange prefix tolerance (TSE:, TYO:, .T)
+      const tseToyota = getUniverseStockByTicker("TSE:7203");
+      expect(tseToyota?.ticker).toBe("7203");
+      const tyoSony = getUniverseStockByTicker("TYO:6758.T");
+      expect(tyoSony?.ticker).toBe("6758");
     });
   });
 
