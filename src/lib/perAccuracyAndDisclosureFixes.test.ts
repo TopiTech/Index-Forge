@@ -6,7 +6,6 @@ import {
   type StockQuoteFundamentals,
 } from "./marketDataService";
 import worker from "../../worker/index";
-import { fetchLiveStockFundamentals } from "../../worker/internal";
 
 describe("PER Accuracy and Disclosure Handling (Approach 1: TTM-based Estimation)", () => {
   beforeEach(() => {

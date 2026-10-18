@@ -30,6 +30,7 @@ import { POPULAR_STOCKS } from "../data/popularStocks";
 import { searchStockUniverse, normalizeSearchQuery, getUniverseStockByTicker } from "../data/stockUniverse";
 import { getRecentSearches } from "./GlobalSearchModal";
 import type { PageView } from "../lib/navigation";
+import { useRegisterFreshness } from "../contexts/FreshnessContext";
 
 export interface StockAnalysisPageProps {
   onNavigate: (view: PageView, searchParams?: string) => void;
@@ -89,6 +90,13 @@ export function StockAnalysisPage({
     return POPULAR_STOCKS.map((p) => getCachedStockFundamentals(p.ticker));
   });
   const [loading, setLoading] = useState(false);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(() => Date.now());
+
+  useRegisterFreshness("stock", {
+    loading,
+    updatedAt: lastUpdatedAt,
+    typeLabel: "銘柄分析",
+  });
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearchDropdownOpen, setIsSearchDropdownOpen] = useState(false);
   const [selectedTheme, setSelectedTheme] = useState<ThemeCategory>("ALL");
@@ -135,6 +143,7 @@ export function StockAnalysisPage({
       if (!mountedRef.current || requestId !== requestIdRef.current) return;
       if (data && data.length > 0) {
         setStocks(data);
+        setLastUpdatedAt(Date.now());
       }
     } catch {
       // Keep cached data

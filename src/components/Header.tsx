@@ -30,6 +30,9 @@ interface HeaderProps {
   syncing?: boolean;
   benchmarkStale?: boolean;
   hasSyncWarning?: boolean;
+  typeLabel?: string;
+  updatedAt?: number | string | null;
+  customStatusText?: string;
 }
 
 /**
@@ -45,10 +48,13 @@ export function Header({
   navToggleRef,
   benchmarkUpdatedAt,
   calculationUpdatedAt,
+  updatedAt,
   dataLoading = false,
   syncing = false,
   benchmarkStale = false,
   hasSyncWarning = false,
+  typeLabel,
+  customStatusText,
 }: HeaderProps) {
   const { session, isAuthenticated, isAdmin, isUser, maxStocks, maxIndices, logout } = useAuth();
   const { info } = useToast();
@@ -137,10 +143,13 @@ export function Header({
               <DataFreshness
                 benchmarkUpdatedAt={benchmarkUpdatedAt}
                 calculationUpdatedAt={calculationUpdatedAt}
+                updatedAt={updatedAt}
                 loading={dataLoading}
                 syncing={syncing}
                 stale={benchmarkStale}
                 hasSyncWarning={hasSyncWarning}
+                typeLabel={typeLabel}
+                customStatusText={customStatusText}
               />
               <ThemeControls />
             </div>

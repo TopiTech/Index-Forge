@@ -20,6 +20,7 @@ import {
 } from "../lib/marketDataService";
 import { Skeleton, SkeletonStatGrid, SkeletonCard, SkeletonTable } from "./Skeleton";
 import type { PageView } from "../lib/navigation";
+import { useRegisterFreshness } from "../contexts/FreshnessContext";
 
 interface MarketOverviewPageProps {
   onNavigate: (view: PageView, searchParams?: string) => void;
@@ -79,6 +80,13 @@ export function MarketOverviewPage({
   const [data, setData] = useState<MarketOverviewData | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedAssetTab, setSelectedAssetTab] = useState<"ALL" | "INDEX" | "FX" | "COMMODITY" | "CRYPTO">("ALL");
+
+  useRegisterFreshness("market", {
+    loading,
+    updatedAt: data?.dataAsOf || (data ? Date.now() : null),
+    stale: data?.dataSource === "fallback",
+    typeLabel: "市況サマリー",
+  });
 
   // The refresh button can fire again while a request is in flight, and the
   // page can unmount mid-request; tag each request so a stale response can

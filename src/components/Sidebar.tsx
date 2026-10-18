@@ -91,10 +91,13 @@ interface SidebarProps {
     freshnessProps?: {
         benchmarkUpdatedAt?: number | null;
         calculationUpdatedAt?: number | null;
+        updatedAt?: number | string | null;
         dataLoading?: boolean;
         syncing?: boolean;
         benchmarkStale?: boolean;
         hasSyncWarning?: boolean;
+        typeLabel?: string;
+        customStatusText?: string;
     };
 }
 
@@ -274,10 +277,13 @@ export function Sidebar({
                 <DataFreshness
                     benchmarkUpdatedAt={freshnessProps?.benchmarkUpdatedAt}
                     calculationUpdatedAt={freshnessProps?.calculationUpdatedAt}
+                    updatedAt={freshnessProps?.updatedAt}
                     loading={freshnessProps?.dataLoading}
                     syncing={freshnessProps?.syncing}
                     stale={freshnessProps?.benchmarkStale}
                     hasSyncWarning={freshnessProps?.hasSyncWarning}
+                    typeLabel={freshnessProps?.typeLabel}
+                    customStatusText={freshnessProps?.customStatusText}
                 />
             </div>
         </nav>

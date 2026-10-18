@@ -29,6 +29,7 @@ import { toSafeDownloadFileName } from "../lib/downloadFileName";
 import { ModalBase } from "./ModalBase";
 import { useToast } from "./Toast";
 import type { PageView } from "../lib/navigation";
+import { useRegisterFreshness } from "../contexts/FreshnessContext";
 
 interface CalendarPageProps {
   onNavigate: (view: PageView, searchParams?: string) => void;
@@ -89,7 +90,14 @@ export function CalendarPage({
 }: CalendarPageProps) {
   const [events, setEvents] = useState<CalendarEvent[]>(UPCOMING_EVENTS);
   const [loading, setLoading] = useState(false);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(() => Date.now());
   const [activeFilter, setActiveFilter] = useState<"ALL" | "MACRO" | "EARNINGS">("ALL");
+
+  useRegisterFreshness("calendar", {
+    loading,
+    updatedAt: lastUpdatedAt,
+    typeLabel: "経済カレンダー",
+  });
   const [importanceFilter, setImportanceFilter] = useState<"ALL" | "HIGH" | "MEDIUM">("ALL");
   const [marketFilter, setMarketFilter] = useState<"ALL" | "JP" | "US">("ALL");
   const [searchQuery, setSearchQuery] = useState("");
@@ -122,6 +130,7 @@ export function CalendarPage({
       if (!mountedRef.current || requestId !== requestIdRef.current) return;
       if (data && data.length > 0) {
         setEvents(data);
+        setLastUpdatedAt(Date.now());
       }
     } finally {
       if (mountedRef.current && requestId === requestIdRef.current) {

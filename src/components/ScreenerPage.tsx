@@ -31,6 +31,7 @@ import { escapeCsvCell } from "../lib/csv";
 import { toSafeDownloadFileName } from "../lib/downloadFileName";
 import type { PageView } from "../lib/navigation";
 import { useToast } from "./Toast";
+import { useRegisterFreshness } from "../contexts/FreshnessContext";
 
 interface ScreenerPageProps {
   onNavigate: (view: PageView, searchParams?: string) => void;
@@ -100,6 +101,13 @@ export function ScreenerPage({
   const [universe, setUniverse] = useState<StockQuoteFundamentals[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [isLive, setIsLive] = useState(false);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(() => Date.now());
+
+  useRegisterFreshness("screener", {
+    loading,
+    updatedAt: lastUpdatedAt,
+    typeLabel: "スクリーナー",
+  });
 
   const mountedRef = useRef(true);
   const requestIdRef = useRef(0);
@@ -120,6 +128,7 @@ export function ScreenerPage({
       if (liveData && liveData.length > 0) {
         setUniverse(liveData);
         setIsLive(true);
+        setLastUpdatedAt(Date.now());
       }
     } finally {
       if (mountedRef.current && requestId === requestIdRef.current) {

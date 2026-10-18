@@ -55,6 +55,7 @@ import { DEFAULT_USD_JPY_RATE } from "../data/marketConstants";
 import { getStockCurrency } from "../lib/currency";
 import type { PageView } from "../lib/navigation";
 import { useToast } from "./Toast";
+import { useRegisterFreshness } from "../contexts/FreshnessContext";
 
 interface PortfolioManagerPageProps {
   onNavigate: (view: PageView, searchParams?: string) => void;
@@ -95,7 +96,14 @@ export function PortfolioManagerPage({
   // the map; when unset the summary keeps its documented fallback constant.
   const [usdJpyRate, setUsdJpyRate] = useState<number | undefined>(undefined);
   const [refreshing, setRefreshing] = useState(false);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(() => Date.now());
   const [activeTab, setActiveTab] = useState<"HOLDINGS" | "WATCHLIST">("HOLDINGS");
+
+  useRegisterFreshness("portfolio", {
+    loading: refreshing,
+    updatedAt: lastUpdatedAt,
+    typeLabel: "ポートフォリオ",
+  });
   // The preset portfolio/watchlist is a first-visit preview. Persisting it
   // before the user edits the lists would silently store holdings they never
   // entered, so the save effects stay disabled until the first user edit.
@@ -394,6 +402,7 @@ export function PortfolioManagerPage({
           }
           return next;
         });
+        setLastUpdatedAt(Date.now());
         const fxEntry = entries.find((entry) => entry && entry[0] === "USDJPY=X");
         if (
           fxEntry &&

@@ -2833,7 +2833,7 @@ export async function fetchLiveStockFundamentals(ticker: string, env?: Env): Pro
         const yearlyChart = earnings.financialsChart?.yearly;
         if (Array.isArray(yearlyChart) && yearlyChart.length > 0) {
           const baseEarningsRaw = yearlyChart[yearlyChart.length - 1]?.earnings?.raw;
-          historicalFinances = yearlyChart.map((y, idx) => {
+          historicalFinances = yearlyChart.map((y) => {
             const rev = Math.round((y.revenue?.raw || 0) / (isUS ? 1_000_000 : 100_000_000));
             const net = Math.round((y.earnings?.raw || 0) / (isUS ? 1_000_000 : 100_000_000));
             // 営業利益の net * 1.25 捏造を撤廃
@@ -2848,7 +2848,6 @@ export async function fetchLiveStockFundamentals(ticker: string, env?: Env): Pro
               ? (isUS ? Number((eps * earningsRatio).toFixed(2)) : Math.round(eps * earningsRatio))
               : 0;
             const yDate = typeof y.date === "number" ? y.date : currentYear;
-            const isLatest = idx === yearlyChart.length - 1;
             const rawYDps = isZeroDiv ? 0 : safeDpsVal;
             const yDps = isUS ? Number(rawYDps.toFixed(2)) : Number(rawYDps.toFixed(1));
             return {

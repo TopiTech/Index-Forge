@@ -82,6 +82,7 @@ import {
 import type { Timeframe, BenchmarkSymbol } from "./types";
 import type { CustomIndex } from "./data/indices";
 import type { ReactNode } from "react";
+import { FreshnessProvider, useActiveFreshness } from "./contexts/FreshnessContext";
 
 const VALID_TIMEFRAMES: readonly Timeframe[] = ["1W", "1M", "3M", "6M", "YTD", "1Y"] as const;
 function isValidTimeframe(tf: string | undefined): tf is Timeframe {
@@ -112,6 +113,20 @@ function PageLayout({
 }) {
   const [isNavOpen, setIsNavOpen] = useState(false);
   const navToggleRef = useRef<HTMLButtonElement>(null);
+
+  const activeFreshness = useActiveFreshness(currentView, headerProps);
+  const resolvedHeaderProps: React.ComponentProps<typeof Header> = {
+    ...headerProps,
+    benchmarkUpdatedAt: activeFreshness.benchmarkUpdatedAt,
+    calculationUpdatedAt: activeFreshness.calculationUpdatedAt,
+    updatedAt: activeFreshness.updatedAt,
+    dataLoading: activeFreshness.loading,
+    syncing: activeFreshness.syncing,
+    benchmarkStale: activeFreshness.stale,
+    hasSyncWarning: activeFreshness.hasSyncWarning,
+    typeLabel: activeFreshness.typeLabel,
+    customStatusText: activeFreshness.customStatusText,
+  };
 
   const [isDesktopSidebarCollapsed, setIsDesktopSidebarCollapsed] = useState<boolean>(() => {
     if (typeof window === "undefined") return false;
@@ -173,12 +188,12 @@ function PageLayout({
             onRequestClose={closeNav}
             isCollapsed={isDesktopSidebarCollapsed}
             onToggleCollapse={handleToggleDesktopSidebar}
-            freshnessProps={headerProps}
+            freshnessProps={resolvedHeaderProps}
           />
           <div className="app-column">
             <div className="app">
               <Header
-                {...headerProps}
+                {...resolvedHeaderProps}
                 onNavigateToHome={() => navigateTo("dashboard")}
                 isNavOpen={isNavOpen}
                 onToggleNav={() => setIsNavOpen((prev) => !prev)}
@@ -208,7 +223,7 @@ function getInitialView(): PageView {
   return parseViewFromLocation(window.location.pathname, window.location.search);
 }
 
-export default function App({
+function AppContent({
   isReloadSuppressed = false,
 }: {
   isReloadSuppressed?: boolean;
@@ -729,6 +744,7 @@ export default function App({
       dataLoading: loadingBenchmark || loadingCalc,
       syncing,
       hasSyncWarning: syncWarnings.length > 0,
+      typeLabel: "日足終値",
     }),
     [
       benchmarkUpdatedAt,
@@ -768,7 +784,7 @@ export default function App({
   if (currentView === "market") {
     return (
       <PageLayout
-        headerProps={{ ...pageLayoutHeaderProps, benchmarkStale: false }}
+        headerProps={{ ...pageLayoutHeaderProps, benchmarkStale: false, typeLabel: "市況サマリー" }}
         currentView={currentView}
         navigateTo={navigateTo}
         searchModal={commonSearchModal}
@@ -790,7 +806,7 @@ export default function App({
   if (currentView === "stock") {
     return (
       <PageLayout
-        headerProps={{ ...pageLayoutHeaderProps, benchmarkStale: false }}
+        headerProps={{ ...pageLayoutHeaderProps, benchmarkStale: false, typeLabel: "銘柄分析" }}
         currentView={currentView}
         navigateTo={navigateTo}
         searchModal={commonSearchModal}
@@ -825,7 +841,7 @@ export default function App({
   if (currentView === "portfolio") {
     return (
       <PageLayout
-        headerProps={{ ...pageLayoutHeaderProps, benchmarkStale: false }}
+        headerProps={{ ...pageLayoutHeaderProps, benchmarkStale: false, typeLabel: "ポートフォリオ" }}
         currentView={currentView}
         navigateTo={navigateTo}
         searchModal={commonSearchModal}
@@ -858,7 +874,7 @@ export default function App({
   if (currentView === "screener") {
     return (
       <PageLayout
-        headerProps={{ ...pageLayoutHeaderProps, benchmarkStale: false }}
+        headerProps={{ ...pageLayoutHeaderProps, benchmarkStale: false, typeLabel: "スクリーナー" }}
         currentView={currentView}
         navigateTo={navigateTo}
         searchModal={commonSearchModal}
@@ -891,7 +907,7 @@ export default function App({
   if (currentView === "calendar") {
     return (
       <PageLayout
-        headerProps={{ ...pageLayoutHeaderProps, benchmarkStale: false }}
+        headerProps={{ ...pageLayoutHeaderProps, benchmarkStale: false, typeLabel: "経済カレンダー" }}
         currentView={currentView}
         navigateTo={navigateTo}
         searchModal={commonSearchModal}
@@ -912,7 +928,7 @@ export default function App({
   if (currentView === "builder") {
     return (
       <PageLayout
-        headerProps={{ ...pageLayoutHeaderProps, benchmarkStale: false }}
+        headerProps={{ ...pageLayoutHeaderProps, benchmarkStale: false, typeLabel: "指数試算" }}
         currentView={currentView}
         navigateTo={navigateTo}
         searchModal={commonSearchModal}
@@ -931,7 +947,7 @@ export default function App({
   if (currentView === "disclaimer") {
     return (
       <PageLayout
-        headerProps={{ ...pageLayoutHeaderProps, benchmarkStale: false }}
+        headerProps={{ ...pageLayoutHeaderProps, benchmarkStale: false, typeLabel: "免責事項" }}
         currentView={currentView}
         navigateTo={navigateTo}
         searchModal={commonSearchModal}
@@ -946,7 +962,7 @@ export default function App({
   if (currentView === "about") {
     return (
       <PageLayout
-        headerProps={{ ...pageLayoutHeaderProps, benchmarkStale: false }}
+        headerProps={{ ...pageLayoutHeaderProps, benchmarkStale: false, typeLabel: "開発者情報" }}
         currentView={currentView}
         navigateTo={navigateTo}
         searchModal={commonSearchModal}
@@ -982,7 +998,11 @@ export default function App({
 
   return (
     <PageLayout
-      headerProps={{ ...pageLayoutHeaderProps, benchmarkStale: activeBenchmarkData?.stale === true }}
+      headerProps={{
+        ...pageLayoutHeaderProps,
+        benchmarkStale: activeBenchmarkData?.stale === true,
+        typeLabel: "日足終値",
+      }}
       currentView={currentView}
       navigateTo={navigateTo}
       searchModal={commonSearchModal}
@@ -1225,4 +1245,13 @@ export default function App({
     </PageLayout>
   );
 }
+
+export default function App(props: { isReloadSuppressed?: boolean } = {}) {
+  return (
+    <FreshnessProvider>
+      <AppContent {...props} />
+    </FreshnessProvider>
+  );
+}
+
 

@@ -4,6 +4,7 @@ import { ArrowLeft, Sliders, Sparkles, Maximize2, Minimize2 } from "lucide-react
 import type { CustomIndex } from "../data/indices";
 import { IndexBuilderContent } from "./IndexBuilderContent";
 import { Card } from "./ui";
+import { useRegisterFreshness } from "../contexts/FreshnessContext";
 
 interface IndexBuilderPageProps {
   onBackToDashboard: () => void;
@@ -21,6 +22,11 @@ export function IndexBuilderPage({
 }: IndexBuilderPageProps) {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const pageContainerRef = useRef<HTMLDivElement>(null);
+
+  useRegisterFreshness("builder", {
+    typeLabel: "指数試算",
+    updatedAt: Date.now(),
+  });
 
   // Sync with native browser fullscreen changes (e.g. Esc key)
   useEffect(() => {

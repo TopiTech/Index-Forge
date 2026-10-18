@@ -33,6 +33,7 @@ import { DEFAULT_USD_JPY_RATE } from "../data/marketConstants";
 import { StockTechnicalChart } from "./StockTechnicalChart";
 import { getTradingViewWebUrl } from "../lib/tradingView";
 import type { PageView } from "../lib/navigation";
+import { useRegisterFreshness } from "../contexts/FreshnessContext";
 
 export function getRoeEvaluation(roe: number | null | undefined, isMacro: boolean): string {
   if (isMacro || roe === null || roe === undefined || !Number.isFinite(roe)) return "指数・マクロ指標対象外";
@@ -108,7 +109,15 @@ export function StockDetailPage({
     getCachedStockFundamentals(ticker),
   );
   const [loading, setLoading] = useState(false);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(() => Date.now());
   const [activeTab, setActiveTab] = useState<"CHART" | "FINANCIALS">("CHART");
+
+  useRegisterFreshness("stock", {
+    loading,
+    updatedAt: lastUpdatedAt,
+    stale: Boolean(stock.isDemoData),
+    typeLabel: `${stock.ticker} 銘柄情報`,
+  });
 
   const mountedRef = useRef(true);
   const requestIdRef = useRef(0);
@@ -127,6 +136,7 @@ export function StockDetailPage({
       const data = await fetchStockFundamentals(targetTicker, forceRefresh);
       if (!mountedRef.current || requestId !== requestIdRef.current) return;
       setStock(data);
+      setLastUpdatedAt(Date.now());
     } catch {
       // Gracefully retain existing cached data on unexpected network error
     } finally {
