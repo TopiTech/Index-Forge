@@ -27,6 +27,7 @@ import {
 import { setTutorialCompleted } from "../lib/tutorialStorage";
 import { Tutorial3DCanvas, type Tutorial3DCanvasHandle } from "./Tutorial3DCanvas";
 import { ModalBase } from "./ModalBase";
+import { useRegisterFreshness } from "../contexts/FreshnessContext";
 
 export interface TutorialPageProps {
   onComplete: () => void;
@@ -34,6 +35,11 @@ export interface TutorialPageProps {
 }
 
 export function TutorialPage({ onComplete, onSkip }: TutorialPageProps) {
+  useRegisterFreshness("tutorial", {
+    typeLabel: "チュートリアル",
+    customStatusText: "ガイドツアー進行中",
+  });
+
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [isReducedMotion, setIsReducedMotion] = useState(getSystemPrefersReducedMotion);
   const [isAutoRotatePaused, setIsAutoRotatePaused] = useState(false);

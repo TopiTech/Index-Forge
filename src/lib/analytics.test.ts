@@ -293,5 +293,48 @@ describe("analytics library", () => {
       expect(details[0].changePct).toBe(10);
       expect(details[0].sparkline).toEqual([100, 110]);
     });
+
+    it("propagates isDemoData for unanchored tickers and explicit stock.isDemoData", () => {
+      const details = calculateStockDetails(
+        [
+          { ticker: "7203", name: "トヨタ", weight: 30, theme: "自動車" },
+          { ticker: "UNKNOWN_TICKER_999", name: "Unknown Co", weight: 35, theme: "Tech" },
+          { ticker: "CUSTOM_DEMO", name: "Demo Co", weight: 35, theme: "AI" },
+        ],
+        [
+          {
+            ticker: "7203",
+            name: "トヨタ",
+            theme: "自動車",
+            sector: "Auto",
+            latestPrice: 2800,
+            series: [
+              { date: "2026-01-01", close: 2700 },
+              { date: "2026-01-02", close: 2800 },
+            ],
+          },
+          {
+            ticker: "CUSTOM_DEMO",
+            name: "Demo Co",
+            theme: "AI",
+            sector: "Tech",
+            latestPrice: 500,
+            series: [
+              { date: "2026-01-01", close: 490 },
+              { date: "2026-01-02", close: 500 },
+            ],
+            isDemoData: true,
+          },
+        ],
+      );
+
+      const toyota = details.find((d) => d.ticker === "7203");
+      const unknown = details.find((d) => d.ticker === "UNKNOWN_TICKER_999");
+      const demo = details.find((d) => d.ticker === "CUSTOM_DEMO");
+
+      expect(toyota?.isDemoData).toBeUndefined();
+      expect(unknown?.isDemoData).toBe(true);
+      expect(demo?.isDemoData).toBe(true);
+    });
   });
 });

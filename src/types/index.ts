@@ -12,6 +12,7 @@ export type StockSeries = {
   sector: string;
   latestPrice: number;
   series: PricePoint[];
+  isDemoData?: boolean;
 };
 
 export type BasketItem = {

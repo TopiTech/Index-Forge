@@ -1,12 +1,18 @@
 import { motion } from "framer-motion";
 import { ArrowLeft, ExternalLink, Sparkles, Layers, Cpu, TrendingUp, BarChart3, Terminal, Globe } from "lucide-react";
 import { GitHubIcon, XIcon, type PageView } from "./Footer";
+import { useRegisterFreshness } from "../contexts/FreshnessContext";
 
 interface PortfolioPageProps {
   onNavigate: (view: PageView) => void;
 }
 
 export function PortfolioPage({ onNavigate }: PortfolioPageProps) {
+  useRegisterFreshness("about", {
+    typeLabel: "開発者情報",
+    customStatusText: "開発者ポートフォリオ",
+  });
+
   return (
     <div className="portfolio-page-wrapper">
       {/* Subpage Top Bar */}

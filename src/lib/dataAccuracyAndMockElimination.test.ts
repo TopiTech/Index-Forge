@@ -55,6 +55,15 @@ describe("Data Accuracy & Mock Elimination Comprehensive Tests", () => {
 
       vi.spyOn(globalThis, "fetch").mockImplementation(async (url: any) => {
         const u = String(url);
+        if (u.includes("fc.yahoo.com")) {
+          return new Response("", {
+            status: 200,
+            headers: { "set-cookie": "A=B;" },
+          });
+        }
+        if (u.includes("getcrumb")) {
+          return new Response("mock-crumb", { status: 200 });
+        }
         if (u.includes("v7/finance/quote")) {
           return new Response(JSON.stringify(mockQuote), {
             status: 200,
@@ -120,6 +129,15 @@ describe("Data Accuracy & Mock Elimination Comprehensive Tests", () => {
 
       vi.spyOn(globalThis, "fetch").mockImplementation(async (url: any) => {
         const u = String(url);
+        if (u.includes("fc.yahoo.com")) {
+          return new Response("", {
+            status: 200,
+            headers: { "set-cookie": "A=B;" },
+          });
+        }
+        if (u.includes("getcrumb")) {
+          return new Response("mock-crumb", { status: 200 });
+        }
         if (u.includes("quoteSummary")) {
           return new Response(JSON.stringify(mockSummary), {
             status: 200,
@@ -166,6 +184,15 @@ describe("Data Accuracy & Mock Elimination Comprehensive Tests", () => {
 
       vi.spyOn(globalThis, "fetch").mockImplementation(async (url: any) => {
         const u = String(url);
+        if (u.includes("fc.yahoo.com")) {
+          return new Response("", {
+            status: 200,
+            headers: { "set-cookie": "A=B;" },
+          });
+        }
+        if (u.includes("getcrumb")) {
+          return new Response("mock-crumb", { status: 200 });
+        }
         if (u.includes("quoteSummary")) {
           return new Response(JSON.stringify(mockSummary), {
             status: 200,
@@ -191,6 +218,15 @@ describe("Data Accuracy & Mock Elimination Comprehensive Tests", () => {
       let queriedSymbolsCount = 0;
       vi.spyOn(globalThis, "fetch").mockImplementation(async (url: any) => {
         const u = String(url);
+        if (u.includes("fc.yahoo.com")) {
+          return new Response("", {
+            status: 200,
+            headers: { "set-cookie": "A=B;" },
+          });
+        }
+        if (u.includes("getcrumb")) {
+          return new Response("mock-crumb", { status: 200 });
+        }
         if (u.includes("v7/finance/quote") && u.includes("symbols=")) {
           const params = new URL(u).searchParams;
           const symbols = (params.get("symbols") || "").split(",");

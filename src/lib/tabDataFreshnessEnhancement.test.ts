@@ -240,6 +240,9 @@ describe("Tab Data Freshness Enhancement & Permanent Loading Fix", () => {
       const screenerTsx = readSrc("components/ScreenerPage.tsx");
       const portfolioTsx = readSrc("components/PortfolioManagerPage.tsx");
       const builderTsx = readSrc("components/IndexBuilderPage.tsx");
+      const disclaimerTsx = readSrc("components/DisclaimerPage.tsx");
+      const aboutPortfolioTsx = readSrc("components/PortfolioPage.tsx");
+      const tutorialTsx = readSrc("components/TutorialPage.tsx");
 
       expect(marketTsx).toContain("useRegisterFreshness");
       expect(stockAnalysisTsx).toContain("useRegisterFreshness");
@@ -248,6 +251,9 @@ describe("Tab Data Freshness Enhancement & Permanent Loading Fix", () => {
       expect(screenerTsx).toContain("useRegisterFreshness");
       expect(portfolioTsx).toContain("useRegisterFreshness");
       expect(builderTsx).toContain("useRegisterFreshness");
+      expect(disclaimerTsx).toContain("useRegisterFreshness");
+      expect(aboutPortfolioTsx).toContain("useRegisterFreshness");
+      expect(tutorialTsx).toContain("useRegisterFreshness");
     });
   });
 });

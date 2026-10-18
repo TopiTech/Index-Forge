@@ -116,3 +116,10 @@ describe("determineSyncForce", () => {
   });
 });
 
+describe("sync warnings deduplication guard", () => {
+  it("ensures setSyncWarnings deduplicates entries using Set to prevent UI notification spam", () => {
+    const source = readFileSync(resolve(__dirname, "./useCalculation.ts"), "utf8");
+    expect(source).toContain("Array.from(new Set([...prev, ...warnings]))");
+  });
+});
+

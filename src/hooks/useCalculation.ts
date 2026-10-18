@@ -245,10 +245,14 @@ export function useCalculation(selectedIndex: CustomIndex | null, enabled = true
         return;
       }
       if (sanitizedBasket.dropped.length > 0) {
-        setSyncWarnings((prev) => [
-          ...prev,
-          `無効な構成銘柄を除外しました: ${sanitizedBasket.dropped.join(", ")}`,
-        ]);
+        setSyncWarnings((prev) =>
+          Array.from(
+            new Set([
+              ...prev,
+              `無効な構成銘柄を除外しました: ${sanitizedBasket.dropped.join(", ")}`,
+            ]),
+          ),
+        );
       }
       // A sync request may be handled by a different warm Worker isolate than
       // the subsequent calculation request. Bypass the Worker calculation cache
@@ -358,8 +362,8 @@ export function useCalculation(selectedIndex: CustomIndex | null, enabled = true
             setSyncing(false);
             if (warnings.length > 0) {
               // 機能的更新に変更: 直前に追加した「除外した銘柄」の警告を
-              // 上書きせず、同期警告と合わせて提示するため。
-              setSyncWarnings((prev) => [...prev, ...warnings]);
+              // 上書きせず、同期警告と合わせて提示するため（重複排除を実施）。
+              setSyncWarnings((prev) => Array.from(new Set([...prev, ...warnings])));
             }
           }
         }
@@ -413,10 +417,14 @@ export function useCalculation(selectedIndex: CustomIndex | null, enabled = true
             } catch {
               // ignore
             }
-            setSyncWarnings((prev) => [
-              ...prev,
-              `一部銘柄の価格データが取得できませんでした: ${missingTickers.join(", ")}`,
-            ]);
+            setSyncWarnings((prev) =>
+              Array.from(
+                new Set([
+                  ...prev,
+                  `一部銘柄の価格データが取得できませんでした: ${missingTickers.join(", ")}`,
+                ]),
+              ),
+            );
           }
         }
 

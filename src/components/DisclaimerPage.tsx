@@ -1,12 +1,18 @@
 import { motion } from "framer-motion";
 import { ArrowLeft, ShieldAlert, AlertTriangle } from "lucide-react";
 import type { PageView } from "./Footer";
+import { useRegisterFreshness } from "../contexts/FreshnessContext";
 
 interface DisclaimerPageProps {
   onNavigate: (view: PageView) => void;
 }
 
 export function DisclaimerPage({ onNavigate }: DisclaimerPageProps) {
+  useRegisterFreshness("disclaimer", {
+    typeLabel: "免責事項",
+    customStatusText: "利用規約・免責事項",
+  });
+
   return (
     <div className="disclaimer-page-wrapper">
       {/* Subpage Top Bar */}

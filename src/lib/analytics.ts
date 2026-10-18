@@ -1,5 +1,6 @@
 import type { BasketItem, PricePoint, RiskMetrics, StockDetail, StockSeries } from "../types";
 import { normalizeWeights } from "./indexEngine";
+import { getStockFundamentals } from "./marketDataService";
 
 const CANONICAL_PRICE_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -339,6 +340,10 @@ export function calculateStockDetails(
     // スパークライン（直近10営業日分）
     const sparkline = series.slice(-10).map((p) => p.close);
 
+    const isDemo =
+      stock?.isDemoData === true ||
+      getStockFundamentals(item.ticker).isDemoData === true;
+
     return {
       ticker: item.ticker,
       name: item.name,
@@ -351,6 +356,7 @@ export function calculateStockDetails(
       contributionPt,
       contributionPct,
       sparkline,
+      ...(isDemo ? { isDemoData: true } : {}),
     };
   });
 }
