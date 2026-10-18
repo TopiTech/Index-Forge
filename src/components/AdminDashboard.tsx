@@ -223,9 +223,16 @@ export function AdminDashboard({
   const [passwordFetchError, setPasswordFetchError] = useState<string | null>(null);
   const isFetchingPasswordsRef = useRef(false);
   const abortControllerRef = useRef<AbortController | null>(null);
+  // 取得進行中に要求された再取得 (mutation 直後の fetchPasswords など) を
+  // 黙って捨てないためのキュー。完了後に1回だけ再実行する。
+  const refetchQueuedRef = useRef(false);
 
   const fetchPasswords = useCallback(async () => {
-    if (!isAdmin || isFetchingPasswordsRef.current) return;
+    if (!isAdmin) return;
+    if (isFetchingPasswordsRef.current) {
+      refetchQueuedRef.current = true;
+      return;
+    }
     isFetchingPasswordsRef.current = true;
 
     if (abortControllerRef.current) {
@@ -267,6 +274,10 @@ export function AdminDashboard({
       if (!controller.signal.aborted) {
         setLoadingPasswords(false);
         isFetchingPasswordsRef.current = false;
+        if (refetchQueuedRef.current) {
+          refetchQueuedRef.current = false;
+          void fetchPasswords();
+        }
       }
     }
   }, [isAdmin, getHeaders]);

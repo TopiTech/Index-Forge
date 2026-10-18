@@ -6,7 +6,7 @@ import { isBenchmarkDataForSymbol, useBenchmark, AVAILABLE_BENCHMARKS } from "./
 import { useCalculation } from "./hooks/useCalculation";
 import { useAuth } from "./hooks/useAuth";
 import { useToast } from "./components/Toast";
-import { addWatchlistTicker, addPortfolioPosition } from "./lib/portfolioStorage";
+import { addWatchlistTicker, addPortfolioPosition, todayJstDateString } from "./lib/portfolioStorage";
 import { reportAddStockResult } from "./lib/addStockFeedback";
 import { getStockFundamentals } from "./lib/marketDataService";
 import { Header } from "./components/Header";
@@ -138,16 +138,18 @@ function PageLayout({
   });
 
   const handleToggleDesktopSidebar = useCallback(() => {
-    setIsDesktopSidebarCollapsed((prev) => {
-      const next = !prev;
-      try {
-        localStorage.setItem("indexforge:sidebar:collapsed", String(next));
-      } catch {
-        // ignore
-      }
-      return next;
-    });
+    setIsDesktopSidebarCollapsed((prev) => !prev);
   }, []);
+
+  // 永続化は effect 側で行う。setState の updater は純粋でなければならず、
+  // StrictMode の二重実行で二重書き込みや破棄された更新の書き込みが起きる。
+  useEffect(() => {
+    try {
+      localStorage.setItem("indexforge:sidebar:collapsed", String(isDesktopSidebarCollapsed));
+    } catch {
+      // ignore
+    }
+  }, [isDesktopSidebarCollapsed]);
 
   // Closing the drawer restores focus to the header toggle so keyboard users
   // do not lose their place (Escape path and item activation both route here).
@@ -660,7 +662,7 @@ function AppContent({
         name: fund.name || ticker,
         shares: 100,
         averageCost: safePrice,
-        acquiredAt: new Date().toISOString().split("T")[0],
+        acquiredAt: todayJstDateString(),
       });
       if (ok) {
         toastSuccess(`「${fund.name || ticker}」をポートフォリオに追加しました`);

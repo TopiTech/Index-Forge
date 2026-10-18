@@ -79,11 +79,14 @@ export function MarketOverviewPage({
 }: MarketOverviewPageProps) {
   const [data, setData] = useState<MarketOverviewData | null>(null);
   const [loading, setLoading] = useState(true);
+  // dataAsOf 欠損時のフォールバック。毎レンダーの Date.now() は useRegisterFreshness
+  // の effect を毎回起動し再レンダーループになるため、取得完了時点の値を保持する。
+  const [fetchedAt, setFetchedAt] = useState<number | null>(null);
   const [selectedAssetTab, setSelectedAssetTab] = useState<"ALL" | "INDEX" | "FX" | "COMMODITY" | "CRYPTO">("ALL");
 
   useRegisterFreshness("market", {
     loading,
-    updatedAt: data?.dataAsOf || (data ? Date.now() : null),
+    updatedAt: data?.dataAsOf || (data ? fetchedAt : null),
     stale: data?.dataSource === "fallback",
     typeLabel: "市況サマリー",
   });
@@ -108,6 +111,7 @@ export function MarketOverviewPage({
     const result = await fetchMarketOverview(forceRefresh);
     if (!mountedRef.current || requestId !== requestIdRef.current) return;
     setData(result);
+    setFetchedAt(Date.now());
     setLoading(false);
   }, []);
 

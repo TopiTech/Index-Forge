@@ -442,6 +442,16 @@ export function StockTechnicalChart({
     setTvTimedOut(false);
     container.innerHTML = "";
 
+    // Sanitize and resolve symbol for TradingView embed.
+    // シンボル未解決の早期 return はタイマー/ノード作成前に置く。作成後に
+    // return するとクリーンアップが登録されず、4秒タイマーがアンマウント後にも
+    // 発火してフォールバック状態を書き換える。
+    const tvSymbol = tvResolution.symbol;
+    if (!tvSymbol) {
+      setTvFallbackActive(true);
+      return;
+    }
+
     // 4-second timeout monitor for adblocker/CSP/offline failure -> automatically fallback
     if (timeoutTimerRef.current) clearTimeout(timeoutTimerRef.current);
     timeoutTimerRef.current = setTimeout(() => {
@@ -462,13 +472,6 @@ export function StockTechnicalChart({
     script.src = "https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js";
     script.type = "text/javascript";
     script.async = true;
-
-    // Sanitize and resolve symbol for TradingView embed
-    const tvSymbol = tvResolution.symbol;
-    if (!tvSymbol) {
-      setTvFallbackActive(true);
-      return;
-    }
 
     script.textContent = JSON.stringify({
       autosize: true,

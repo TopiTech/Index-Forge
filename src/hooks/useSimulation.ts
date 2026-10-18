@@ -476,6 +476,9 @@ export function useSimulation(
 }
 
 function sanitizeMetricPct(val: number): number {
+  // 非有限値 (NaN/Infinity) は 0 に落とす。Number(NaN.toFixed(2)) は NaN の
+  // ままなので、ここで止めないと表示系へ NaN が漏れる。
+  if (!Number.isFinite(val)) return 0;
   return Math.abs(val) < 0.005 || Object.is(val, -0) ? 0 : Number(val.toFixed(2));
 }
 
@@ -506,7 +509,9 @@ export function calculatePeriodReturns(
     const end =
       filteredCustomSeries[filteredCustomSeries.length - 1].value ??
       filteredCustomSeries[filteredCustomSeries.length - 1].close;
-    if (start > 0) {
+    // end が null/欠損だと (end - start) が 0 扱いで -100% と表示されるため、
+    // 両端が有限正値のときだけリターンを計算する。
+    if (start > 0 && Number.isFinite(start) && Number.isFinite(end)) {
       customReturn = sanitizeMetricPct(((end - start) / start) * 100);
     }
   }
@@ -588,13 +593,10 @@ export function calculatePeriodReturns(
       // accurate; `usingDemoBenchmark` discloses that alpha is not comparable.
       benchmarkReturn = 0;
     }
-  } else if (filteredBenchmarkSeries.length >= 2) {
-    const start = filteredBenchmarkSeries[0].close;
-    const end = filteredBenchmarkSeries[filteredBenchmarkSeries.length - 1].close;
-    if (start > 0) {
-      benchmarkReturn = sanitizeMetricPct(((end - start) / start) * 100);
-    }
   }
+  // 自己系列が1点以下のときはリターン自体が測定不能なので、ベンチマークのみの
+  // リターンは計算しない (alpha が -benchmark と誤表示になるのを防ぐ)。
+  // 旧実装の「ベンチマークだけ >= 2 点」分岐はこの意図を欠いており、削除した。
 
   const alpha = sanitizeMetricPct(customReturn - benchmarkReturn);
   return {
@@ -639,7 +641,12 @@ export function calculateConstituentPerformance(
         ? filteredStockSeries[filteredStockSeries.length - 1].close
         : stock.series[stock.series.length - 1].close;
 
-    const retPct = start > 0 ? ((latest - start) / start) * 100 : 0;
+    // 欠損・非有限の終値は (latest - start) が 0 扱いで -100%/NaN になるため、
+    // 両端が有限正値のときだけリターンを計算する。
+    const retPct =
+      start > 0 && Number.isFinite(start) && Number.isFinite(latest)
+        ? ((latest - start) / start) * 100
+        : 0;
     const safeRetPct = sanitizeMetricPct(retPct);
     const contribution = sanitizeMetricPct((item.weight / 100) * safeRetPct);
 

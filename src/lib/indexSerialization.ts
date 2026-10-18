@@ -93,6 +93,8 @@ export function serializeIndexToJson(index: CustomIndex): string {
       name: index.name,
       description: index.description,
       baseValue: index.baseValue,
+      // undefined の場合は JSON.stringify がキー自体を出力しない (従来フォーマット互換)。
+      sortOrder: index.sortOrder,
       basket: index.basket.map((b) => ({
         ticker: b.ticker,
         name: b.name,
@@ -182,6 +184,15 @@ export function deserializeIndexFromJson(jsonStr: string): SerializationResult<C
         ? rawId
         : `custom-${Date.now()}`;
 
+    // sortOrder は任意項目。有限数値のときだけ復元し、Worker 契約
+    // (0..9999 の整数、超過・負値は 400) に収まるよう補正する。補正しないと
+    // 取り込み後に保存 (POST /api/indices) が 400 で失敗する。
+    const rawSortOrder = parsed.sortOrder;
+    const sortOrder =
+      typeof rawSortOrder === "number" && Number.isFinite(rawSortOrder)
+        ? Math.min(9999, Math.max(0, Math.floor(rawSortOrder)))
+        : undefined;
+
     return {
       ok: true,
       data: {
@@ -190,6 +201,7 @@ export function deserializeIndexFromJson(jsonStr: string): SerializationResult<C
         description,
         baseValue,
         basket,
+        ...(sortOrder !== undefined ? { sortOrder } : {}),
       },
     };
   } catch (err) {

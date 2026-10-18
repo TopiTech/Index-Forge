@@ -70,16 +70,19 @@ export function AuthModal({
   useEffect(() => {
     if (!isLocked || lockoutRemainingSeconds <= 0) return;
     const timer = setInterval(() => {
-      setLockoutRemainingSeconds((prev) => {
-        if (prev <= 1) {
-          setIsLocked(false);
-          setError(null);
-          return 0;
-        }
-        return prev - 1;
-      });
+      // Pure updater: 副作用 (解除・エラー消去) は下の effect に置く。
+      // updater 内の setState は React の純粋性契約に反し StrictMode で誤動作する。
+      setLockoutRemainingSeconds((prev) => (prev <= 1 ? 0 : prev - 1));
     }, 1000);
     return () => clearInterval(timer);
+  }, [isLocked, lockoutRemainingSeconds]);
+
+  // Release the lock once the countdown reaches zero.
+  useEffect(() => {
+    if (isLocked && lockoutRemainingSeconds <= 0) {
+      setIsLocked(false);
+      setError(null);
+    }
   }, [isLocked, lockoutRemainingSeconds]);
 
   const handleTabKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {

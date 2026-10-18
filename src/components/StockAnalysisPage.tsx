@@ -604,8 +604,12 @@ export function StockAnalysisPage({
                     <span className="stock-mover-price">
                       {formatStockPrice(item.price, item.ticker, { market: item.market })}
                     </span>
-                    <span className="stock-mover-change positive">
-                      +{item.changePercent.toFixed(2)}%
+                    {/* 符号は値から導出する。固定 "+" だと全面安の上位銘柄で "+-1.20%" と表示される */}
+                    <span
+                      className={`stock-mover-change ${item.changePercent >= 0 ? "positive" : "negative"}`}
+                    >
+                      {item.changePercent > 0 ? "+" : ""}
+                      {item.changePercent.toFixed(2)}%
                     </span>
                   </div>
                 </div>
@@ -644,7 +648,11 @@ export function StockAnalysisPage({
                     <span className="stock-mover-price">
                       {formatStockPrice(item.price, item.ticker, { market: item.market })}
                     </span>
-                    <span className="stock-mover-change negative">
+                    {/* 符号・色は値から導出する。固定 negative だと全面高の下位銘柄が赤く "+なし" で表示される */}
+                    <span
+                      className={`stock-mover-change ${item.changePercent >= 0 ? "positive" : "negative"}`}
+                    >
+                      {item.changePercent > 0 ? "+" : ""}
                       {item.changePercent.toFixed(2)}%
                     </span>
                   </div>

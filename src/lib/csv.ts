@@ -106,10 +106,11 @@ export function parseCsv(text: string): string[][] {
 }
 
 function cleanParsedCell(raw: string, wasQuoted: boolean): string {
-  let val = wasQuoted ? raw : raw.trim();
-  if (val.startsWith("'")) {
-    val = val.slice(1);
-  }
-  return val.trim();
+  // クォート済みフィールドは RFC 4180 に従い原文を保持する (前後空白は有意)。
+  // アポストロフィ除去は escapeCsvCell が付与する数式ガードのときだけ行う
+  // (付与条件 /^[\s\uFEFF]*[=+\-@|]/ と対になるよう、空白/BOM を挟んでよい)。
+  // 全セルから機械的に除去すると正当な文字 (例: 'Tis) が失われる。
+  const val = wasQuoted ? raw : raw.trim();
+  return /^'[\s\uFEFF]*[=+\-@|]/u.test(val) ? val.slice(1) : val;
 }
 

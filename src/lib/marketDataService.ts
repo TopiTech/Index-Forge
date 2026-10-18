@@ -2606,7 +2606,10 @@ export const SECTOR_AVERAGE_PER: Record<string, number> = {
 
 export function getSectorAveragePer(sectorOrTheme?: string): number {
   if (!sectorOrTheme) return 15.0;
-  for (const [key, val] of Object.entries(SECTOR_AVERAGE_PER)) {
+  // 具体的なキー (半導体検査 等) が一般的なキー (半導体) に shadowing されないよう、
+  // キーの長い順に照合する。
+  const entries = Object.entries(SECTOR_AVERAGE_PER).sort((a, b) => b[0].length - a[0].length);
+  for (const [key, val] of entries) {
     if (sectorOrTheme.includes(key)) return val;
   }
   return 15.0;

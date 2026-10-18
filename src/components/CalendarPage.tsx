@@ -673,7 +673,31 @@ export function CalendarPage({
               該当するイベントが見つかりませんでした
             </div>
             <p className="tiny muted" style={{ margin: 0, maxWidth: "360px" }}>
-              選択中のフィルター条件（{activeFilter === "MACRO" ? "経済指標" : "決算発表"}）に一致する予定はありません。
+              {(() => {
+                // 実際に絞り込んでいる条件だけを列挙する。ALL 選択時に
+                // 「決算発表」と断定する旧メッセージは誤案内だった。
+                const activeLabels = [
+                  activeFilter === "MACRO"
+                    ? "マクロ・中央銀行"
+                    : activeFilter === "EARNINGS"
+                      ? "主要企業決算"
+                      : null,
+                  importanceFilter === "HIGH"
+                    ? "最重要 (HIGH)"
+                    : importanceFilter === "MEDIUM"
+                      ? "標準以上 (MEDIUM+)"
+                      : null,
+                  marketFilter === "JP"
+                    ? "国内東証 (TSE)"
+                    : marketFilter === "US"
+                      ? "米国市場 (US)"
+                      : null,
+                  searchQuery.trim() ? `検索「${searchQuery.trim()}」` : null,
+                ].filter((v): v is string => v !== null);
+                return activeLabels.length > 0
+                  ? `選択中のフィルター条件（${activeLabels.join(" / ")}）に一致する予定はありません。`
+                  : "現在の表示条件に一致する予定はありません。";
+              })()}
             </p>
             <button
               type="button"

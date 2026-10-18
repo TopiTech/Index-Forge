@@ -149,6 +149,9 @@ export function TradingViewTickerTape() {
   const [activePopupSymbol, setActivePopupSymbol] = useState<PopupSymbolInfo | null>(null);
   const [hoveredSymbol, setHoveredSymbol] = useState<string | null>(null);
   const [liveQuotes, setLiveQuotes] = useState<Record<string, LiveQuoteItem>>({});
+  // updater 内の副作用 (setFlashItems/タイマー操作) は React の純粋性契約に反する
+  // ため、直前値を ref で保持し比較をハンドラ側で行う。
+  const liveQuotesRef = useRef<Record<string, LiveQuoteItem>>({});
   const [flashItems, setFlashItems] = useState<Record<string, "up" | "down">>({});
   const [isLive, setIsLive] = useState(false);
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -217,41 +220,42 @@ export function TradingViewTickerTape() {
         }
         const quotesToApply = freshQuotes;
         if (!isMountedRef.current) return;
-        setLiveQuotes((prev) => {
-          const next = { ...prev };
-          const newFlashes: Record<string, "up" | "down"> = {};
+        const prev = liveQuotesRef.current;
+        const next = { ...prev };
+        const newFlashes: Record<string, "up" | "down"> = {};
 
-          for (const q of quotesToApply) {
-            if (q.proName && q.formattedPrice) {
-              const prevItem = prev[q.proName];
-              if (prevItem && prevItem.price !== q.formattedPrice) {
-                newFlashes[q.proName] = determineTickFlashDirection(
-                  prevItem.price,
-                  q.formattedPrice,
-                  q.isPositive,
-                );
-              }
-              next[q.proName] = {
-                price: q.formattedPrice,
-                change: q.formattedChange,
-                changePercent: q.formattedChangePercent,
-                isPositive: q.isPositive,
-              };
+        for (const q of quotesToApply) {
+          if (q.proName && q.formattedPrice) {
+            const prevItem = prev[q.proName];
+            if (prevItem && prevItem.price !== q.formattedPrice) {
+              newFlashes[q.proName] = determineTickFlashDirection(
+                prevItem.price,
+                q.formattedPrice,
+                q.isPositive,
+              );
             }
+            next[q.proName] = {
+              price: q.formattedPrice,
+              change: q.formattedChange,
+              changePercent: q.formattedChangePercent,
+              isPositive: q.isPositive,
+            };
           }
+        }
 
-          if (Object.keys(newFlashes).length > 0) {
-            setFlashItems(newFlashes);
-            if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
-            flashTimerRef.current = setTimeout(() => {
-              if (isMountedRef.current) {
-                setFlashItems({});
-              }
-            }, 800);
-          }
+        setLiveQuotes(next);
+        liveQuotesRef.current = next;
 
-          return next;
-        });
+        if (Object.keys(newFlashes).length > 0) {
+          setFlashItems(newFlashes);
+          if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
+          flashTimerRef.current = setTimeout(() => {
+            if (isMountedRef.current) {
+              setFlashItems({});
+            }
+          }, 800);
+        }
+
         if (isMountedRef.current) {
           setIsLive(true);
         }

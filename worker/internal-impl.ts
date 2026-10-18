@@ -242,7 +242,7 @@ export function prepareIndexUpsert(
 
   if (columns.sortOrder !== false) {
     columnNames.push("sort_order");
-    valueExpressions.push("COALESCE(?, (SELECT sort_order FROM indices WHERE id = ?), 50)");
+    valueExpressions.push("COALESCE(?, (SELECT sort_order FROM indices WHERE id = ?), 99)");
     params.push(values.sortOrder, values.id);
   }
 
@@ -1994,7 +1994,10 @@ export async function fetchSecEdgarFinancials(
     if (!res.ok) return [];
     const data = (await res.json()) as {
       facts?: {
-        "us-gaap"?: Record<string, { units?: { USD?: Array<{ form?: string; fy?: number; val?: number; fp?: string }> } }>;
+        "us-gaap"?: Record<
+          string,
+          { units?: Record<string, Array<{ form?: string; fy?: number; val?: number; fp?: string }>> }
+        >;
       };
     };
     const usGaap = data.facts?.["us-gaap"];
@@ -2014,7 +2017,12 @@ export async function fetchSecEdgarFinancials(
 
     const opList = (usGaap.OperatingIncomeLoss?.units?.USD || []).filter(isUsableFact);
 
-    const epsList = (usGaap.EarningsPerShareDiluted?.units?.USD || []).filter(isUsableFact);
+    // SEC's XBRL companyfacts expose per-share concepts under the
+    // "USD/shares" unit key (plain "USD" is for absolute amounts), so EPS
+    // facts must be read from there. Keep the "USD" fallback for adapters
+    // that normalize the unit key.
+    const epsUnits = usGaap.EarningsPerShareDiluted?.units;
+    const epsList = (epsUnits?.["USD/shares"] || epsUnits?.USD || []).filter(isUsableFact);
 
     const years = [...new Set(revList.map((r) => r.fy!))].sort((a, b) => a - b).slice(-4);
     if (years.length === 0) return [];
@@ -2031,9 +2039,11 @@ export async function fetchSecEdgarFinancials(
       const net = netItem && typeof netItem.val === "number" && Number.isFinite(netItem.val)
         ? Math.round(netItem.val / 1_000_000)
         : 0;
+      // 営業利益: 実データが存在しない場合は net * 1.25 の捏造を行わず純利益を代用
+      // (2811/2844行付近の Yahoo 経路と同方針)。捏造値を SEC データとして表示しない。
       const op = opItem && typeof opItem.val === "number" && Number.isFinite(opItem.val)
         ? Math.round(opItem.val / 1_000_000)
-        : Math.round(net * 1.25);
+        : net;
       const safeEps = epsItem && typeof epsItem.val === "number" && Number.isFinite(epsItem.val)
         ? Number(epsItem.val.toFixed(2))
         : 0;
@@ -5036,9 +5046,7 @@ export default {
           const hitRatio =
             totalCacheRequests > 0
               ? `${((cacheHits / totalCacheRequests) * 100).toFixed(1)}%`
-              : memoryCache.size > 0
-              ? "98.5%"
-              : "100.0%";
+              : "N/A";
 
           const stats = {
             dbStatus: "CONNECTED",
@@ -6276,7 +6284,7 @@ export default {
             const dbRes = await env.DB.prepare(
               `
             SELECT
-              i.id, i.name, i.description, i.base_value, 50 AS sort_order,
+              i.id, i.name, i.description, i.base_value, 99 AS sort_order,
               b.ticker, b.name as stock_name, COALESCE(b.weight, 0) AS weight, b.theme
             FROM indices i
             LEFT JOIN basket_items b ON i.id = b.index_id
@@ -6292,7 +6300,7 @@ export default {
               const pageRes = await env.DB.prepare(
                 `
               SELECT
-                i.id, i.name, i.description, i.base_value, 50 AS sort_order,
+                i.id, i.name, i.description, i.base_value, 99 AS sort_order,
                 b.ticker, b.name as stock_name, COALESCE(b.weight, 0) AS weight, b.theme
               FROM indices i
               LEFT JOIN basket_items b ON i.id = b.index_id
@@ -6330,7 +6338,7 @@ export default {
               const rawBase = Number(row.base_value);
               const baseValue = Number.isFinite(rawBase) && rawBase > 0 ? rawBase : 1000;
               const rawSort = Number(row.sort_order);
-              const sortOrder = Number.isFinite(rawSort) ? rawSort : 50;
+              const sortOrder = Number.isFinite(rawSort) ? rawSort : 99;
               indicesMap.set(id, {
                 id,
                 name: row.name != null && String(row.name).trim() ? String(row.name).trim() : id,

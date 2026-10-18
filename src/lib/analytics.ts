@@ -1,5 +1,5 @@
 import type { BasketItem, PricePoint, RiskMetrics, StockDetail, StockSeries } from "../types";
-import { normalizeWeights } from "./indexEngine";
+import { normalizeTicker, normalizeWeights } from "./indexEngine";
 import { getStockFundamentals } from "./marketDataService";
 
 const CANONICAL_PRICE_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
@@ -280,7 +280,9 @@ export function calculateStockDetails(
   customSeries: PricePoint[] = [],
 ): StockDetail[] {
   const normalized = normalizeWeights(basket);
-  const stockMap = new Map(stockUniverse.map((s) => [s.ticker.trim().toUpperCase(), s]));
+  // calculateCustomIndex (indexEngine) と同一の正規化を通す。全角ティッカーを含む
+  // バスケットでは trim+toUpperCase だけだと照合に失敗し、構成銘柄行が0表示になる。
+  const stockMap = new Map(stockUniverse.map((s) => [normalizeTicker(s.ticker), s]));
   const normalizedCustomSeries = normalizeAnalyticsSeries(customSeries, true);
   const safeBaseValue =
     typeof baseValue === "number" && Number.isFinite(baseValue) && baseValue > 0 ? baseValue : 1000;
@@ -298,7 +300,7 @@ export function calculateStockDetails(
       : latestIndexVal;
 
   return normalized.map((item) => {
-    const stock = stockMap.get(item.ticker.trim().toUpperCase());
+    const stock = stockMap.get(normalizeTicker(item.ticker));
     const series = normalizeAnalyticsSeries(stock?.series, false);
     const len = series.length;
 

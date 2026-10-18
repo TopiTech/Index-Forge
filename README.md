@@ -28,6 +28,8 @@ npm run dev
 
 ### 2. build を作って Worker で確認
 
+`npm run dev:worker` と `db:*` スクリプトは `wrangler.local.jsonc` を参照します。このファイルは git 管理外のため、あらかじめ作成しておいてください（下記「開発上の注意」参照）。
+
 ```bash
 npm install
 npm run build
@@ -82,7 +84,7 @@ npx wrangler secret put TURNSTILE_SECRET_KEY  # Turnstile のシークレット�
 ## 開発上の注意
 
 - **データ同期**: Yahoo Finance からの取得は市場時間帯に応じたキャッシュが効くように実装されています。取引時間中に同期したデータは当日15:30の30分後まで、取引時間外に同期したデータは次の平日09:00まで再利用されます。強制更新する場合は、パスワード認証付きで `/api/sync-prices` に `{ "force": true }` を送ってください。
-- **セキュリティ**: ローカル環境でのDB更新を楽にするため、実際のデータベース IDを記述した`wrangler.local.jsonc` を任意で作成してください。これは git 管理外（`.gitignore`）に設定されています。管理画面で発行したユーザーパスワードは作成直後のレスポンスでのみ表示され、一覧や D1 には平文で保存されません。
+- **セキュリティ**: `npm run dev:worker` および `db:*` スクリプトは `--config wrangler.local.jsonc` を参照します。このファイルは git 管理外（`.gitignore`）のため、クローン直後は実際のデータベース ID を記述した `wrangler.local.jsonc` を**作成する必要があります**（作成しない場合、これらのコマンドは設定ファイル不足でエラーになります）。管理画面で発行したユーザーパスワードは作成直後のレスポンスでのみ表示され、一覧や D1 には平文で保存されません。
 
 ## ライセンス
 

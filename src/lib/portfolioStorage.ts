@@ -20,6 +20,15 @@ export interface PortfolioPosition {
   notes?: string;
 }
 
+/**
+ * 取得日として記録する当日の暦日 (YYYY-MM-DD, JST)。
+ * `new Date().toISOString().split("T")[0]` は UTC 暦日を返すため、
+ * JST の早朝 (00:00-08:59) に追加したポジションが前日付で記録される。
+ */
+export function todayJstDateString(): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tokyo" }).format(new Date());
+}
+
 export interface PositionCalculation extends PortfolioPosition {
   currentPrice: number;
   marketValue: number; // 評価額

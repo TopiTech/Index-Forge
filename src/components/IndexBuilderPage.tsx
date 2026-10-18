@@ -23,9 +23,13 @@ export function IndexBuilderPage({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const pageContainerRef = useRef<HTMLDivElement>(null);
 
+  // updatedAt に毎レンダーの Date.now() を渡すと useRegisterFreshness の effect
+  // 依存値が毎回変化し、FreshnessContext の state 更新 → 再レンダー → 新しい
+  // Date.now() と自己増殖するため、マウント時点の固定値を登録する。
+  const [mountedAt] = useState(() => Date.now());
   useRegisterFreshness("builder", {
     typeLabel: "指数試算",
-    updatedAt: Date.now(),
+    updatedAt: mountedAt,
   });
 
   // Sync with native browser fullscreen changes (e.g. Esc key)

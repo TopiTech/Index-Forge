@@ -37,6 +37,7 @@ import {
   calculatePortfolioSummary,
   convertPortfolioToCustomIndexBasket,
   consumeSaveFailure,
+  todayJstDateString,
   type PortfolioPosition,
 } from "../lib/portfolioStorage";
 import {
@@ -171,16 +172,19 @@ export function PortfolioManagerPage({
   useEffect(() => {
     if (!isLocked || lockoutRemainingSeconds <= 0) return;
     const timer = setInterval(() => {
-      setLockoutRemainingSeconds((prev) => {
-        if (prev <= 1) {
-          setIsLocked(false);
-          setAuthError(null);
-          return 0;
-        }
-        return prev - 1;
-      });
+      // Pure updater: 副作用 (解除・エラー消去) は下の effect に置く。
+      // updater 内の setState は React の純粋性契約に反し StrictMode で誤動作する。
+      setLockoutRemainingSeconds((prev) => (prev <= 1 ? 0 : prev - 1));
     }, 1000);
     return () => clearInterval(timer);
+  }, [isLocked, lockoutRemainingSeconds]);
+
+  // Release the lock once the countdown reaches zero.
+  useEffect(() => {
+    if (isLocked && lockoutRemainingSeconds <= 0) {
+      setIsLocked(false);
+      setAuthError(null);
+    }
   }, [isLocked, lockoutRemainingSeconds]);
 
   // Synchronize positions & watchlist immediately when auth transition occurs
@@ -463,7 +467,7 @@ export function PortfolioManagerPage({
       name: resolvedName,
       shares,
       averageCost: avgCost,
-      acquiredAt: new Date().toISOString().split("T")[0],
+      acquiredAt: todayJstDateString(),
     };
 
     setAddError(null);
@@ -1191,7 +1195,10 @@ export function PortfolioManagerPage({
       </div>
 
       {/* Sample Portfolio Preview Notice */}
-      {!hasPersistedPortfolio() && positions.length > 0 && (
+      {/* hasPersistedPortfolio() をレンダー中に直接読むと、初回追加/CSV取込直後の
+          保存前のフレームで「サンプル」バナーが残り続ける。ref は初回編集時に
+          true へ同期済みなので、こちらを使うと即座に消える。 */}
+      {!positionsPersistedRef.current && positions.length > 0 && (
         <div
           role="note"
           style={{
