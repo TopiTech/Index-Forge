@@ -1509,20 +1509,17 @@ export function getStockFundamentals(ticker: string): StockQuoteFundamentals {
 
   const anchor = KNOWN_STOCK_ANCHORS[normTicker];
 
-  // Seed fallback for tickers without explicit anchor
-  const seed = normTicker.split("").reduce((acc, c) => acc + c.charCodeAt(0), 0);
+  // フォールバック基準価格
   const basePrice = overviewAsset
     ? overviewAsset.price
     : anchor
       ? anchor.price
-      : isUS
-        ? 120 + (seed % 350)
-        : 1800 + (seed % 6500);
+      : (isUS ? 100 : 1000);
   const changePct = overviewAsset
     ? overviewAsset.changePercent
     : anchor
       ? anchor.changePercent
-      : Number((((seed % 60) - 28) / 10).toFixed(2));
+      : 0;
   const change = overviewAsset
     ? overviewAsset.change
     : anchor
@@ -1530,36 +1527,15 @@ export function getStockFundamentals(ticker: string): StockQuoteFundamentals {
       : Number(((basePrice * changePct) / 100).toFixed(2));
   const prevClose = Number((basePrice - change).toFixed(2));
 
-  const per = isMacro
-    ? null
-    : anchor
-      ? anchor.per
-      : null;
-  const pbr = isMacro
-    ? null
-    : anchor
-      ? anchor.pbr
-      : Number((0.8 + (seed % 35) / 10).toFixed(2));
-  const dividendYield = isMacro
-    ? null
-    : anchor
-      ? anchor.dividendYield
-      : Number((1.5 + (seed % 30) / 10).toFixed(2));
-  const roe = isMacro ? null : anchor ? anchor.roe : Number((8 + (seed % 14)).toFixed(1));
-  const equityRatio = isMacro ? null : anchor ? anchor.equityRatio : 40 + (seed % 45);
-  const marketCap = isMacro
-    ? 0
-    : anchor
-      ? anchor.marketCap
-      : isUS
-        ? 45000 + seed * 850
-        : 12000 + seed * 280;
+  // 未アンカー銘柄は架空の乱数数値を捏造せず null (未開示・取得中) とする
+  const per = isMacro ? null : (anchor ? anchor.per : null);
+  const pbr = isMacro ? null : (anchor ? anchor.pbr : null);
+  const dividendYield = isMacro ? null : (anchor ? anchor.dividendYield : null);
+  const roe = isMacro ? null : (anchor ? anchor.roe : null);
+  const equityRatio = isMacro ? null : (anchor ? anchor.equityRatio : null);
+  const marketCap = isMacro ? 0 : (anchor ? anchor.marketCap : (isUS ? 1000 : 1000));
 
-  const eps = isMacro
-    ? null
-    : anchor
-      ? anchor.eps
-      : null;
+  const eps = isMacro ? null : (anchor ? anchor.eps : null);
   const dps = isMacro
     ? null
     : anchor
@@ -1579,60 +1555,19 @@ export function getStockFundamentals(ticker: string): StockQuoteFundamentals {
           ? "CRYPTO"
           : (anchor?.sector ?? (isUS ? "Information Tech" : "電気機器・精密"));
 
-
-  // 4 years historical financial performance
-  const currentYear = new Date().getFullYear();
-  const safeEps = eps ?? 0;
-  const isZeroDiv = dividendYield === 0 || dps === 0;
-  const safeDps = isZeroDiv ? 0 : (dps ?? 0);
-  const historicalFinances = isMacro
-    ? []
-    : [
-        {
-          fiscalYear: isUS ? `${currentYear - 3} FY` : `${currentYear - 3}/3`,
-          revenue: Math.round(marketCap * 0.72),
-          operatingIncome: Math.round(marketCap * 0.08),
-          netIncome: Math.round(marketCap * 0.055),
-          eps: isUS ? Number((safeEps * 0.75).toFixed(2)) : Math.round(safeEps * 0.75),
-          dps: isZeroDiv ? 0 : (isUS ? Number((safeDps * 0.8).toFixed(2)) : Math.round(safeDps * 0.8)),
-        },
-        {
-          fiscalYear: isUS ? `${currentYear - 2} FY` : `${currentYear - 2}/3`,
-          revenue: Math.round(marketCap * 0.81),
-          operatingIncome: Math.round(marketCap * 0.095),
-          netIncome: Math.round(marketCap * 0.065),
-          eps: isUS ? Number((safeEps * 0.88).toFixed(2)) : Math.round(safeEps * 0.88),
-          dps: isZeroDiv ? 0 : (isUS ? Number((safeDps * 0.9).toFixed(2)) : Math.round(safeDps * 0.9)),
-        },
-        {
-          fiscalYear: isUS ? `${currentYear - 1} FY` : `${currentYear - 1}/3`,
-          revenue: Math.round(marketCap * 0.92),
-          operatingIncome: Math.round(marketCap * 0.11),
-          netIncome: Math.round(marketCap * 0.078),
-          eps: isUS ? Number((safeEps * 0.96).toFixed(2)) : Math.round(safeEps * 0.96),
-          dps: isZeroDiv ? 0 : (isUS ? Number((safeDps * 0.95).toFixed(2)) : Math.round(safeDps * 0.95)),
-        },
-        {
-          fiscalYear: isUS ? `${currentYear} FY (予)` : `${currentYear}/3 (予)`,
-          revenue: Math.round(marketCap * 1.04),
-          operatingIncome: Math.round(marketCap * 0.125),
-          netIncome: Math.round(marketCap * 0.088),
-          eps: isUS ? Number(safeEps.toFixed(2)) : Math.round(safeEps),
-          dps: isZeroDiv ? 0 : (isUS ? Number(safeDps.toFixed(2)) : Math.round(safeDps)),
-        },
-      ];
-
-  const s1 = Number((prevClose * (1 - ((seed % 15) - 7) / 200)).toFixed(2));
-  const s2 = Number((prevClose * (1 - ((seed % 19) - 9) / 200)).toFixed(2));
-  const s3 = Number((prevClose * (1 - ((seed % 11) - 5) / 200)).toFixed(2));
-  const sparkline = [s1, s2, s3, prevClose, basePrice];
-
+  // 財務諸表ハイライト: モック合成 (marketCap * 0.72 等) は捏造せず、アンカー実データのみを採用
   const finalFinances = overviewAsset
     ? []
     : anchor?.historicalFinances && anchor.historicalFinances.length > 0
       ? anchor.historicalFinances
-      : historicalFinances;
-  const finalSparkline = overviewAsset?.sparkline ?? sparkline;
+      : [];
+  const s1 = Number((prevClose * 0.995).toFixed(2));
+  const s2 = Number((prevClose * 0.998).toFixed(2));
+  const s3 = Number((prevClose * 1.002).toFixed(2));
+  const defaultSparkline = [s1, s2, s3, prevClose, basePrice];
+  const finalSparkline = overviewAsset?.sparkline && overviewAsset.sparkline.length >= 5
+    ? overviewAsset.sparkline
+    : defaultSparkline;
   const computedTechSignal = evaluateTechnicalSignal(changePct, finalSparkline, basePrice).signal;
   return {
     ticker: normTicker,
@@ -1643,7 +1578,7 @@ export function getStockFundamentals(ticker: string): StockQuoteFundamentals {
     price: basePrice,
     change,
     changePercent: changePct,
-    volume: anchor ? anchor.volume : 1250000 + seed * 8500,
+    volume: anchor ? anchor.volume : (isMacro ? 0 : 1000000),
     previousClose: prevClose,
     dayHigh: anchor ? anchor.dayHigh : Number((basePrice * 1.015).toFixed(2)),
     dayLow: anchor ? anchor.dayLow : Number((basePrice * 0.985).toFixed(2)),
