@@ -814,8 +814,13 @@ export function StockAnalysisPage({
                 <div className="stock-card-metrics">
                   <div className="stock-card-metric-item">
                     <span className="metric-label">PER</span>
-                    <span className="metric-value">
-                      {stock.per !== null ? `${stock.per.toFixed(1)}x` : "-"}
+                    <span
+                      className="metric-value"
+                      title={stock.isEstimatedPer ? (stock.perNote || "会社予想非開示のため直近実績(TTM)より推計") : undefined}
+                    >
+                      {typeof stock.per === "number" && Number.isFinite(stock.per) && stock.per > 0
+                        ? `${stock.isEstimatedPer ? "約" : ""}${stock.per.toFixed(1)}x`
+                        : "-"}
                     </span>
                   </div>
                   <div className="stock-card-metric-item">

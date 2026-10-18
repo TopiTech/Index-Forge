@@ -2506,6 +2506,8 @@ export async function fetchLiveStockFundamentals(ticker: string, env?: Env): Pro
   let yearLow = baseline.yearLow;
   let marketCap = isMacroAsset ? 0 : baseline.marketCap;
   let per: number | null = isMacroAsset ? null : baseline.per;
+  let isEstimatedPer: boolean = baseline.isEstimatedPer ?? false;
+  let perNote: string | undefined = baseline.perNote;
   let pbr: number | null = isMacroAsset ? null : baseline.pbr;
   let dividendYield: number | null = isMacroAsset ? null : baseline.dividendYield;
   let dps: number | null = isMacroAsset ? null : baseline.dps;
@@ -2671,8 +2673,28 @@ export async function fetchLiveStockFundamentals(ticker: string, env?: Env): Pro
         marketCap = isUS ? Math.round(rawCap / 1_000_000) : Math.round(rawCap / 100_000_000);
       }
 
-      const livePer = stats.trailingPE?.raw || detail.trailingPE?.raw || stats.forwardPE?.raw || null;
-      if (livePer && livePer > 0) per = Number(livePer.toFixed(1));
+      const rawForwardPE = stats.forwardPE?.raw ?? detail.forwardPE?.raw;
+      const rawTrailingPE = stats.trailingPE?.raw ?? detail.trailingPE?.raw;
+      const liveEps = stats.trailingEps?.raw;
+
+      if (typeof rawForwardPE === "number" && Number.isFinite(rawForwardPE) && rawForwardPE > 0) {
+        per = Number(rawForwardPE.toFixed(1));
+        isEstimatedPer = false;
+        perNote = undefined;
+      } else if (typeof rawTrailingPE === "number" && Number.isFinite(rawTrailingPE) && rawTrailingPE > 0) {
+        per = Number(rawTrailingPE.toFixed(1));
+        isEstimatedPer = true;
+        perNote = "会社予想非開示のため直近実績(TTM)より推計";
+      } else if (typeof liveEps === "number" && Number.isFinite(liveEps) && liveEps > 0 && currentPrice > 0) {
+        per = Number((currentPrice / liveEps).toFixed(1));
+        isEstimatedPer = true;
+        perNote = "会社予想非開示のため直近実績(TTM)より推計";
+      } else {
+        // 実データ取得時: 赤字(liveEps <= 0)または非開示で実績も不明なら null
+        per = null;
+        isEstimatedPer = false;
+        perNote = undefined;
+      }
       const livePbr = stats.priceToBook?.raw || null;
       if (livePbr && livePbr > 0) pbr = Number(livePbr.toFixed(2));
 
@@ -2704,7 +2726,6 @@ export async function fetchLiveStockFundamentals(ticker: string, env?: Env): Pro
         dividendYield = Number(((dps / currentPrice) * 100).toFixed(2));
       }
 
-      const liveEps = stats.trailingEps?.raw;
       if (typeof liveEps === "number" && Number.isFinite(liveEps)) {
         eps = Number(liveEps.toFixed(isUS ? 2 : 1));
       } else if (per && currentPrice) {
@@ -2870,8 +2891,23 @@ export async function fetchLiveStockFundamentals(ticker: string, env?: Env): Pro
             if (typeof q.marketCap === "number" && q.marketCap > 0) {
               marketCap = isUS ? Math.round(q.marketCap / 1_000_000) : Math.round(q.marketCap / 100_000_000);
             }
-            if (typeof q.trailingPE === "number" && q.trailingPE > 0) per = Number(q.trailingPE.toFixed(1));
-            else if (typeof q.forwardPE === "number" && q.forwardPE > 0) per = Number(q.forwardPE.toFixed(1));
+            if (typeof q.forwardPE === "number" && Number.isFinite(q.forwardPE) && q.forwardPE > 0) {
+              per = Number(q.forwardPE.toFixed(1));
+              isEstimatedPer = false;
+              perNote = undefined;
+            } else if (typeof q.trailingPE === "number" && Number.isFinite(q.trailingPE) && q.trailingPE > 0) {
+              per = Number(q.trailingPE.toFixed(1));
+              isEstimatedPer = true;
+              perNote = "会社予想非開示のため直近実績(TTM)より推計";
+            } else if (typeof q.epsTrailingTwelveMonths === "number" && Number.isFinite(q.epsTrailingTwelveMonths) && q.epsTrailingTwelveMonths > 0 && currentPrice > 0) {
+              per = Number((currentPrice / q.epsTrailingTwelveMonths).toFixed(1));
+              isEstimatedPer = true;
+              perNote = "会社予想非開示のため直近実績(TTM)より推計";
+            } else {
+              per = null;
+              isEstimatedPer = false;
+              perNote = undefined;
+            }
             if (typeof q.priceToBook === "number" && q.priceToBook > 0) pbr = Number(q.priceToBook.toFixed(2));
             if (typeof q.trailingAnnualDividendYield === "number" && Number.isFinite(q.trailingAnnualDividendYield)) {
               dividendYield = Number((q.trailingAnnualDividendYield * 100).toFixed(2));
@@ -2958,6 +2994,8 @@ export async function fetchLiveStockFundamentals(ticker: string, env?: Env): Pro
     dps,
     sparkline: sparkline.length > 0 ? sparkline : [prevClose * 0.99, prevClose, currentPrice],
     technicalSignal,
+    isEstimatedPer,
+    perNote,
     ...((!hasLivePrice && baseline.isDemoData) ? { isDemoData: true } : {}),
     historicalFinances,
   };
@@ -3030,6 +3068,8 @@ export async function fetchLiveScreenerUniverse(
     let yearLow: number;
     let marketCap: number;
     let per: number | null = null;
+    let isEstimatedPer = false;
+    let perNote: string | undefined = undefined;
     let pbr: number | null = null;
     let dividendYield: number | null = null;
     let dps: number | null = null;
@@ -3090,16 +3130,27 @@ export async function fetchLiveScreenerUniverse(
         marketCap = prev?.marketCap ?? (isUS ? 50000 : 25000);
       }
 
-      if (typeof q.trailingPE === "number" && Number.isFinite(q.trailingPE) && q.trailingPE > 0) {
-        per = Number(q.trailingPE.toFixed(1));
-      } else if (
-        typeof q.forwardPE === "number" &&
-        Number.isFinite(q.forwardPE) &&
-        q.forwardPE > 0
-      ) {
+      if (typeof q.forwardPE === "number" && Number.isFinite(q.forwardPE) && q.forwardPE > 0) {
         per = Number(q.forwardPE.toFixed(1));
+        isEstimatedPer = false;
+        perNote = undefined;
+      } else if (typeof q.trailingPE === "number" && Number.isFinite(q.trailingPE) && q.trailingPE > 0) {
+        per = Number(q.trailingPE.toFixed(1));
+        isEstimatedPer = true;
+        perNote = "会社予想非開示のため直近実績(TTM)より推計";
+      } else if (
+        typeof q.epsTrailingTwelveMonths === "number" &&
+        Number.isFinite(q.epsTrailingTwelveMonths) &&
+        q.epsTrailingTwelveMonths > 0 &&
+        price > 0
+      ) {
+        per = Number((price / q.epsTrailingTwelveMonths).toFixed(1));
+        isEstimatedPer = true;
+        perNote = "会社予想非開示のため直近実績(TTM)より推計";
       } else {
-        per = prev?.per ?? null;
+        per = null;
+        isEstimatedPer = false;
+        perNote = undefined;
       }
 
       if (
@@ -3178,6 +3229,8 @@ export async function fetchLiveScreenerUniverse(
       yearLow = prev.yearLow;
       marketCap = prev.marketCap;
       per = prev.per;
+      isEstimatedPer = Boolean(prev.isEstimatedPer);
+      perNote = prev.perNote;
       pbr = prev.pbr;
       dividendYield = prev.dividendYield;
       dps = prev.dps;
@@ -3200,6 +3253,8 @@ export async function fetchLiveScreenerUniverse(
       yearLow = fallback.yearLow;
       marketCap = fallback.marketCap;
       per = fallback.per;
+      isEstimatedPer = Boolean(fallback.isEstimatedPer);
+      perNote = fallback.perNote;
       pbr = fallback.pbr;
       dividendYield = fallback.dividendYield;
       dps = fallback.dps;
@@ -3288,6 +3343,8 @@ export async function fetchLiveScreenerUniverse(
       dps,
       sparkline,
       technicalSignal,
+      isEstimatedPer,
+      perNote,
       ...(isDemo ? { isDemoData: true } : {}),
       historicalFinances,
     });

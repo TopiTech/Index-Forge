@@ -93,6 +93,12 @@ export interface StockQuoteFundamentals {
    * 既知銘柄アンカー (KNOWN_STOCK_ANCHORS) が存在しない未知ティッカーに付与される。
    */
   isDemoData?: boolean;
+  /**
+   * true の場合、公式の会社予想ではなく直近実績(TTM)やコンセンサスから算出した推測PERであることを示す。
+   */
+  isEstimatedPer?: boolean;
+  /** 推測PERの算出根拠または非公開注記 */
+  perNote?: string;
   historicalFinances: Array<{
     fiscalYear: string;
     revenue: number;
@@ -280,15 +286,17 @@ export interface KnownStockAnchor {
   yearHigh: number;
   yearLow: number;
   marketCap: number;
-  per: number;
-  pbr: number;
+  per: number | null;
+  pbr: number | null;
   dividendYield: number;
   roe: number;
   equityRatio: number;
-  eps: number;
+  eps: number | null;
   dps: number;
   sector?: string;
   market?: "PRIME" | "STANDARD" | "GROWTH" | "US";
+  isEstimatedPer?: boolean;
+  perNote?: string;
   historicalFinances?: Array<{
     fiscalYear: string;
     revenue: number;
@@ -440,12 +448,12 @@ export const KNOWN_STOCK_ANCHORS: Record<string, KnownStockAnchor> = {
     yearHigh: 12100.0,
     yearLow: 6800.0,
     marketCap: 134000,
-    per: 24.5,
+    per: null, // 通期業績予想非開示のため算出対象外
     pbr: 1.05,
     dividendYield: 0.48,
     roe: 4.8,
     equityRatio: 26.0,
-    eps: 373.5,
+    eps: null,
     dps: 44.0,
     sector: "情報・通信・投資",
     market: "PRIME",
@@ -453,8 +461,88 @@ export const KNOWN_STOCK_ANCHORS: Record<string, KnownStockAnchor> = {
       { fiscalYear: "2022/3", revenue: 62206, operatingIncome: -8726, netIncome: -17080, eps: -912.4, dps: 44 },
       { fiscalYear: "2023/3", revenue: 65704, operatingIncome: -15234, netIncome: -9701, eps: -684.0, dps: 44 },
       { fiscalYear: "2024/3", revenue: 67565, operatingIncome: 7409, netIncome: -2276, eps: -157.0, dps: 44 },
-      { fiscalYear: "2025/3 (予)", revenue: 71000, operatingIncome: 9500, netIncome: 5400, eps: 373.5, dps: 44 },
+      { fiscalYear: "2025/3 (実)", revenue: 71000, operatingIncome: 9500, netIncome: -2000, eps: -130.0, dps: 44 },
     ],
+  },
+  "7832": {
+    price: 3240.0,
+    change: 35.0,
+    changePercent: 1.09,
+    volume: 3200000,
+    dayHigh: 3280.0,
+    dayLow: 3210.0,
+    yearHigh: 3600.0,
+    yearLow: 2650.0,
+    marketCap: 21400,
+    per: 21.5,
+    pbr: 2.65,
+    dividendYield: 1.85,
+    roe: 13.5,
+    equityRatio: 68.0,
+    eps: 150.7,
+    dps: 60.0,
+    sector: "その他製品・玩具・IP",
+    market: "PRIME",
+  },
+  "9697": {
+    price: 3420.0,
+    change: 45.0,
+    changePercent: 1.33,
+    volume: 1800000,
+    dayHigh: 3460.0,
+    dayLow: 3380.0,
+    yearHigh: 3850.0,
+    yearLow: 2400.0,
+    marketCap: 14600,
+    per: 25.8,
+    pbr: 4.50,
+    dividendYield: 1.55,
+    roe: 18.2,
+    equityRatio: 82.0,
+    eps: 132.6,
+    dps: 53.0,
+    sector: "情報・通信・ゲーム",
+    market: "PRIME",
+  },
+  "4901": {
+    price: 3850.0,
+    change: 28.0,
+    changePercent: 0.73,
+    volume: 2400000,
+    dayHigh: 3890.0,
+    dayLow: 3820.0,
+    yearHigh: 4200.0,
+    yearLow: 2900.0,
+    marketCap: 38500,
+    per: 16.8,
+    pbr: 1.35,
+    dividendYield: 1.70,
+    roe: 8.5,
+    equityRatio: 64.0,
+    eps: 229.2,
+    dps: 65.0,
+    sector: "化学・ヘルスケア・電子材料",
+    market: "PRIME",
+  },
+  "4503": {
+    price: 1650.0,
+    change: 12.0,
+    changePercent: 0.73,
+    volume: 8500000,
+    dayHigh: 1675.0,
+    dayLow: 1635.0,
+    yearHigh: 1950.0,
+    yearLow: 1400.0,
+    marketCap: 29700,
+    per: null, // 直近減損赤字・通期予想変動のため算出対象外
+    pbr: 1.58,
+    dividendYield: 4.24,
+    roe: 2.1,
+    equityRatio: 45.0,
+    eps: null,
+    dps: 70.0,
+    sector: "医薬品",
+    market: "PRIME",
   },
   "9432": {
     price: 155.2,
@@ -1446,9 +1534,7 @@ export function getStockFundamentals(ticker: string): StockQuoteFundamentals {
     ? null
     : anchor
       ? anchor.per
-      : isUS
-        ? 22 + (seed % 35)
-        : 12 + (seed % 20);
+      : null;
   const pbr = isMacro
     ? null
     : anchor
@@ -1473,9 +1559,7 @@ export function getStockFundamentals(ticker: string): StockQuoteFundamentals {
     ? null
     : anchor
       ? anchor.eps
-      : per
-        ? Number((basePrice / per).toFixed(isUS ? 2 : 1))
-        : null;
+      : null;
   const dps = isMacro
     ? null
     : anchor
@@ -1575,6 +1659,8 @@ export function getStockFundamentals(ticker: string): StockQuoteFundamentals {
     dps,
     sparkline: finalSparkline,
     technicalSignal: computedTechSignal,
+    isEstimatedPer: anchor ? (anchor.isEstimatedPer ?? false) : false,
+    perNote: anchor?.perNote,
     historicalFinances: finalFinances,
     // 未知ティッカー (アンカー未定義) の場合は擬似生成データであることを明示
     ...(anchor ? {} : { isDemoData: true }),

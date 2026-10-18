@@ -487,14 +487,38 @@ export function StockDetailPage({
         }}
       >
         <div className="card" style={{ padding: "14px 16px" }}>
-          <span className="tiny muted mono uppercase">PER (株価収益率)</span>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <span className="tiny muted mono uppercase">PER (株価収益率)</span>
+            {!isMacro && stock.isEstimatedPer && typeof stock.per === "number" && stock.per > 0 && (
+              <span
+                className="mono bold"
+                style={{
+                  fontSize: "0.68rem",
+                  padding: "1px 6px",
+                  borderRadius: "4px",
+                  background: "rgba(0, 212, 255, 0.12)",
+                  color: "var(--neon-cyan, #00d4ff)",
+                  border: "1px solid rgba(0, 212, 255, 0.25)",
+                }}
+                title={stock.perNote || "会社予想非開示のため直近実績(TTM)より推計"}
+              >
+                推測 (実績TTM)
+              </span>
+            )}
+          </div>
           <div className="mono bold" style={{ fontSize: "1.3rem", marginTop: 4 }}>
             {!isMacro && typeof stock.per === "number" && Number.isFinite(stock.per) && stock.per > 0
               ? `${stock.per.toFixed(1)}倍`
               : "--"}
           </div>
           <span className="tiny muted">
-            {isMacro ? "指数・マクロ指標対象外" : `業界平均: ${getSectorAveragePer(stock.sector).toFixed(1)}倍`}
+            {isMacro
+              ? "指数・マクロ指標対象外"
+              : typeof stock.per === "number" && Number.isFinite(stock.per) && stock.per > 0
+              ? stock.isEstimatedPer
+                ? `${stock.perNote || "直近実績(TTM)より推計"} (業界平均: ${getSectorAveragePer(stock.sector).toFixed(1)}倍)`
+                : `業界平均: ${getSectorAveragePer(stock.sector).toFixed(1)}倍`
+              : `非公開・算出対象外 (業界平均: ${getSectorAveragePer(stock.sector).toFixed(1)}倍)`}
           </span>
         </div>
 
