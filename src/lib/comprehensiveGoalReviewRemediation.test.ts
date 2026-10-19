@@ -6,11 +6,16 @@ import { getSavedDimensions } from "../components/TradingViewChartModal";
 
 describe("Goal Remediation: calculateCustomIndex non-finite price handling", () => {
   it("ignores non-finite (Infinity, NaN) prices and maintains finite index values", () => {
-    const basket = [{ ticker: "7203.T", name: "トヨタ自動車", weight: 100 }];
+    const basket = [
+      { ticker: "7203.T", name: "トヨタ自動車", theme: "自動車", weight: 100 },
+    ];
     const stockUniverse = [
       {
         ticker: "7203.T",
         name: "トヨタ自動車",
+        theme: "自動車",
+        sector: "自動車",
+        latestPrice: 2100,
         series: [
           { date: "2025-01-01", close: 2000 },
           { date: "2025-01-02", close: Infinity }, // Should be ignored and fallback to 2000

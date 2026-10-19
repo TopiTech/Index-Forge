@@ -90,7 +90,7 @@ export function StockAnalysisPage({
     return POPULAR_STOCKS.map((p) => getCachedStockFundamentals(p.ticker));
   });
   const [loading, setLoading] = useState(false);
-  const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(() => Date.now());
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(null);
 
   useRegisterFreshness("stock", {
     loading,

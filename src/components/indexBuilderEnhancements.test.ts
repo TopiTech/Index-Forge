@@ -25,7 +25,6 @@ describe("IndexBuilder UI/UX & Weighting Strategy Enhancements", () => {
     id: "idx-test-1",
     name: "テスティング戦略指数",
     description: "テスト用の均等および時価総額指数",
-    baseDate: "2024-01-01",
     baseValue: 1000,
     basket: [
       { ticker: "7203", name: "トヨタ自動車", theme: "モビリティ", weight: 40 },

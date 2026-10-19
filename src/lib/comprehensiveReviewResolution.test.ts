@@ -67,8 +67,8 @@ describe("Comprehensive Review Resolution & Regression Tests", () => {
     it("sanitizes sub-basis-point negative drops to +0 without -0 artifacts", () => {
       // 1000 to 999.9999 is a drop of 0.0001%
       const customSeries = [
-        { date: "2026-09-01", value: 1000 },
-        { date: "2026-09-02", value: 999.9999 },
+        { date: "2026-09-01", close: 1000, value: 1000 },
+        { date: "2026-09-02", close: 999.9999, value: 999.9999 },
       ];
       const benchmarkSeries = [
         { date: "2026-09-01", close: 38000 },
@@ -84,8 +84,8 @@ describe("Comprehensive Review Resolution & Regression Tests", () => {
 
     it("correctly computes standard positive and negative period returns and alpha", () => {
       const customSeries = [
-        { date: "2026-09-01", value: 1000 },
-        { date: "2026-09-02", value: 1050 }, // +5.00%
+        { date: "2026-09-01", close: 1000, value: 1000 },
+        { date: "2026-09-02", close: 1050, value: 1050 }, // +5.00%
       ];
       const benchmarkSeries = [
         { date: "2026-09-01", close: 40000 },

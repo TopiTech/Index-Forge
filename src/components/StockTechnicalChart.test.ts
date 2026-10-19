@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import fs from "fs";
 import path from "path";
 import { detectStockCurrency } from "../lib/currency";
+import { createStockQuote } from "../test-helpers/quote";
 
 describe("StockTechnicalChart & StockDetailPage Integration", () => {
   const chartTsx = fs.readFileSync(
@@ -65,10 +66,10 @@ describe("StockTechnicalChart & StockDetailPage Integration", () => {
   describe("generateDeterministicHistory Date Consistency", () => {
     it("ensures date and displayDate represent the exact same calendar day", async () => {
       const { generateDeterministicHistory } = await import("./StockTechnicalChart");
-      const mockStock = {
+      const mockStock = createStockQuote({
         ticker: "7203",
         name: "トヨタ自動車",
-        market: "PRIME" as const,
+        market: "PRIME",
         theme: "自動車",
         price: 2850,
         change: 15,
@@ -80,7 +81,7 @@ describe("StockTechnicalChart & StockDetailPage Integration", () => {
         yearLow: 2400,
         volume: 12000000,
         sparkline: [2800, 2820, 2810, 2835, 2850],
-      };
+      });
 
       // Test with a fixed date
       const testBase = new Date(2026, 9, 15, 3, 30, 0); // Oct 15, 2026, 03:30 local

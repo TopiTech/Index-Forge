@@ -19,6 +19,86 @@ function getLocalStorage(): Storage | null {
 }
 
 /**
+ * Identity of the newest authentication attempt.
+ *
+ * The state is module scoped, not per hook instance: `useAuth()` is used by
+ * a dozen components, and the login is started by one of them (the auth
+ * modal) while the logout is performed in another (the header). A per
+ * instance controller could not see the other instance's request, so the
+ * in-flight login resolved after the logout and silently re-authenticated
+ * (and re-persisted) the user.
+ */
+let authRequestId = 0;
+let authAbortController: AbortController | null = null;
+
+/** Cancel the authentication attempt that is currently running, if any. */
+export function cancelPendingAuthAttempt(): void {
+  authRequestId += 1;
+  if (authAbortController) {
+    authAbortController.abort();
+    authAbortController = null;
+  }
+}
+
+/** Start a new attempt, superseding every previous one. */
+export function beginAuthAttempt(): { requestId: number; controller: AbortController } {
+  cancelPendingAuthAttempt();
+  const controller = new AbortController();
+  authAbortController = controller;
+  return { requestId: authRequestId, controller };
+}
+
+/**
+ * True when the attempt identified by `requestId` is still the current one.
+ *
+ * A superseded attempt must not publish its result: the user may have logged
+ * out, or started a newer attempt, in the meantime.
+ */
+export function isCurrentAuthAttempt(requestId: number): boolean {
+  return requestId === authRequestId;
+}
+
+/**
+ * Validate a session read back from browser storage.
+ *
+ * The stored payload is untrusted: it can be left over from an older build,
+ * hand-edited, or written by another script on the same origin. Casting it to
+ * `AuthSession` without checking the shape made a payload such as
+ * `{"role":"admin"}` render the admin surface and send `x-admin-key` on every
+ * request, even though the Worker would reject it with 401.
+ */
+export function sanitizeAuthSession(raw: unknown): AuthSession | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const record = raw as Record<string, unknown>;
+
+  const role = record.role === "admin" || record.role === "user" ? record.role : null;
+  if (!role) return null;
+
+  const password = typeof record.password === "string" ? record.password : "";
+  if (!password) return null;
+
+  const name = typeof record.name === "string" && record.name.trim() ? record.name.trim() : "ユーザー";
+
+  const readLimit = (value: unknown): number | null => {
+    if (value === null || value === undefined) return null;
+    if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return null;
+    return value;
+  };
+
+  const session: AuthSession = {
+    role,
+    name,
+    password,
+    maxStocks: readLimit(record.maxStocks),
+    maxIndices: readLimit(record.maxIndices),
+  };
+  if (typeof record.id === "string" && record.id) {
+    session.id = record.id;
+  }
+  return session;
+}
+
+/**
  * Retrieve the current-tab auth session. Passwords are intentionally kept in
  * sessionStorage instead of persistent localStorage; legacy localStorage
  * entries are migrated and removed on first read.
@@ -31,7 +111,8 @@ export function getStoredAuth(): AuthSession | null {
     const legacyRaw = localStore?.getItem(AUTH_STORAGE_KEY) || null;
     const raw = sessionRaw || legacyRaw;
     if (!raw) return null;
-    const session = JSON.parse(raw) as AuthSession;
+    const session = sanitizeAuthSession(JSON.parse(raw));
+    if (!session) return null;
     if (!sessionRaw && legacyRaw) {
       // Storage can be present but read-only (private browsing/quota policy).
       // A failed migration must not discard an otherwise valid legacy session:
@@ -144,9 +225,14 @@ export function getAuthHeaders(session?: AuthSession | null): Record<string, str
 
 /**
  * Verify password against the worker API
+ *
+ * `signal` lets the caller cancel an attempt that has been superseded (for
+ * example because the user logged out while the request was in flight). A
+ * cancelled attempt must not persist a session.
  */
 export async function verifyPassword(
   password: string,
+  signal?: AbortSignal,
 ): Promise<{ ok: boolean; session?: AuthSession; error?: string }> {
   try {
     const trimmed = password.trim();
@@ -158,9 +244,13 @@ export async function verifyPassword(
       method: "POST",
       headers: { "Content-Type": "application/json", "x-auth-mode": "user" },
       body: JSON.stringify({ password: trimmed, role: "user", userOnly: true }),
+      signal,
     });
 
     const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    if (signal?.aborted) {
+      return { ok: false, error: "認証がキャンセルされました" };
+    }
     if (!res.ok || data.ok !== true) {
       return {
         ok: false,
@@ -248,6 +338,7 @@ export async function adminLogin(
   password: string,
   secretCode: string,
   turnstileToken: string,
+  signal?: AbortSignal,
 ): Promise<{
   ok: boolean;
   session?: AuthSession;
@@ -279,10 +370,14 @@ export async function adminLogin(
         secretCode: trimmedCode,
         turnstileToken: trimmedToken,
       }),
+      signal,
     });
 
     const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
 
+    if (signal?.aborted) {
+      return { ok: false, error: "認証がキャンセルされました" };
+    }
     if (!res.ok || data.ok !== true) {
       return {
         ok: false,

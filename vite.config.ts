@@ -34,6 +34,12 @@ export default defineConfig({
   },
   test: {
     testTimeout: 10000,
+    // Vitest only defaults NODE_ENV to "test" when it is unset. A shell that
+    // exports NODE_ENV=production would otherwise load React's production
+    // build, which does not export `act` and breaks every React test.
+    env: {
+      NODE_ENV: "test",
+    },
     // Include .tsx/.spec and worker tests as well: the toolchain
     // (eslint + tsconfigs) already anticipates .tsx tests, and a .ts-only
     // pattern would silently skip the first real DOM test.

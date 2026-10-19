@@ -98,12 +98,10 @@ export function useBenchmark(initialSymbol: BenchmarkSymbol = "^N225", enabled =
       .then(async (res) => {
         if (res.status === 304) {
           if (cached) {
-            cached.timestamp = Date.now();
-            // State updates must respect the abort guard below: the module
-            // cache is safe to refresh (it is keyed by symbol), but writing
-            // lastUpdatedAt after the effect re-ran for another benchmark
-            // would resurrect stale metadata for the previous symbol.
+            // Re-validating the cached entry extends its lifetime, so it must
+            // not happen for a request that has already been superseded.
             if (!controller.signal.aborted) {
+              cached.timestamp = Date.now();
               setLastUpdatedAt(cached.timestamp);
             }
             return cached.data;
@@ -126,12 +124,15 @@ export function useBenchmark(initialSymbol: BenchmarkSymbol = "^N225", enabled =
             throw new Error(`${selectedBenchmark} データの取得に失敗しました（空のレスポンス）`);
           }
           const freshData: BenchmarkData = JSON.parse(freshText);
-          benchmarkSessionCache.set(selectedBenchmark, {
-            data: freshData,
-            timestamp: Date.now(),
-            etag: freshEtag,
-          });
+          // The module cache feeds the next render, so an aborted request must
+          // not publish to it either: a superseded response would otherwise
+          // overwrite a newer payload and be served for the full TTL.
           if (!controller.signal.aborted) {
+            benchmarkSessionCache.set(selectedBenchmark, {
+              data: freshData,
+              timestamp: Date.now(),
+              etag: freshEtag,
+            });
             setLastUpdatedAt(Date.now());
           }
           return freshData;
@@ -142,12 +143,12 @@ export function useBenchmark(initialSymbol: BenchmarkSymbol = "^N225", enabled =
         }
         const etag = res.headers.get("etag");
         const data: BenchmarkData = await res.json();
-        benchmarkSessionCache.set(selectedBenchmark, {
-          data,
-          timestamp: Date.now(),
-          etag,
-        });
         if (!controller.signal.aborted) {
+          benchmarkSessionCache.set(selectedBenchmark, {
+            data,
+            timestamp: Date.now(),
+            etag,
+          });
           setLastUpdatedAt(Date.now());
         }
         return data;

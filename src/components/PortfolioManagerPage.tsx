@@ -37,7 +37,10 @@ import {
   calculatePortfolioSummary,
   convertPortfolioToCustomIndexBasket,
   consumeSaveFailure,
+  readPersistedJson,
   todayJstDateString,
+  STORAGE_KEY_PORTFOLIO,
+  STORAGE_KEY_WATCHLIST,
   type PortfolioPosition,
 } from "../lib/portfolioStorage";
 import {
@@ -97,7 +100,7 @@ export function PortfolioManagerPage({
   // the map; when unset the summary keeps its documented fallback constant.
   const [usdJpyRate, setUsdJpyRate] = useState<number | undefined>(undefined);
   const [refreshing, setRefreshing] = useState(false);
-  const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(() => Date.now());
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState<"HOLDINGS" | "WATCHLIST">("HOLDINGS");
 
   useRegisterFreshness("portfolio", {
@@ -174,14 +177,17 @@ export function PortfolioManagerPage({
 
   // Lockout countdown timer
   useEffect(() => {
-    if (!isLocked || lockoutRemainingSeconds <= 0) return;
+    // The interval must not depend on the value it decrements: that tore the
+    // interval down and recreated it every second, so each tick restarted a
+    // full period and the advertised remaining time drifted.
+    if (!isLocked) return;
     const timer = setInterval(() => {
       // Pure updater: 副作用 (解除・エラー消去) は下の effect に置く。
       // updater 内の setState は React の純粋性契約に反し StrictMode で誤動作する。
       setLockoutRemainingSeconds((prev) => (prev <= 1 ? 0 : prev - 1));
     }, 1000);
     return () => clearInterval(timer);
-  }, [isLocked, lockoutRemainingSeconds]);
+  }, [isLocked]);
 
   // Release the lock once the countdown reaches zero.
   useEffect(() => {
@@ -191,26 +197,19 @@ export function PortfolioManagerPage({
     }
   }, [isLocked, lockoutRemainingSeconds]);
 
-  // Synchronize positions & watchlist immediately when auth transition occurs
-  // during render to prevent overwriting saved data with unauthenticated empty arrays
+  // Synchronize positions & watchlist when auth state changes.
+  //
+  // The transition is handled in an effect, not during render: doing it in
+  // the render phase wrote to refs and called setState from the render body,
+  // so a discarded render left the "already handled" flag flipped while the
+  // queued state update was never committed. The portfolio then stayed empty
+  // and the sample-portfolio banner was suppressed as well, with no error
+  // shown anywhere.
   const isAuthTransitionRef = useRef(false);
-  const prevAuthRef = useRef(isAuthenticated);
-  if (!prevAuthRef.current && isAuthenticated) {
-    prevAuthRef.current = true;
-    setPositions(loadPortfolioPositions());
-    setWatchlist(loadWatchlist());
-    isAuthTransitionRef.current = true;
-    positionsPersistedRef.current = hasPersistedPortfolio();
-    watchlistPersistedRef.current = hasPersistedWatchlist();
-  } else if (prevAuthRef.current && !isAuthenticated) {
-    prevAuthRef.current = false;
-    isAuthTransitionRef.current = false;
-    setPositions([]);
-    setWatchlist([]);
-  }
-
-  // Synchronize positions & watchlist when auth state changes
   useEffect(() => {
+    // The auto-save effects below must not run for the state that is about to
+    // be replaced by the persisted positions.
+    isAuthTransitionRef.current = true;
     if (isAuthenticated) {
       positionsPersistedRef.current = hasPersistedPortfolio();
       watchlistPersistedRef.current = hasPersistedWatchlist();
@@ -222,11 +221,33 @@ export function PortfolioManagerPage({
     }
   }, [isAuthenticated]);
 
+  // Keep this tab in sync with other tabs that changed the persisted
+  // portfolio. Without this, a tab that still holds the pre-change array
+  // silently deleted the other tab's entries on its next auto-save.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handleStorage = (event: StorageEvent) => {
+      if (!isAuthenticated) return;
+      if (event.key === STORAGE_KEY_PORTFOLIO) {
+        setPositions(loadPortfolioPositions());
+      } else if (event.key === STORAGE_KEY_WATCHLIST) {
+        setWatchlist(loadWatchlist());
+      }
+    };
+    window.addEventListener("storage", handleStorage);
+    return () => window.removeEventListener("storage", handleStorage);
+  }, [isAuthenticated]);
+
   useEffect(() => {
     if (isAuthTransitionRef.current) {
       return;
     }
     if (isAuthenticated && positionsPersistedRef.current) {
+      // Writing an identical payload is a no-op that still fires a `storage`
+      // event in the other tabs, which would start a cross-tab write loop.
+      if (JSON.stringify(positions) === readPersistedJson(STORAGE_KEY_PORTFOLIO)) {
+        return;
+      }
       savePortfolioPositions(positions);
       // 保存結果を黙って捨てると、クォータ超過やストレージ無効で
       // 「保存済み」のままデータを失う。失敗はトーストで明示する
@@ -249,6 +270,10 @@ export function PortfolioManagerPage({
       return;
     }
     if (isAuthenticated && watchlistPersistedRef.current) {
+      // Same no-op guard as the positions list.
+      if (JSON.stringify(watchlist) === readPersistedJson(STORAGE_KEY_WATCHLIST)) {
+        return;
+      }
       saveWatchlist(watchlist);
       // 保有銘柄と同じ理由で、ウォッチリストの自動保存失敗も通知する。
       if (consumeSaveFailure()) {
@@ -336,6 +361,10 @@ export function PortfolioManagerPage({
         setAuthSecretCode("");
         setTurnstileToken("");
         success("管理者としてログインしました。ポートフォリオ管理機能をご利用いただけます。");
+      } else if (res.cancelled) {
+        // The attempt was superseded (a newer attempt or a logout): it did not
+        // fail, so no error is shown and the solved Turnstile token is kept.
+        return;
       } else {
         if (res.locked) {
           setIsLocked(true);
@@ -368,7 +397,7 @@ export function PortfolioManagerPage({
         setWatchlist(loadWatchlist());
         setAuthPassword("");
         success("ログインしました。ポートフォリオ管理機能をご利用いただけます。");
-      } else {
+      } else if (!res.cancelled) {
         setAuthError(res.error || "パスワードが正しくありません");
       }
     }

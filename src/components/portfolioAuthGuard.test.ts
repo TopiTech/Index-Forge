@@ -39,16 +39,26 @@ describe("Portfolio Page Authentication Guard & Access Control", () => {
     });
 
     it("guards storage loading and saving behind isAuthenticated state", () => {
-      // Data must be loaded conditionally on auth
-      expect(portfolioTsx).toMatch(/isAuthenticated\s*\?\s*loadPortfolioPositions\(\)\s*:\s*\[\]/);
-      expect(portfolioTsx).toMatch(/isAuthenticated\s*\?\s*loadWatchlist\(\)\s*:\s*\[\]/);
-      // Data persistence must only trigger when authenticated (and, since the
-      // preset list is preview-only, only after the user has persisted data).
+      // Data must be loaded conditionally on auth: the persisted positions are
+      // read while authenticated and the in-memory lists are cleared otherwise.
       expect(portfolioTsx).toMatch(
-        /if\s*\(isAuthenticated\s*&&\s*positionsPersistedRef\.current\)\s*\{\s*savePortfolioPositions\(positions\);/,
+        /if\s*\(isAuthenticated\)\s*\{[\s\S]*?setPositions\(loadPortfolioPositions\(\)\)/,
       );
       expect(portfolioTsx).toMatch(
-        /if\s*\(isAuthenticated\s*&&\s*watchlistPersistedRef\.current\)\s*\{\s*saveWatchlist\(watchlist\);/,
+        /if\s*\(isAuthenticated\)\s*\{[\s\S]*?setWatchlist\(loadWatchlist\(\)\)/,
+      );
+      expect(portfolioTsx).toContain("setPositions([])");
+      expect(portfolioTsx).toContain("setWatchlist([])");
+      // Data persistence must only trigger when authenticated (and, since the
+      // preset list is preview-only, only after the user has persisted data).
+      // The save call has to stay *inside* the guarded block: an assertion
+      // that only looks for the two strings separately would also pass when
+      // the save was moved out of the guard.
+      expect(portfolioTsx).toMatch(
+        /if\s*\(isAuthenticated\s*&&\s*positionsPersistedRef\.current\)\s*\{[\s\S]*?savePortfolioPositions\(positions\);/,
+      );
+      expect(portfolioTsx).toMatch(
+        /if\s*\(isAuthenticated\s*&&\s*watchlistPersistedRef\.current\)\s*\{[\s\S]*?saveWatchlist\(watchlist\);/,
       );
     });
 

@@ -84,7 +84,7 @@ describe("Data Accuracy & Mock Elimination Comprehensive Tests", () => {
       const universe = await fetchLiveScreenerUniverse();
       const toyota = universe.find((s) => s.ticker === "7203");
       expect(toyota?.sparkline).toBeDefined();
-      expect(toyota!.sparkline.length).toBeGreaterThanOrEqual(2);
+      expect(toyota?.sparkline?.length ?? 0).toBeGreaterThanOrEqual(2);
     });
   });
 

@@ -5,6 +5,7 @@ import {
   resetPasswordTableEnsured,
 } from "../../worker/internal";
 import { normalizeTicker } from "./indexEngine";
+import { asWorkerEnv } from "../test-helpers/env";
 
 const TEST_ADMIN_PASSWORD = "test-admin-password";
 
@@ -116,13 +117,13 @@ function createTestEnv() {
     };
   });
 
-  const env = {
+  const env = asWorkerEnv({
     DB: {
       prepare,
       batch: async () => [],
-    } as unknown as D1Database,
+    },
     ADMIN_PASSWORD: TEST_ADMIN_PASSWORD,
-  };
+  });
 
   return { env, passwords };
 }

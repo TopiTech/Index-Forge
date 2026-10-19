@@ -341,7 +341,10 @@ export function AdminDashboard({
 
   // Lockout countdown timer
   useEffect(() => {
-    if (!isLocked || lockoutRemainingSeconds <= 0) return;
+    // The interval must not depend on the value it decrements: that tore the
+    // interval down and recreated it every second, so each tick restarted a
+    // full period and the advertised remaining time drifted.
+    if (!isLocked) return;
     const timer = setInterval(() => {
       // Pure updater: side effects (unlock + interval teardown) live in the
       // effect below. Running them inside the updater broke React's purity
@@ -349,7 +352,7 @@ export function AdminDashboard({
       setLockoutRemainingSeconds((prev) => (prev <= 1 ? 0 : prev - 1));
     }, 1000);
     return () => clearInterval(timer);
-  }, [isLocked, lockoutRemainingSeconds]);
+  }, [isLocked]);
 
   // Release the lock once the countdown reaches zero.
   useEffect(() => {
@@ -387,20 +390,26 @@ export function AdminDashboard({
     );
     setLoggingIn(false);
 
-    if (!res.ok) {
-      setLoginError(res.error || "管理者パスワードまたは秘密の暗号が正しくありません");
-      if (res.locked) {
-        setIsLocked(true);
-        if (typeof res.remainingSeconds === "number") {
-          setLockoutRemainingSeconds(res.remainingSeconds);
-        }
-      }
-      if (typeof res.remainingAttempts === "number") {
-        setRemainingAttempts(res.remainingAttempts);
-      }
-      turnstileRef.current?.reset();
-      setTurnstileToken("");
+    if (res.ok) {
+      return;
     }
+    if (res.cancelled) {
+      // The attempt was superseded (a newer attempt or a logout): it did not
+      // fail, so no error is shown and the solved Turnstile token is kept.
+      return;
+    }
+    setLoginError(res.error || "管理者パスワードまたは秘密の暗号が正しくありません");
+    if (res.locked) {
+      setIsLocked(true);
+      if (typeof res.remainingSeconds === "number") {
+        setLockoutRemainingSeconds(res.remainingSeconds);
+      }
+    }
+    if (typeof res.remainingAttempts === "number") {
+      setRemainingAttempts(res.remainingAttempts);
+    }
+    turnstileRef.current?.reset();
+    setTurnstileToken("");
   };
 
   // Change admin secret code submit
@@ -1519,10 +1528,17 @@ export function AdminDashboard({
                 )}
               </div>
 
-              <div style={{ marginBottom: 18 }}>
-                <label style={{ display: "block", fontSize: 12, color: "var(--text-secondary)", marginBottom: 6 }}>
+              <div role="radiogroup" aria-label="権限ロール" style={{ marginBottom: 18 }}>
+                <div
+                  style={{
+                    display: "block",
+                    fontSize: 12,
+                    color: "var(--text-secondary)",
+                    marginBottom: 6,
+                  }}
+                >
                   権限ロール
-                </label>
+                </div>
                 <div className="row" style={{ gap: 10 }}>
                   <label className="row" style={{ gap: 6, fontSize: 12, cursor: "pointer" }}>
                     <input

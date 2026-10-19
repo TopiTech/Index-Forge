@@ -124,8 +124,7 @@ describe("Comprehensive Goal Code Review Final Audit Resolution Verification", (
           shares: 100,
           averageCost: 2500,
           currentPrice: 2800, // Valid custom currentPrice
-          currency: "JPY",
-          addedAt: "2026-01-01T00:00:00Z",
+          acquiredAt: "2026-01-01T00:00:00Z",
         },
         {
           id: "pos-2",
@@ -134,12 +133,11 @@ describe("Comprehensive Goal Code Review Final Audit Resolution Verification", (
           shares: 50,
           averageCost: 1000,
           currentPrice: 0, // Fallback to baseline
-          currency: "JPY",
-          addedAt: "2026-01-01T00:00:00Z",
+          acquiredAt: "2026-01-01T00:00:00Z",
         },
       ];
 
-      const summary = calculatePortfolioSummary(positions, {}, 155);
+      const summary = calculatePortfolioSummary(positions, undefined, 155);
       expect(Number.isFinite(summary.totalMarketValue)).toBe(true);
       expect(Number.isFinite(summary.totalCost)).toBe(true);
       expect(Number.isFinite(summary.totalProfit)).toBe(true);

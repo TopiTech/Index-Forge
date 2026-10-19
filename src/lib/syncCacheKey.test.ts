@@ -1,88 +1,75 @@
-import { describe, it, expect, beforeEach } from "vitest";
+/**
+ * Regression test: the dashboard and the builder must use ONE sync cache.
+ *
+ * A previous bug wrote the cleanup to a stale "custom_index_sync_cache_v2"
+ * key, so the missing-ticker cleanup silently failed and stale sync state
+ * accumulated. The cache is now owned by `src/lib/syncCache.ts`; this test
+ * asserts that the re-exported surface of `useCalculation` still points at
+ * that same key, so the two hooks cannot drift apart again.
+ *
+ * It deliberately exercises the production module instead of a local copy of
+ * the read-modify-write: a copy would only prove that the copy agrees with
+ * itself.
+ */
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { SYNC_STORAGE_KEY, updateLocalSyncCache } from "../hooks/useCalculation";
+import {
+  SYNC_STORAGE_KEY as SHARED_SYNC_STORAGE_KEY,
+  mergeSyncCache,
+  readSyncCache,
+  removeFromSyncCache,
+} from "./syncCache";
 
-// Regression test: the sync cache cleanup in useCalculation.ts must write to
-// the same localStorage key that getLocalSyncCache()/updateLocalSyncCache()
-// read from. A previous bug wrote to a stale "custom_index_sync_cache_v2" key,
-// causing missing-ticker cleanup to silently fail and stale sync state to
-// accumulate.
+let store: Record<string, string> = {};
 
-const SYNC_STORAGE_KEY = "osi_stock_sync_cache";
+beforeEach(() => {
+  store = {};
+  vi.stubGlobal("localStorage", {
+    getItem: (key: string) => store[key] ?? null,
+    setItem: (key: string, value: string) => {
+      store[key] = value;
+    },
+    removeItem: (key: string) => {
+      delete store[key];
+    },
+  });
+});
 
-// Mock localStorage for Node.js test environment
-function createLocalStorageMock(): Storage {
-  const store = new Map<string, string>();
-  return {
-    getItem: (key: string) => store.get(key) || null,
-    setItem: (key: string, value: string) => store.set(key, value),
-    removeItem: (key: string) => store.delete(key),
-    clear: () => store.clear(),
-    key: (index: number) => Array.from(store.keys())[index] || null,
-    length: store.size,
-  } as Storage;
-}
-
-function getLocalSyncCache(localStorage: Storage): Record<string, number> {
-  try {
-    const raw = localStorage.getItem(SYNC_STORAGE_KEY);
-    return raw ? JSON.parse(raw) : {};
-  } catch {
-    return {};
-  }
-}
-
-function updateLocalSyncCache(localStorage: Storage, tickers: string[]): void {
-  try {
-    const cache = getLocalSyncCache(localStorage);
-    const now = Date.now();
-    for (const t of tickers) {
-      cache[t] = now;
-    }
-    for (const [k, v] of Object.entries(cache)) {
-      if (now - v > 7 * 24 * 60 * 60 * 1000) {
-        delete cache[k];
-      }
-    }
-    localStorage.setItem(SYNC_STORAGE_KEY, JSON.stringify(cache));
-  } catch {
-    // ignore
-  }
-}
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 describe("sync cache key consistency", () => {
-  let mockLocalStorage: Storage;
-
-  beforeEach(() => {
-    mockLocalStorage = createLocalStorageMock();
+  it("exposes the same key from the hook surface and the shared module", () => {
+    expect(SYNC_STORAGE_KEY).toBe(SHARED_SYNC_STORAGE_KEY);
+    expect(SYNC_STORAGE_KEY).toBe("osi_stock_sync_cache");
   });
 
-  it("writes to the same key that getLocalSyncCache reads from", () => {
-    updateLocalSyncCache(mockLocalStorage, ["7203", "9984"]);
-    const cache = getLocalSyncCache(mockLocalStorage);
+  it("writes to the same key the shared reader reads from", () => {
+    updateLocalSyncCache(["7203", "9984"]);
+
+    const cache = readSyncCache();
     expect(cache["7203"]).toBeDefined();
     expect(cache["9984"]).toBeDefined();
+    expect(store[SYNC_STORAGE_KEY]).toBeDefined();
   });
 
-  it("cleanup removes entries and persists via SYNC_STORAGE_KEY", () => {
-    // Seed some tickers
-    updateLocalSyncCache(mockLocalStorage, ["7203", "9984", "6758"]);
-    const cache = getLocalSyncCache(mockLocalStorage);
-    expect(Object.keys(cache).length).toBe(3);
+  it("removes a ticker from the same key it was written to", () => {
+    mergeSyncCache([{ ticker: "7203" }, { ticker: "9984" }, { ticker: "6758" }]);
+    expect(Object.keys(readSyncCache()).length).toBe(3);
 
-    // Simulate the cleanup path: delete a missing ticker and persist
-    delete cache["9984"];
-    mockLocalStorage.setItem(SYNC_STORAGE_KEY, JSON.stringify(cache));
+    removeFromSyncCache(["9984"]);
 
-    // Verify the cleanup persisted correctly
-    const updated = getLocalSyncCache(mockLocalStorage);
-    expect(updated["7203"]).toBeDefined();
-    expect(updated["9984"]).toBeUndefined();
-    expect(updated["6758"]).toBeDefined();
+    const cache = readSyncCache();
+    expect(cache["7203"]).toBeDefined();
+    expect(cache["9984"]).toBeUndefined();
+    expect(cache["6758"]).toBeDefined();
   });
 
   it("does not leave stale data in legacy keys", () => {
-    updateLocalSyncCache(mockLocalStorage, ["7203"]);
-    // Verify no legacy keys were created
-    expect(mockLocalStorage.getItem("custom_index_sync_cache_v2")).toBeNull();
-    expect(mockLocalStorage.getItem("osi_stock_sync_cache")).not.toBeNull();
+    updateLocalSyncCache(["7203"]);
+
+    expect(store["custom_index_sync_cache_v2"]).toBeUndefined();
+    expect(store[SYNC_STORAGE_KEY]).toBeDefined();
   });
 });

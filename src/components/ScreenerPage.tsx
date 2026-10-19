@@ -103,7 +103,7 @@ export function ScreenerPage({
   const [universe, setUniverse] = useState<StockQuoteFundamentals[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [isLive, setIsLive] = useState(false);
-  const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(() => Date.now());
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(null);
 
   useRegisterFreshness("screener", {
     loading,

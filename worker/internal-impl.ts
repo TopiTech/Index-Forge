@@ -7,6 +7,7 @@
 // limit, and login attempts are separately rate limited per IP.
 export const MAX_AUTH_ROW_VERIFICATIONS = 200;
 import { calculateCustomIndex } from "../src/lib/indexEngine";
+import type { D1Database, D1PreparedStatement } from "@cloudflare/workers-types";
 import { SYSTEM_INDICES as SHARED_SYSTEM_INDICES } from "../src/data/indices";
 import { POPULAR_STOCKS } from "../src/data/popularStocks";
 import { BASELINE_ASSET_QUOTES } from "../src/data/marketConstants";
@@ -25,8 +26,31 @@ import {
 import { toYahooSymbol } from "../src/lib/yahooSymbol";
 import type { BasketItem, PricePoint, StockSeries } from "../src/types";
 
+/**
+ * The static-assets binding.
+ *
+ * Modelled locally instead of importing the runtime `Fetcher` type: that type
+ * ties the request to the Workers `Request` shape (which carries a `fetcher`
+ * property), which conflicts with the DOM `Request` that the browser-facing
+ * code and the tests use. The Worker only needs `fetch`.
+ */
+export interface AssetsBinding {
+  fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response>;
+}
+
+/**
+ * The subset of the Workers execution context the Worker actually uses.
+ *
+ * Declared locally for the same reason as `AssetsBinding`: the runtime type
+ * carries `tracing`/`abort` members that are irrelevant here.
+ */
+export interface WorkerExecutionContext {
+  waitUntil(promise: Promise<unknown>): void;
+  passThroughOnException?(): void;
+}
+
 export interface Env {
-  ASSETS: Fetcher;
+  ASSETS: AssetsBinding;
   DB: D1Database;
   ADMIN_PASSWORD?: string;
   ADMIN_SECRET_CODE?: string;
@@ -693,6 +717,16 @@ export async function ensurePasswordTable(env: Env): Promise<void> {
     } catch {
       // The table may already exist on an upgraded database.
     }
+    // The expired-window purge filters on window_start, which is not covered
+    // by the primary key. Without this index the purge is a full table scan.
+    try {
+      await runStatement(
+        env,
+        "CREATE INDEX IF NOT EXISTS idx_rate_limits_window_start ON rate_limits(window_start)",
+      );
+    } catch {
+      // The index may already exist.
+    }
     // Ensure sync_logs table if not exists
     try {
       await runStatement(
@@ -713,7 +747,7 @@ export async function ensurePasswordTable(env: Env): Promise<void> {
         env,
         `
         CREATE TABLE IF NOT EXISTS snapshot_cache (
-          id INTEGER PRIMARY KEY,
+          id INTEGER PRIMARY KEY CHECK (id = 1),
           data TEXT NOT NULL,
           cached_at INTEGER NOT NULL
         )
@@ -1217,7 +1251,7 @@ export async function authenticatePassword(
   env: Env,
   explicitPassword?: string | null,
   rateLimitEndpoint = "auth-api",
-  ctx?: ExecutionContext,
+  ctx?: WorkerExecutionContext,
 ): Promise<AuthResult> {
   const pwd =
     explicitPassword !== undefined && explicitPassword !== null
@@ -4261,7 +4295,7 @@ export async function checkRateLimit(
   endpoint: string,
   maxRequests = RATE_LIMIT_MAX,
   failClosed = false,
-  ctx?: ExecutionContext,
+  ctx?: WorkerExecutionContext,
 ): Promise<boolean> {
   // High-frequency read & compute endpoints use in-memory rate limiting to
   // protect Cloudflare D1's strict 100,000 writes/month free-tier quota.
@@ -4316,7 +4350,7 @@ export async function checkRateLimit(
 }
 
 export default {
-  async fetch(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx?: WorkerExecutionContext): Promise<Response> {
     try {
       if (request.method === "OPTIONS")
         return json({ ok: true }, 200, request, { "access-control-max-age": "86400" });

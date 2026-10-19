@@ -16,7 +16,7 @@ import {
 import { calculateRiskMetrics } from "../lib/analytics";
 import { filterByTimeframe } from "../lib/timeframe";
 import { isPriceCacheFresh } from "../lib/marketCache";
-import { SYNC_STORAGE_KEY, parseLocalSyncCache } from "./useCalculation";
+import { mergeSyncCache, readSyncCache } from "../lib/syncCache";
 import { useBenchmark, isBenchmarkDataForSymbol } from "./useBenchmark";
 
 export interface ConstituentPerformance {
@@ -43,6 +43,8 @@ export interface SimulationResult {
   loading: boolean;
   benchmarkLoading: boolean;
   error: string | null;
+  /** Non-fatal problems encountered while preparing the data (e.g. sync failures). */
+  syncWarnings: string[];
   /** True when the preview shows generated demo prices instead of API data. */
   usingDemoData: boolean;
   /** True when the benchmark comparison line/alpha is based on generated demo data. */
@@ -55,9 +57,9 @@ export interface SimulationResult {
 }
 
 const API_BASE = "/api";
-// SYNC_STORAGE_KEY is imported from ./useCalculation so both hooks read and
-// write the same localStorage sync cache. Duplicating the literal here risked
-// one copy being renamed while the other kept writing the old key.
+// The browser sync cache is owned by src/lib/syncCache so the dashboard and
+// the builder share one read-modify-write implementation instead of two that
+// overwrite each other's entries.
 
 /**
  * Maximum tickers accepted per /api/sync-prices request. The Worker rejects
@@ -102,6 +104,46 @@ export function decideSimulationEffectAction(
   return stockUniverseSize > 0 ? "recompute" : "idle";
 }
 
+/**
+ * Identity-preserving clear.
+ *
+ * React only skips a re-render when a state updater returns the previous
+ * reference. The simulation effect depends on `stockUniverse`, so writing a
+ * fresh `[]` on every run made each run schedule another one: clearing an
+ * already-empty basket produced an unbounded "Maximum update depth exceeded"
+ * loop. Returning the previous reference keeps the transition idempotent, so
+ * the effect can never re-arm itself.
+ */
+export function clearIfEmpty<T>(previous: T[]): T[] {
+  return previous.length === 0 ? previous : [];
+}
+
+/**
+ * True when two price series are equivalent.
+ *
+ * The effect recomputes the series locally whenever the basket changes, and
+ * it depends on the basket array. A parent that recreates an equal basket
+ * array on every render would therefore re-run the effect on every render;
+ * writing the freshly computed array each time would turn that into an
+ * unbounded render loop. Returning the previous reference when the recomputed
+ * series is unchanged keeps the write idempotent.
+ */
+export function sameSeries(a: PricePoint[], b: PricePoint[]): boolean {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (
+      a[i].date !== b[i].date ||
+      a[i].close !== b[i].close ||
+      a[i].value !== b[i].value ||
+      a[i].volume !== b[i].volume
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
 export function useSimulation(
   basket: BasketItem[],
   baseValue: number = 1000,
@@ -116,11 +158,33 @@ export function useSimulation(
   const [error, setError] = useState<string | null>(null);
   /** True when the displayed series comes from generated demo prices, not the API. */
   const [usingDemoData, setUsingDemoData] = useState(false);
+  /** Non-fatal problems (e.g. a price-sync batch that failed). */
+  const [syncWarnings, setSyncWarnings] = useState<string[]>([]);
 
   const { benchmarkData, loading: benchmarkLoading } = useBenchmark(selectedBenchmark);
 
   const abortRef = useRef<AbortController | null>(null);
   const knownTickersRef = useRef<string>("");
+  /**
+   * Monotonic id of the newest simulation request.
+   *
+   * The AbortController alone is not enough: the effect's branches can decide
+   * that a request is obsolete *before* the replacement request starts (the
+   * replacement is debounced), so the obsolete response could still land in
+   * that window and overwrite the current basket's data. Every request
+   * captures the id it was started with and refuses to publish state when a
+   * newer request has superseded it.
+   */
+  const requestIdRef = useRef(0);
+
+  /** Cancel the in-flight request and invalidate any response still in flight. */
+  const abortInFlight = useCallback(() => {
+    requestIdRef.current += 1;
+    if (abortRef.current) {
+      abortRef.current.abort();
+      abortRef.current = null;
+    }
+  }, []);
 
   // Check if all tickers in current basket are already present in stockUniverse
   const currentTickersKey = useMemo(() => {
@@ -145,10 +209,12 @@ export function useSimulation(
   const runSimulation = useCallback(
     async (force = false) => {
       if (basket.length === 0) {
-        setCustomSeries([]);
-        setStockUniverse([]);
+        abortInFlight();
+        setCustomSeries((prev) => clearIfEmpty(prev));
+        setStockUniverse((prev) => clearIfEmpty(prev));
         setError(null);
         setUsingDemoData(false);
+        setSyncWarnings((prev) => clearIfEmpty(prev));
         setLoading(false);
         return;
       }
@@ -156,8 +222,14 @@ export function useSimulation(
       // If we already have stockUniverse for all basket items and not forcing,
       // compute customSeries purely in client memory (0ms latency)!
       if (!force && hasAllStockData && stockUniverse.length > 0) {
+        // Any request still in flight was started for a superseded basket, so
+        // it must not be allowed to publish its (different) universe later.
+        abortInFlight();
         const computed = calculateCustomIndex(basket, stockUniverse, baseValue);
-        setCustomSeries(computed);
+        setCustomSeries((prev) => (sameSeries(prev, computed) ? prev : computed));
+        // The data was computed locally from the cached universe, so a warning
+        // about an earlier failed sync no longer describes what is displayed.
+        setSyncWarnings((prev) => clearIfEmpty(prev));
         // The fetched data already covers this ticker set; record it so the
         // effect recomputes in memory instead of re-arming a fetch.
         knownTickersRef.current = currentTickersKey;
@@ -169,10 +241,14 @@ export function useSimulation(
       }
       const controller = new AbortController();
       abortRef.current = controller;
+      const requestId = ++requestIdRef.current;
+      /** True when a newer request has superseded this one. */
+      const isSuperseded = () => requestId !== requestIdRef.current;
 
       setLoading(true);
       setError(null);
       setUsingDemoData(false);
+      setSyncWarnings((prev) => clearIfEmpty(prev));
 
       // POST /api/calculate は1件の不正エントリで全体を400にする。レガシー行の
       // weight 0 や全角ティッカーをそのまま送ると、原因表示もなくデモデータへ
@@ -180,8 +256,8 @@ export function useSimulation(
       const sanitizedBasket = sanitizeBasketForRequest(basket);
       const requestBasket = sanitizedBasket.basket;
       if (requestBasket.length === 0) {
-        setCustomSeries([]);
-        setStockUniverse([]);
+        setCustomSeries((prev) => clearIfEmpty(prev));
+        setStockUniverse((prev) => clearIfEmpty(prev));
         setError("構成銘柄に有効なティッカーが含まれていないため計算できません。銘柄を編集してください。");
         setUsingDemoData(false);
         setLoading(false);
@@ -190,9 +266,9 @@ export function useSimulation(
 
       try {
         const allTickers = requestBasket.map((b) => normalizeTicker(b.ticker));
-        const localSyncCache = parseLocalSyncCache(
-          typeof localStorage === "undefined" ? null : localStorage.getItem(SYNC_STORAGE_KEY),
-        );
+        // Blocked storage must not be reported as a network failure, so the
+        // cache is read through the exception-safe shared helper.
+        const localSyncCache = readSyncCache();
         const nowSec = Math.floor(Date.now() / 1000);
 
         const tickersToSync = force
@@ -205,54 +281,71 @@ export function useSimulation(
               return true;
             });
 
-        // 1. Sync prices in background (only for tickers that are missing or stale)
+        // 1. Sync stale prices before calculating (only for missing/stale tickers).
+        // The Worker refreshes its D1 price cache; the calculation below then
+        // reads the refreshed rows.
         if (tickersToSync.length > 0) {
-          try {
-            for (const batch of buildSyncBatches(tickersToSync)) {
+          const syncWarnings: string[] = [];
+          const newlySynced: { ticker: string; lastSynced: number }[] = [];
+          for (const batch of buildSyncBatches(tickersToSync)) {
+            if (controller.signal.aborted || isSuperseded()) return;
+            try {
               const syncRes = await fetch(`${API_BASE}/sync-prices`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ tickers: batch, force: false }),
                 signal: controller.signal,
               });
-              if (controller.signal.aborted) return;
-              if (syncRes.ok) {
-                const syncData = (await syncRes.json().catch(() => ({}))) as {
-                  results?: Array<{ ticker?: string; status?: string; lastSynced?: number }>;
-                };
-                if (Array.isArray(syncData.results)) {
-                  const nowMs = Date.now();
-                  for (const r of syncData.results) {
-                    if (r.status === "synced" || r.status === "cached") {
-                      const nt = typeof r.ticker === "string" ? normalizeTicker(r.ticker) : "";
-                      if (nt) {
-                        localSyncCache[nt] =
-                          typeof r.lastSynced === "number" && Number.isFinite(r.lastSynced) && r.lastSynced > 0
-                            ? (r.lastSynced < 1e11 ? Math.round(r.lastSynced * 1000) : Math.round(r.lastSynced))
-                            : nowMs;
-                      }
-                    }
-                  }
-                  // Clean entries older than 7 days
-                  for (const [k, v] of Object.entries(localSyncCache)) {
-                    if (nowMs - v > 7 * 24 * 60 * 60 * 1000) {
-                      delete localSyncCache[k];
-                    }
-                  }
-                  try {
-                    localStorage.setItem(SYNC_STORAGE_KEY, JSON.stringify(localSyncCache));
-                  } catch {
-                    // ignore localStorage quota errors
+              if (controller.signal.aborted || isSuperseded()) return;
+              if (!syncRes.ok) {
+                syncWarnings.push(`価格同期バッチ ${batch.length} 件の取得に失敗しました`);
+                continue;
+              }
+              const syncData = (await syncRes.json().catch(() => ({}))) as {
+                results?: Array<{ ticker?: string; status?: string; lastSynced?: number }>;
+              };
+              if (!Array.isArray(syncData.results)) continue;
+
+              const nowMs = Date.now();
+              for (const r of syncData.results) {
+                if (r.status === "synced" || r.status === "cached") {
+                  const nt = typeof r.ticker === "string" ? normalizeTicker(r.ticker) : "";
+                  if (nt) {
+                    newlySynced.push({
+                      ticker: nt,
+                      lastSynced:
+                        typeof r.lastSynced === "number" && Number.isFinite(r.lastSynced) && r.lastSynced > 0
+                          ? (r.lastSynced < 1e11 ? Math.round(r.lastSynced * 1000) : Math.round(r.lastSynced))
+                          : nowMs,
+                    });
                   }
                 }
               }
+              const failed = syncData.results
+                .filter((r) => r.status === "failed")
+                .map((r) => (typeof r.ticker === "string" ? r.ticker : ""));
+              if (failed.length > 0) {
+                syncWarnings.push(`一部銘柄の価格取得に失敗: ${failed.join(", ")}`);
+              }
+            } catch (err) {
+              if (
+                controller.signal.aborted ||
+                (err instanceof DOMException && err.name === "AbortError")
+              ) {
+                return;
+              }
+              syncWarnings.push("価格同期で通信エラーが発生しました");
             }
-          } catch {
-            // Ignore network errors in sync preflight
+          }
+          if (newlySynced.length > 0) {
+            mergeSyncCache(newlySynced);
+          }
+          if (syncWarnings.length > 0) {
+            setSyncWarnings(Array.from(new Set(syncWarnings)));
           }
         }
 
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted || isSuperseded()) return;
 
         // 2. Fetch calculated index and stockUniverse from /api/calculate
         const calcRes = await fetch(`${API_BASE}/calculate`, {
@@ -276,6 +369,9 @@ export function useSimulation(
 
         if (calcRes.ok) {
           const data = await calcRes.json();
+          // The response body is read asynchronously: a superseded request must
+          // not publish its universe/series for a basket that no longer exists.
+          if (controller.signal.aborted || isSuperseded()) return;
           universe = Array.isArray(data.stockUniverse) ? data.stockUniverse : [];
           series = Array.isArray(data.series) ? data.series : [];
         } else {
@@ -283,6 +379,7 @@ export function useSimulation(
           // エラー(400)やレート制限(429)を黙ってデモ表示に置き換えていたため、
           // 利用者は「なぜ数値が違うのか」を知らされなかった。
           const errBody = (await calcRes.json().catch(() => ({}))) as Record<string, unknown>;
+          if (controller.signal.aborted || isSuperseded()) return;
           serverErrorMessage =
             typeof errBody.error === "string" && errBody.error.trim()
               ? errBody.error.trim()
@@ -296,6 +393,7 @@ export function useSimulation(
           series = calculateCustomIndex(requestBasket, universe, baseValue);
         }
 
+        if (controller.signal.aborted || isSuperseded()) return;
         setStockUniverse(universe);
         setCustomSeries(series);
         knownTickersRef.current = currentTickersKey;
@@ -313,8 +411,11 @@ export function useSimulation(
       } catch (err: unknown) {
         if (
           controller.signal.aborted ||
+          isSuperseded() ||
           (err instanceof DOMException && err.name === "AbortError")
         ) {
+          // A superseded request must not publish demo data for a basket that
+          // no longer exists.
           return;
         }
         // Even on fetch error, generate client-side simulation so guest users always see results
@@ -334,7 +435,7 @@ export function useSimulation(
         }
       }
     },
-    [basket, baseValue, currentTickersKey, hasAllStockData, stockUniverse],
+    [basket, baseValue, currentTickersKey, hasAllStockData, stockUniverse, abortInFlight],
   );
 
   // When basket tickers change or initial mount, trigger simulation fetch
@@ -350,8 +451,16 @@ export function useSimulation(
       // Forget the fetched ticker set: re-adding the same tickers must fetch
       // again instead of assuming the cleared universe still covers them.
       knownTickersRef.current = "";
-      setCustomSeries([]);
-      setStockUniverse([]);
+      // A request for the previous basket must not resurrect the cleared
+      // state when its response arrives.
+      abortInFlight();
+      // The writes are identity-preserving: this effect depends on
+      // `stockUniverse` and on the basket array, so writing fresh arrays on
+      // every run would make the effect re-arm itself forever.
+      setCustomSeries((prev) => clearIfEmpty(prev));
+      setStockUniverse((prev) => clearIfEmpty(prev));
+      setSyncWarnings((prev) => clearIfEmpty(prev));
+      setLoading(false);
       return;
     }
 
@@ -360,7 +469,13 @@ export function useSimulation(
       // tickers: recompute from the data we already have. Re-fetching cannot
       // add missing data and previously looped forever at ~4 requests/second
       // (each response replaced stockUniverse, re-triggering this effect).
-      setCustomSeries(calculateCustomIndex(basket, stockUniverse, baseValue));
+      setCustomSeries((prev) => {
+        const next = calculateCustomIndex(basket, stockUniverse, baseValue);
+        return sameSeries(prev, next) ? prev : next;
+      });
+      // The data was computed locally from the cached universe, so a warning
+      // about an earlier failed sync no longer describes what is displayed.
+      setSyncWarnings((prev) => clearIfEmpty(prev));
       return;
     }
 
@@ -370,22 +485,26 @@ export function useSimulation(
       return;
     }
 
+    // The ticker set changed: the in-flight request (if any) was started for
+    // the previous basket, so it is invalidated immediately. The replacement
+    // request is debounced below; without invalidating here the obsolete
+    // response could land in that window and overwrite the new basket's data.
+    abortInFlight();
+
     // Debounce server fetch when tickers are added/removed
     const timer = setTimeout(() => {
       runSimulation();
     }, 250);
 
     return () => clearTimeout(timer);
-  }, [currentTickersKey, basket, baseValue, stockUniverse, runSimulation]);
+  }, [currentTickersKey, basket, baseValue, stockUniverse, runSimulation, abortInFlight]);
 
   // Cancel inflight simulation requests when component unmounts
   useEffect(() => {
     return () => {
-      if (abortRef.current) {
-        abortRef.current.abort();
-      }
+      abortInFlight();
     };
-  }, []);
+  }, [abortInFlight]);
 
   // Filter series according to timeframe
   const filteredCustomSeries = useMemo(() => {
@@ -463,6 +582,7 @@ export function useSimulation(
     loading,
     benchmarkLoading,
     error,
+    syncWarnings,
     /** True when the preview shows generated demo prices instead of API data. */
     usingDemoData,
     /** True when the benchmark comparison is generated demo data. */

@@ -12,7 +12,18 @@
 
 /**
  * Distributes `total` across `values` proportionally to their positive
- * magnitude, returning integers whose sum is exactly `total`.
+ * magnitude, returning integers.
+ *
+ * Two invariants apply, and they are only jointly satisfiable when the number
+ * of entries does not exceed the number of units available:
+ *
+ *  - every entry receives at least one unit, so a constituent never
+ *    disappears from a basket;
+ *  - the returned integers sum to `max(entries, total)`: the requested
+ *    `total` when it can be satisfied, otherwise the smallest feasible total
+ *    (one unit per entry). A basket with more constituents than percentage
+ *    points cannot sum to `total` without giving an entry a zero weight.
+ *
  * Non-positive or non-finite values are treated as zero magnitude.
  */
 export function allocateIntegerWeights(
@@ -22,7 +33,7 @@ export function allocateIntegerWeights(
     const n = values.length;
     if (n === 0) return [];
 
-    const safeTotal = Number.isFinite(total) ? Math.max(n, Math.round(total)) : 100;
+    const effectiveTotal = Number.isFinite(total) ? Math.max(n, Math.round(total)) : 100;
     const magnitudes = values.map((value) =>
         Number.isFinite(value) && value > 0 ? value : 0,
     );
@@ -31,14 +42,14 @@ export function allocateIntegerWeights(
     // Reserve 1 unit per entry so every constituent keeps a non-zero weight,
     // then proportionally split what remains.
     const reserve = n;
-    const pool = Math.max(0, safeTotal - reserve);
+    const pool = Math.max(0, effectiveTotal - reserve);
     const shares = magnitudes.map((value) =>
         sum > 0 ? (value / sum) * pool : pool / n,
     );
 
     const result = shares.map((share) => 1 + Math.floor(share));
     let remainder =
-        safeTotal - result.reduce((acc, weight) => acc + weight, 0);
+        effectiveTotal - result.reduce((acc, weight) => acc + weight, 0);
 
     // Hand the leftover units to the entries with the largest fractional part.
     const order = shares
@@ -46,12 +57,6 @@ export function allocateIntegerWeights(
         .sort((a, b) => b.fraction - a.fraction || a.index - b.index);
     for (let i = 0; i < order.length && remainder > 0; i++) {
         result[order[i].index] += 1;
-        remainder--;
-    }
-    // If `total` was smaller than the number of entries we still owe units;
-    // wrap around so the sum matches `total` exactly in every case.
-    for (let i = 0; remainder > 0; i = (i + 1) % n) {
-        result[i] += 1;
         remainder--;
     }
     return result;

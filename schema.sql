@@ -58,6 +58,13 @@ CREATE TABLE IF NOT EXISTS rate_limits (
     PRIMARY KEY (ip, endpoint)
 );
 
+-- The Worker purges expired windows with
+--   DELETE FROM rate_limits WHERE window_start < ?
+-- which is a full table scan without this index. The table grows with the
+-- number of distinct client IPs of a public deployment, and the purge runs on
+-- a write-quota-limited D1 database.
+CREATE INDEX IF NOT EXISTS idx_rate_limits_window_start ON rate_limits(window_start);
+
 CREATE INDEX IF NOT EXISTS idx_basket_items_index_id ON basket_items(index_id);
 CREATE INDEX IF NOT EXISTS idx_indices_creator_id ON indices(creator_id);
 

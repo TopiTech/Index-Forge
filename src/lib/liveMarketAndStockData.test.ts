@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import worker from "../../worker/index";
+import type { AssetsBinding, D1Database } from "../../worker/internal";
 import {
   setAllowMemoryCacheInTest,
   clearMemoryCache,
@@ -30,7 +31,7 @@ import { calculatePortfolioSummary, type PortfolioPosition } from "./portfolioSt
 
 function createMockEnv() {
   return {
-    ASSETS: { fetch: async () => new Response("OK") } as unknown as Fetcher,
+    ASSETS: { fetch: async () => new Response("OK") } as unknown as AssetsBinding,
     DB: {
       prepare: () => ({
         bind: () => ({

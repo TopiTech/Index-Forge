@@ -1,5 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import worker from "../../worker/index";
+import type { WorkerExecutionContext } from "../../worker/internal";
+import { asWorkerEnv } from "../test-helpers/env";
 
 describe("Autonomous Goal Review Fixes: Quota Bounds & Clamping", () => {
   function sanitizeQuota(
@@ -105,14 +107,12 @@ describe("Autonomous Goal Review Fixes: ConstituentsTable Unauthenticated Owner 
 describe("Autonomous Goal Review Fixes: ExecutionContext in Worker", () => {
   it("worker fetch accepts optional ExecutionContext and uses waitUntil", async () => {
     const waitUntilMock = vi.fn();
-    const ctx = {
+    const ctx: WorkerExecutionContext = {
       waitUntil: waitUntilMock,
       passThroughOnException: vi.fn(),
-      props: {},
-      exports: {} as unknown as Cloudflare.Exports,
     };
 
-    const mockEnv = {
+    const mockEnv = asWorkerEnv({
       DB: {
         prepare: vi.fn().mockReturnValue({
           bind: vi.fn().mockReturnValue({
@@ -123,7 +123,7 @@ describe("Autonomous Goal Review Fixes: ExecutionContext in Worker", () => {
         }),
       },
       ASSETS: { fetch: vi.fn() },
-    } as unknown as Env;
+    });
 
     const request = new Request("http://localhost/api/health", { method: "GET" });
     const response = await worker.fetch(request, mockEnv, ctx);
@@ -133,7 +133,7 @@ describe("Autonomous Goal Review Fixes: ExecutionContext in Worker", () => {
   });
 
   it("worker fetch operates reliably even without ExecutionContext provided", async () => {
-    const mockEnv = {
+    const mockEnv = asWorkerEnv({
       DB: {
         prepare: vi.fn().mockReturnValue({
           bind: vi.fn().mockReturnValue({
@@ -142,7 +142,7 @@ describe("Autonomous Goal Review Fixes: ExecutionContext in Worker", () => {
         }),
       },
       ASSETS: { fetch: vi.fn() },
-    } as unknown as Env;
+    });
 
     const request = new Request("http://localhost/api/health", { method: "GET" });
     // Calling fetch without ctx (standard 2-arg call)

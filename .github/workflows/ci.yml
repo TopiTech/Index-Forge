@@ -5,6 +5,12 @@ on:
     branches:
       - main
 
+# Cancel superseded runs so a long-lived branch does not burn CI minutes on
+# commits that are no longer under review.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 

@@ -246,7 +246,52 @@ export function StockTechnicalChart({
   }, [effectiveMode]);
 
   // Load /api/sync-prices or generate deterministic series for local chart
+  /**
+   * Ticker whose prices were last written to the D1 cache by the preflight
+   * sync. The preflight is a write, so it must not repeat for a ticker whose
+   * historical series cannot have changed. It is only set once the write
+   * actually succeeded, so a failed sync is retried on the next run.
+   */
+  const lastSyncedTickerRef = useRef<string | null>(null);
+
+  /**
+   * Signature of everything the chart actually derives from the quote.
+   *
+   * The quote object is replaced on every refresh, so depending on the object
+   * made the effect re-run (and re-issue its requests) even when nothing the
+   * chart shows had changed. The signature is a string, so it only changes
+   * when the content changes.
+   */
+  const stockContentSignature = useMemo(
+    () =>
+      [
+        stock.ticker,
+        stock.name,
+        stock.theme,
+        stock.price,
+        stock.volume,
+        stock.dayHigh,
+        stock.dayLow,
+        stock.previousClose,
+        stock.yearHigh,
+        stock.yearLow,
+        (stock.sparkline ?? []).join(","),
+      ].join("|"),
+    [stock],
+  );
+
+  /** Signature (and retry counter) of the last processed quote revision. */
+  const processedQuoteRef = useRef<{ signature: string; retryKey: number } | null>(null);
+
   useEffect(() => {
+    const processed = processedQuoteRef.current;
+    if (processed && processed.signature === stockContentSignature && processed.retryKey === retryKey) {
+      // Nothing the chart shows has changed since the last run: re-issuing
+      // the requests would only duplicate them.
+      return;
+    }
+    processedQuoteRef.current = { signature: stockContentSignature, retryKey };
+
     let isCancelled = false;
     setLocalDataLoading(true);
 
@@ -274,15 +319,27 @@ export function StockTechnicalChart({
             // Snapshot query is best-effort
           }
         } else {
-          // Preflight sync to ensure stock prices are refreshed into D1 cache
-          try {
-            await fetch("/api/sync-prices", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ tickers: [stock.ticker] }),
-            });
-          } catch {
-            // Preflight sync is best-effort; proceed to query /api/calculate
+          // Preflight sync to ensure stock prices are refreshed into D1 cache.
+          //
+          // `/api/sync-prices` is a *write* endpoint: it fetches from Yahoo and
+          // writes D1 rows. The historical series of an unchanged ticker
+          // cannot have changed, so the write is only needed when the ticker
+          // itself changes. It is recorded as done only after the request
+          // succeeded, so a failed write is retried on the next run.
+          if (lastSyncedTickerRef.current !== stock.ticker) {
+            try {
+              const syncRes = await fetch("/api/sync-prices", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ tickers: [stock.ticker] }),
+              });
+              if (syncRes.ok) {
+                lastSyncedTickerRef.current = stock.ticker;
+              }
+            } catch {
+              // Preflight sync is best-effort; proceed to query /api/calculate.
+              // The ticker stays unmarked, so the next run retries the write.
+            }
           }
 
           const calcRes = await fetch("/api/calculate", {
@@ -422,7 +479,7 @@ export function StockTechnicalChart({
     return () => {
       isCancelled = true;
     };
-  }, [stock, retryKey]);
+  }, [stock, stockContentSignature, retryKey]);
 
   const activeIsMobileRef = useRef(activeIsMobile);
   useEffect(() => {

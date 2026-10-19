@@ -16,12 +16,76 @@ const INDICES_CACHE_KEY = "osi_indices_cache";
 const INDICES_ETAG_KEY = "osi_indices_etag";
 const INDICES_REQUEST_TIMEOUT_MS = 10_000;
 
+/**
+ * Validate one index received from the API or read back from browser storage.
+ *
+ * Both payloads are untrusted: the cached copy can be hand-edited or written
+ * by an older build, and the API response is assembled from D1 rows. Casting
+ * either to `CustomIndex` without checking the shape made
+ * `selectedIndex.basket` undefined for a malformed entry, and the dashboard
+ * then threw while rendering `selectedIndex.basket.length`.
+ *
+ * The validator preserves the Worker's own semantics: a legacy row with a
+ * NULL weight is reported as `0` (the Worker emits `COALESCE(weight, 0)`) and
+ * the save path repairs it, so the displayed values do not change.
+ */
+export function sanitizeIndex(raw: unknown): CustomIndex | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const record = raw as Record<string, unknown>;
+
+  const id = typeof record.id === "string" ? record.id.trim() : "";
+  if (!id) return null;
+
+  const name = typeof record.name === "string" && record.name.trim() ? record.name.trim() : id;
+  const description = typeof record.description === "string" ? record.description : "";
+
+  const baseValue =
+    typeof record.baseValue === "number" && Number.isFinite(record.baseValue) && record.baseValue > 0
+      ? record.baseValue
+      : 1000;
+
+  const rawBasket = Array.isArray(record.basket) ? record.basket : [];
+  const basket: BasketItem[] = [];
+  const seen = new Set<string>();
+  for (const item of rawBasket) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+    const entry = item as Record<string, unknown>;
+    const ticker = typeof entry.ticker === "string" ? entry.ticker.trim().toUpperCase() : "";
+    if (!ticker || seen.has(ticker)) continue;
+    seen.add(ticker);
+    const weight =
+      typeof entry.weight === "number" && Number.isFinite(entry.weight) && entry.weight >= 0
+        ? Math.min(entry.weight, 100)
+        : 1;
+    basket.push({
+      ticker,
+      name: typeof entry.name === "string" && entry.name.trim() ? entry.name.trim() : ticker,
+      theme: typeof entry.theme === "string" ? entry.theme : "カスタム",
+      weight,
+    });
+  }
+
+  const index: CustomIndex = { id, name, description, baseValue, basket };
+  if (typeof record.sortOrder === "number" && Number.isFinite(record.sortOrder)) {
+    index.sortOrder = Math.min(9999, Math.max(0, Math.floor(record.sortOrder)));
+  }
+  return index;
+}
+
+/** Validate a whole index list; returns null when nothing usable remains. */
+export function sanitizeIndexList(raw: unknown): CustomIndex[] | null {
+  if (!Array.isArray(raw)) return null;
+  const indices = raw
+    .map(sanitizeIndex)
+    .filter((index): index is CustomIndex => index !== null);
+  return indices.length > 0 ? indices : null;
+}
+
 function getLocalIndicesCache(): CustomIndex[] | null {
   try {
     const raw = localStorage.getItem(INDICES_CACHE_KEY);
     if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) && parsed.length > 0 ? parsed : null;
+    return sanitizeIndexList(JSON.parse(raw));
   } catch {
     return null;
   }
@@ -150,6 +214,13 @@ export function useIndices() {
   // slower earlier response could overwrite a newer one (e.g. a just-added
   // stock disappearing from the selected index until the next mutation).
   const requestIdRef = useRef(0);
+  /**
+   * Controller of the in-flight list request.
+   *
+   * The request must be cancelled when the consumer unmounts: otherwise it
+   * keeps running and then writes to state that no longer has a consumer.
+   */
+  const abortRef = useRef<AbortController | null>(null);
 
   const fetchIndices = useCallback(async () => {
     const requestId = ++requestIdRef.current;
@@ -162,6 +233,7 @@ export function useIndices() {
       setError(null);
 
       const controller = new AbortController();
+      abortRef.current = controller;
       const timeout = window.setTimeout(() => controller.abort(), INDICES_REQUEST_TIMEOUT_MS);
       let res: Response;
       try {
@@ -171,6 +243,9 @@ export function useIndices() {
         });
       } finally {
         window.clearTimeout(timeout);
+        if (abortRef.current === controller) {
+          abortRef.current = null;
+        }
       }
 
       if (res.status === 304) {
@@ -182,33 +257,38 @@ export function useIndices() {
 
       if (!res.ok) throw new Error("指数一覧の取得に失敗しました");
 
-      const newEtag = res.headers.get("etag");
-      if (newEtag) {
-        try {
-          localStorage.setItem(INDICES_ETAG_KEY, newEtag);
-        } catch {
-          // Ignore storage failures; the in-memory state remains usable.
-        }
+      const data: unknown = await res.json();
+      // The ETag and the body form one conditional-request pair: writing the
+      // ETag before the body was validated (or by a superseded request) left
+      // the stored ETag paired with a different body, so the next request
+      // answered 304 and the UI silently kept the stale list.
+      if (!isCurrentRequest()) {
+        return sanitizeIndexList(data);
       }
 
-      const data: CustomIndex[] = await res.json();
-      if (!isCurrentRequest()) {
-        // A newer request already resolved; keep its state.
-        return data;
-      }
-      if (Array.isArray(data) && data.length > 0) {
+      const newEtag = res.headers.get("etag");
+      const indices = sanitizeIndexList(data);
+
+      if (indices) {
         try {
-          localStorage.setItem(INDICES_CACHE_KEY, JSON.stringify(data));
+          localStorage.setItem(INDICES_CACHE_KEY, JSON.stringify(indices));
         } catch {
           // Ignore storage failures; the in-memory state remains usable.
         }
-        setIndices(data);
+        if (newEtag) {
+          try {
+            localStorage.setItem(INDICES_ETAG_KEY, newEtag);
+          } catch {
+            // Ignore storage failures; the in-memory state remains usable.
+          }
+        }
+        setIndices(indices);
         setSelectedIndex((prev) => {
-          if (!prev) return data[0];
-          const found = data.find((d) => d.id === prev.id);
-          return found || data[0];
+          if (!prev) return indices[0];
+          const found = indices.find((d) => d.id === prev.id);
+          return found || indices[0];
         });
-        return data;
+        return indices;
       } else {
         // The server's empty list supersedes any prior local response. Keep
         // neither its body nor its ETag paired with a stale local body; a
@@ -261,6 +341,17 @@ export function useIndices() {
   useEffect(() => {
     fetchIndices();
   }, [fetchIndices]);
+
+  // Cancel the in-flight list request when the consumer unmounts, so it cannot
+  // keep running and then write to state that no longer has a consumer.
+  useEffect(() => {
+    return () => {
+      if (abortRef.current) {
+        abortRef.current.abort();
+        abortRef.current = null;
+      }
+    };
+  }, []);
 
   const selectIndex = useCallback((index: CustomIndex) => {
     setSelectedIndex(index);

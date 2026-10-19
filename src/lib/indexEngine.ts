@@ -46,6 +46,12 @@ export function equalizeWeightsExact<T extends { weight: number }>(items: T[], d
 /**
  * Normalizes weights proportionally using the Largest Remainder Method (Hare-Niemeyer method)
  * so that their sum strictly equals 100.00% without rounding drift.
+ *
+ * Every constituent keeps a strictly positive weight: the Worker's basket
+ * contract rejects an entry whose weight is not `> 0`, so a constituent whose
+ * proportional share rounds down to zero would make the whole save fail with
+ * a 400. One unit (0.01%) is therefore reserved per entry before the
+ * remainder is distributed.
  */
 export function redistributeWeightsExact<T extends { weight: number }>(items: T[], decimals = 2): T[] {
   if (items.length === 0) return [];
@@ -60,12 +66,35 @@ export function redistributeWeightsExact<T extends { weight: number }>(items: T[
   }
 
   const exactUnits = safeWeights.map((w) => (w / currentTotal) * totalUnits);
-  const floors = exactUnits.map((u) => Math.floor(u));
-  const currentFloorSum = floors.reduce((sum, f) => sum + f, 0);
+  const floors = exactUnits.map((u) => Math.max(1, Math.floor(u)));
+  let currentFloorSum = floors.reduce((sum, f) => sum + f, 0);
+
+  // The reserved units can push the sum past the target. Take the excess back
+  // from the largest entries, never below the reserved minimum.
+  let excess = currentFloorSum - totalUnits;
+  if (excess > 0) {
+    const bySize = floors
+      .map((units, index) => ({ index, units }))
+      .sort((a, b) => b.units - a.units || a.index - b.index);
+    for (const entry of bySize) {
+      if (excess <= 0) break;
+      // An entry may give up more than one unit: taking only a single unit
+      // per entry leaves the total above the target whenever the excess is
+      // larger than the number of entries.
+      const removable = floors[entry.index] - 1;
+      const take = Math.min(removable, excess);
+      if (take > 0) {
+        floors[entry.index] -= take;
+        excess -= take;
+      }
+    }
+    currentFloorSum = floors.reduce((sum, f) => sum + f, 0);
+  }
+
   const remainder = Math.max(0, totalUnits - currentFloorSum);
 
   const order = exactUnits
-    .map((u, i) => ({ index: i, remainder: u - floors[i] }))
+    .map((u, i) => ({ index: i, remainder: u - Math.floor(u) }))
     .sort((a, b) => b.remainder - a.remainder);
 
   const allocated = [...floors];

@@ -172,11 +172,11 @@ describe("Comprehensive Goal Code Review Final Verification Cycle", () => {
   describe("4. Analytics Risk Metrics Boundary Safeguards", () => {
     it("computes 0 volatility and 0 Sharpe ratio cleanly when series has identical prices", () => {
       const flatSeries = [
-        { date: "2024-01-01", value: 1000 },
-        { date: "2024-01-02", value: 1000 },
-        { date: "2024-01-03", value: 1000 },
+        { date: "2024-01-01", close: 1000, value: 1000 },
+        { date: "2024-01-02", close: 1000, value: 1000 },
+        { date: "2024-01-03", close: 1000, value: 1000 },
       ];
-      const metrics = calculateRiskMetrics(flatSeries);
+      const metrics = calculateRiskMetrics(flatSeries, flatSeries);
       expect(metrics.annualReturn).toBe(0);
       expect(metrics.annualVolatility).toBe(0);
       expect(metrics.sharpeRatio).toBe(0);

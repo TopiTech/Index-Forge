@@ -109,7 +109,7 @@ export function StockDetailPage({
     getCachedStockFundamentals(ticker),
   );
   const [loading, setLoading] = useState(false);
-  const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(() => Date.now());
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState<"CHART" | "FINANCIALS">("CHART");
 
   useRegisterFreshness("stock", {

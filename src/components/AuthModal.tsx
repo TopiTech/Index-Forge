@@ -72,14 +72,17 @@ export function AuthModal({
 
   // Countdown timer for lockout
   useEffect(() => {
-    if (!isLocked || lockoutRemainingSeconds <= 0) return;
+    // The interval must not depend on the value it decrements: that tore the
+    // interval down and recreated it every second, so each tick restarted a
+    // full period and the advertised remaining time drifted.
+    if (!isLocked) return;
     const timer = setInterval(() => {
       // Pure updater: 副作用 (解除・エラー消去) は下の effect に置く。
       // updater 内の setState は React の純粋性契約に反し StrictMode で誤動作する。
       setLockoutRemainingSeconds((prev) => (prev <= 1 ? 0 : prev - 1));
     }, 1000);
     return () => clearInterval(timer);
-  }, [isLocked, lockoutRemainingSeconds]);
+  }, [isLocked]);
 
   // Release the lock once the countdown reaches zero.
   useEffect(() => {
@@ -159,6 +162,11 @@ export function AuthModal({
         setTurnstileToken("");
         if (onSuccess) onSuccess();
         onClose();
+      } else if (res.cancelled) {
+        // The attempt was superseded (a newer attempt or a logout). It did
+        // not fail, so no error is shown and the solved Turnstile token is
+        // kept.
+        return;
       } else {
         if (res.locked) {
           setIsLocked(true);
@@ -188,7 +196,7 @@ export function AuthModal({
         setPassword("");
         if (onSuccess) onSuccess();
         onClose();
-      } else {
+      } else if (!res.cancelled) {
         setError(res.error || "パスワードが正しくありません");
       }
     }

@@ -51,6 +51,7 @@ export function SimulationPreview({
     constituentsPerformance,
     loading,
     error,
+    syncWarnings,
     usingDemoData,
     usingDemoBenchmark,
     timeframe,
@@ -258,6 +259,23 @@ export function SimulationPreview({
           }}
         >
           {error}
+        </div>
+      )}
+
+      {/* Non-fatal warnings (e.g. a price-sync batch that failed) */}
+      {syncWarnings.length > 0 && (
+        <div
+          role="status"
+          style={{
+            padding: "8px 12px",
+            background: "rgba(255, 171, 0, 0.12)",
+            border: "1px solid var(--neon-amber)",
+            borderRadius: 6,
+            color: "var(--neon-amber)",
+            fontSize: 11,
+          }}
+        >
+          {syncWarnings.join(" / ")}
         </div>
       )}
 

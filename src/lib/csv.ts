@@ -11,12 +11,19 @@
  * Prefixing those with an apostrophe corrupts the data: spreadsheets store the
  * cell as text with a stray apostrophe instead of a numeric value, breaking
  * every negative 前日比/寄与度 cell in the CSV export.
+ *
+ * A value that already starts with an apostrophe is guarded as well: the
+ * reader has to be able to tell an exporter-applied guard apart from a
+ * legitimate leading apostrophe, otherwise "'-review" loses its apostrophe on
+ * every round trip.
  */
 export function escapeCsvCell(value: unknown): string {
   const raw = String(value ?? "");
   const isPlainNumber = raw.trim() !== "" && Number.isFinite(Number(raw));
+  const startsWithFormulaChar = /^[\s\uFEFF]*[=+\-@|]/u.test(raw);
+  const startsWithApostrophe = raw.startsWith("'");
   const formulaSafe =
-    !isPlainNumber && /^[\s\uFEFF]*[=+\-@|]/u.test(raw) ? `'${raw}` : raw;
+    !isPlainNumber && (startsWithFormulaChar || startsWithApostrophe) ? `'${raw}` : raw;
   return `"${formulaSafe.replace(/"/g, '""')}"`;
 }
 
@@ -107,10 +114,16 @@ export function parseCsv(text: string): string[][] {
 
 function cleanParsedCell(raw: string, wasQuoted: boolean): string {
   // クォート済みフィールドは RFC 4180 に従い原文を保持する (前後空白は有意)。
-  // アポストロフィ除去は escapeCsvCell が付与する数式ガードのときだけ行う
-  // (付与条件 /^[\s\uFEFF]*[=+\-@|]/ と対になるよう、空白/BOM を挟んでよい)。
-  // 全セルから機械的に除去すると正当な文字 (例: 'Tis) が失われる。
+  // アポストロフィ除去は escapeCsvCell が付与するガードのときだけ行う。
+  // escapeCsvCell は 2 種類を保護する:
+  //   1) 空白/BOM の後に数式文字 ( = + - @ | ) がある → 先頭に ' を付与
+  //   2) 値が ' で始まる → 先頭に ' を付与 (正当な先頭アポストロフィと
+  //      区別するために必要)
+  // 除去側はこの 2 種類の正確な逆として実装する。
   const val = wasQuoted ? raw : raw.trim();
+  if (val.startsWith("''")) {
+    // escapeCsvCell が先頭アポストロフィを保護するために付けた ' を 1 つ戻す。
+    return val.slice(1);
+  }
   return /^'[\s\uFEFF]*[=+\-@|]/u.test(val) ? val.slice(1) : val;
 }
-

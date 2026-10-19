@@ -4,7 +4,9 @@ import {
   clearAuthCache,
   ensurePasswordTable,
   resetPasswordTableEnsured,
+  type Env,
 } from "../../worker/internal";
+import { asWorkerEnv } from "../test-helpers/env";
 
 const TEST_ADMIN_PASSWORD = "test-admin-password";
 
@@ -145,7 +147,7 @@ function createReviewEnv() {
   });
 
   return {
-    env: {
+    env: asWorkerEnv({
       ASSETS: {
         fetch: vi.fn().mockResolvedValue(new Response("Asset", { status: 200 })),
       },
@@ -159,13 +161,13 @@ function createReviewEnv() {
         }),
       },
       ADMIN_PASSWORD: TEST_ADMIN_PASSWORD,
-    },
+    }),
     passwords,
   };
 }
 
 async function createUser(
-  env: any,
+  env: Env,
   name: string,
   password: string,
   maxStocks: number | null,

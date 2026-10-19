@@ -99,6 +99,7 @@ describe("Comprehensive Goal Code Review Final Audit Pass", () => {
           fullDate: "2026-04-01",
           type: "MACRO",
           title: "日銀短観\r第1四半期",
+          importance: "HIGH",
           description: "業況判断D.I.\r\n大企業製造業: +15\n先行き: +12",
         },
       ];
@@ -106,7 +107,11 @@ describe("Comprehensive Goal Code Review Final Audit Pass", () => {
       const ics = exportCalendarToIcs(eventWithMultilines);
 
       expect(ics).toContain("SUMMARY:日銀短観\\n第1四半期");
-      expect(ics).toContain("DESCRIPTION:業況判断D.I.\\n大企業製造業: +15\\n先行き: +12");
+      // The importance is rendered as a prefix, and every line break of the
+      // description is escaped as a literal "\n" (never a raw CR or LF).
+      expect(ics).toContain(
+        "DESCRIPTION:【重要度】HIGH\\n業況判断D.I.\\n大企業製造業: +15\\n先行き: +12",
+      );
       // There must be no standalone CR character anywhere in the entire output
       const rawCrCount = (ics.match(/\r(?!\n)/g) || []).length;
       expect(rawCrCount).toBe(0);

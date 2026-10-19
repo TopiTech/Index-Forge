@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "fs";
 import { resolve } from "path";
-import { calculateRiskMetrics, type PricePoint } from "./analytics";
+import { calculateRiskMetrics } from "./analytics";
+import type { PricePoint } from "../types";
 
 describe("Comprehensive Goal Audit & Remediation Round 3", () => {
   const portfolioTsx = readFileSync(

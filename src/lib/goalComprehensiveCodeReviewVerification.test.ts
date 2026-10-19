@@ -366,7 +366,7 @@ describe("Goal Comprehensive Code Review Verification", () => {
       const summaryNaN = calculatePortfolioSummary(positions, undefined, NaN);
       expect(Number.isFinite(summaryNaN.totalMarketValue)).toBe(true);
       expect(summaryNaN.totalMarketValue).toBeGreaterThan(0);
-      expect(Number.isNaN(summaryNaN.totalProfitLoss)).toBe(false);
+      expect(Number.isNaN(summaryNaN.totalProfit)).toBe(false);
 
       // Pass 0
       const summaryZero = calculatePortfolioSummary(positions, undefined, 0);

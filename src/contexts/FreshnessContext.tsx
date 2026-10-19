@@ -38,7 +38,11 @@ const FreshnessContext = createContext<FreshnessContextValue | null>(null);
 
 export function FreshnessProvider({ children }: { children: React.ReactNode }) {
   const [freshnessMap, setFreshnessMap] = useState<Partial<Record<PageView, TabFreshness>>>({});
-  const [globalLatestUpdatedAt, setGlobalLatestUpdatedAt] = useState<number | null>(() => Date.now());
+  // Starts as null: it must mean "no data has been observed yet". Seeding it
+  // with Date.now() made every view that registers no timestamp of its own
+  // report the app's load time as "last updated" and render the LIVE badge
+  // for data that was never fetched.
+  const [globalLatestUpdatedAt, setGlobalLatestUpdatedAt] = useState<number | null>(null);
 
   const registerFreshness = useCallback((view: PageView, freshness: TabFreshness) => {
     setFreshnessMap((prev) => {

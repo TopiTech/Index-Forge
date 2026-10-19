@@ -5,83 +5,32 @@ import { calculateStockDetails } from "../lib/analytics";
 import { sanitizeBasketForRequest } from "../lib/indexEngine";
 import { getAuthHeaders } from "../lib/auth";
 import { isPriceCacheFresh } from "../lib/marketCache";
+// The shared sync cache lives in src/lib/syncCache so the dashboard and the
+// builder cannot overwrite each other's entries. The re-exports keep the
+// historical import surface (`../hooks/useCalculation`) working for existing
+// callers and tests.
+import {
+  SYNC_STORAGE_KEY,
+  mergeSyncCache,
+  parseLocalSyncCache,
+  pruneSyncCacheMap,
+  readSyncCache,
+  removeFromSyncCache,
+  type SyncCacheUpdateEntry,
+} from "../lib/syncCache";
 import { useAuth } from "./useAuth";
 
 const API_BASE = "/api";
-export const SYNC_STORAGE_KEY = "osi_stock_sync_cache";
 
-/** Parse browser sync metadata without allowing malformed storage to mark a ticker fresh forever. */
-export function parseLocalSyncCache(raw: string | null): Record<string, number> {
-  if (!raw) return {};
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+export { SYNC_STORAGE_KEY, parseLocalSyncCache, type SyncCacheUpdateEntry };
 
-    const cache: Record<string, number> = {};
-    for (const [ticker, timestamp] of Object.entries(parsed)) {
-      const normalizedTicker = ticker.trim().toUpperCase();
-      if (
-        /^[A-Z0-9.-]+$/.test(normalizedTicker) &&
-        normalizedTicker.length <= 20 &&
-        typeof timestamp === "number" &&
-        Number.isFinite(timestamp) &&
-        timestamp > 0
-      ) {
-        const msTimestamp = timestamp < 1e11 ? Math.round(timestamp * 1000) : Math.round(timestamp);
-        cache[normalizedTicker] = Math.max(cache[normalizedTicker] || 0, msTimestamp);
-      }
-    }
-    return cache;
-  } catch {
-    return {};
-  }
-}
-
-function getLocalSyncCache(): Record<string, number> {
-  try {
-    return parseLocalSyncCache(
-      typeof localStorage === "undefined" ? null : localStorage.getItem(SYNC_STORAGE_KEY),
-    );
-  } catch {
-    return {};
-  }
-}
-
-export interface SyncCacheUpdateEntry {
-  ticker: string;
-  lastSynced?: number;
-}
-
-export function updateLocalSyncCache(
-  entries: (string | SyncCacheUpdateEntry)[],
-): void {
-  try {
-    const cache = getLocalSyncCache();
-    const now = Date.now();
-    for (const item of entries) {
-      if (typeof item === "string") {
-        const normalizedTicker = item.trim().toUpperCase();
-        if (normalizedTicker) cache[normalizedTicker] = now;
-      } else if (item && typeof item.ticker === "string") {
-        const normalizedTicker = item.ticker.trim().toUpperCase();
-        if (normalizedTicker) {
-          cache[normalizedTicker] =
-            typeof item.lastSynced === "number" && Number.isFinite(item.lastSynced) && item.lastSynced > 0
-              ? (item.lastSynced < 1e11 ? Math.round(item.lastSynced * 1000) : Math.round(item.lastSynced))
-              : now;
-        }
-      }
-    }
-    // Clean entries older than 7 days
-    for (const [k, v] of Object.entries(cache)) {
-      if (now - v > 7 * 24 * 60 * 60 * 1000) {
-        delete cache[k];
-      }
-    }
-    localStorage.setItem(SYNC_STORAGE_KEY, JSON.stringify(cache));
-  } catch {
-    // ignore
-  }
+/**
+ * Merge freshly synced tickers into the shared browser sync cache.
+ *
+ * Kept as a named export because callers outside this hook rely on it.
+ */
+export function updateLocalSyncCache(entries: (string | SyncCacheUpdateEntry)[]): void {
+  mergeSyncCache(entries);
 }
 
 // In-memory cache for calculated index results across tab clicks (bounded to 50 entries)
@@ -266,8 +215,9 @@ export function useCalculation(selectedIndex: CustomIndex | null, enabled = true
         // ブラウザキャッシュでは、場中に開いた画面が引け後の終値を取りこぼす。
         if (selectedIndex.basket.length > 0) {
           const allTickers = requestBasket.map((b) => b.ticker);
-          const localSyncCache = getLocalSyncCache();
+          const localSyncCache = readSyncCache();
           const nowMs = Date.now();
+          pruneSyncCacheMap(syncedTickersRef.current, nowMs);
 
           const tickersToSync = force
             ? allTickers
@@ -400,23 +350,10 @@ export function useCalculation(selectedIndex: CustomIndex | null, enabled = true
         if (requestBasket.length > 0) {
           const missingTickers = getMissingPriceDataTickers(requestBasket, universe);
           if (missingTickers.length > 0) {
-            try {
-              const cache = getLocalSyncCache();
-              let changed = false;
-              for (const mt of missingTickers) {
-                const normalizedTicker = mt.trim().toUpperCase();
-                syncedTickersRef.current.delete(normalizedTicker);
-                if (cache[normalizedTicker]) {
-                  delete cache[normalizedTicker];
-                  changed = true;
-                }
-              }
-              if (changed) {
-                localStorage.setItem(SYNC_STORAGE_KEY, JSON.stringify(cache));
-              }
-            } catch {
-              // ignore
+            for (const mt of missingTickers) {
+              syncedTickersRef.current.delete(mt.trim().toUpperCase());
             }
+            removeFromSyncCache(missingTickers);
             setSyncWarnings((prev) =>
               Array.from(
                 new Set([

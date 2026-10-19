@@ -69,19 +69,26 @@ describe("Comprehensive Code Review Resolution Round 4", () => {
   describe("3. PortfolioManagerPage Multi-Effect Auth Transition Safety", () => {
     it("guards both positions and watchlist auto-save effects without race condition", () => {
       // Both effects must check the transition ref without immediately clearing it
-      const positionsEffect = portfolioTsx.slice(
-        portfolioTsx.indexOf("savePortfolioPositions(positions);") - 150,
-        portfolioTsx.indexOf("savePortfolioPositions(positions);"),
-      );
+      const effectAround = (source: string, marker: string): string => {
+        const index = source.indexOf(marker);
+        expect(index).toBeGreaterThan(-1);
+        const start = source.lastIndexOf("useEffect(", index);
+        const end = source.indexOf("}, [", index);
+        expect(start).toBeGreaterThan(-1);
+        expect(end).toBeGreaterThan(index);
+        return source.slice(start, end);
+      };
+
+      const positionsEffect = effectAround(portfolioTsx, "savePortfolioPositions(positions);");
       expect(positionsEffect).toContain("if (isAuthTransitionRef.current) {");
       expect(positionsEffect).toContain("return;");
+      // The save must stay behind the authentication and persistence gate.
+      expect(positionsEffect).toContain("if (isAuthenticated && positionsPersistedRef.current) {");
 
-      const watchlistEffect = portfolioTsx.slice(
-        portfolioTsx.indexOf("saveWatchlist(watchlist);") - 150,
-        portfolioTsx.indexOf("saveWatchlist(watchlist);"),
-      );
+      const watchlistEffect = effectAround(portfolioTsx, "saveWatchlist(watchlist);");
       expect(watchlistEffect).toContain("if (isAuthTransitionRef.current) {");
       expect(watchlistEffect).toContain("return;");
+      expect(watchlistEffect).toContain("if (isAuthenticated && watchlistPersistedRef.current) {");
 
       // The ref is safely reset in a follow-up effect
       expect(portfolioTsx).toContain("if (isAuthTransitionRef.current) {\n      isAuthTransitionRef.current = false;\n      return;\n    }");

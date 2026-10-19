@@ -38,8 +38,8 @@ describe("Comprehensive Code Review Resolution Round 5", () => {
       // Simulating navigation logic:
       // Current: /stock?ticker=7203
       // Target: /stock
-      const currentPathWithSearch = "/stock?ticker=7203";
-      const targetPath = "/stock";
+      const currentPathWithSearch: string = "/stock?ticker=7203";
+      const targetPath: string = "/stock";
       const shouldPush = currentPathWithSearch !== targetPath;
       expect(shouldPush).toBe(true);
 

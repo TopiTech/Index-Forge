@@ -152,12 +152,16 @@ function buildDefaultMarketQuotes(
           ? "24h リアルタイム"
           : "リアルタイム";
     const p = q.baselinePrice;
+    // Mirror the Worker's scale-aware rounding: an FX quote below 2 needs
+    // four decimals, otherwise the whole series collapses onto one value and
+    // the last point no longer equals the quoted price.
+    const decimals = q.category === "FX" && p < 2 ? 4 : 2;
     const sparkline = [
-      Number((p * 0.995).toFixed(2)),
-      Number((p * 0.997).toFixed(2)),
-      Number((p * 0.998).toFixed(2)),
-      Number((p * 1.001).toFixed(2)),
-      Number(p.toFixed(2)),
+      Number((p * 0.995).toFixed(decimals)),
+      Number((p * 0.997).toFixed(decimals)),
+      Number((p * 0.998).toFixed(decimals)),
+      Number((p * 1.001).toFixed(decimals)),
+      Number(p.toFixed(decimals)),
     ];
     return {
       symbol: q.symbol,
@@ -1789,8 +1793,21 @@ function withFallbackMetadata(data: MarketOverviewData): MarketOverviewData {
   return { ...data, dataSource: "fallback", dataAsOf: new Date().toISOString() };
 }
 
-/** Cache for stock fundamentals fetched from the backend API. */
-const stockFundamentalsClientCache = new Map<string, StockQuoteFundamentals>();
+/**
+ * Cache for stock fundamentals fetched from the backend API.
+ *
+ * The entry keeps the fetch time so it can expire: a quote that was cached
+ * without a timestamp lived for the whole SPA session, so a page opened at
+ * 09:00 still showed the 09:00 quote at 14:00 while refreshing the "last
+ * updated" label to now.
+ */
+const stockFundamentalsClientCache = new Map<
+  string,
+  { data: StockQuoteFundamentals; fetchedAt: number }
+>();
+
+/** How long a successfully fetched fundamentals payload stays usable. */
+export const STOCK_FUNDAMENTALS_CACHE_TTL_MS = 5 * 60 * 1000;
 
 /**
  * 失敗した fundamentals 取得の記録 (ティッカー → 失敗時刻と返却したフォールバック)。
@@ -1819,17 +1836,29 @@ export function clearStockFundamentalsClientCache(): void {
 export function getCachedStockFundamentals(ticker: string): StockQuoteFundamentals {
   const norm = ticker.trim().toUpperCase();
   const cached = stockFundamentalsClientCache.get(norm);
-  if (cached) return cached;
+  if (cached && Date.now() - cached.fetchedAt < STOCK_FUNDAMENTALS_CACHE_TTL_MS) {
+    return cached.data;
+  }
+  if (cached) {
+    stockFundamentalsClientCache.delete(norm);
+  }
   return getStockFundamentals(ticker);
 }
 
-/** Cache for entire screener universe fetched from /api/stocks/screener. */
+/**
+ * Cache for entire screener universe fetched from /api/stocks/screener.
+ */
 let screenerUniverseClientCache: StockQuoteFundamentals[] | null = null;
+let screenerUniverseFetchedAt = 0;
 let screenerFailureUntil = 0;
 const SCREENER_FAILURE_COOLDOWN_MS = 30_000;
 
+/** How long the fetched screener universe stays usable. */
+export const SCREENER_UNIVERSE_CACHE_TTL_MS = 5 * 60 * 1000;
+
 export function clearScreenerUniverseClientCache(): void {
   screenerUniverseClientCache = null;
+  screenerUniverseFetchedAt = 0;
   screenerFailureUntil = 0;
 }
 
@@ -1860,6 +1889,110 @@ export function formatMarketCapDisplay(marketCap: number, market: string): strin
 }
 
 /**
+ * Merge a raw fundamentals payload into the typed model.
+ *
+ * The payload comes from the Worker, which in turn assembles it from Yahoo /
+ * SEC responses, so individual fields can be missing or carry a non-numeric
+ * placeholder. Only `ticker` and `price` used to be checked; every other
+ * field was copied verbatim into a `number`-typed model, so a string `change`
+ * produced a `NaN` daily P&L in the portfolio (whose total then silently
+ * coerced to 0) and a `null` inside the sparkline broke the technical signal.
+ *
+ * Each field is therefore validated on its own and falls back to the
+ * baseline value when the payload does not carry a usable number.
+ */
+export function sanitizeStockFundamentals(
+  raw: Record<string, unknown>,
+  baseline: StockQuoteFundamentals,
+  ticker: string,
+): StockQuoteFundamentals {
+  const readNumber = (value: unknown, fallback: number): number =>
+    typeof value === "number" && Number.isFinite(value) ? value : fallback;
+
+  const readNullableNumber = (value: unknown, fallback: number | null): number | null =>
+    value === null || value === undefined
+      ? fallback
+      : typeof value === "number" && Number.isFinite(value)
+        ? value
+        : fallback;
+
+  const readText = (value: unknown, fallback: string): string =>
+    typeof value === "string" && value.trim() ? value : fallback;
+
+  const readMarket = (
+    value: unknown,
+    fallback: StockQuoteFundamentals["market"],
+  ): StockQuoteFundamentals["market"] =>
+    value === "PRIME" || value === "STANDARD" || value === "GROWTH" || value === "US"
+      ? value
+      : fallback;
+
+  const rawSparkline = Array.isArray(raw.sparkline) ? raw.sparkline : null;
+  const sparkline =
+    rawSparkline === null
+      ? baseline.sparkline
+      : rawSparkline.filter(
+          (point): point is number =>
+            typeof point === "number" && Number.isFinite(point),
+        );
+
+  const rawFinances = Array.isArray(raw.historicalFinances)
+    ? raw.historicalFinances
+    : null;
+
+  return {
+    ...baseline,
+    ticker,
+    name: readText(raw.name, baseline.name),
+    theme: readText(raw.theme, baseline.theme),
+    sector: readText(raw.sector, baseline.sector),
+    market: readMarket(raw.market, baseline.market),
+    price: readNumber(raw.price, baseline.price),
+    change: readNumber(raw.change, baseline.change),
+    changePercent: readNumber(raw.changePercent, baseline.changePercent),
+    volume: readNumber(raw.volume, baseline.volume),
+    previousClose: readNumber(raw.previousClose, baseline.previousClose),
+    dayHigh: readNumber(raw.dayHigh, baseline.dayHigh),
+    dayLow: readNumber(raw.dayLow, baseline.dayLow),
+    yearHigh: readNumber(raw.yearHigh, baseline.yearHigh),
+    yearLow: readNumber(raw.yearLow, baseline.yearLow),
+    marketCap: readNumber(raw.marketCap, baseline.marketCap),
+    per: readNullableNumber(raw.per, baseline.per),
+    pbr: readNullableNumber(raw.pbr, baseline.pbr),
+    dividendYield: readNullableNumber(raw.dividendYield, baseline.dividendYield),
+    roe: readNullableNumber(raw.roe, baseline.roe),
+    equityRatio: readNullableNumber(raw.equityRatio, baseline.equityRatio),
+    eps: readNullableNumber(raw.eps, baseline.eps),
+    dps: readNullableNumber(raw.dps, baseline.dps),
+    technicalSignal:
+      raw.technicalSignal === "STRONG_BUY" ||
+      raw.technicalSignal === "BUY" ||
+      raw.technicalSignal === "NEUTRAL" ||
+      raw.technicalSignal === "SELL" ||
+      raw.technicalSignal === "STRONG_SELL"
+        ? raw.technicalSignal
+        : baseline.technicalSignal,
+    sparkline,
+    historicalFinances:
+      rawFinances === null
+        ? baseline.historicalFinances
+        : rawFinances.filter(
+            (entry): entry is StockQuoteFundamentals["historicalFinances"][number] =>
+              Boolean(entry) &&
+              typeof entry === "object" &&
+              typeof (entry as { fiscalYear?: unknown }).fiscalYear === "string",
+          ),
+    // サーバーから実データが取得できている場合は、baseline の isDemoData: true を確実にクリアする
+    isDemoData: raw.isDemoData === true ? true : undefined,
+    // The PER disclosure must survive the sanitization: a PER that was
+    // estimated from the latest results (TTM) has to be marked as such, and
+    // its note explains why the company guidance is missing.
+    isEstimatedPer: raw.isEstimatedPer === true,
+    perNote: typeof raw.perNote === "string" && raw.perNote.trim() ? raw.perNote : undefined,
+  };
+}
+
+/**
  * Fetch real stock quote & fundamentals from /api/stock/fundamentals,
  * falling back to getStockFundamentals(ticker) if unavailable or offline.
  */
@@ -1875,7 +2008,14 @@ export async function fetchStockFundamentals(
     stockFundamentalsFailureCache.delete(normTicker);
   } else {
     const cached = stockFundamentalsClientCache.get(normTicker);
-    if (cached) return cached;
+    if (cached) {
+      if (Date.now() - cached.fetchedAt < STOCK_FUNDAMENTALS_CACHE_TTL_MS) {
+        return cached.data;
+      }
+      // Expired: the quote must be fetched again instead of being served for
+      // the whole session.
+      stockFundamentalsClientCache.delete(normTicker);
+    }
 
     // 直近に失敗したティッカーはクールダウン中、再試行せず記録済みの
     // フォールバックを返してリクエストの扇出を止める (30秒で自動解除)。
@@ -1910,21 +2050,11 @@ export async function fetchStockFundamentals(
           ) {
             const rawObj = raw as Record<string, unknown>;
             const baseline = getStockFundamentals(normTicker);
-            const data: StockQuoteFundamentals = {
-              ...baseline,
-              ...rawObj,
-              ticker: normTicker,
-              price: rawObj.price as number,
-              // サーバーから実データが取得できている場合は、baseline の isDemoData: true を確実にクリアする
-              isDemoData: rawObj.isDemoData === true ? true : undefined,
-              historicalFinances: Array.isArray(rawObj.historicalFinances)
-                ? (rawObj.historicalFinances as StockQuoteFundamentals["historicalFinances"])
-                : baseline.historicalFinances,
-              sparkline: Array.isArray(rawObj.sparkline)
-                ? (rawObj.sparkline as number[])
-                : baseline.sparkline,
-            };
-            stockFundamentalsClientCache.set(normTicker, data);
+            const data = sanitizeStockFundamentals(rawObj, baseline, normTicker);
+            stockFundamentalsClientCache.set(normTicker, {
+              data,
+              fetchedAt: Date.now(),
+            });
             stockFundamentalsFailureCache.delete(normTicker);
             return data;
           }
@@ -1945,7 +2075,7 @@ export async function fetchStockFundamentals(
   }
 
   const baseline = getStockFundamentals(normTicker);
-  stockFundamentalsClientCache.set(normTicker, baseline);
+  stockFundamentalsClientCache.set(normTicker, { data: baseline, fetchedAt: Date.now() });
   return baseline;
 }
 
@@ -2105,12 +2235,21 @@ export async function fetchScreenerStocks(
 ): Promise<StockQuoteFundamentals[]> {
   if (forceRefresh) {
     screenerUniverseClientCache = null;
+    screenerUniverseFetchedAt = 0;
     screenerFailureUntil = 0;
   }
 
-  if (screenerUniverseClientCache && !forceRefresh) {
+  if (
+    screenerUniverseClientCache &&
+    !forceRefresh &&
+    Date.now() - screenerUniverseFetchedAt < SCREENER_UNIVERSE_CACHE_TTL_MS
+  ) {
     return runStockScreener(options, screenerUniverseClientCache);
   }
+  // The cached universe expired: it must be fetched again instead of being
+  // served for the whole session.
+  screenerUniverseClientCache = null;
+  screenerUniverseFetchedAt = 0;
 
   if (Date.now() < screenerFailureUntil && !forceRefresh) {
     return runStockScreener(options);
@@ -2144,10 +2283,14 @@ export async function fetchScreenerStocks(
             );
             if (valid.length > 0) {
               screenerUniverseClientCache = valid;
+              screenerUniverseFetchedAt = Date.now();
               screenerFailureUntil = 0;
               // Also populate individual stock cache for faster StockDetailPage access
               for (const stock of valid) {
-                stockFundamentalsClientCache.set(stock.ticker.toUpperCase(), stock);
+                stockFundamentalsClientCache.set(stock.ticker.toUpperCase(), {
+                  data: stock,
+                  fetchedAt: screenerUniverseFetchedAt,
+                });
               }
               return runStockScreener(options, valid);
             }
@@ -2244,8 +2387,15 @@ function loadCalendarCache(): CalendarEvent[] | null {
           "timestamp" in parsed &&
           Array.isArray((parsed as { events?: unknown }).events)
         ) {
-          const age = Date.now() - (parsed as { timestamp: number }).timestamp;
-          if (age > CALENDAR_CACHE_TTL_MS) {
+          const rawTimestamp = (parsed as { timestamp?: unknown }).timestamp;
+          // An unreadable timestamp must not extend the cache lifetime: a
+          // non-numeric value made the age NaN, and `NaN > TTL` is false, so
+          // the entry was treated as fresh forever.
+          const timestamp =
+            typeof rawTimestamp === "number" && Number.isFinite(rawTimestamp)
+              ? rawTimestamp
+              : Number.NaN;
+          if (!Number.isFinite(timestamp) || Date.now() - timestamp > CALENDAR_CACHE_TTL_MS) {
             storage.removeItem?.(CALENDAR_CACHE_KEY);
             return null;
           }
@@ -2565,9 +2715,11 @@ export function generateUpcomingEvents(referenceDate = new Date()): CalendarEven
     importance: "HIGH",
     time: "08:30 JST",
     market: "TSE",
-    previous: "2.8%",
-    forecast: "2.7%",
-    description: "総務省発表。生鮮食品を除くコアCPI前年同月比。日銀追加利上げ判断の最重要物価指標。",
+    // Read from the shared default so the calendar and the macro schedule
+    // cannot drift apart.
+    previous: MACRO_METRICS_DEFAULTS.jpCpi.previous,
+    forecast: MACRO_METRICS_DEFAULTS.jpCpi.forecast,
+    description: MACRO_METRICS_DEFAULTS.jpCpi.description,
     source: "fallback",
   });
 

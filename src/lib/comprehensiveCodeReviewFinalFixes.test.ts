@@ -142,31 +142,28 @@ describe("comprehensiveCodeReviewFinalFixes", () => {
     it("normalizes case and whitespace to group duplicate positions", () => {
       const positions: PortfolioPosition[] = [
         {
+          id: "pos-aapl-1",
           ticker: "aapl",
           name: "Apple Inc.",
-          theme: "Tech",
           shares: 10,
-          costPrice: 150,
+          averageCost: 150,
           currentPrice: 200,
-          market: "US",
         },
         {
+          id: "pos-aapl-2",
           ticker: "AAPL ",
           name: "Apple Inc.",
-          theme: "Tech",
           shares: 5,
-          costPrice: 160,
+          averageCost: 160,
           currentPrice: 200,
-          market: "US",
         },
         {
+          id: "pos-7203",
           ticker: " 7203 ",
           name: "トヨタ自動車",
-          theme: "自動車",
           shares: 100,
-          costPrice: 2500,
+          averageCost: 2500,
           currentPrice: 3000,
-          market: "TSE",
         },
       ];
 

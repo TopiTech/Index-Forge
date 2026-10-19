@@ -67,21 +67,29 @@ describe("Comprehensive Goal Final Review Tests", () => {
   describe("Analytics Negative Zero (-0) Normalization", () => {
     it("normalizes tiny negative contribution percentages to positive 0", () => {
       const basket: BasketItem[] = [
-        { ticker: "7203.T", name: "トヨタ自動車", weight: 0.01, theme: "自動車" },
+        { ticker: "7203.T", name: "トヨタ自動車", weight: 100, theme: "自動車" },
       ];
       const stockUniverse: StockSeries[] = [
         {
           ticker: "7203.T",
           name: "トヨタ自動車",
-          data: [
+          theme: "自動車",
+          sector: "自動車",
+          latestPrice: 999.9,
+          series: [
             { date: "2026-03-01", close: 1000 },
             { date: "2026-03-02", close: 999.9 },
           ],
         },
       ];
+      // The previous index value is deliberately tiny: the raw contribution is
+      // a small negative number (-0.0001 pt) that has to be normalized to
+      // positive zero. With a large index value the contribution would exceed
+      // the normalization threshold and the test would no longer exercise the
+      // -0 handling at all.
       const customSeries = [
-        { date: "2026-03-01", close: 100000, value: 100000 },
-        { date: "2026-03-02", close: 99999.9, value: 99999.9 },
+        { date: "2026-03-01", close: 1, value: 1 },
+        { date: "2026-03-02", close: 0.99, value: 0.99 },
       ];
       const details = calculateStockDetails(basket, stockUniverse, 1000, customSeries);
 
@@ -89,8 +97,8 @@ describe("Comprehensive Goal Final Review Tests", () => {
       const stock = details[0];
       expect(Object.is(stock.contributionPt, -0)).toBe(false);
       expect(Object.is(stock.contributionPct, -0)).toBe(false);
-      expect(stock.contributionPt).toBeGreaterThanOrEqual(0);
-      expect(stock.contributionPct).toBeGreaterThanOrEqual(0);
+      expect(stock.contributionPt).toBe(0);
+      expect(stock.contributionPct).toBe(0);
     });
   });
 

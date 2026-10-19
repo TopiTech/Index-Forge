@@ -18,7 +18,11 @@
         alreadyRetried = Boolean(sessionStorage.getItem(retryKey));
         if (!alreadyRetried) sessionStorage.setItem(retryKey, "true");
       } catch {
-        alreadyRetried = false;
+        // The flag could not be read or written, so it can never be persisted.
+        // Reloading would therefore schedule another reload on every load and
+        // loop forever, never reaching the error panel below. Treat the retry
+        // as already consumed and fall through to the panel instead.
+        alreadyRetried = true;
       }
       if (!alreadyRetried) {
         window.setTimeout(() => window.location.reload(), 1000);

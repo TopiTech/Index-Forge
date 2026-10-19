@@ -113,23 +113,45 @@ describe("Code Review Goal Fulfillment & Regression Verification", () => {
 
   describe("2. PortfolioManagerPage Auth-Transition Guard", () => {
     it("guards against auth transition wiping stored portfolio with unauthenticated empty arrays", () => {
-      // Verify prevAuthRef is declared and manages auth transition state
-      expect(portfolioTsx).toContain("const prevAuthRef = useRef(isAuthenticated);");
-      expect(portfolioTsx).toMatch(
-        /if\s*\(!prevAuthRef\.current\s*&&\s*isAuthenticated\)\s*\{\s*prevAuthRef\.current\s*=\s*true;\s*setPositions\(loadPortfolioPositions\(\)\);/,
-      );
+      // The transition must be handled in an effect, not during render: a
+      // render-phase state update could be discarded, leaving the portfolio
+      // empty while the transition was already marked as handled.
+      expect(portfolioTsx).not.toMatch(/if\s*\(!prevAuthRef\.current\s*&&\s*isAuthenticated\)/);
+      expect(portfolioTsx).not.toMatch(/prevAuthRef/);
+
+      const effectIndex = portfolioTsx.indexOf("setPositions(loadPortfolioPositions())");
+      expect(effectIndex).toBeGreaterThan(-1);
+      const effectStart = portfolioTsx.lastIndexOf("useEffect(", effectIndex);
+      const effectEnd = portfolioTsx.indexOf("}, [isAuthenticated]);", effectIndex);
+      expect(effectStart).toBeGreaterThan(-1);
+      expect(effectEnd).toBeGreaterThan(effectIndex);
+
+      const transitionEffect = portfolioTsx.slice(effectStart, effectEnd);
+      // The persisted positions are loaded only while authenticated, and the
+      // in-memory lists are cleared when the session ends.
+      expect(transitionEffect).toContain("if (isAuthenticated) {");
+      expect(transitionEffect).toContain("setPositions(loadPortfolioPositions())");
+      expect(transitionEffect).toContain("setWatchlist(loadWatchlist())");
+      expect(transitionEffect).toContain("setPositions([])");
+      expect(transitionEffect).toContain("setWatchlist([])");
+      // The auto-save effects must not run for the state that is about to be
+      // replaced by the persisted positions.
+      expect(transitionEffect).toContain("isAuthTransitionRef.current = true;");
     });
 
-    it("preserves exact compatibility with portfolioAuthGuard test assertions", () => {
-      expect(portfolioTsx).toMatch(/isAuthenticated\s*\?\s*loadPortfolioPositions\(\)\s*:\s*\[\]/);
-      expect(portfolioTsx).toMatch(/isAuthenticated\s*\?\s*loadWatchlist\(\)\s*:\s*\[\]/);
-      expect(portfolioTsx).toMatch(
-        /if\s*\(isAuthenticated\s*&&\s*positionsPersistedRef\.current\)\s*\{\s*savePortfolioPositions\(positions\);/,
-      );
-      expect(portfolioTsx).toMatch(
-        /if\s*\(isAuthenticated\s*&&\s*watchlistPersistedRef\.current\)\s*\{\s*saveWatchlist\(watchlist\);/,
-      );
+    it("preserves the storage gating contract of the portfolio page", () => {
       expect(portfolioTsx).toContain("setPositions(loadPortfolioPositions())");
+      expect(portfolioTsx).toContain("setWatchlist(loadWatchlist())");
+      // Data persistence must only trigger when authenticated (and, since the
+      // preset list is preview-only, only after the user has persisted data).
+      expect(portfolioTsx).toMatch(
+        /if\s*\(isAuthenticated\s*&&\s*positionsPersistedRef\.current\)\s*\{/,
+      );
+      expect(portfolioTsx).toMatch(
+        /if\s*\(isAuthenticated\s*&&\s*watchlistPersistedRef\.current\)\s*\{/,
+      );
+      expect(portfolioTsx).toContain("savePortfolioPositions(positions);");
+      expect(portfolioTsx).toContain("saveWatchlist(watchlist);");
     });
   });
 

@@ -4,6 +4,8 @@ import {
   applyReloadSuppressionClass,
   removeReloadSuppressionClass,
   isReloadSuppressed,
+  type MinimalDocument,
+  type MinimalWindow,
 } from "./pageReload";
 import fs from "fs";
 import path from "path";
@@ -12,24 +14,20 @@ describe("Page Reload Animation Suppression", () => {
   describe("isPageReload Detection", () => {
     it("returns false when window or performance is undefined", () => {
       expect(isPageReload(undefined)).toBe(false);
-      // @ts-expect-error test mock
       expect(isPageReload({})).toBe(false);
     });
 
     it("returns true when Navigation Timing Level 2 entry type is 'reload'", () => {
-      const mockWin = {
-        performance: {
-          getEntriesByType: vi.fn((type: string) => {
-            if (type === "navigation") {
-              return [{ type: "reload" }];
-            }
-            return [];
-          }),
-        },
-      } as unknown as Window;
+      const getEntriesByType = vi.fn((type: string) => {
+        if (type === "navigation") {
+          return [{ type: "reload" }];
+        }
+        return [];
+      });
+      const mockWin = { performance: { getEntriesByType } } satisfies MinimalWindow;
 
       expect(isPageReload(mockWin)).toBe(true);
-      expect(mockWin.performance.getEntriesByType).toHaveBeenCalledWith("navigation");
+      expect(getEntriesByType).toHaveBeenCalledWith("navigation");
     });
 
     it("returns false when Navigation Timing Level 2 entry type is 'navigate'", () => {
@@ -42,7 +40,7 @@ describe("Page Reload Animation Suppression", () => {
             return [];
           }),
         },
-      } as unknown as Window;
+      } satisfies MinimalWindow;
 
       expect(isPageReload(mockWin)).toBe(false);
     });
@@ -57,7 +55,7 @@ describe("Page Reload Animation Suppression", () => {
             return [];
           }),
         },
-      } as unknown as Window;
+      } satisfies MinimalWindow;
 
       expect(isPageReload(mockWin)).toBe(false);
     });
@@ -68,7 +66,7 @@ describe("Page Reload Animation Suppression", () => {
           getEntriesByType: vi.fn(() => []),
           navigation: { type: 1 },
         },
-      } as unknown as Window;
+      } satisfies MinimalWindow;
 
       expect(isPageReload(mockWin)).toBe(true);
     });
@@ -79,7 +77,7 @@ describe("Page Reload Animation Suppression", () => {
           getEntriesByType: vi.fn(() => []),
           navigation: { type: 0 },
         },
-      } as unknown as Window;
+      } satisfies MinimalWindow;
 
       expect(isPageReload(mockWin)).toBe(false);
     });
@@ -91,26 +89,30 @@ describe("Page Reload Animation Suppression", () => {
             throw new Error("SecurityError");
           }),
         },
-      } as unknown as Window;
+      } satisfies MinimalWindow;
 
       expect(isPageReload(mockWin)).toBe(false);
     });
   });
 
   describe("DOM Suppression Class Management", () => {
-    let mockDoc: Document;
+    let mockDoc: MinimalDocument;
 
     beforeEach(() => {
       const classList = new Set<string>();
       mockDoc = {
         documentElement: {
           classList: {
-            add: vi.fn((cls: string) => classList.add(cls)),
-            remove: vi.fn((cls: string) => classList.delete(cls)),
+            add: vi.fn((cls: string) => {
+              classList.add(cls);
+            }),
+            remove: vi.fn((cls: string) => {
+              classList.delete(cls);
+            }),
             contains: vi.fn((cls: string) => classList.has(cls)),
           },
         },
-      } as unknown as Document;
+      };
     });
 
     it("adds is-reload-suppressed class and checks status", () => {
@@ -120,7 +122,7 @@ describe("Page Reload Animation Suppression", () => {
             type === "navigation" ? [{ type: "reload" }] : []
           ),
         },
-      } as unknown as Window;
+      } satisfies MinimalWindow;
 
       const applied = applyReloadSuppressionClass(mockDoc, mockWin);
       expect(applied).toBe(true);
@@ -137,7 +139,7 @@ describe("Page Reload Animation Suppression", () => {
             type === "navigation" ? [{ type: "navigate" }] : []
           ),
         },
-      } as unknown as Window;
+      } satisfies MinimalWindow;
 
       const applied = applyReloadSuppressionClass(mockDoc, mockWin);
       expect(applied).toBe(false);

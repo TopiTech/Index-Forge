@@ -22,7 +22,14 @@ describe("Comprehensive Project Review & Fixes Verification", () => {
   describe("2. useSimulation Unmount Cleanup & Resource Safety", () => {
     it("registers an unmount effect to abort inflight simulation fetch requests", () => {
       expect(useSimTs).toContain("// Cancel inflight simulation requests when component unmounts");
-      expect(useSimTs).toMatch(/useEffect\(\(\)\s*=>\s*\{\s*return\s*\(\)\s*=>\s*\{\s*if\s*\(abortRef\.current\)\s*\{\s*abortRef\.current\.abort\(\);\s*\}\s*\};\s*\}, \[\]\);/);
+      // The cleanup delegates to the shared abort helper, which both cancels
+      // the request and invalidates any response that is still in flight.
+      expect(useSimTs).toMatch(
+        /useEffect\(\(\)\s*=>\s*\{\s*return\s*\(\)\s*=>\s*\{\s*abortInFlight\(\);\s*\};\s*\}, \[abortInFlight\]\);/,
+      );
+      expect(useSimTs).toMatch(
+        /const abortInFlight = useCallback\(\(\) => \{[\s\S]*?abortRef\.current\.abort\(\)/,
+      );
     });
   });
 

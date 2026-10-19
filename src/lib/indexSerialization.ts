@@ -82,12 +82,21 @@ export function calculateDiversificationScore(weights: readonly number[]): Diver
 }
 
 /**
+ * Schema revision of the exported index JSON.
+ *
+ * The importer refuses a revision it does not understand instead of silently
+ * mapping a foreign payload onto the current shape (which would clamp and
+ * default the weights, silently re-weighting or dropping constituents).
+ */
+export const INDEX_EXPORT_VERSION = 1;
+
+/**
  * 独自指数定義オブジェクトを整形されたJSON文字列にシリアライズします。
  */
 export function serializeIndexToJson(index: CustomIndex): string {
   return JSON.stringify(
     {
-      version: 1,
+      version: INDEX_EXPORT_VERSION,
       exportedAt: new Date().toISOString(),
       id: index.id,
       name: index.name,
@@ -119,6 +128,24 @@ export function deserializeIndexFromJson(jsonStr: string): SerializationResult<C
     const parsed = JSON.parse(stripped) as Record<string, unknown>;
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
       return { ok: false, error: "不正なJSON形式です" };
+    }
+
+    // A file written by another schema revision must not be silently mapped
+    // onto the current shape. Files without a version predate the field and
+    // are treated as version 1.
+    const rawVersion = parsed.version;
+    if (rawVersion !== undefined && rawVersion !== null) {
+      if (
+        typeof rawVersion !== "number" ||
+        !Number.isSafeInteger(rawVersion) ||
+        rawVersion < 1 ||
+        rawVersion > INDEX_EXPORT_VERSION
+      ) {
+        return {
+          ok: false,
+          error: `対応していない指数JSONのバージョンです (version: ${String(rawVersion)})`,
+        };
+      }
     }
 
     const name = (typeof parsed.name === "string" ? parsed.name.trim() : "").slice(0, 100);

@@ -101,6 +101,14 @@ export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModal
   const animTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const rafIdRef = useRef<number | null>(null);
   const pendingDimensionsRef = useRef<CardDimensions | null>(null);
+  /**
+   * Timers scheduled for the TradingView canvas resize notification.
+   *
+   * They must be owned by the component: without an unmount cleanup they
+   * fired after the modal was gone and dispatched a global `resize` event
+   * that nothing handled any more.
+   */
+  const pendingTimersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
 
   useModalFocus(Boolean(symbol), cardRef, onClose);
 
@@ -128,6 +136,45 @@ export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModal
     animTimeoutRef.current = setTimeout(() => {
       setIsAnimating(false);
     }, 250);
+  }, []);
+
+  /**
+   * Schedule a TradingView canvas resize notification.
+   *
+   * The timer is tracked so the unmount cleanup can cancel it: a notification
+   * that fires after the modal was closed dispatches a global `resize` event
+   * that nothing handles any more.
+   */
+  const scheduleResizeNotify = useCallback(
+    (delay: number) => {
+      const timer = setTimeout(() => {
+        pendingTimersRef.current.delete(timer);
+        notifyTradingViewResize();
+      }, delay);
+      pendingTimersRef.current.add(timer);
+    },
+    [notifyTradingViewResize],
+  );
+
+  // Cancel every scheduled timer and animation frame when the modal closes.
+  useEffect(() => {
+    // The Set instance never changes, so the cleanup can close over it
+    // directly instead of reading the ref at cleanup time.
+    const timers = pendingTimersRef.current;
+    return () => {
+      for (const timer of timers) {
+        clearTimeout(timer);
+      }
+      timers.clear();
+      if (animTimeoutRef.current) {
+        clearTimeout(animTimeoutRef.current);
+        animTimeoutRef.current = null;
+      }
+      if (rafIdRef.current !== null) {
+        cancelAnimationFrame(rafIdRef.current);
+        rafIdRef.current = null;
+      }
+    };
   }, []);
 
   // Save dimensions whenever they change (debounce to localStorage)
@@ -193,8 +240,8 @@ export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModal
       const maxH = Math.floor(window.innerHeight * 0.94);
       setDimensions({ width: maxW, height: maxH });
       setIsMaximized(true);
-      setTimeout(notifyTradingViewResize, 60);
-      setTimeout(notifyTradingViewResize, 260);
+      scheduleResizeNotify(60);
+      scheduleResizeNotify(260);
     } else {
       const isMobile = window.innerWidth <= 640;
       const minW = isMobile ? 300 : 480;
@@ -208,10 +255,10 @@ export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModal
       setDimensions(clamped);
       saveDimensions(clamped);
       setIsMaximized(false);
-      setTimeout(notifyTradingViewResize, 60);
-      setTimeout(notifyTradingViewResize, 260);
+      scheduleResizeNotify(60);
+      scheduleResizeNotify(260);
     }
-  }, [isMaximized, dimensions, saveDimensions, triggerAnimation, notifyTradingViewResize]);
+  }, [isMaximized, dimensions, saveDimensions, triggerAnimation, scheduleResizeNotify]);
 
   // Reset to default size with smooth animation
   const handleResetSize = useCallback(() => {
@@ -225,9 +272,9 @@ export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModal
     setDimensions(newDims);
     setIsMaximized(false);
     saveDimensions(newDims);
-    setTimeout(notifyTradingViewResize, 60);
-    setTimeout(notifyTradingViewResize, 260);
-  }, [saveDimensions, triggerAnimation, notifyTradingViewResize]);
+    scheduleResizeNotify(60);
+    scheduleResizeNotify(260);
+  }, [saveDimensions, triggerAnimation, scheduleResizeNotify]);
 
   // Keep modal within viewport when browser window is resized or device rotated
   useEffect(() => {

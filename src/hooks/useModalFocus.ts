@@ -33,7 +33,12 @@ export function useModalFocus<T extends HTMLElement>(
   initialFocusRef?: RefObject<HTMLElement | null>,
 ): void {
   const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
+  // The ref must not be written during render: React forbids it, and a
+  // discarded render could leave the hook holding a callback closed over
+  // props that were never committed. The effect keeps it current instead.
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  });
 
   useEffect(() => {
     if (!isOpen || !dialogRef.current) return;

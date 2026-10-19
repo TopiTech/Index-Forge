@@ -215,8 +215,14 @@ export function Sidebar({
         );
     };
 
-    const nav = (
-        <nav className="global-nav" aria-label="メインナビゲーション">
+    /**
+     * The navigation list is rendered twice (desktop rail and mobile drawer).
+     * Both copies must carry a distinct landmark label, otherwise a mobile
+     * viewport exposes two identically named "メインナビゲーション"
+     * navigation landmarks and the user cannot tell which one is active.
+     */
+    const renderNav = (ariaLabel: string) => (
+        <nav className="global-nav" aria-label={ariaLabel}>
             {/* Desktop header with collapse/expand toggle */}
             {onToggleCollapse && (
                 <div className="global-sidebar-desktop-header">
@@ -296,7 +302,7 @@ export function Sidebar({
                 className={`global-sidebar ${isCollapsed ? "is-collapsed" : ""}`}
                 aria-label="サイトナビゲーション"
             >
-                {nav}
+                {renderNav("メインナビゲーション")}
             </aside>
 
             {/* Mobile: drawer opened from the header toggle */}
@@ -326,7 +332,7 @@ export function Sidebar({
                             aria-label="ナビゲーションメニュー"
                             tabIndex={-1}
                         >
-                            {nav}
+                            {renderNav("モバイルナビゲーション")}
                         </motion.aside>
                     </>
                 )}

@@ -99,9 +99,24 @@ describe("useBenchmark does not write lastUpdatedAt after abort", () => {
     );
     const asyncWrites = fetchChain.match(/setLastUpdatedAt\(/g) || [];
     const guardedWrites =
-      fetchChain.match(/if \(!controller\.signal\.aborted\) \{\s*setLastUpdatedAt\(/g) || [];
+      fetchChain.match(/if \(!controller\.signal\.aborted\) \{[\s\S]*?setLastUpdatedAt\(/g) || [];
     expect(asyncWrites.length).toBeGreaterThan(0);
     expect(guardedWrites.length).toBe(asyncWrites.length);
+  });
+
+  it("never publishes an aborted response to the shared benchmark session cache", () => {
+    // The module cache feeds the next render, so an aborted request must not
+    // write to it either: a superseded response would overwrite a newer
+    // payload and be served for the full TTL.
+    const cacheWrites = benchmarkHookSource.match(
+      /benchmarkSessionCache\.set\(/g,
+    ) || [];
+    expect(cacheWrites.length).toBeGreaterThan(0);
+    const guardedCacheWrites =
+      benchmarkHookSource.match(
+        /if \(!controller\.signal\.aborted\) \{[\s\S]*?benchmarkSessionCache\.set\(/g,
+      ) || [];
+    expect(guardedCacheWrites.length).toBe(cacheWrites.length);
   });
 });
 

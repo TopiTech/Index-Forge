@@ -1,6 +1,31 @@
 import { useState, useCallback, useEffect } from "react";
 import type { AuthSession } from "../types";
-import { getStoredAuth, clearAuth, verifyPassword, adminLogin, getAuthHeaders } from "../lib/auth";
+import {
+  getStoredAuth,
+  clearAuth,
+  verifyPassword,
+  adminLogin,
+  getAuthHeaders,
+  beginAuthAttempt,
+  cancelPendingAuthAttempt,
+  isCurrentAuthAttempt,
+} from "../lib/auth";
+
+/** Result of an authentication attempt. */
+export interface AuthAttemptResult {
+  ok: boolean;
+  error?: string;
+  /**
+   * True when the attempt was superseded (a newer attempt or a logout) and
+   * therefore did not actually fail. The caller must not report it as a
+   * wrong password and must not reset the Turnstile widget, whose solved
+   * token is still valid.
+   */
+  cancelled?: boolean;
+  locked?: boolean;
+  remainingSeconds?: number;
+  remainingAttempts?: number;
+}
 
 export function useAuth() {
   const [session, setSession] = useState<AuthSession | null>(() => getStoredAuth());
@@ -40,17 +65,27 @@ export function useAuth() {
     };
   }, []);
 
-  const login = useCallback(async (password: string): Promise<{ ok: boolean; error?: string }> => {
+  const login = useCallback(async (password: string): Promise<AuthAttemptResult> => {
+    // The attempt identity is module scoped: the logout that supersedes it
+    // can be performed by a different `useAuth()` instance.
+    const { requestId, controller } = beginAuthAttempt();
     setLoading(true);
     try {
-      const res = await verifyPassword(password);
+      const res = await verifyPassword(password, controller.signal);
+      if (!isCurrentAuthAttempt(requestId)) {
+        // Superseded by a newer attempt or by a logout: the result must not
+        // be applied and is not a failure.
+        return { ok: false, cancelled: true };
+      }
       if (res.ok && res.session) {
         setSession(res.session);
         return { ok: true };
       }
       return { ok: false, error: res.error || "認証に失敗しました" };
     } finally {
-      setLoading(false);
+      if (isCurrentAuthAttempt(requestId)) {
+        setLoading(false);
+      }
     }
   }, []);
 
@@ -59,16 +94,14 @@ export function useAuth() {
       password: string,
       secretCode: string,
       turnstileToken: string,
-    ): Promise<{
-      ok: boolean;
-      error?: string;
-      locked?: boolean;
-      remainingSeconds?: number;
-      remainingAttempts?: number;
-    }> => {
+    ): Promise<AuthAttemptResult> => {
+      const { requestId, controller } = beginAuthAttempt();
       setLoading(true);
       try {
-        const res = await adminLogin(password, secretCode, turnstileToken);
+        const res = await adminLogin(password, secretCode, turnstileToken, controller.signal);
+        if (!isCurrentAuthAttempt(requestId)) {
+          return { ok: false, cancelled: true };
+        }
         if (res.ok && res.session) {
           setSession(res.session);
           return { ok: true };
@@ -81,15 +114,22 @@ export function useAuth() {
           remainingAttempts: res.remainingAttempts,
         };
       } finally {
-        setLoading(false);
+        if (isCurrentAuthAttempt(requestId)) {
+          setLoading(false);
+        }
       }
     },
     [],
   );
 
   const logout = useCallback(() => {
+    // A login that is still in flight must not re-authenticate the user after
+    // they logged out. The attempt is tracked globally, so the cancellation
+    // also covers a login that was started by another component.
+    cancelPendingAuthAttempt();
     clearAuth();
     setSession(null);
+    setLoading(false);
   }, []);
 
   const isAuthenticated = Boolean(session);

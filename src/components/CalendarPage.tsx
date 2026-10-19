@@ -90,7 +90,7 @@ export function CalendarPage({
 }: CalendarPageProps) {
   const [events, setEvents] = useState<CalendarEvent[]>(UPCOMING_EVENTS);
   const [loading, setLoading] = useState(false);
-  const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(() => Date.now());
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(null);
   const [activeFilter, setActiveFilter] = useState<"ALL" | "MACRO" | "EARNINGS">("ALL");
 
   useRegisterFreshness("calendar", {

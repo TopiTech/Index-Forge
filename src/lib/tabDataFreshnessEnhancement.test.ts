@@ -147,7 +147,7 @@ describe("Tab Data Freshness Enhancement & Permanent Loading Fix", () => {
       return React.createElement("div", null, freshness.typeLabel);
     }
 
-    it("resolves default typeLabel and global fallback timestamp when view has no explicit registration", () => {
+    it("resolves the default typeLabel without fabricating a timestamp when no data was observed", () => {
       let resolved: TabFreshness | undefined;
       renderToStaticMarkup(
         React.createElement(
@@ -165,8 +165,13 @@ describe("Tab Data Freshness Enhancement & Permanent Loading Fix", () => {
       expect(resolved).toBeDefined();
       expect(resolved?.typeLabel).toBe("市況サマリー");
       expect(resolved?.loading).toBe(false);
-      // Must not be empty, falls back to global timestamp so it doesn't freeze in loading
-      expect(resolved?.updatedAt).toBeTruthy();
+      // Must not be stuck in a loading state ...
+      expect(resolved?.loading).toBe(false);
+      // ... but it must also not invent a timestamp: nothing has been fetched
+      // yet, and the LIVE badge plus "最終更新 <time>" would then describe
+      // data that was never retrieved. The provider starts with "no data
+      // observed" (null), not with the app's load time.
+      expect(resolved?.updatedAt).toBeNull();
     });
 
     it("prioritizes dashboard benchmark & calculation props when on dashboard view", () => {

@@ -9,14 +9,25 @@ describe("SYNC_STORAGE_KEY shared contract", () => {
     expect(SYNC_STORAGE_KEY.length).toBeGreaterThan(0);
   });
 
-  it("is the single source of truth: useSimulation must import it instead of duplicating the literal", () => {
+  it("is the single source of truth: both hooks consume one owner module for the sync cache", () => {
     // Regression guard: useSimulation previously declared its own copy of the
     // "osi_stock_sync_cache" literal. If one copy were renamed while the other
     // kept the old key, the two hooks would read/write disjoint sync caches
     // and prices would appear stale on one screen but fresh on the other.
-    const source = readFileSync(resolve(__dirname, "./useSimulation.ts"), "utf8");
-    expect(source).toContain('SYNC_STORAGE_KEY, parseLocalSyncCache } from "./useCalculation"');
-    expect(source).not.toMatch(/const\s+SYNC_STORAGE_KEY\s*=/);
+    //
+    // The key now lives in a single owner module (src/lib/syncCache.ts) that
+    // also implements the one and only read-modify-write, so the two hooks
+    // can no longer overwrite each other's entries.
+    const simulationSource = readFileSync(resolve(__dirname, "./useSimulation.ts"), "utf8");
+    const calculationSource = readFileSync(resolve(__dirname, "./useCalculation.ts"), "utf8");
+    const ownerSource = readFileSync(resolve(__dirname, "../lib/syncCache.ts"), "utf8");
+
+    expect(ownerSource).toContain('export const SYNC_STORAGE_KEY = "osi_stock_sync_cache"');
+    expect(simulationSource).not.toMatch(/const\s+SYNC_STORAGE_KEY\s*=/);
+    expect(calculationSource).not.toMatch(/const\s+SYNC_STORAGE_KEY\s*=/);
+
+    expect(simulationSource).toContain('from "../lib/syncCache"');
+    expect(calculationSource).toContain('from "../lib/syncCache"');
   });
 });
 

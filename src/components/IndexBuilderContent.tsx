@@ -499,7 +499,12 @@ export function IndexBuilderContent({
 
   // Keep the ref pointing at the latest executeSave so the post-login retry
   // always re-runs the current validation with the current session.
-  executeSaveRef.current = executeSave;
+  // The assignment must not happen during render: React forbids writing refs
+  // in the render phase, and a discarded render could leave the ref holding a
+  // closure over state that was never committed (saving a stale name/basket).
+  useEffect(() => {
+    executeSaveRef.current = executeSave;
+  });
 
   // Retry the save once the authenticated session has been committed. Driving
   // this from state (instead of a setTimeout closure) means it cannot fire after

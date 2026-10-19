@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { runStockScreener, type StockQuoteFundamentals } from "./marketDataService";
 import { fetchSecEdgarFinancials } from "../../worker/internal";
+import { createStockQuote } from "../test-helpers/quote";
 
 describe("Comprehensive Code Review Quality & Bugfix Verification", () => {
   describe("P1: fetchSecEdgarFinancials zero-value retention", () => {
@@ -74,7 +75,7 @@ describe("Comprehensive Code Review Quality & Bugfix Verification", () => {
   describe("P2: runStockScreener deterministic tiebreaker", () => {
     it("deterministically sorts stocks with identical metric values by ticker ascending", () => {
       const mockUniverse: StockQuoteFundamentals[] = [
-        {
+        createStockQuote({
           ticker: "7203",
           name: "トヨタ自動車",
           price: 2800,
@@ -91,8 +92,8 @@ describe("Comprehensive Code Review Quality & Bugfix Verification", () => {
           dayLow: 2780,
           yearHigh: 3000,
           yearLow: 2000,
-        },
-        {
+        }),
+        createStockQuote({
           ticker: "6758",
           name: "ソニーグループ",
           price: 13000,
@@ -109,8 +110,8 @@ describe("Comprehensive Code Review Quality & Bugfix Verification", () => {
           dayLow: 12900,
           yearHigh: 15000,
           yearLow: 10000,
-        },
-        {
+        }),
+        createStockQuote({
           ticker: "9984",
           name: "ソフトバンクグループ",
           price: 9000,
@@ -127,7 +128,7 @@ describe("Comprehensive Code Review Quality & Bugfix Verification", () => {
           dayLow: 8900,
           yearHigh: 10000,
           yearLow: 6000,
-        },
+        }),
       ];
 
       const res = runStockScreener(

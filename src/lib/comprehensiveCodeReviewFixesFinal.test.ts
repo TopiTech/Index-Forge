@@ -33,7 +33,7 @@ describe("Comprehensive Code Review Final: RFC 5545 iCalendar Text Escaping", ()
         title: "日銀政策決定会合, 展望レポート; 植田総裁記者会見",
         importance: "HIGH",
         time: "15:30 JST",
-        market: "JP",
+        market: "TSE",
         forecast: "0.50%",
         previous: "0.25%",
         actual: "0.50%",

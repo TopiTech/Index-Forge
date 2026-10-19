@@ -60,8 +60,26 @@ export interface PortfolioSummary {
   positions: PositionCalculation[];
 }
 
-const STORAGE_KEY_PORTFOLIO = "indexforge_user_portfolio_positions";
-const STORAGE_KEY_WATCHLIST = "indexforge_user_watchlist";
+export const STORAGE_KEY_PORTFOLIO = "indexforge_user_portfolio_positions";
+export const STORAGE_KEY_WATCHLIST = "indexforge_user_watchlist";
+
+/**
+ * Read the raw persisted JSON of a list.
+ *
+ * The auto-save path compares the content it is about to write with the
+ * content that is already stored. Writing an identical payload is a no-op
+ * that still fires a `storage` event in the other tabs, which would start a
+ * cross-tab write loop.
+ */
+export function readPersistedJson(key: string): string | null {
+  const storage = getLocalStorage();
+  if (!storage) return null;
+  try {
+    return storage.getItem(key);
+  } catch {
+    return null;
+  }
+}
 
 // Default preset positions for first-time user preview
 const DEFAULT_PRESET_POSITIONS: PortfolioPosition[] = [
@@ -105,6 +123,22 @@ function getLocalStorage(): Storage | undefined {
 }
 
 /**
+ * Monotonic counter used to keep generated position ids unique.
+ *
+ * Two lots of the same ticker with the same share count are a normal
+ * portfolio shape, so the id must not be derived from those two fields
+ * alone: identical ids produce duplicate React keys and a delete that removes
+ * both lots.
+ */
+let positionIdCounter = 0;
+
+/** Build an id that is unique within the session for a position. */
+export function createPortfolioPositionId(ticker: string, shares: number): string {
+  positionIdCounter += 1;
+  return `pos-${ticker}-${shares}-${Date.now().toString(36)}-${positionIdCounter.toString(36)}`;
+}
+
+/**
  * Validates one stored position. localStorage content can be stale or
  * hand-edited, and an unvalidated array reaches `.shares`/`.averageCost`
  * arithmetic in the summary, so malformed entries are dropped here instead
@@ -125,7 +159,7 @@ function sanitizePosition(raw: unknown): PortfolioPosition | null {
   const id =
     typeof record.id === "string" && record.id.trim()
       ? record.id.trim()
-      : `pos-${ticker}-${shares}`;
+      : createPortfolioPositionId(ticker, shares);
   const name = typeof record.name === "string" && record.name.trim() ? record.name.trim() : ticker;
 
   const position: PortfolioPosition = { id, ticker, name, shares, averageCost };
@@ -288,7 +322,7 @@ function loadPersistedWatchlist(): string[] {
 export function addPortfolioPosition(
   position: Omit<PortfolioPosition, "id"> & { id?: string },
 ): boolean {
-  const id = position.id?.trim() || `pos-${position.ticker}-${Date.now()}`;
+  const id = position.id?.trim() || createPortfolioPositionId(position.ticker, position.shares);
   const sanitized = sanitizePosition({ ...position, id });
   if (!sanitized) return false;
   const current = loadPersistedPositions();

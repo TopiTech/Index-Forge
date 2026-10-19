@@ -117,7 +117,7 @@ describe("Comprehensive Goal Review Fixes Verification", () => {
     });
 
     it("preserves bounded numeric quotas for user role", () => {
-      const role: "admin" | "user" = "user";
+      const role: string = "user";
       const unlimitedStocks = false;
       const unlimitedIndices = false;
       const maxStocks = "50";
