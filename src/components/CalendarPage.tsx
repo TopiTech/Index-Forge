@@ -98,7 +98,7 @@ export function CalendarPage({
     updatedAt: lastUpdatedAt,
     typeLabel: "経済カレンダー",
   });
-  const [importanceFilter, setImportanceFilter] = useState<"ALL" | "HIGH" | "MEDIUM">("ALL");
+  const [importanceFilter, setImportanceFilter] = useState<"ALL" | "HIGH" | "MEDIUM" | "LOW">("ALL");
   const [marketFilter, setMarketFilter] = useState<"ALL" | "JP" | "US">("ALL");
   const [searchQuery, setSearchQuery] = useState("");
   const [viewMode, setViewMode] = useState<"LIST" | "CALENDAR">("LIST");
@@ -547,14 +547,15 @@ export function CalendarPage({
           {/* Importance Filter */}
           <select
             value={importanceFilter}
-            onChange={(e) => setImportanceFilter(e.target.value as "ALL" | "HIGH" | "MEDIUM")}
+            onChange={(e) => setImportanceFilter(e.target.value as "ALL" | "HIGH" | "MEDIUM" | "LOW")}
             className="input input-sm"
             aria-label="重要度フィルター"
             style={{ borderRadius: "16px", padding: "4px 10px", fontSize: "0.82rem" }}
           >
             <option value="ALL">全重要度</option>
             <option value="HIGH">最重要 (HIGH)</option>
-            <option value="MEDIUM">標準以上 (MEDIUM+)</option>
+            <option value="MEDIUM">標準 (MEDIUM)</option>
+            <option value="LOW">低 (LOW)</option>
           </select>
 
           {/* Search Box */}

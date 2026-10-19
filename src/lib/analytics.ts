@@ -133,16 +133,20 @@ export function calculateRiskMetrics(
 
   // 3. 年率ボラティリティ (標準偏差 * sqrt(250))
   const meanReturn = customReturns.reduce((sum, r) => sum + r, 0) / customReturns.length;
-  const variance =
+  const variance = Math.max(
+    0,
     customReturns.reduce((sum, r) => sum + Math.pow(r - meanReturn, 2), 0) /
-    (customReturns.length - 1 || 1);
+      (customReturns.length - 1 || 1),
+  );
   const dailyVol = Math.sqrt(variance);
-  const annualVolatility = dailyVol * Math.sqrt(250) * 100;
+  const rawAnnualVol = dailyVol * Math.sqrt(250) * 100;
+  const annualVolatility = Number.isFinite(rawAnnualVol) ? rawAnnualVol : 0;
 
   // 4. シャープレシオ
   const excessReturn = annualReturn / 100 - riskFreeRate;
   const volFraction = annualVolatility / 100;
-  const sharpeRatio = volFraction > 0 ? Number((excessReturn / volFraction).toFixed(2)) : 0;
+  const rawSharpe = volFraction > 1e-6 ? excessReturn / volFraction : 0;
+  const sharpeRatio = Number.isFinite(rawSharpe) ? (Object.is(rawSharpe, -0) ? 0 : rawSharpe) : 0;
 
   // 5. 最大ドローダウン (MDD)
   let peak = -Infinity;

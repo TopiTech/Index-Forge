@@ -2031,10 +2031,15 @@ export async function fetchSecEdgarFinancials(
 
     // SEC's XBRL companyfacts expose per-share concepts under the
     // "USD/shares" unit key (plain "USD" is for absolute amounts), so EPS
-    // facts must be read from there. Keep the "USD" fallback for adapters
+    // and DPS facts must be read from there. Keep the "USD" fallback for adapters
     // that normalize the unit key.
     const epsUnits = usGaap.EarningsPerShareDiluted?.units;
     const epsList = (epsUnits?.["USD/shares"] || epsUnits?.USD || []).filter(isUsableFact);
+
+    const dpsUnits =
+      usGaap.CommonStockDividendsPerShareDeclared?.units ||
+      usGaap.CommonStockDividendsPerShareCashPaid?.units;
+    const dpsList = (dpsUnits?.["USD/shares"] || dpsUnits?.USD || []).filter(isUsableFact);
 
     const years = [...new Set(revList.map((r) => r.fy!))].sort((a, b) => a - b).slice(-4);
     if (years.length === 0) return [];
@@ -2044,6 +2049,7 @@ export async function fetchSecEdgarFinancials(
       const netItem = netList.filter((r) => r.fy === fy).pop();
       const opItem = opList.filter((r) => r.fy === fy).pop();
       const epsItem = epsList.filter((r) => r.fy === fy).pop();
+      const dpsItem = dpsList.filter((r) => r.fy === fy).pop();
 
       const rev = revItem && typeof revItem.val === "number" && Number.isFinite(revItem.val)
         ? Math.round(revItem.val / 1_000_000)
@@ -2059,6 +2065,9 @@ export async function fetchSecEdgarFinancials(
       const safeEps = epsItem && typeof epsItem.val === "number" && Number.isFinite(epsItem.val)
         ? Number(epsItem.val.toFixed(2))
         : 0;
+      const safeDps = dpsItem && typeof dpsItem.val === "number" && Number.isFinite(dpsItem.val)
+        ? Number(dpsItem.val.toFixed(2))
+        : 0;
 
       return {
         fiscalYear: `${fy} FY`,
@@ -2066,7 +2075,7 @@ export async function fetchSecEdgarFinancials(
         operatingIncome: op,
         netIncome: net,
         eps: safeEps,
-        dps: 0,
+        dps: safeDps,
       };
     });
   } catch {
@@ -3788,6 +3797,9 @@ function sortCalendarEvents(events: CalendarEvent[], refDate = new Date()): Cale
 }
 
 export let lastKnownCalendarEvents: CalendarEvent[] | null = null;
+export function getLastKnownCalendarEvents(): CalendarEvent[] | null {
+  return lastKnownCalendarEvents;
+}
 export function resetLastKnownCalendarEvents(): void {
   lastKnownCalendarEvents = null;
 }
@@ -3803,7 +3815,11 @@ export function fetchLiveMarketCalendar(
 ): CalendarEvent[] {
   const macros = generateUpcomingMacroEvents(refDate).map((m) => ({ ...m, source: "fallback" }));
   const earnings = generateFallbackEarningsEvents(universe, refDate);
-  return sortCalendarEvents([...macros, ...earnings], refDate);
+  const combined = sortCalendarEvents([...macros, ...earnings], refDate);
+  if (!lastKnownCalendarEvents) {
+    lastKnownCalendarEvents = combined;
+  }
+  return combined;
 }
 
 /**
@@ -3959,7 +3975,7 @@ export async function fetchLiveMarketCalendarAsync(
   const combined = sortCalendarEvents([...finalMacros, ...finalEarnings], refDate);
 
   const hasLive = liveEarnings.length > 0;
-  if (hasLive) {
+  if (hasLive || !lastKnownCalendarEvents) {
     lastKnownCalendarEvents = combined;
   }
 

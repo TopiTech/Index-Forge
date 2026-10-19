@@ -82,6 +82,8 @@ export {
   fetchLiveScreenerUniverse,
   fetchLiveMarketCalendar,
   fetchLiveMarketCalendarAsync,
+  lastKnownCalendarEvents,
+  getLastKnownCalendarEvents,
   resetLastKnownCalendarEvents,
   resetLastKnownScreenerUniverse,
   getYahooCrumb,

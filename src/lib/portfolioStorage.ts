@@ -525,9 +525,11 @@ export function convertPortfolioToCustomIndexBasket(
   for (const pos of summary.positions) {
     const normTicker = (pos.ticker || "").trim().toUpperCase();
     if (!normTicker) continue;
+    const posMv = pos.marketValueJpy ?? pos.marketValue;
+    const validMv = typeof posMv === "number" && Number.isFinite(posMv) && posMv > 0 ? posMv : 0;
     const existing = grouped.get(normTicker);
     if (existing) {
-      existing.marketValue += pos.marketValueJpy ?? pos.marketValue;
+      existing.marketValue += validMv;
     } else {
       const posName = typeof pos.name === "string" ? pos.name.trim() : "";
       const posTheme = typeof pos.theme === "string" ? pos.theme.trim() : "";
@@ -535,12 +537,13 @@ export function convertPortfolioToCustomIndexBasket(
         ticker: normTicker,
         name: posName || normTicker,
         theme: posTheme || "カスタム",
-        marketValue: pos.marketValueJpy ?? pos.marketValue,
+        marketValue: validMv,
       });
     }
   }
 
   const items = Array.from(grouped.values());
+  if (items.length === 0) return [];
   const weights = allocateIntegerWeights(items.map((item) => item.marketValue));
 
   return items.map((item, index) => ({
