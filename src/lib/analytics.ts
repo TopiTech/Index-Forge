@@ -1,6 +1,5 @@
 import type { BasketItem, PricePoint, RiskMetrics, StockDetail, StockSeries } from "../types";
 import { normalizeTicker, normalizeWeights } from "./indexEngine";
-import { getStockFundamentals } from "./marketDataService";
 
 function normalizeAnalyticsSeries(
   series: PricePoint[] | undefined,
@@ -342,9 +341,15 @@ export function calculateStockDetails(
     // スパークライン（直近10営業日分）
     const sparkline = series.slice(-10).map((p) => p.close);
 
-    const isDemo =
-      stock?.isDemoData === true ||
-      getStockFundamentals(item.ticker).isDemoData === true;
+    // 実データ（時系列データまたは最新価格）が正常に存在し、かつ明示的にデモ指定されていない場合は実データとして扱う。
+    // アンカー未定義銘柄であってもAPIから実価格が取得できている場合は「参考値」表示にしない。
+    const hasRealPriceData =
+      Boolean(stock) &&
+      (len > 0 || fallbackPrice > 0) &&
+      currentPrice > 0 &&
+      stock?.isDemoData !== true;
+
+    const isDemo = !hasRealPriceData;
 
     return {
       ticker: item.ticker,

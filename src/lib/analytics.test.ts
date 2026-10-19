@@ -336,5 +336,47 @@ describe("analytics library", () => {
       expect(unknown?.isDemoData).toBe(true);
       expect(demo?.isDemoData).toBe(true);
     });
+
+    it("does not flag unanchored tickers (e.g. 3103 Unitika, 3350 Metaplanet) as demo data when actual stock price data is available", () => {
+      const details = calculateStockDetails(
+        [
+          { ticker: "3103", name: "ユニチカ", weight: 50, theme: "繊維" },
+          { ticker: "3350", name: "メタプラネット", weight: 50, theme: "情報" },
+        ],
+        [
+          {
+            ticker: "3103",
+            name: "ユニチカ",
+            theme: "繊維",
+            sector: "Textile",
+            latestPrice: 1331,
+            series: [
+              { date: "2026-01-01", close: 1320 },
+              { date: "2026-01-02", close: 1331 },
+            ],
+          },
+          {
+            ticker: "3350",
+            name: "メタプラネット",
+            theme: "情報",
+            sector: "Information",
+            latestPrice: 267,
+            series: [
+              { date: "2026-01-01", close: 275 },
+              { date: "2026-01-02", close: 267 },
+            ],
+          },
+        ],
+      );
+
+      const unitika = details.find((d) => d.ticker === "3103");
+      const metaplanet = details.find((d) => d.ticker === "3350");
+
+      expect(unitika?.isDemoData).toBeUndefined();
+      expect(metaplanet?.isDemoData).toBeUndefined();
+      expect(unitika?.currentPrice).toBe(1331);
+      expect(metaplanet?.currentPrice).toBe(267);
+    });
   });
 });
+

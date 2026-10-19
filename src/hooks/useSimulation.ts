@@ -721,6 +721,7 @@ export function generateFallbackStockUniverse(basket: BasketItem[], days = 180):
       sector: item.theme,
       latestPrice: series[series.length - 1]?.close ?? base,
       series,
+      isDemoData: true,
     };
   });
 }
