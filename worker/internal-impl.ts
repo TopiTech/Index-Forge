@@ -3078,7 +3078,7 @@ export async function fetchLiveStockFundamentals(ticker: string, env?: Env): Pro
     technicalSignal,
     isEstimatedPer,
     perNote,
-    ...((!hasLivePrice && baseline.isDemoData) ? { isDemoData: true } : {}),
+    ...(!hasLivePrice ? { isDemoData: true } : {}),
     historicalFinances,
   };
 }
@@ -3818,9 +3818,20 @@ export async function fetchLiveMarketCalendarAsync(
   const macroEvents = generateUpcomingMacroEvents(refDate);
 
   const liveEarnings: CalendarEvent[] = [];
+  const fallbackCorporateTickers = [
+    "7203",
+    "4063",
+    "6954",
+    "6857",
+    "AAPL",
+    "9984",
+    "8035",
+    "NVDA",
+  ];
   const tickersToQuery = Array.from(
     new Set([
       ...POPULAR_STOCKS.map((s) => s.ticker),
+      ...fallbackCorporateTickers,
       "AAPL",
       "NVDA",
       "MSFT",
@@ -6241,7 +6252,7 @@ export default {
           } catch (liveErr) {
             console.warn("fetchLiveMarketCalendarAsync failed, falling back:", liveErr);
             events =
-              lastKnownCalendarEvents ||
+              (!forceRefresh && lastKnownCalendarEvents) ||
               fetchLiveMarketCalendar(lastKnownScreenerUniverse ?? undefined);
           }
 

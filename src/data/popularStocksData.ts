@@ -17,6 +17,7 @@ export const POPULAR_STOCKS: PopularStock[] = [
   { ticker: "6981", name: "村田製作所", theme: "電子部品・MLCC" },
   { ticker: "7735", name: "SCREENホールディングス", theme: "半導体洗浄" },
   { ticker: "6146", name: "ディスコ", theme: "半導体切断・研削" },
+  { ticker: "6954", name: "ファナック", theme: "産業用ロボット・FA" },
 
   // AI・通信・クラウド
   { ticker: "9984", name: "ソフトバンクグループ", theme: "AI・投資" },

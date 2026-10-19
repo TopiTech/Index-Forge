@@ -1915,6 +1915,8 @@ export async function fetchStockFundamentals(
               ...rawObj,
               ticker: normTicker,
               price: rawObj.price as number,
+              // サーバーから実データが取得できている場合は、baseline の isDemoData: true を確実にクリアする
+              isDemoData: rawObj.isDemoData === true ? true : undefined,
               historicalFinances: Array.isArray(rawObj.historicalFinances)
                 ? (rawObj.historicalFinances as StockQuoteFundamentals["historicalFinances"])
                 : baseline.historicalFinances,
@@ -1933,7 +1935,11 @@ export async function fetchStockFundamentals(
     }
     // 取得失敗: 成功キャッシュにはベースラインを書かず (障害復帰後に本物の
     // データへ戻せるように)、失敗時刻と返却済みフォールバックだけ記録する。
-    const fallback = getStockFundamentals(normTicker);
+    // アンカー銘柄であっても通信失敗時は確実に isDemoData: true を付与して警告バナーを表示可能にする。
+    const fallback: StockQuoteFundamentals = {
+      ...getStockFundamentals(normTicker),
+      isDemoData: true,
+    };
     stockFundamentalsFailureCache.set(normTicker, { failedAt: Date.now(), fallback });
     return fallback;
   }
@@ -2294,9 +2300,11 @@ export async function fetchUpcomingEvents(forceRefresh = false): Promise<Calenda
       // Graceful fallback to client cache or dynamic generator
     }
 
-    const cached = loadCalendarCache();
-    if (cached && cached.length > 0) {
-      return cached;
+    if (!forceRefresh) {
+      const cached = loadCalendarCache();
+      if (cached && cached.length > 0) {
+        return cached;
+      }
     }
   }
   return generateUpcomingEvents();
