@@ -4858,8 +4858,16 @@ export default {
             params.push(role);
           }
           if (isActive !== undefined) {
+            const active =
+              typeof isActive === "boolean"
+                ? isActive
+                : typeof isActive === "number"
+                  ? isActive !== 0
+                  : typeof isActive === "string"
+                    ? isActive.trim().toLowerCase() !== "false" && isActive.trim() !== "0" && isActive.trim() !== ""
+                    : Boolean(isActive);
             updates.push("is_active = ?");
-            params.push(isActive ? 1 : 0);
+            params.push(active ? 1 : 0);
           }
 
           if (updates.length === 0) {

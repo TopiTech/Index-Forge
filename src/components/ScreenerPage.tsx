@@ -132,6 +132,8 @@ export function ScreenerPage({
         setIsLive(true);
         setLastUpdatedAt(Date.now());
       }
+    } catch {
+      // Keep the previous universe on failure; loading is reset below.
     } finally {
       if (mountedRef.current && requestId === requestIdRef.current) {
         setLoading(false);

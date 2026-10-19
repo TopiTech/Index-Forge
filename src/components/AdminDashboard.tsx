@@ -322,16 +322,20 @@ export function AdminDashboard({
   // Fetch Turnstile config and initial lockout status
   useEffect(() => {
     if (!isAdmin) {
-      getTurnstileConfig().then((cfg) => {
-        if (cfg.siteKey) setTurnstileSiteKey(cfg.siteKey);
-        if (cfg.lockout?.locked) {
-          setIsLocked(true);
-          setLockoutRemainingSeconds(cfg.lockout.remainingSeconds);
-        }
-        if (typeof cfg.lockout?.remainingAttempts === "number") {
-          setRemainingAttempts(cfg.lockout.remainingAttempts);
-        }
-      });
+      getTurnstileConfig()
+        .then((cfg) => {
+          if (cfg.siteKey) setTurnstileSiteKey(cfg.siteKey);
+          if (cfg.lockout?.locked) {
+            setIsLocked(true);
+            setLockoutRemainingSeconds(cfg.lockout.remainingSeconds);
+          }
+          if (typeof cfg.lockout?.remainingAttempts === "number") {
+            setRemainingAttempts(cfg.lockout.remainingAttempts);
+          }
+        })
+        .catch(() => {
+          // Ignore transient config fetch failures; defaults remain in place.
+        });
     }
   }, [isAdmin]);
 

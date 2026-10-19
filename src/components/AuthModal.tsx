@@ -49,17 +49,21 @@ export function AuthModal({
     if (!isOpen) return;
 
     let isMounted = true;
-    getTurnstileConfig().then((cfg) => {
-      if (!isMounted) return;
-      if (cfg.siteKey) {
-        setTurnstileSiteKey(cfg.siteKey);
-      }
-      if (cfg.lockout) {
-        setIsLocked(cfg.lockout.locked);
-        setLockoutRemainingSeconds(cfg.lockout.remainingSeconds);
-        setRemainingAttempts(cfg.lockout.remainingAttempts);
-      }
-    });
+    getTurnstileConfig()
+      .then((cfg) => {
+        if (!isMounted) return;
+        if (cfg.siteKey) {
+          setTurnstileSiteKey(cfg.siteKey);
+        }
+        if (cfg.lockout) {
+          setIsLocked(cfg.lockout.locked);
+          setLockoutRemainingSeconds(cfg.lockout.remainingSeconds);
+          setRemainingAttempts(cfg.lockout.remainingAttempts);
+        }
+      })
+      .catch(() => {
+        // Ignore transient config fetch failures.
+      });
 
     return () => {
       isMounted = false;

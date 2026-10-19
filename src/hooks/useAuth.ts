@@ -42,13 +42,16 @@ export function useAuth() {
 
   const login = useCallback(async (password: string): Promise<{ ok: boolean; error?: string }> => {
     setLoading(true);
-    const res = await verifyPassword(password);
-    setLoading(false);
-    if (res.ok && res.session) {
-      setSession(res.session);
-      return { ok: true };
+    try {
+      const res = await verifyPassword(password);
+      if (res.ok && res.session) {
+        setSession(res.session);
+        return { ok: true };
+      }
+      return { ok: false, error: res.error || "認証に失敗しました" };
+    } finally {
+      setLoading(false);
     }
-    return { ok: false, error: res.error || "認証に失敗しました" };
   }, []);
 
   const handleAdminLogin = useCallback(
@@ -64,19 +67,22 @@ export function useAuth() {
       remainingAttempts?: number;
     }> => {
       setLoading(true);
-      const res = await adminLogin(password, secretCode, turnstileToken);
-      setLoading(false);
-      if (res.ok && res.session) {
-        setSession(res.session);
-        return { ok: true };
+      try {
+        const res = await adminLogin(password, secretCode, turnstileToken);
+        if (res.ok && res.session) {
+          setSession(res.session);
+          return { ok: true };
+        }
+        return {
+          ok: false,
+          error: res.error || "管理者認証に失敗しました",
+          locked: res.locked,
+          remainingSeconds: res.remainingSeconds,
+          remainingAttempts: res.remainingAttempts,
+        };
+      } finally {
+        setLoading(false);
       }
-      return {
-        ok: false,
-        error: res.error || "管理者認証に失敗しました",
-        locked: res.locked,
-        remainingSeconds: res.remainingSeconds,
-        remainingAttempts: res.remainingAttempts,
-      };
     },
     [],
   );
