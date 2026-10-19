@@ -104,9 +104,12 @@ export function SimulationPreview({
       return {
         date: point.date,
         customValue: customVal,
-        customReturnPct: Number(customReturnPct.toFixed(2)),
+        customReturnPct:
+          Number.isFinite(customReturnPct) ? Number(customReturnPct.toFixed(2)) : 0,
         benchmarkReturnPct:
-          benchmarkReturnPct !== null ? Number(benchmarkReturnPct.toFixed(2)) : null,
+          benchmarkReturnPct !== null && Number.isFinite(benchmarkReturnPct)
+            ? Number(benchmarkReturnPct.toFixed(2))
+            : null,
       };
     });
   }, [filteredCustomSeries, filteredBenchmarkSeries, baseValue]);
@@ -416,14 +419,18 @@ export function SimulationPreview({
                 stroke="var(--text-muted)"
                 fontSize={10}
                 tickLine={false}
-                tickFormatter={(d: string) => d.slice(5)}
+                tickFormatter={(d: string) =>
+                  typeof d === "string" && d.length >= 5 ? d.slice(5) : String(d ?? "")
+                }
               />
               <YAxis
                 stroke="var(--text-muted)"
                 fontSize={10}
                 tickLine={false}
                 domain={["auto", "auto"]}
-                tickFormatter={(v: number) => `${v > 0 ? "+" : ""}${v}%`}
+                tickFormatter={(v: number) =>
+                  typeof v === "number" && Number.isFinite(v) ? `${v > 0 ? "+" : ""}${v}%` : "--"
+                }
               />
               <ReferenceLine y={0} stroke="rgba(255, 255, 255, 0.2)" strokeDasharray="2 2" />
               <Tooltip

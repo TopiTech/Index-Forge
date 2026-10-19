@@ -1,4 +1,5 @@
 import { useId, useRef, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { motion } from "framer-motion";
 import { X } from "lucide-react";
 import { useModalFocus } from "../hooks/useModalFocus";
@@ -64,7 +65,7 @@ export function ModalBase({
     isBackdropMouseDownRef.current = false;
   };
 
-  return (
+  const modalContent = (
     <div
       className="modal-overlay"
       onMouseDown={handleBackdropMouseDown}
@@ -73,6 +74,7 @@ export function ModalBase({
       <motion.div
         className={`modal-dialog ${isDanger ? "modal-dialog-danger" : ""}`}
         role={role}
+        tabIndex={-1}
         aria-modal="true"
         aria-label={ariaLabel}
         aria-labelledby={resolvedLabelledBy}
@@ -121,4 +123,8 @@ export function ModalBase({
       </motion.div>
     </div>
   );
+
+  return typeof document !== "undefined"
+    ? createPortal(modalContent, document.body)
+    : modalContent;
 }

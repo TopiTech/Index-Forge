@@ -895,6 +895,9 @@ export class Tutorial3DScene {
     });
 
     this.renderer.dispose();
+    if (typeof this.renderer.forceContextLoss === "function") {
+      this.renderer.forceContextLoss();
+    }
     this.stepGroups.clear();
   }
 }

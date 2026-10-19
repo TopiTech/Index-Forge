@@ -1825,9 +1825,12 @@ export function getCachedStockFundamentals(ticker: string): StockQuoteFundamenta
 
 /** Cache for entire screener universe fetched from /api/stocks/screener. */
 let screenerUniverseClientCache: StockQuoteFundamentals[] | null = null;
+let screenerFailureUntil = 0;
+const SCREENER_FAILURE_COOLDOWN_MS = 30_000;
 
 export function clearScreenerUniverseClientCache(): void {
   screenerUniverseClientCache = null;
+  screenerFailureUntil = 0;
 }
 
 /**
@@ -1885,9 +1888,14 @@ export async function fetchStockFundamentals(
   const isBrowser = typeof globalThis !== "undefined" && "window" in globalThis;
   if (isBrowser) {
     try {
+      const timeoutSignal =
+        typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function"
+          ? AbortSignal.timeout(8000)
+          : undefined;
       const res = await fetch(`/api/stock/fundamentals?ticker=${encodeURIComponent(normTicker)}`, {
         headers: { accept: "application/json" },
         cache: forceRefresh ? "no-cache" : "default",
+        signal: timeoutSignal,
       });
       if (res.ok) {
         const contentType = res.headers.get("content-type") || "";
@@ -1900,7 +1908,20 @@ export async function fetchStockFundamentals(
             typeof (raw as { price?: unknown }).price === "number" &&
             Number.isFinite((raw as { price?: unknown }).price)
           ) {
-            const data = raw as StockQuoteFundamentals;
+            const rawObj = raw as Record<string, unknown>;
+            const baseline = getStockFundamentals(normTicker);
+            const data: StockQuoteFundamentals = {
+              ...baseline,
+              ...rawObj,
+              ticker: normTicker,
+              price: rawObj.price as number,
+              historicalFinances: Array.isArray(rawObj.historicalFinances)
+                ? (rawObj.historicalFinances as StockQuoteFundamentals["historicalFinances"])
+                : baseline.historicalFinances,
+              sparkline: Array.isArray(rawObj.sparkline)
+                ? (rawObj.sparkline as number[])
+                : baseline.sparkline,
+            };
             stockFundamentalsClientCache.set(normTicker, data);
             stockFundamentalsFailureCache.delete(normTicker);
             return data;
@@ -2078,18 +2099,28 @@ export async function fetchScreenerStocks(
 ): Promise<StockQuoteFundamentals[]> {
   if (forceRefresh) {
     screenerUniverseClientCache = null;
+    screenerFailureUntil = 0;
   }
 
   if (screenerUniverseClientCache && !forceRefresh) {
     return runStockScreener(options, screenerUniverseClientCache);
   }
 
+  if (Date.now() < screenerFailureUntil && !forceRefresh) {
+    return runStockScreener(options);
+  }
+
   const isBrowser = typeof globalThis !== "undefined" && "window" in globalThis;
   if (isBrowser) {
     try {
+      const timeoutSignal =
+        typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function"
+          ? AbortSignal.timeout(8000)
+          : undefined;
       const res = await fetch("/api/stocks/screener", {
         headers: { accept: "application/json" },
         cache: forceRefresh ? "no-cache" : "default",
+        signal: timeoutSignal,
       });
       if (res.ok) {
         const contentType = res.headers.get("content-type") || "";
@@ -2107,6 +2138,7 @@ export async function fetchScreenerStocks(
             );
             if (valid.length > 0) {
               screenerUniverseClientCache = valid;
+              screenerFailureUntil = 0;
               // Also populate individual stock cache for faster StockDetailPage access
               for (const stock of valid) {
                 stockFundamentalsClientCache.set(stock.ticker.toUpperCase(), stock);
@@ -2119,6 +2151,7 @@ export async function fetchScreenerStocks(
     } catch {
       // Graceful fallback to baseline
     }
+    screenerFailureUntil = Date.now() + SCREENER_FAILURE_COOLDOWN_MS;
   }
 
   return runStockScreener(options);
@@ -2173,12 +2206,22 @@ function saveCalendarCache(events: CalendarEvent[]): void {
  */
 function isValidCalendarEvent(e: unknown): e is CalendarEvent {
   if (!e || typeof e !== "object") return false;
-  const record = e as { id?: unknown; date?: unknown; title?: unknown };
-  return (
-    typeof record.id === "string" &&
-    typeof record.date === "string" &&
-    typeof record.title === "string"
-  );
+  const record = e as { id?: unknown; date?: unknown; title?: unknown; type?: unknown; importance?: unknown };
+  if (
+    typeof record.id !== "string" ||
+    typeof record.date !== "string" ||
+    typeof record.title !== "string"
+  ) {
+    return false;
+  }
+  const recAny = e as Record<string, unknown>;
+  if (recAny.type !== "MACRO" && recAny.type !== "EARNINGS") {
+    recAny.type = "EARNINGS";
+  }
+  if (recAny.importance !== "HIGH" && recAny.importance !== "MEDIUM" && recAny.importance !== "LOW") {
+    recAny.importance = "MEDIUM";
+  }
+  return true;
 }
 
 function loadCalendarCache(): CalendarEvent[] | null {

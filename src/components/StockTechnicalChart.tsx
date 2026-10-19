@@ -869,9 +869,10 @@ export function StockTechnicalChart({
                     domain={["auto", "auto"]}
                     tickLine={false}
                     width={activeIsMobile ? 52 : 60}
-                    tickFormatter={(val: number) =>
-                      isUS ? `$${val.toFixed(1)}` : `¥${val.toLocaleString()}`
-                    }
+                    tickFormatter={(val: number) => {
+                      if (typeof val !== "number" || !Number.isFinite(val)) return "--";
+                      return isUS ? `$${val.toFixed(1)}` : `¥${val.toLocaleString()}`;
+                    }}
                   />
 
                   <YAxis

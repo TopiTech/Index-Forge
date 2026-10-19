@@ -2,8 +2,6 @@ import type { BasketItem, PricePoint, RiskMetrics, StockDetail, StockSeries } fr
 import { normalizeTicker, normalizeWeights } from "./indexEngine";
 import { getStockFundamentals } from "./marketDataService";
 
-const CANONICAL_PRICE_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
-
 function normalizeAnalyticsSeries(
   series: PricePoint[] | undefined,
   useValue: boolean,
@@ -23,11 +21,9 @@ function normalizeAnalyticsSeries(
   }
 
   const normalized = Array.from(byDate.values());
-  // API data uses canonical ISO dates, for which lexical ordering is safe.
-  // Keep the original order for legacy callers that use a looser date label
-  // format; this preserves the existing time-series contract for those inputs.
-  return normalized.every((point) => CANONICAL_PRICE_DATE_PATTERN.test(point.date))
-    ? normalized.sort((a, b) => a.date.localeCompare(b.date))
+  const canParseAllDates = normalized.every((point) => !Number.isNaN(Date.parse(point.date)));
+  return canParseAllDates
+    ? normalized.sort((a, b) => Date.parse(a.date) - Date.parse(b.date))
     : normalized;
 }
 

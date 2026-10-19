@@ -9,7 +9,7 @@ import {
   isIndexOwner,
 } from "../lib/ownership";
 import { getAuthHeaders } from "../lib/auth";
-import { sanitizeBasketForRequest } from "../lib/indexEngine";
+import { sanitizeBasketForRequest, normalizeTicker } from "../lib/indexEngine";
 
 const API_BASE = "/api";
 const INDICES_CACHE_KEY = "osi_indices_cache";
@@ -366,10 +366,21 @@ export function useIndices() {
         if (token) {
           headers["x-owner-token"] = token;
         }
+        const cleanTicker = normalizeTicker(stock.ticker);
+        const cleanWeight =
+          typeof stock.weight === "number" && Number.isFinite(stock.weight) && stock.weight > 0
+            ? Math.min(stock.weight, 100)
+            : 10;
+        const sanitizedStock: BasketItem = {
+          ticker: cleanTicker,
+          name: (typeof stock.name === "string" && stock.name.trim() ? stock.name.trim() : cleanTicker).slice(0, 100),
+          theme: (typeof stock.theme === "string" && stock.theme.trim() ? stock.theme.trim() : "カスタム").slice(0, 100),
+          weight: cleanWeight,
+        };
         const res = await fetch(`${API_BASE}/indices/stock`, {
           method: "POST",
           headers,
-          body: JSON.stringify({ indexId, stock, password }),
+          body: JSON.stringify({ indexId, stock: sanitizedStock, password }),
         });
         if (!res.ok) {
           const errData = await res.json().catch(() => ({}));

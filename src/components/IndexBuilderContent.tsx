@@ -29,6 +29,7 @@ import { SimulationPreview } from "./SimulationPreview";
 import {
   allocateMarketCapWeights,
   allocateDividendYieldWeights,
+  normalizeMarketCapToOkuYen,
 } from "../lib/weights";
 import { getStockFundamentals } from "../lib/marketDataService";
 import {
@@ -335,7 +336,8 @@ export function IndexBuilderContent({
     if (basket.length === 0) return;
     const caps = basket.map((b) => {
       const fund = getStockFundamentals(b.ticker);
-      return fund.marketCap > 0 ? fund.marketCap : 1000;
+      const capInOkuYen = normalizeMarketCapToOkuYen(fund.marketCap, fund.market);
+      return capInOkuYen > 0 ? capInOkuYen : 1000;
     });
     const weights = allocateMarketCapWeights(caps, 100);
     setBasket(basket.map((b, idx) => ({ ...b, weight: weights[idx] })));
@@ -468,24 +470,30 @@ export function IndexBuilderContent({
     setSaving(true);
     setError(null);
 
-    const ownerToken = crypto.randomUUID();
-    const newIndex: CustomIndex = {
-      id: `idx-${crypto.randomUUID()}`,
-      name: name.trim(),
-      description:
-        description.trim().slice(0, 500) || `${basket.length}銘柄で構成されたカスタム指数`,
-      baseValue,
-      basket,
-    };
+    try {
+      const ownerToken = crypto.randomUUID();
+      const newIndex: CustomIndex = {
+        id: `idx-${crypto.randomUUID()}`,
+        name: name.trim(),
+        description:
+          description.trim().slice(0, 500) || `${basket.length}銘柄で構成されたカスタム指数`,
+        baseValue,
+        basket,
+      };
 
-    const res = await onSave(newIndex, ownerToken);
-    setSaving(false);
+      const res = await onSave(newIndex, ownerToken);
 
-    if (res.ok) {
-      toastSuccess(`独自指数「${newIndex.name}」を作成・保存しました`);
-      if (onClose) onClose();
-    } else {
-      setError(res.error || "保存に失敗しました");
+      if (res.ok) {
+        toastSuccess(`独自指数「${newIndex.name}」を作成・保存しました`);
+        if (onClose) onClose();
+      } else {
+        setError(res.error || "保存に失敗しました");
+      }
+    } catch (err) {
+      console.error("Index save failed:", err);
+      setError(err instanceof Error ? err.message : "保存処理中に予期せぬエラーが発生しました");
+    } finally {
+      setSaving(false);
     }
   };
 

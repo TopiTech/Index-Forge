@@ -63,6 +63,28 @@ export function allocateEvenWeights(count: number, total: number = 100): number[
 }
 
 /**
+ * Normalizes multi-currency market capitalizations to Japanese 億円.
+ * - Japanese stocks are already denominated in 億円 (100,000,000 JPY).
+ * - US stocks are denominated in millions of USD ($M). At usdJpyRate (default 155),
+ *   1 $M = 1,000,000 * 155 JPY = 1.55 億円.
+ */
+export function normalizeMarketCapToOkuYen(
+    marketCap: number,
+    currencyOrMarket?: string | null,
+    usdJpyRate: number = 155.0,
+): number {
+    if (typeof marketCap !== "number" || !Number.isFinite(marketCap) || marketCap <= 0) {
+        return 0;
+    }
+    const isUs =
+        currencyOrMarket === "USD" ||
+        currencyOrMarket === "US" ||
+        currencyOrMarket === "$" ||
+        currencyOrMarket === "USA";
+    return isUs ? (marketCap * usdJpyRate) / 100 : marketCap;
+}
+
+/**
  * Distributes `total` proportionally to market capitalizations (時価総額加重).
  * Non-positive values fall back to an equal share of the remaining pool.
  */

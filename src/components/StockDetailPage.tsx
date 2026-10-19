@@ -156,11 +156,18 @@ export function StockDetailPage({
   const currencyMeta = getCurrencyMeta(stock.ticker, stock.market);
 
   // Calculate 52-week price position percentage
-  const yearRange = stock.yearHigh - stock.yearLow || 1;
-  const yearPositionPct = Math.max(
-    0,
-    Math.min(100, ((stock.price - stock.yearLow) / yearRange) * 100),
-  );
+  const rawRange =
+    typeof stock.yearHigh === "number" && typeof stock.yearLow === "number"
+      ? stock.yearHigh - stock.yearLow
+      : 0;
+  const yearRange = Number.isFinite(rawRange) && rawRange > 0 ? rawRange : 1;
+  const rawPosition =
+    typeof stock.price === "number" && typeof stock.yearLow === "number"
+      ? ((stock.price - stock.yearLow) / yearRange) * 100
+      : 50;
+  const yearPositionPct = Number.isFinite(rawPosition)
+    ? Math.max(0, Math.min(100, Math.round(rawPosition)))
+    : 50;
 
   return (
     <motion.div
@@ -713,12 +720,12 @@ export function StockDetailPage({
                 </tr>
               </thead>
               <tbody>
-                {stock.historicalFinances.map((f, idx) => {
+                {(stock.historicalFinances ?? []).map((f, idx) => {
                   const opMargin =
                     f.revenue > 0
                       ? Number(((f.operatingIncome / f.revenue) * 100).toFixed(1))
                       : 0;
-                  const isLatest = idx === stock.historicalFinances.length - 1;
+                  const isLatest = idx === (stock.historicalFinances?.length ?? 1) - 1;
                   const isZeroDiv = stock.dividendYield === 0 || stock.dps === 0;
                   // 予想配当利回りが0%の場合、通期予想期の1株配当は確実に0にする
                   const rawDps = isZeroDiv && (isLatest || stock.dividendYield === 0)

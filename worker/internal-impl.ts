@@ -949,6 +949,10 @@ export async function checkAdminLoginLockout(
       };
     }
 
+    if (lockedUntil > 0 && lockedUntil <= now) {
+      return { locked: false, remainingSeconds: 0, remainingAttempts: ADMIN_LOGIN_MAX_ATTEMPTS, failedCount: 0 };
+    }
+
     const lastFailedAt = Number(row.last_failed_at) || 0;
     if (now - lastFailedAt > ADMIN_LOGIN_LOCKOUT_SECONDS) {
       return { locked: false, remainingSeconds: 0, remainingAttempts: ADMIN_LOGIN_MAX_ATTEMPTS, failedCount: 0 };
@@ -2007,8 +2011,12 @@ export async function fetchSecEdgarFinancials(
     const usGaap = data.facts?.["us-gaap"];
     if (!usGaap) return [];
 
-    const isUsableFact = (r: { form?: string; fy?: number; val?: number }) =>
-      r.form === "10-K" && typeof r.fy === "number" && typeof r.val === "number" && Number.isFinite(r.val);
+    const isUsableFact = (r: { form?: string; fy?: number; val?: number; fp?: string }) =>
+      r.form === "10-K" &&
+      typeof r.fy === "number" &&
+      typeof r.val === "number" &&
+      Number.isFinite(r.val) &&
+      (!r.fp || r.fp === "FY");
 
     const revList = (
       usGaap.Revenues?.units?.USD ||
@@ -2204,6 +2212,8 @@ export async function fetchLiveMarketOverview(
             });
           }
         }
+      } else if (quoteRes.status === 401 || quoteRes.status === 403) {
+        resetYahooCrumbCache();
       }
     } catch {
       // Ignore quote batch error
@@ -2587,6 +2597,8 @@ export async function fetchLiveStockFundamentals(ticker: string, env?: Env): Pro
       } catch {
         summaryData = null;
       }
+    } else if (summaryRes && (summaryRes.status === 401 || summaryRes.status === 403)) {
+      resetYahooCrumbCache();
     }
 
     // Tier 2 Fallback: If Tier 1 (with crumb) failed or was skipped, try query1/query2 quoteSummary without crumb
@@ -3113,6 +3125,8 @@ export async function fetchLiveScreenerUniverse(
             quotesMap.set(q.symbol, q);
           }
         }
+      } else if (qRes.status === 401 || qRes.status === 403) {
+        resetYahooCrumbCache();
       }
     } catch {
       // ignore
@@ -3893,6 +3907,8 @@ export async function fetchLiveMarketCalendarAsync(
             }
           }
         }
+      } else if (qRes.status === 401 || qRes.status === 403) {
+        resetYahooCrumbCache();
       }
     }
   } catch (err) {
@@ -3969,7 +3985,7 @@ export function json(
       headers["access-control-allow-origin"] = origin;
       headers["access-control-allow-methods"] = "GET,POST,PUT,DELETE,OPTIONS";
       headers["access-control-allow-headers"] =
-        "content-type,x-owner-token,x-admin-key,x-auth-password,x-auth-mode,authorization,cache-control,if-none-match";
+        "content-type,x-owner-token,x-admin-key,x-auth-password,x-auth-mode,authorization,cache-control,pragma,if-none-match";
       headers["access-control-expose-headers"] = "etag, x-data-stale, x-cache";
     }
     // The CORS headers above are selected by the request Origin, so the
@@ -4012,7 +4028,7 @@ export function notModified(request?: Request, customHeaders?: Record<string, st
       headers["access-control-allow-origin"] = origin;
       headers["access-control-allow-methods"] = "GET,POST,PUT,DELETE,OPTIONS";
       headers["access-control-allow-headers"] =
-        "content-type,x-owner-token,x-admin-key,x-auth-password,x-auth-mode,authorization,cache-control,if-none-match";
+        "content-type,x-owner-token,x-admin-key,x-auth-password,x-auth-mode,authorization,cache-control,pragma,if-none-match";
       headers["access-control-expose-headers"] = "etag, x-data-stale, x-cache";
     }
     // See json(): Vary must be declared whenever CORS headers are selected by
@@ -6031,7 +6047,10 @@ export default {
       }
 
       // 個別銘柄のファンダメンタルズ・リアルタイムデータ取得エンドポイント
-      if (url.pathname === "/api/stock/fundamentals" && request.method === "GET") {
+      if (
+        (url.pathname === "/api/stock/fundamentals" || url.pathname === "/api/stock/quote") &&
+        request.method === "GET"
+      ) {
         try {
           const ticker = url.searchParams.get("ticker");
           if (!ticker || !ticker.trim()) {
@@ -6105,7 +6124,10 @@ export default {
       }
 
       // スクリーナー用リアルタイム実データ取得エンドポイント
-      if (url.pathname === "/api/stocks/screener" && request.method === "GET") {
+      if (
+        (url.pathname === "/api/stocks/screener" || url.pathname === "/api/screener") &&
+        request.method === "GET"
+      ) {
         try {
           const ip = getClientIp(request);
           const allowed = await checkRateLimit(
@@ -6388,8 +6410,8 @@ export default {
             if (row.ticker) {
               const ticker = String(row.ticker).trim().toUpperCase();
               if (!ticker) continue;
-              // Legacy rows may carry NULL weights; coerce defensively so the
-              // API never emits NaN into the basket payload.
+              // Legacy rows may carry NULL or zero weights; coerce defensively so the
+              // API never emits NaN or non-positive weight into the basket payload.
               const rawWeight = Number(row.weight);
               indicesMap.get(id)!.basket.push({
                 ticker,

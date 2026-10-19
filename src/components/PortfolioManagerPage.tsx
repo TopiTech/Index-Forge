@@ -265,7 +265,7 @@ export function PortfolioManagerPage({
       isAuthTransitionRef.current = false;
       return;
     }
-  });
+  }, [positions, watchlist]);
 
   const handleTabKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
     if (!["ArrowRight", "ArrowDown", "ArrowLeft", "ArrowUp", "Home", "End"].includes(event.key)) {
@@ -492,7 +492,10 @@ export function PortfolioManagerPage({
 
   const handleConvertToCustomIndex = () => {
     const basket = convertPortfolioToCustomIndexBasket(positions, usdJpyRate);
-    if (basket.length === 0) return;
+    if (basket.length === 0) {
+      info("保有数量や評価額が有効な銘柄が登録されていないため、指数への変換ができません");
+      return;
+    }
 
     if (onConvertAndCreateCustomIndex) {
       onConvertAndCreateCustomIndex(basket);

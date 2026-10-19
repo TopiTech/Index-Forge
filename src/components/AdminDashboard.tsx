@@ -631,29 +631,36 @@ export function AdminDashboard({
 
     setSavingIndex(true);
     setIndexEditMessage(null);
-    const effectiveIndexId = selectedEditIndexId || indices.find((idx) => idx.id === selectedEditIndexId)?.id || indices[0]?.id || "";
-    if (!effectiveIndexId) {
-      setSavingIndex(false);
-      setIndexEditMessage({ type: "error", text: "編集対象の指数が見つかりません" });
-      return;
-    }
-    const currentIndex = indices.find((idx) => idx.id === effectiveIndexId);
-    const updated: CustomIndex = {
-      id: effectiveIndexId,
-      name: editName.trim(),
-      description: editDescription.trim(),
-      baseValue: editBaseValue,
-      basket: editBasket,
-      sortOrder: currentIndex?.sortOrder,
-    };
+    try {
+      const effectiveIndexId = selectedEditIndexId || indices.find((idx) => idx.id === selectedEditIndexId)?.id || indices[0]?.id || "";
+      if (!effectiveIndexId) {
+        setIndexEditMessage({ type: "error", text: "編集対象の指数が見つかりません" });
+        return;
+      }
+      const currentIndex = indices.find((idx) => idx.id === effectiveIndexId);
+      const updated: CustomIndex = {
+        id: effectiveIndexId,
+        name: editName.trim(),
+        description: editDescription.trim(),
+        baseValue: editBaseValue,
+        basket: editBasket,
+        sortOrder: currentIndex?.sortOrder,
+      };
 
-    const res = await saveCustomIndex(updated);
-    setSavingIndex(false);
-    if (res.ok) {
-      setIndexEditMessage({ type: "success", text: "指数と構成銘柄を保存しました！" });
-      await onRefreshIndices();
-    } else {
-      setIndexEditMessage({ type: "error", text: res.error || "保存に失敗しました" });
+      const res = await saveCustomIndex(updated);
+      if (res.ok) {
+        setIndexEditMessage({ type: "success", text: "指数と構成銘柄を保存しました！" });
+        await onRefreshIndices();
+      } else {
+        setIndexEditMessage({ type: "error", text: res.error || "保存に失敗しました" });
+      }
+    } catch (err) {
+      setIndexEditMessage({
+        type: "error",
+        text: err instanceof Error ? err.message : "保存処理中にエラーが発生しました",
+      });
+    } finally {
+      setSavingIndex(false);
     }
   };
 
@@ -690,30 +697,35 @@ export function AdminDashboard({
       return;
     }
     setCreatingIndex(true);
-    const newId = `idx-admin-${Date.now()}`;
-    const newIndex: CustomIndex = {
-      id: newId,
-      name: newIndexName.trim(),
-      description: newIndexDesc.trim() || "管理者作成のカスタムインデックス",
-      baseValue: Number(newIndexBaseValue) || 1000,
-      basket: [
-        { ticker: "7203", name: "トヨタ自動車", theme: "モビリティ", weight: 33.3 },
-        { ticker: "6758", name: "ソニーグループ", theme: "エンタメ・技術", weight: 33.3 },
-        { ticker: "8035", name: "東京エレクトロン", theme: "半導体", weight: 33.4 },
-      ],
-    };
-    const res = await saveCustomIndex(newIndex);
-    setCreatingIndex(false);
-    if (res.ok) {
-      toastSuccess(`新規指数「${newIndex.name}」を作成しました`);
-      await onRefreshIndices();
-      setSelectedEditIndexId(newId);
-      setIsCreateIndexModalOpen(false);
-      setNewIndexName("");
-      setNewIndexDesc("");
-      setNewIndexBaseValue(1000);
-    } else {
-      toastError(res.error || "指数の作成に失敗しました");
+    try {
+      const newId = `idx-admin-${Date.now()}`;
+      const newIndex: CustomIndex = {
+        id: newId,
+        name: newIndexName.trim(),
+        description: newIndexDesc.trim() || "管理者作成のカスタムインデックス",
+        baseValue: Number(newIndexBaseValue) || 1000,
+        basket: [
+          { ticker: "7203", name: "トヨタ自動車", theme: "モビリティ", weight: 33.3 },
+          { ticker: "6758", name: "ソニーグループ", theme: "エンタメ・技術", weight: 33.3 },
+          { ticker: "8035", name: "東京エレクトロン", theme: "半導体", weight: 33.4 },
+        ],
+      };
+      const res = await saveCustomIndex(newIndex);
+      if (res.ok) {
+        toastSuccess(`新規指数「${newIndex.name}」を作成しました`);
+        await onRefreshIndices();
+        setSelectedEditIndexId(newId);
+        setIsCreateIndexModalOpen(false);
+        setNewIndexName("");
+        setNewIndexDesc("");
+        setNewIndexBaseValue(1000);
+      } else {
+        toastError(res.error || "指数の作成に失敗しました");
+      }
+    } catch (err) {
+      toastError(err instanceof Error ? err.message : "指数の作成に失敗しました");
+    } finally {
+      setCreatingIndex(false);
     }
   };
 

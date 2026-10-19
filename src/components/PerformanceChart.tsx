@@ -412,13 +412,14 @@ export function PerformanceChart({
                 axisLine={{ stroke: "var(--border-subtle)" }}
                 width={65}
                 tick={{ fill: "var(--text-secondary)", fontSize: 11, fontFamily: "var(--mono-font)" }}
-                tickFormatter={(v) =>
-                  viewMode === "percent"
+                tickFormatter={(v) => {
+                  if (typeof v !== "number" || !Number.isFinite(v)) return "--";
+                  return viewMode === "percent"
                     ? `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`
                     : viewMode === "spread"
                       ? `${v >= 0 ? "+" : ""}${v.toFixed(1)}%pt`
-                      : fmt.format(v)
-                }
+                      : fmt.format(v);
+                }}
                 domain={["auto", "auto"]}
               />
 
