@@ -1,6 +1,7 @@
 import React, { useRef, useState, useEffect } from "react";
 import { KeyRound, Shield, AlertCircle, Eye, EyeOff, User, Lock } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
+import { useLockoutCountdown } from "../hooks/useLockoutCountdown";
 import { ModalBase } from "./ModalBase";
 import { TurnstileWidget, type TurnstileWidgetRef } from "./TurnstileWidget";
 import { getTurnstileConfig } from "../lib/auth";
@@ -34,12 +35,15 @@ export function AuthModal({
   const [turnstileSiteKey, setTurnstileSiteKey] = useState("1x00000000000000000000AA");
 
   // Lockout / Rate limit info
-  const [isLocked, setIsLocked] = useState(false);
-  const [lockoutRemainingSeconds, setLockoutRemainingSeconds] = useState(0);
   const [remainingAttempts, setRemainingAttempts] = useState<number | null>(null);
 
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const {
+    isLocked,
+    remainingSeconds: lockoutRemainingSeconds,
+    syncLockout,
+  } = useLockoutCountdown({ onExpire: () => setError(null) });
 
   const passwordInputRef = useRef<HTMLInputElement>(null);
   const turnstileRef = useRef<TurnstileWidgetRef>(null);
@@ -56,8 +60,7 @@ export function AuthModal({
           setTurnstileSiteKey(cfg.siteKey);
         }
         if (cfg.lockout) {
-          setIsLocked(cfg.lockout.locked);
-          setLockoutRemainingSeconds(cfg.lockout.remainingSeconds);
+          syncLockout(cfg.lockout.locked, cfg.lockout.remainingSeconds);
           setRemainingAttempts(cfg.lockout.remainingAttempts);
         }
       })
@@ -68,29 +71,7 @@ export function AuthModal({
     return () => {
       isMounted = false;
     };
-  }, [isOpen]);
-
-  // Countdown timer for lockout
-  useEffect(() => {
-    // The interval must not depend on the value it decrements: that tore the
-    // interval down and recreated it every second, so each tick restarted a
-    // full period and the advertised remaining time drifted.
-    if (!isLocked) return;
-    const timer = setInterval(() => {
-      // Pure updater: 副作用 (解除・エラー消去) は下の effect に置く。
-      // updater 内の setState は React の純粋性契約に反し StrictMode で誤動作する。
-      setLockoutRemainingSeconds((prev) => (prev <= 1 ? 0 : prev - 1));
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [isLocked]);
-
-  // Release the lock once the countdown reaches zero.
-  useEffect(() => {
-    if (isLocked && lockoutRemainingSeconds <= 0) {
-      setIsLocked(false);
-      setError(null);
-    }
-  }, [isLocked, lockoutRemainingSeconds]);
+  }, [isOpen, syncLockout]);
 
   const handleTabKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
     if (!["ArrowRight", "ArrowDown", "ArrowLeft", "ArrowUp", "Home", "End"].includes(event.key)) {
@@ -169,8 +150,7 @@ export function AuthModal({
         return;
       } else {
         if (res.locked) {
-          setIsLocked(true);
-          setLockoutRemainingSeconds(res.remainingSeconds || 900);
+          syncLockout(true, res.remainingSeconds || 900);
           setRemainingAttempts(0);
         } else if (typeof res.remainingAttempts === "number") {
           setRemainingAttempts(res.remainingAttempts);

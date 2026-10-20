@@ -22,7 +22,8 @@ import {
 } from "./indexSerialization";
 import {
   STORAGE_KEY_PORTFOLIO,
-  createPortfolioPositionId,
+  addPortfolioPosition,
+  createPortfolioPosition,
   loadPortfolioPositions,
 } from "./portfolioStorage";
 import { allocateIntegerWeights } from "./weights";
@@ -48,12 +49,42 @@ afterEach(() => {
 });
 
 describe("portfolio position ids", () => {
-  it("builds a different id for every position", () => {
-    const first = createPortfolioPositionId("7203", 10);
-    const second = createPortfolioPositionId("7203", 10);
+  afterEach(() => {
+    vi.useRealTimers();
+  });
 
-    expect(first).not.toBe(second);
-    expect(first.startsWith("pos-7203-10-")).toBe(true);
+  it("builds a different id for every position, even within one millisecond", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-05T00:00:00.000Z"));
+
+    const first = createPortfolioPosition({
+      ticker: "7203",
+      name: "トヨタ自動車",
+      shares: 10,
+      averageCost: 2500,
+    });
+    const second = createPortfolioPosition({
+      ticker: "7203",
+      name: "トヨタ自動車",
+      shares: 10,
+      averageCost: 2500,
+    });
+
+    expect(first.id).not.toBe(second.id);
+    expect(first.id.startsWith("pos-7203-10-")).toBe(true);
+  });
+
+  it("persists two identical lots added in the same millisecond", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-05T00:00:00.000Z"));
+
+    const lot = { ticker: "7203", name: "トヨタ自動車", shares: 10, averageCost: 2500 };
+    expect(addPortfolioPosition(lot)).toBe(true);
+    expect(addPortfolioPosition(lot)).toBe(true);
+
+    const stored = JSON.parse(store[STORAGE_KEY_PORTFOLIO]) as { id: string }[];
+    expect(stored).toHaveLength(2);
+    expect(new Set(stored.map((position) => position.id)).size).toBe(2);
   });
 
   it("gives distinct ids to two stored lots of the same stock", () => {

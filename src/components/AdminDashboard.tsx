@@ -26,6 +26,7 @@ import {
   ShieldAlert,
 } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
+import { useLockoutCountdown } from "../hooks/useLockoutCountdown";
 import { storeAuth, generateSecurePassword } from "../lib/auth";
 import { getTurnstileConfig, changeAdminSecretCode } from "../lib/auth";
 import { toFiniteNumberOr } from "../lib/downloadFileName";
@@ -33,6 +34,7 @@ import { SYSTEM_INDICES, type CustomIndex } from "../data/indices";
 import type { BasketItem, UserPasswordItem } from "../types";
 import { Card, Tag, Badge } from "./ui";
 import { EditPasswordModal } from "./EditPasswordModal";
+import { RoleRadioGroup } from "./RoleRadioGroup";
 import { ConfirmModal } from "./ConfirmModal";
 import { ModalBase } from "./ModalBase";
 import { useToast } from "./Toast";
@@ -100,8 +102,11 @@ export function AdminDashboard({
   const [showAdminSecretCode, setShowAdminSecretCode] = useState(false);
   const [turnstileToken, setTurnstileToken] = useState("");
   const [turnstileSiteKey, setTurnstileSiteKey] = useState("1x00000000000000000000AA");
-  const [isLocked, setIsLocked] = useState(false);
-  const [lockoutRemainingSeconds, setLockoutRemainingSeconds] = useState(0);
+  const {
+    isLocked,
+    remainingSeconds: lockoutRemainingSeconds,
+    syncLockout,
+  } = useLockoutCountdown();
   const [remainingAttempts, setRemainingAttempts] = useState<number | null>(null);
   const turnstileRef = useRef<TurnstileWidgetRef>(null);
   const [loginError, setLoginError] = useState<string | null>(null);
@@ -326,8 +331,7 @@ export function AdminDashboard({
         .then((cfg) => {
           if (cfg.siteKey) setTurnstileSiteKey(cfg.siteKey);
           if (cfg.lockout?.locked) {
-            setIsLocked(true);
-            setLockoutRemainingSeconds(cfg.lockout.remainingSeconds);
+            syncLockout(true, cfg.lockout.remainingSeconds);
           }
           if (typeof cfg.lockout?.remainingAttempts === "number") {
             setRemainingAttempts(cfg.lockout.remainingAttempts);
@@ -337,29 +341,7 @@ export function AdminDashboard({
           // Ignore transient config fetch failures; defaults remain in place.
         });
     }
-  }, [isAdmin]);
-
-  // Lockout countdown timer
-  useEffect(() => {
-    // The interval must not depend on the value it decrements: that tore the
-    // interval down and recreated it every second, so each tick restarted a
-    // full period and the advertised remaining time drifted.
-    if (!isLocked) return;
-    const timer = setInterval(() => {
-      // Pure updater: side effects (unlock + interval teardown) live in the
-      // effect below. Running them inside the updater broke React's purity
-      // contract and misbehaved under StrictMode double-invocation.
-      setLockoutRemainingSeconds((prev) => (prev <= 1 ? 0 : prev - 1));
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [isLocked]);
-
-  // Release the lock once the countdown reaches zero.
-  useEffect(() => {
-    if (isLocked && lockoutRemainingSeconds <= 0) {
-      setIsLocked(false);
-    }
-  }, [isLocked, lockoutRemainingSeconds]);
+  }, [isAdmin, syncLockout]);
 
   // Admin login submit with Turnstile, secret code, and lockout handling
   const handleAdminLogin = async (e: React.FormEvent) => {
@@ -400,10 +382,7 @@ export function AdminDashboard({
     }
     setLoginError(res.error || "管理者パスワードまたは秘密の暗号が正しくありません");
     if (res.locked) {
-      setIsLocked(true);
-      if (typeof res.remainingSeconds === "number") {
-        setLockoutRemainingSeconds(res.remainingSeconds);
-      }
+      syncLockout(true, typeof res.remainingSeconds === "number" ? res.remainingSeconds : 0);
     }
     if (typeof res.remainingAttempts === "number") {
       setRemainingAttempts(res.remainingAttempts);
@@ -1528,38 +1507,7 @@ export function AdminDashboard({
                 )}
               </div>
 
-              <div role="radiogroup" aria-label="権限ロール" style={{ marginBottom: 18 }}>
-                <div
-                  style={{
-                    display: "block",
-                    fontSize: 12,
-                    color: "var(--text-secondary)",
-                    marginBottom: 6,
-                  }}
-                >
-                  権限ロール
-                </div>
-                <div className="row" style={{ gap: 10 }}>
-                  <label className="row" style={{ gap: 6, fontSize: 12, cursor: "pointer" }}>
-                    <input
-                      type="radio"
-                      name="userRole"
-                      checked={newUserRole === "user"}
-                      onChange={() => setNewUserRole("user")}
-                    />
-                    <span>ユーザー（銘柄制限あり）</span>
-                  </label>
-                  <label className="row" style={{ gap: 6, fontSize: 12, cursor: "pointer" }}>
-                    <input
-                      type="radio"
-                      name="userRole"
-                      checked={newUserRole === "admin"}
-                      onChange={() => setNewUserRole("admin")}
-                    />
-                    <span>副管理者（無制限）</span>
-                  </label>
-                </div>
-              </div>
+              <RoleRadioGroup value={newUserRole} onChange={setNewUserRole} />
 
               <button
                 type="submit"

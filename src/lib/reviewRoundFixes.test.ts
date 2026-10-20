@@ -307,17 +307,6 @@ describe("render-time stability and updater purity", () => {
     expect(marketSrc).not.toContain("data ? Date.now()");
   });
 
-  it("keeps lockout countdown updaters pure (no setState inside setState)", () => {
-    for (const rel of ["../components/AuthModal.tsx", "../components/PortfolioManagerPage.tsx"]) {
-      const src = readFileSync(resolve(__dirname, rel), "utf8");
-      expect(src).not.toMatch(/setLockoutRemainingSeconds\(\(prev\) => \{/);
-      // 解除は専用 effect で行う
-      expect(src).toMatch(
-        /useEffect\(\(\) => \{\s*if \(isLocked && lockoutRemainingSeconds <= 0\) \{/,
-      );
-    }
-  });
-
   it("keeps localStorage writes out of the sidebar toggle updater", () => {
     const appSrc = readFileSync(resolve(__dirname, "../App.tsx"), "utf8");
     expect(appSrc).not.toContain('localStorage.setItem("indexforge:sidebar:collapsed", String(next))');

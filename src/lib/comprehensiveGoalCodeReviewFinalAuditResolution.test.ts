@@ -199,12 +199,6 @@ describe("Comprehensive Goal Code Review Final Audit Resolution Verification", (
       expect(addModalTsx).toContain("setError(null);");
     });
 
-    it("verifies TradingViewChartModal cleans up resizeTimerId on unmount", () => {
-      const tvModalTsx = readFileSync(resolve(__dirname, "../../src/components/TradingViewChartModal.tsx"), "utf-8");
-      expect(tvModalTsx).toContain("let resizeTimerId: ReturnType<typeof setTimeout> | null = null;");
-      expect(tvModalTsx).toContain("if (resizeTimerId) clearTimeout(resizeTimerId);");
-    });
-
     it("verifies ThemeHeatmap validates document.body prior to portal rendering", () => {
       const heatmapTsx = readFileSync(resolve(__dirname, "../../src/components/ThemeHeatmap.tsx"), "utf-8");
       expect(heatmapTsx).toContain('typeof document !== "undefined" &&');

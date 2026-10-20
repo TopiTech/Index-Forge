@@ -8,12 +8,10 @@
  *    `indicesError && indices.length === 0` branch was unreachable and an
  *    unreachable server left users looking at built-in indices with no
  *    indication anything was wrong.
- * 3. AdminDashboard ran clearInterval/setIsLocked inside a setState updater,
- *    violating React's purity contract and misbehaving under StrictMode.
- * 4. useBenchmark wrote lastUpdatedAt from the fetch handlers before the
+ * 3. useBenchmark wrote lastUpdatedAt from the fetch handlers before the
  *    abort guard, resurrecting stale "last updated" metadata for a benchmark
  *    the user had already switched away from.
- * 5. buildDashboardQuery compared update fields against `null` while the type
+ * 4. buildDashboardQuery compared update fields against `null` while the type
  *    only allowed `undefined`, so the parameter-delete branches were dead
  *    code and a stale `index=` survived deselection.
  */
@@ -23,10 +21,6 @@ import { describe, expect, it } from "vitest";
 import { buildDashboardQuery, parseDashboardParams } from "./navigation";
 
 const appSource = readFileSync(resolve(process.cwd(), "src/App.tsx"), "utf8");
-const adminSource = readFileSync(
-  resolve(process.cwd(), "src/components/AdminDashboard.tsx"),
-  "utf8",
-);
 const benchmarkHookSource = readFileSync(
   resolve(process.cwd(), "src/hooks/useBenchmark.ts"),
   "utf8",
@@ -63,28 +57,6 @@ describe("indices list failure is surfaced to the user", () => {
 
   it("keeps the error state wired from useIndices", () => {
     expect(appSource).toContain("error: indicesError,");
-  });
-});
-
-describe("admin lockout countdown keeps side effects out of the updater", () => {
-  it("uses a pure updater in the interval callback", () => {
-    const timerBlock = adminSource.slice(
-      adminSource.indexOf("// Lockout countdown timer"),
-      adminSource.indexOf("// Admin login submit"),
-    );
-    // The pre-fix shape called setIsLocked/clearInterval inside the updater.
-    expect(timerBlock).not.toMatch(
-      /setLockoutRemainingSeconds\(\(prev\) => \{[\s\S]*?setIsLocked\(/,
-    );
-    expect(timerBlock).toContain(
-      "setLockoutRemainingSeconds((prev) => (prev <= 1 ? 0 : prev - 1));",
-    );
-  });
-
-  it("releases the lock from a dedicated effect when the countdown ends", () => {
-    expect(adminSource).toMatch(
-      /useEffect\(\(\) => \{\s*if \(isLocked && lockoutRemainingSeconds <= 0\) \{\s*setIsLocked\(false\);/,
-    );
   });
 });
 

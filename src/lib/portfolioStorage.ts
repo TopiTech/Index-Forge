@@ -132,10 +132,64 @@ function getLocalStorage(): Storage | undefined {
  */
 let positionIdCounter = 0;
 
-/** Build an id that is unique within the session for a position. */
-export function createPortfolioPositionId(ticker: string, shares: number): string {
+/**
+ * Mints position ids. Deliberately not exported: the only way to obtain a
+ * position is `createPortfolioPosition`, so no call site can derive an id
+ * from a value that repeats (a millisecond timestamp, a ticker, or a share
+ * count).
+ */
+function createPortfolioPositionId(ticker: string, shares: number): string {
   positionIdCounter += 1;
   return `pos-${ticker}-${shares}-${Date.now().toString(36)}-${positionIdCounter.toString(36)}`;
+}
+
+export interface NewPortfolioPosition {
+  ticker: string;
+  name?: string;
+  shares: number;
+  averageCost: number;
+  acquiredAt?: string;
+  notes?: string;
+}
+
+/** Single constructor for a position; the id is the only externally supplied part. */
+function buildPortfolioPosition(
+  fields: NewPortfolioPosition & { name: string },
+  id: string,
+): PortfolioPosition {
+  const position: PortfolioPosition = {
+    id,
+    ticker: fields.ticker,
+    name: fields.name,
+    shares: fields.shares,
+    averageCost: fields.averageCost,
+  };
+  if (fields.acquiredAt) position.acquiredAt = fields.acquiredAt;
+  if (fields.notes) position.notes = fields.notes;
+  return position;
+}
+
+/**
+ * Creates a new portfolio position with a unique id.
+ *
+ * Callers supply the economic fields only. This is the single owner of
+ * position identity, so two positions added within the same millisecond (or
+ * two identical lots) cannot collide.
+ */
+export function createPortfolioPosition(input: NewPortfolioPosition): PortfolioPosition {
+  const ticker = input.ticker.trim();
+  const name = input.name?.trim() || ticker;
+  return buildPortfolioPosition(
+    {
+      ticker,
+      name,
+      shares: input.shares,
+      averageCost: input.averageCost,
+      acquiredAt: input.acquiredAt,
+      notes: input.notes,
+    },
+    createPortfolioPositionId(ticker, input.shares),
+  );
 }
 
 /**
@@ -162,14 +216,17 @@ function sanitizePosition(raw: unknown): PortfolioPosition | null {
       : createPortfolioPositionId(ticker, shares);
   const name = typeof record.name === "string" && record.name.trim() ? record.name.trim() : ticker;
 
-  const position: PortfolioPosition = { id, ticker, name, shares, averageCost };
-  if (typeof record.acquiredAt === "string" && record.acquiredAt) {
-    position.acquiredAt = record.acquiredAt;
-  }
-  if (typeof record.notes === "string" && record.notes) {
-    position.notes = record.notes;
-  }
-  return position;
+  return buildPortfolioPosition(
+    {
+      ticker,
+      name,
+      shares,
+      averageCost,
+      acquiredAt: typeof record.acquiredAt === "string" ? record.acquiredAt : undefined,
+      notes: typeof record.notes === "string" ? record.notes : undefined,
+    },
+    id,
+  );
 }
 
 /** Normalizes a raw watchlist array to unique, non-empty ticker strings. */
@@ -319,11 +376,8 @@ function loadPersistedWatchlist(): string[] {
 /**
  * Appends a position to the portfolio. Returns `true` when successful.
  */
-export function addPortfolioPosition(
-  position: Omit<PortfolioPosition, "id"> & { id?: string },
-): boolean {
-  const id = position.id?.trim() || createPortfolioPositionId(position.ticker, position.shares);
-  const sanitized = sanitizePosition({ ...position, id });
+export function addPortfolioPosition(position: NewPortfolioPosition): boolean {
+  const sanitized = sanitizePosition(createPortfolioPosition(position));
   if (!sanitized) return false;
   const current = loadPersistedPositions();
   return savePortfolioPositions([...current, sanitized]);

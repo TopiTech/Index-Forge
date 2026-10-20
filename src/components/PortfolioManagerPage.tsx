@@ -24,6 +24,7 @@ import {
   User,
 } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
+import { useLockoutCountdown } from "../hooks/useLockoutCountdown";
 import { ModalBase } from "./ModalBase";
 import { TurnstileWidget, type TurnstileWidgetRef } from "./TurnstileWidget";
 import { getTurnstileConfig } from "../lib/auth";
@@ -36,6 +37,7 @@ import {
   hasPersistedWatchlist,
   calculatePortfolioSummary,
   convertPortfolioToCustomIndexBasket,
+  createPortfolioPosition,
   consumeSaveFailure,
   readPersistedJson,
   todayJstDateString,
@@ -130,9 +132,12 @@ export function PortfolioManagerPage({
   const [showSecretCode, setShowSecretCode] = useState(false);
   const [turnstileToken, setTurnstileToken] = useState("");
   const [turnstileSiteKey, setTurnstileSiteKey] = useState("1x00000000000000000000AA");
-  const [isLocked, setIsLocked] = useState(false);
-  const [lockoutRemainingSeconds, setLockoutRemainingSeconds] = useState(0);
   const [remainingAttempts, setRemainingAttempts] = useState<number | null>(null);
+  const {
+    isLocked,
+    remainingSeconds: lockoutRemainingSeconds,
+    syncLockout,
+  } = useLockoutCountdown({ onExpire: () => setAuthError(null) });
   const [isSubmittingAuth, setIsSubmittingAuth] = useState(false);
   const turnstileRef = useRef<TurnstileWidgetRef>(null);
 
@@ -162,8 +167,7 @@ export function PortfolioManagerPage({
         if (!isMounted) return;
         if (cfg.siteKey) setTurnstileSiteKey(cfg.siteKey);
         if (cfg.lockout) {
-          setIsLocked(cfg.lockout.locked);
-          setLockoutRemainingSeconds(cfg.lockout.remainingSeconds);
+          syncLockout(cfg.lockout.locked, cfg.lockout.remainingSeconds);
           setRemainingAttempts(cfg.lockout.remainingAttempts);
         }
       })
@@ -173,29 +177,7 @@ export function PortfolioManagerPage({
     return () => {
       isMounted = false;
     };
-  }, [isAuthenticated]);
-
-  // Lockout countdown timer
-  useEffect(() => {
-    // The interval must not depend on the value it decrements: that tore the
-    // interval down and recreated it every second, so each tick restarted a
-    // full period and the advertised remaining time drifted.
-    if (!isLocked) return;
-    const timer = setInterval(() => {
-      // Pure updater: 副作用 (解除・エラー消去) は下の effect に置く。
-      // updater 内の setState は React の純粋性契約に反し StrictMode で誤動作する。
-      setLockoutRemainingSeconds((prev) => (prev <= 1 ? 0 : prev - 1));
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [isLocked]);
-
-  // Release the lock once the countdown reaches zero.
-  useEffect(() => {
-    if (isLocked && lockoutRemainingSeconds <= 0) {
-      setIsLocked(false);
-      setAuthError(null);
-    }
-  }, [isLocked, lockoutRemainingSeconds]);
+  }, [isAuthenticated, syncLockout]);
 
   // Synchronize positions & watchlist when auth state changes.
   //
@@ -367,8 +349,7 @@ export function PortfolioManagerPage({
         return;
       } else {
         if (res.locked) {
-          setIsLocked(true);
-          setLockoutRemainingSeconds(res.remainingSeconds || 900);
+          syncLockout(true, res.remainingSeconds || 900);
           setRemainingAttempts(0);
         } else if (typeof res.remainingAttempts === "number") {
           setRemainingAttempts(res.remainingAttempts);
@@ -494,14 +475,16 @@ export function PortfolioManagerPage({
     const fund = getStockFundamentals(ticker);
     const resolvedName = newName.trim() || fund.name || ticker;
 
-    const newPos: PortfolioPosition = {
-      id: `pos-${Date.now()}`,
+    // Identity is owned by the storage layer: this call must not build an id
+    // from a timestamp, which collides when two positions are added within
+    // the same millisecond.
+    const newPos = createPortfolioPosition({
       ticker,
       name: resolvedName,
       shares,
       averageCost: avgCost,
       acquiredAt: todayJstDateString(),
-    };
+    });
 
     setAddError(null);
     const isFirstPersist = !positionsPersistedRef.current;

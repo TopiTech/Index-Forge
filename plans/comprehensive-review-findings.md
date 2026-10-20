@@ -12,7 +12,7 @@ Excluded by design: third-party/generated code (`worker-configuration.d.ts`,
 `package-lock.json`), and findings disproved by an existing guard. Two candidates
 raised during triage were **discarded as false positives** — see "Discarded" below.
 
-Status column values: `FIXED` (implemented, regression-tested and verified by the full check suite), `OPEN` (not yet addressed).
+Status column values: `FIXED` (implemented and verified by a behavioral test unless the fix is itself a static/build contract), `OPEN` (not yet addressed), `ACCEPTED RISK` (a known, deliberately retained risk with its rationale and mitigation recorded).
 
 ---
 
@@ -68,6 +68,13 @@ Status column values: `FIXED` (implemented, regression-tested and verified by th
 | R46 | Low      | High | UI hook | The simulation error path ignored the request identity; stale sync warnings survived a local recompute | FIXED |
 | R47 | Low      | High | Process | The findings list had been written twice end to end | FIXED |
 | R48 | Low      | High | Test quality | The sync-cache key test asserted a local copy of the read-modify-write instead of the production module | FIXED |
+| R49 | Medium   | High | Data layer | The portfolio add path still minted ids from `Date.now()` while the factory existed | FIXED |
+| R50 | Medium   | High | Test quality | R29–R32 and R36 were "verified" only by source-text assertions | FIXED |
+| R51 | High     | High | Security | The plaintext password is replayed on every request and logout cannot revoke it | ACCEPTED RISK |
+| R52 | Low      | High | Security | Custom-index owner tokens never expire or rotate | OPEN |
+| R53 | Low      | High | Test quality | 85 of 191 test files still assert on source text | OPEN |
+| P1  | High     | High | Performance | 397 KiB gzip is modulepreloaded on first paint, including the 4,805-line stock dataset | OPEN |
+| P2  | Medium   | High | Performance | `recharts` (112.8 KiB gzip) is preloaded before any chart is requested | OPEN |
 
 ---
 
@@ -490,18 +497,23 @@ Status column values: `FIXED` (implemented, regression-tested and verified by th
 - **Root Cause:** the "latest callback" pattern was implemented with a render-phase
   assignment instead of an effect.
 - **Fix Direction:** assign in an effect (as `TurnstileWidget` already does).
-- **Verification Plan:** source-level regression assertion.
+- **Verification Plan:** `src/hooks/useModalFocus.test.tsx` renders a dialog and
+  proves the observable contract (initial focus, Tab wrap, Escape ownership,
+  body lock, focus restoration) that the render-phase write would break.
 
 ### R30 — Low / High confidence / UI component
 
 - **Location:** `src/components/TradingViewChartModal.tsx`.
-- **Actual Behavior:** the animation timeout, four resize timers and the
-  `requestAnimationFrame` handle survive unmount, so they fire against an unmounted
-  component and dispatch a global `resize` event that nothing handles.
+- **Actual Behavior:** the animation timeout, the scheduled resize notifications
+  and the `requestAnimationFrame` handle survived unmount, so they fired against an
+  unmounted component and dispatched a global `resize` event that nothing handled.
 - **Expected Behavior:** all scheduled work must be cancelled on unmount.
 - **Root Cause:** the timers were created without an owning cleanup effect.
 - **Fix Direction:** track and clear every timer and the RAF in an unmount cleanup.
-- **Verification Plan:** source-level regression assertion.
+- **Verification Plan:** `src/components/tradingViewChartModalCleanup.test.tsx`
+  renders the modal under fake timers, unmounts it, and asserts that no timer
+  remains, no post-unmount `resize` is dispatched, and a pending drag frame is
+  cancelled.
 
 ### R31 — Low / Medium confidence / UI component
 
@@ -515,8 +527,12 @@ Status column values: `FIXED` (implemented, regression-tested and verified by th
   through a functional updater.
 - **Root Cause:** the countdown value was used both as the interval's subject and as
   its dependency.
-- **Fix Direction:** depend only on the "is counting down" condition.
-- **Verification Plan:** source-level regression assertion.
+- **Fix Direction:** depend only on the "is counting down" condition; the three
+  copies are now one `src/hooks/useLockoutCountdown.ts`.
+- **Verification Plan:** `src/hooks/useLockoutCountdown.test.tsx` drives the hook
+  with fake timers: one interval per lockout, tick-by-tick decrement with no
+  recreation, a single expiry callback, early clear, and a non-finite server
+  duration that must not keep the lock forever.
 
 ### R32 — Low / Medium confidence / UI component
 
@@ -527,7 +543,9 @@ Status column values: `FIXED` (implemented, regression-tested and verified by th
 - **Expected Behavior:** refs must not be mutated during render.
 - **Root Cause:** same pattern as R29.
 - **Fix Direction:** assign in an effect.
-- **Verification Plan:** source-level regression assertion.
+- **Verification Plan:** `src/components/indexBuilderPostAuthSave.test.tsx`
+  attempts a save signed out, edits the name, completes login, and asserts the
+  retry saves the edited name rather than the pre-login closure.
 
 ### R33 — Low / Medium confidence / UI hook
 
@@ -576,9 +594,12 @@ Status column values: `FIXED` (implemented, regression-tested and verified by th
   identically named navigation landmarks.
 - **Expected Behavior:** groups must be named, and landmarks must be distinguishable.
 - **Root Cause:** markup was duplicated without an id/label relationship.
-- **Fix Direction:** use `fieldset`/`legend` (or `role="radiogroup"` +
-  `aria-label`) and give the drawer a distinct label.
-- **Verification Plan:** source-level regression assertion.
+- **Fix Direction:** extract the selector into `RoleRadioGroup`
+  (`role="radiogroup"` + `aria-label`) and give the drawer a distinct label.
+- **Verification Plan:** `src/components/navigationAccessibility.test.tsx`
+  renders the sidebar with the drawer open and asserts two navigation landmarks
+  with distinct accessible names, then renders `RoleRadioGroup` and asserts one
+  named radiogroup containing both radios and the selection callback.
 
 ---
 
@@ -789,6 +810,178 @@ Status column values: `FIXED` (implemented, regression-tested and verified by th
 - **Verification Plan:** the rewritten test fails if the two surfaces drift
   apart.
 
+### R49 — Medium / High confidence / Data layer
+
+- **Location:** `src/components/PortfolioManagerPage.tsx` — `handleAddPosition`.
+- **Actual Behavior:** the add form built `{ id: `pos-${Date.now()}` }` inline.
+  R20 had fixed the same class in `sanitizePosition`, but the live add path never
+  used the factory introduced for it, so two positions added within the same
+  millisecond would share an id: duplicate React keys, and a delete that removes
+  both lots.
+- **Expected Behavior:** exactly one place mints position ids.
+- **Root Cause:** R20 repaired a call site instead of the ownership boundary; the
+  id generator was still exported and position construction was open-coded in the
+  component.
+- **Fix Direction:** `createPortfolioPosition` is now the only constructor and
+  assigns the id; `createPortfolioPositionId` is module-private;
+  `addPortfolioPosition` accepts the economic fields only (no `id`), and the page
+  passes those fields.
+- **Verification Plan:** freeze `Date.now`, then add two identical lots.
+  `src/lib/persistenceHardening.test.ts` asserts distinct ids from the factory and
+  two persisted lots with unique ids through `addPortfolioPosition`.
+
+### R50 — Medium / High confidence / Test quality
+
+- **Location:** `useModalFocus`, `TradingViewChartModal`, the three lockout
+  countdowns, `IndexBuilderContent`'s post-login save, `Sidebar` and the role
+  selector.
+- **Actual Behavior:** R29–R32 and R36 were marked FIXED with a "source-level
+  regression assertion" as their verification. A grep for `clearTimeout` cannot
+  prove a timer no longer fires; a grep for `onCloseRef` cannot prove a ref is not
+  written during render; a grep for `aria-label` cannot prove two landmarks are
+  distinguishable in the accessibility tree.
+- **Expected Behavior:** behavior a user can experience is verified by exercising
+  it, and grep-only checks are not counted as proof of a behavioral fix.
+- **Root Cause:** the verification plan for UI-only fixes stopped at "the text is
+  present", because the affected state was buried inside large components.
+- **Fix Direction:** extract the shared behavior, then test it through the DOM:
+  `useLockoutCountdown` replaces three copies of the countdown,
+  `RoleRadioGroup` replaces the inline radio group. Delete the source-text
+  assertions that were the only guard for these fixes rather than leaving them to
+  inflate the count.
+- **Verification Plan:** `useModalFocus.test.tsx` (focus, Tab wrap, Escape
+  ownership, body lock, focus restore), `tradingViewChartModalCleanup.test.tsx`
+  (load timeout, post-load notification, animation timers, pending drag frame),
+  `useLockoutCountdown.test.tsx` (one interval, expiry once, early clear,
+  non-finite duration), `indexBuilderPostAuthSave.test.tsx` (the retry saves the
+  post-login name) and `navigationAccessibility.test.tsx` (two named landmarks,
+  named radiogroup).
+
+### R51 — High / High confidence / Security — ACCEPTED RISK
+
+- **Location:** `src/lib/auth.ts` (`sanitizeAuthSession`, session persistence),
+  `worker/internal-impl.ts` (`x-auth-password` handling, `authCache`).
+- **Actual Behavior:** the session object includes the plaintext password; it is
+  persisted in `sessionStorage` and sent as `x-auth-password` on every
+  authenticated request, where the Worker re-derives PBKDF2 and caches the result
+  in memory. Logout only clears the tab's storage: a password captured before
+  logout still authenticates every endpoint until it is changed.
+- **Why it is retained:** replacing the protocol requires a D1 session table and
+  migration, a token-issuing endpoint, revocation on logout/password change, and
+  changes to every client call site and Worker guard. That is a separate,
+  migration-bearing change, not a review-cycle fix; changing it half-way would
+  weaken both models.
+- **Mitigations in place:** transport is HTTPS-only; the session lives in
+  `sessionStorage` (not `localStorage`), so it dies with the tab; the Worker
+  compares PBKDF2 hashes, rate-limits login (`AUTH_RATE_LIMIT_MAX = 10`) and tries
+  the full account set for a matching password; Turnstile gates login.
+- **Residual risks:** XSS can read the password (not merely a token); logout is
+  not a revocation; per-device session listing/audit is impossible; password
+  rotation is the only revocation mechanism.
+- **Revisit when:** multi-device sessions, admin audit trails, or a "log out all
+  devices" feature are requested.
+
+### R52 — Low / High confidence / Security — OPEN
+
+- **Location:** `src/lib/ownership.ts` (`getStore`, `saveIndexOwnerToken`).
+- **Actual Behavior:** custom-index ownership is a bearer token in `localStorage`
+  with no expiry and no rotation. The token is removed when the index is deleted
+  (`useIndices.removeIndexOwnerToken`), but if the delete fails, or the browser
+  profile is copied, the token remains valid forever.
+- **Expected Behavior:** a bearer credential should have a bounded lifetime or be
+  rotatable.
+- **Root Cause:** ownership was modelled as a local convenience flag rather than a
+  credential lifecycle.
+- **Suggested Fix Direction:** store `{ token, issuedAt }` with a maximum age,
+  refresh it on successful owner-authenticated writes, and prune expired entries
+  when the store is read. Pair it with the Worker's `owner_token_hash` check so an
+  expired token is rejected server-side too.
+- **Not fixed in this pass:** changing the stored shape needs a migration for
+  existing owners; the current code's corrupt-storage path would otherwise drop
+  their tokens silently.
+
+### R53 — Low / High confidence / Test quality — OPEN
+
+- **Location:** `src/**/*.test.ts(x)`.
+- **Actual Behavior:** 85 of 191 test files still use `readFileSync` to assert on
+  production source text (837 `it`/`test` blocks at the time of measurement).
+  R29–R32/R36 no longer rely on them, but the rest remain.
+- **Expected Behavior:** the suite's cost should buy behavior coverage.
+- **Root Cause:** each review round added a file that asserted the patch it had
+  just written, and the names record the round rather than the capability.
+- **Suggested Fix Direction:** convert files whose subject is behavior (focus,
+  timers, ARIA, event handling) to DOM tests; delete assertions that only restate
+  an implementation detail; rename the rest after the capability they protect.
+  Do this in batches, one capability per commit, so a failing test names a
+  behavior.
+
+---
+
+## Performance (measured)
+
+Every number below was measured on this checkout on 2026-10-20 with the
+commands named next to it. Nothing in this section is an estimate.
+
+### First paint: what is actually downloaded
+
+Source: `dist/index.html` after `npm run build`, plus `wc -c` / `gzip -9` on
+each preloaded asset. Vite writes `modulepreload` links for every chunk in the
+entry graph, so the table is the real initial transfer, not the sum of all
+chunks.
+
+| Asset | Raw bytes | gzip bytes | `modulepreload` |
+|-------|----------:|-----------:|:---:|
+| `index-*.js` (entry) | 505,925 | 154,027 | — (module entry) |
+| `recharts-*.js` | 419,810 | 112,819 | yes |
+| `stock-universe-*.js` | 303,159 | 64,365 | yes |
+| `motion-*.js` | 137,119 | 44,972 | yes |
+| `index-*.css` | 132,558 | 22,972 | stylesheet |
+| `lucide-*.js` | 38,237 | 7,486 | yes |
+| **First paint total** | **1,536,808** | **406,641 (≈397 KiB)** | |
+
+Full build output: 20 files / 2,411,225 bytes; 2,735 modules; `vite build`
+4.05 s including the three `tsc --noEmit` projects.
+
+**P1 — OPEN / High.** The 4,805-line stock dataset is on the critical path even
+though the only consumer in the entry graph is one string normalizer:
+`src/lib/marketDataService.ts` does
+`import { normalizeSearchQuery } from "../data/stockUniverse"`, and
+`marketDataService` is imported by the entry bundle (portfolio, dashboard,
+search). That pulls 303 KB raw / 64.4 KB gzip before the dashboard renders.
+*Fix direction:* move `normalizeSearchQuery` (a pure string helper) into its own
+module and let the dataset stay behind the lazy screeners that actually need it.
+*Expected effect:* −64.4 KB gzip from first paint, no behavior change.
+
+**P2 — OPEN / Medium.** `recharts` (419.8 KB / 112.8 KB gzip) is preloaded on
+first paint although charts only render inside the dashboard/detail views.
+*Fix direction:* import chart components through the lazy route boundary (or a
+`lazy(() => import(...))` inside the card) so the library is fetched with the
+page that draws charts.
+
+### Worker bundle
+
+`npx wrangler deploy --dry-run --config wrangler.jsonc`: exit 0, 25 files,
+814.98 KiB raw / 133.49 KiB gzip, bindings `env.DB` + `env.ASSETS`. Comfortably
+inside the Workers upload limit; no action required.
+
+### Runtime work (median of 25 runs, Node, `performance.now()`)
+
+| Operation | Input size | Median |
+|-----------|-----------:|-------:|
+| `createTreemapLayout` (theme heatmap) | 300 sectors | 0.52 ms |
+| `redistributeWeightsExact` (normalize action) | 200 constituents | 0.14 ms |
+| `calculatePortfolioSummary` | 500 positions | 2.64 ms |
+
+These are far below a frame budget at realistic portfolio sizes, so there is no
+CPU hotspot to chase in the rendering path. The remaining costs are transfer
+size (P1/P2) and the D1 purge scan that R14 already indexed.
+
+### Suite cost
+
+`npm test`: 191 files / 1,773 tests in 7.02 s. The suite is not a bottleneck,
+but 85 of those files spend their assertions on source text (R53), so a fast
+suite is not the same as a meaningful one.
+
 ---
 
 
@@ -809,20 +1002,34 @@ Status column values: `FIXED` (implemented, regression-tested and verified by th
 
 ## Verification
 
-Every finding above is implemented, regression-tested and verified by the
-repository's own check suite:
+Every `FIXED` finding is implemented and covered by a test that exercises it.
+`OPEN` and `ACCEPTED RISK` entries are listed in the summary and are not
+counted as verified. Final run of the full suite on this checkout:
 
 | Check | Command | Result |
 |-------|---------|--------|
-| Static analysis | `npm run lint` | clean (no warnings) |
+| Static analysis | `npm run lint` | exit 0, no warnings |
 | Type check (browser) | `tsc -p tsconfig.app.json --noEmit` | clean |
 | Type check (Worker) | `tsc -p tsconfig.worker.json --noEmit` | clean |
 | Type check (tests) | `tsc -p tsconfig.test.json --noEmit` | clean |
-| Tests | `npm test` | 186 files / 1759 tests passing |
-| Build | `npm run build` | `vite build` succeeds after all three type checks |
-| Worker bundle | `wrangler deploy --dry-run` | the Worker bundles and the config is accepted |
+| Tests | `npm test` | 191 files / 1,773 tests passing, 7.02 s |
+| Build | `npm run build` | 2,735 modules, 4.05 s, three type checks pass |
+| Worker bundle | `wrangler deploy --dry-run` | exit 0, 25 files, 814.98 KiB / 133.49 KiB gzip |
 
-New regression tests added for this pass:
+Regression tests added for the behavioral fixes (R1–R50). Files added in the
+R49/R50 pass replace the source-text assertions that used to guard R29–R32 and
+R36 — those grep assertions were deleted, not kept alongside the new tests:
+
+| Test file | Covers |
+|-----------|--------|
+| `src/hooks/useModalFocus.test.tsx` | R29, R50 (initial focus, Tab wrap, Escape ownership, body lock, focus restore) |
+| `src/components/tradingViewChartModalCleanup.test.tsx` | R30 (load timeout, post-load notify, animation timers, pending drag frame) |
+| `src/hooks/useLockoutCountdown.test.tsx` | R31 (one interval, expiry once, early clear, non-finite duration) |
+| `src/components/indexBuilderPostAuthSave.test.tsx` | R32 (retry saves the post-login name) |
+| `src/components/navigationAccessibility.test.tsx` | R36 (two named landmarks, named radiogroup) |
+| `src/lib/persistenceHardening.test.ts` | R49 (frozen clock, two lots in one millisecond) |
+
+Earlier regression tests for R1–R28 and R37–R48:
 
 | Test file | Covers |
 |-----------|--------|
