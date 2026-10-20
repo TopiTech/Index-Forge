@@ -7,15 +7,19 @@ export default defineConfig({
     outDir: "dist",
     rollupOptions: {
       output: {
+        // PERF-01 / PERF-02: the heavyweight, conditionally-needed code must
+        // not be reachable from the entry chunk. Vite emits a `modulepreload`
+        // link for every chunk that *is* statically reachable from the entry,
+        // so the gate for both items is `dist/index.html`: neither the ticker
+        // dataset nor the chart library may appear there. CI reports the
+        // preloaded byte budget after the build (see .github/workflows/ci.yml);
+        // the check can be run locally with:
+        //   npm run build && node scripts/check-first-paint.mjs
         manualChunks(id) {
           if (id.includes("node_modules")) {
             if (id.includes("three")) return "three";
-            if (id.includes("recharts")) return "recharts";
             if (id.includes("framer-motion")) return "motion";
             if (id.includes("lucide-react")) return "lucide";
-          }
-          if (id.includes("stockUniverse")) {
-            return "stock-universe";
           }
         },
       },
@@ -34,6 +38,16 @@ export default defineConfig({
   },
   test: {
     testTimeout: 10000,
+    // INFRA-09: one shared teardown hook instead of a `cleanup()` that every
+    // DOM suite has to remember. The setup file is environment-agnostic, so it
+    // is safe for the Node-environment suites too.
+    //
+    // The environment itself stays per file (`// @vitest-environment jsdom` at
+    // the top of each `.tsx` suite): Vitest 4 dropped `environmentMatchGlobs`,
+    // and splitting the suite into `projects` just to re-derive the same
+    // jsdom/Node split would duplicate the `pool` workaround below and change
+    // how the shared module graph is resolved.
+    setupFiles: ["src/test-helpers/setup.ts"],
     // Vitest only defaults NODE_ENV to "test" when it is unset. A shell that
     // exports NODE_ENV=production would otherwise load React's production
     // build, which does not export `act` and breaks every React test.

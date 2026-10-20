@@ -1,12 +1,59 @@
-import { describe, it, expect } from "vitest";
+import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { fetchLiveStockFundamentals } from "../../worker/internal";
-import { deserializePortfolioFromCsv } from "./indexSerialization";
+import { fetchLiveStockFundamentals, resetYahooCrumbCache } from "../../worker/internal";
+import { deserializePortfolioFromCsv, serializePortfolioToCsv } from "./indexSerialization";
 import { downsampleLTTB } from "./chartData";
 import { formatDynamicRelativeTime } from "./marketDataService";
 
+/**
+ * Deterministic Yahoo Finance test double.
+ *
+ * `fetchLiveStockFundamentals` used to read the live quote from Yahoo, so the
+ * currency/precision assertions below depended on network egress. The stub
+ * reports "no live quote", which drives the helper down its documented anchor
+ * fallback and makes the expectations reproducible.
+ */
+function stubYahooFinanceWithoutLiveData(): void {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("https://fc.yahoo.com")) {
+        return new Response("", {
+          status: 200,
+          headers: { "set-cookie": "A1=test-cookie; Path=/; Domain=.yahoo.com" },
+        });
+      }
+      if (url.includes("/v1/test/getcrumb")) {
+        return new Response("test-crumb", { status: 200 });
+      }
+      return new Response(JSON.stringify({}), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }),
+  );
+}
+
+/**
+ * The portfolio CSV header the production serializer actually writes.
+ *
+ * Deriving the fixture header from the serializer keeps the test in step with
+ * production instead of freezing a stale copy of it.
+ */
+const PORTFOLIO_CSV_HEADER = serializePortfolioToCsv([]).split("\r\n")[0];
+
 describe("Goal Code Review Comprehensive Audit & Fix Verification", () => {
+  beforeEach(() => {
+    resetYahooCrumbCache();
+    stubYahooFinanceWithoutLiveData();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   describe("1. Schema Reset Completeness (schema.dev.sql vs schema.sql)", () => {
     it("ensures schema.dev.sql drops every table defined in schema.sql, including admin_login_attempts", () => {
       const rootDir = path.resolve(__dirname, "../..");
@@ -74,43 +121,59 @@ describe("Goal Code Review Comprehensive Audit & Fix Verification", () => {
   });
 
   describe("3. deserializePortfolioFromCsv Normalization and Validation", () => {
+    it("uses the very header set the production serializer writes", () => {
+      expect(PORTFOLIO_CSV_HEADER).toBe("コード,銘柄名,保有株数,取得単価,取得日,メモ");
+    });
+
     it("normalizes full-width tickers to ASCII uppercase", () => {
-      const csv = `コード,銘柄名,保有株数,平均取得単価
-７２０３,トヨタ自動車,100,2500
-ＡＡＰＬ,Apple Inc.,10,180.5`;
+      const csv = [
+        PORTFOLIO_CSV_HEADER,
+        "７２０３,トヨタ自動車,100,2500,2026-01-05,",
+        "ＡＡＰＬ,Apple Inc.,10,180.5,2026-01-06,",
+      ].join("\n");
 
       const result = deserializePortfolioFromCsv(csv);
+      // Precondition first: the assertions below must not be skipped when the
+      // parser rejects the file.
       expect(result.ok).toBe(true);
-      if (result.ok) {
-        expect(result.data).toHaveLength(2);
-        expect(result.data[0].ticker).toBe("7203");
-        expect(result.data[0].name).toBe("トヨタ自動車");
-        expect(result.data[0].shares).toBe(100);
-        expect(result.data[0].averageCost).toBe(2500);
+      expect(result.data).toBeDefined();
 
-        expect(result.data[1].ticker).toBe("AAPL");
-        expect(result.data[1].name).toBe("Apple Inc.");
-        expect(result.data[1].shares).toBe(10);
-        expect(result.data[1].averageCost).toBe(180.5);
-      }
+      const positions = result.data!;
+      expect(positions).toHaveLength(2);
+      expect(positions[0].ticker).toBe("7203");
+      expect(positions[0].name).toBe("トヨタ自動車");
+      expect(positions[0].shares).toBe(100);
+      expect(positions[0].averageCost).toBe(2500);
+      expect(positions[0].acquiredAt).toBe("2026-01-05");
+
+      expect(positions[1].ticker).toBe("AAPL");
+      expect(positions[1].name).toBe("Apple Inc.");
+      expect(positions[1].shares).toBe(10);
+      expect(positions[1].averageCost).toBe(180.5);
+      expect(positions[1].acquiredAt).toBe("2026-01-06");
     });
 
     it("filters out invalid tickers and truncates oversized fields safely", () => {
       const oversizedName = "A".repeat(200);
       const oversizedNotes = "N".repeat(1000);
-      const csv = `コード,銘柄名,保有株数,平均取得単価,取得日,メモ
-<SCRIPT>ALERT(1)</SCRIPT>,XSS Stock,10,100,2026-01-01,Test
-VERY_LONG_INVALID_TICKER_EXCEEDING_LIMIT,Long,10,100,2026-01-01,Test
-7203,${oversizedName},50,3000,2026-02-01,${oversizedNotes}`;
+      const csv = [
+        PORTFOLIO_CSV_HEADER,
+        "<SCRIPT>ALERT(1)</SCRIPT>,XSS Stock,10,100,2026-01-01,Test",
+        "VERY_LONG_INVALID_TICKER_EXCEEDING_LIMIT,Long,10,100,2026-01-01,Test",
+        `7203,${oversizedName},50,3000,2026-02-01,${oversizedNotes}`,
+      ].join("\n");
 
       const result = deserializePortfolioFromCsv(csv);
+      // Precondition first: the assertions below must not be skipped when the
+      // parser rejects the file.
       expect(result.ok).toBe(true);
-      if (result.ok) {
-        expect(result.data).toHaveLength(1);
-        expect(result.data[0].ticker).toBe("7203");
-        expect(result.data[0].name.length).toBeLessThanOrEqual(100);
-        expect(result.data[0].notes?.length).toBeLessThanOrEqual(500);
-      }
+      expect(result.data).toBeDefined();
+
+      const positions = result.data!;
+      expect(positions).toHaveLength(1);
+      expect(positions[0].ticker).toBe("7203");
+      expect(positions[0].name.length).toBeLessThanOrEqual(100);
+      expect(positions[0].notes?.length).toBeLessThanOrEqual(500);
     });
   });
 

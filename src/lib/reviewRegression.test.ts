@@ -84,8 +84,11 @@ describe("review regressions: Worker input boundaries", () => {
       ADMIN_PASSWORD: "unused",
     };
 
+    // DATA-12: the allow-list grew (^DJI, ^IXIC, ^TOPX, ^TOPIXG, ^TNX,
+    // EURJPY=X, EURUSD=X, CL=F, GC=F, ETH-USD), so an unsupported symbol is
+    // still rejected before any Yahoo Finance request is made.
     const response = await worker.fetch(
-      new Request("http://localhost/api/snapshot?symbol=%5EDJI"),
+      new Request("http://localhost/api/snapshot?symbol=%5EFOO"),
       env as any,
     );
 

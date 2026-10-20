@@ -26,7 +26,7 @@ body,
 body {
   background-color: var(--bg-dark);
   background-image:
-    radial-gradient(ellipse at 50% -20%, rgba(6, 182, 212, 0.08) 0%, transparent 60%),
+    radial-gradient(ellipse at 50% -20%, color-mix(in srgb, var(--accent-color) 8%, transparent) 0%, transparent 60%),
     radial-gradient(ellipse at 80% 120%, rgba(139, 92, 246, 0.04) 0%, transparent 50%),
     linear-gradient(180deg, #090d16 0%, #0c101c 100%);
   background-attachment: fixed;
@@ -217,10 +217,10 @@ body::before {
 
 .global-nav-item.active {
   background: var(--accent-subtle);
-  border-color: rgba(6, 182, 212, 0.28);
+  border-color: color-mix(in srgb, var(--accent-color) 28%, transparent);
   color: var(--accent-text);
   font-weight: 600;
-  box-shadow: inset 3px 0 0 var(--accent-color), 0 0 16px rgba(6, 182, 212, 0.12);
+  box-shadow: inset 3px 0 0 var(--accent-color), 0 0 16px color-mix(in srgb, var(--accent-color) 12%, transparent);
 }
 
 .global-nav-sub {
@@ -825,7 +825,7 @@ h3 {
 }
 
 .card:hover {
-  border-color: rgba(6, 182, 212, 0.3);
+  border-color: color-mix(in srgb, var(--accent-color) 30%, transparent);
   background: var(--bg-card-hover);
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
 }
@@ -866,7 +866,7 @@ h3 {
 }
 
 .stat-card:hover {
-  border-color: rgba(6, 182, 212, 0.35);
+  border-color: color-mix(in srgb, var(--accent-color) 35%, transparent);
   background: var(--bg-card-hover);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.28);
 }
@@ -933,19 +933,19 @@ h3 {
 }
 
 .badge-trend.positive {
-  background: rgba(16, 185, 129, 0.12);
-  border: 1px solid rgba(16, 185, 129, 0.3);
-  color: var(--neon-green);
+  background: color-mix(in srgb, var(--color-positive) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-positive) 30%, transparent);
+  color: var(--color-positive);
 }
 
 .badge-trend.negative {
-  background: rgba(244, 63, 94, 0.12);
-  border: 1px solid rgba(244, 63, 94, 0.3);
-  color: var(--neon-red);
+  background: color-mix(in srgb, var(--color-negative) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-negative) 30%, transparent);
+  color: var(--color-negative);
 }
 
 .badge-trend.neutral {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--surface-hover);
   border: 1px solid var(--border-subtle);
   color: var(--text-secondary);
 }
@@ -1023,7 +1023,7 @@ h3 {
 }
 
 .btn-primary {
-  background: linear-gradient(135deg, rgba(6, 182, 212, 0.25) 0%, rgba(6, 182, 212, 0.12) 100%);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent-color) 25%, transparent) 0%, color-mix(in srgb, var(--accent-color) 12%, transparent) 100%);
   border-color: var(--accent-color);
   color: var(--accent-text);
 }
@@ -1068,7 +1068,7 @@ h3 {
 
 .btn-ghost:hover {
   border-color: transparent !important;
-  background: rgba(255, 255, 255, 0.08) !important;
+  background: var(--surface-control-hover) !important;
   color: var(--text-primary);
   box-shadow: none !important;
 }
@@ -1076,6 +1076,15 @@ h3 {
 .btn-sm {
   padding: 4px 10px;
   font-size: 11px;
+}
+
+/* Extra-compact button for dense toolbars (chart ranges, calendar view tabs) */
+.btn-xs {
+  padding: 2px 8px;
+  font-size: 10px;
+  gap: 4px;
+  border-radius: 6px;
+  letter-spacing: 0.03em;
 }
 
 /* Inputs & Search */
@@ -1144,15 +1153,54 @@ h3 {
 }
 
 .badge-green {
-  background: rgba(0, 230, 118, 0.08);
-  border: 1px solid rgba(0, 230, 118, 0.3);
+  background: color-mix(in srgb, var(--neon-green) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--neon-green) 30%, transparent);
   color: var(--neon-green);
 }
 
 .badge-muted {
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--surface-control);
   border: 1px solid var(--border-subtle);
   color: var(--text-secondary);
+}
+
+/* Semantic badge variants (used with the base `.badge` block above).
+   Backgrounds/borders are mixed from the semantic color tokens so they follow
+   the active theme and accent instead of pinning a raw palette value. */
+.badge-default {
+  background: var(--surface-control);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+}
+
+.badge-accent {
+  background: var(--accent-subtle);
+  border: 1px solid var(--border-cyan);
+  color: var(--accent-text);
+}
+
+.badge-success {
+  background: color-mix(in srgb, var(--color-positive) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-positive) 32%, transparent);
+  color: var(--color-positive);
+}
+
+.badge-danger {
+  background: color-mix(in srgb, var(--color-negative) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-negative) 32%, transparent);
+  color: var(--color-negative);
+}
+
+.badge-warning {
+  background: color-mix(in srgb, var(--neon-amber) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--neon-amber) 34%, transparent);
+  color: var(--neon-amber);
+}
+
+.badge-subtle {
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  color: var(--text-muted);
 }
 
 /* Tags & Chips */
@@ -1260,7 +1308,7 @@ h3 {
 
 .index-item:hover {
   background: var(--surface-control);
-  border-color: rgba(6, 182, 212, 0.3);
+  border-color: color-mix(in srgb, var(--accent-color) 30%, transparent);
   transform: translateX(2px);
 }
 
@@ -1269,7 +1317,7 @@ h3 {
 }
 
 .index-item.active {
-  background: rgba(6, 182, 212, 0.08);
+  background: color-mix(in srgb, var(--accent-color) 8%, transparent);
   border-color: var(--border-cyan);
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.25);
 }
@@ -1361,6 +1409,17 @@ h3 {
   color: var(--text-primary);
 }
 
+/* Legend swatch + label pairs rendered by the chart components. */
+.chart-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: 12px;
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
 /* Custom Chart Tooltip */
 .custom-tooltip {
   background: var(--surface-tooltip);
@@ -1370,7 +1429,7 @@ h3 {
   padding: 12px 14px;
   box-shadow:
     0 8px 32px rgba(0, 0, 0, 0.5),
-    0 0 20px rgba(0, 229, 255, 0.2);
+    0 0 20px color-mix(in srgb, var(--accent-color) 20%, transparent);
   font-family: var(--mono-font);
   min-width: 180px;
 }
@@ -1436,7 +1495,7 @@ h3 {
 }
 
 .theme-chip:hover {
-  background: rgba(0, 229, 255, 0.06);
+  background: color-mix(in srgb, var(--accent-color) 6%, transparent);
   border-color: var(--border-cyan);
 }
 
@@ -1459,6 +1518,18 @@ h3 {
   box-sizing: border-box;
   max-height: 420px;
   overflow-y: auto;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--surface-table);
+}
+
+/* Generic responsive wrapper for tables (skeleton tables and page tables). */
+.table-container {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
   border: 1px solid var(--border-subtle);
@@ -1502,7 +1573,41 @@ h3 {
 }
 
 .custom-table tr:hover td {
-  background: rgba(0, 229, 255, 0.03);
+  background: color-mix(in srgb, var(--accent-color) 3%, transparent);
+}
+
+/* Shared base for the constituents / financials / portfolio data tables.
+   Kept to a single class prefix so page-specific rules (e.g.
+   `.screener-grid-table th`) still win regardless of source order. */
+.constituents-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-sm);
+  color: var(--text-primary);
+  text-align: left;
+}
+
+.constituents-table th {
+  padding: 8px 10px;
+  background: var(--surface-table-header);
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+  font-family: var(--mono-font);
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-semibold);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.constituents-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border-row);
+  color: var(--text-primary);
+  vertical-align: middle;
+}
+
+.constituents-table tbody tr:hover td {
+  background: var(--surface-hover);
 }
 
 .weight-progress-cell {
@@ -1832,18 +1937,18 @@ h3 {
 }
 
 [data-theme="light"] .toast-item.toast-success {
-  border-color: rgba(16, 185, 129, 0.4) !important;
-  background: linear-gradient(135deg, #ffffff 0%, rgba(16, 185, 129, 0.09) 100%) !important;
+  border-color: color-mix(in srgb, var(--color-positive) 40%, transparent) !important;
+  background: linear-gradient(135deg, #ffffff 0%, color-mix(in srgb, var(--color-positive) 9%, transparent) 100%) !important;
 }
 
 [data-theme="light"] .toast-item.toast-error {
-  border-color: rgba(244, 63, 94, 0.4) !important;
-  background: linear-gradient(135deg, #ffffff 0%, rgba(244, 63, 94, 0.09) 100%) !important;
+  border-color: color-mix(in srgb, var(--color-negative) 40%, transparent) !important;
+  background: linear-gradient(135deg, #ffffff 0%, color-mix(in srgb, var(--color-negative) 9%, transparent) 100%) !important;
 }
 
 [data-theme="light"] .toast-item.toast-warning {
-  border-color: rgba(245, 158, 11, 0.4) !important;
-  background: linear-gradient(135deg, #ffffff 0%, rgba(245, 158, 11, 0.09) 100%) !important;
+  border-color: color-mix(in srgb, var(--neon-amber) 40%, transparent) !important;
+  background: linear-gradient(135deg, #ffffff 0%, color-mix(in srgb, var(--neon-amber) 9%, transparent) 100%) !important;
 }
 
 [data-theme="light"] .toast-item.toast-info {
@@ -2961,7 +3066,7 @@ body::before,
   padding: 10px 12px;
   box-shadow:
     0 8px 24px rgba(0, 0, 0, 0.6),
-    0 0 16px rgba(6, 182, 212, 0.15);
+    0 0 16px color-mix(in srgb, var(--accent-color) 15%, transparent);
   font-family: var(--mono-font);
   min-width: 220px;
   max-width: min(280px, calc(100vw - 16px));
@@ -2998,13 +3103,13 @@ body::before,
 }
 
 .heatmap-swatch-positive {
-  background: rgba(16, 185, 129, 0.45);
-  border: 1px solid rgba(16, 185, 129, 0.7);
+  background: color-mix(in srgb, var(--color-positive) 45%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-positive) 70%, transparent);
 }
 
 .heatmap-swatch-negative {
-  background: rgba(244, 63, 94, 0.45);
-  border: 1px solid rgba(244, 63, 94, 0.7);
+  background: color-mix(in srgb, var(--color-negative) 45%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-negative) 70%, transparent);
 }
 
 .accent-option:focus-visible {
@@ -3082,7 +3187,7 @@ textarea:focus-visible {
 
 .modal-dialog-danger {
   border-color: var(--neon-red);
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8), 0 0 25px rgba(244, 63, 94, 0.2);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8), 0 0 25px color-mix(in srgb, var(--color-negative) 20%, transparent);
 }
 
 .modal-header {
@@ -3095,7 +3200,7 @@ textarea:focus-visible {
 }
 
 .modal-header-danger {
-  background: linear-gradient(90deg, rgba(244, 63, 94, 0.08), transparent);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--color-negative) 8%, transparent), transparent);
 }
 
 .modal-title-group {
@@ -3143,6 +3248,8 @@ textarea:focus-visible {
   align-items: center;
   justify-content: flex-end;
   gap: 10px;
+  padding: 14px 20px;
+  border-top: 1px solid var(--border-subtle);
 }
 
 .modal-subtitle {
@@ -3163,7 +3270,7 @@ textarea:focus-visible {
   flex-direction: column;
   padding: 0;
   overflow: hidden;
-  box-shadow: 0 25px 70px rgba(0, 0, 0, 0.85), 0 0 30px rgba(6, 182, 212, 0.15);
+  box-shadow: 0 25px 70px rgba(0, 0, 0, 0.85), 0 0 30px color-mix(in srgb, var(--accent-color) 15%, transparent);
 }
 
 .global-search-header {
@@ -3222,7 +3329,7 @@ textarea:focus-visible {
 }
 
 .global-search-filter-btn.active {
-  background: var(--accent-subtle, rgba(6, 182, 212, 0.15));
+  background: var(--accent-subtle);
   border-color: var(--accent-color, #06b6d4);
   color: var(--accent-color, #06b6d4);
   font-weight: 600;
@@ -3241,9 +3348,9 @@ textarea:focus-visible {
 }
 
 .global-search-market-tag.prime {
-  background: rgba(6, 182, 212, 0.12);
-  color: #22d3ee;
-  border-color: rgba(6, 182, 212, 0.25);
+  background: color-mix(in srgb, var(--accent-color) 12%, transparent);
+  color: var(--accent-text);
+  border-color: color-mix(in srgb, var(--accent-color) 25%, transparent);
 }
 
 .global-search-market-tag.growth {
@@ -3253,15 +3360,15 @@ textarea:focus-visible {
 }
 
 .global-search-market-tag.standard {
-  background: rgba(245, 158, 11, 0.12);
+  background: color-mix(in srgb, var(--neon-amber) 12%, transparent);
   color: #fbbf24;
-  border-color: rgba(245, 158, 11, 0.25);
+  border-color: color-mix(in srgb, var(--neon-amber) 25%, transparent);
 }
 
 .global-search-market-tag.us {
-  background: rgba(16, 185, 129, 0.12);
+  background: color-mix(in srgb, var(--color-positive) 12%, transparent);
   color: #34d399;
-  border-color: rgba(16, 185, 129, 0.25);
+  border-color: color-mix(in srgb, var(--color-positive) 25%, transparent);
 }
 
 .global-search-list {
@@ -3554,18 +3661,18 @@ textarea:focus-visible {
 }
 
 .toast-item.toast-success {
-  border-color: rgba(16, 185, 129, 0.4);
-  background: linear-gradient(135deg, rgba(14, 21, 37, 0.95) 0%, rgba(16, 185, 129, 0.08) 100%);
+  border-color: color-mix(in srgb, var(--color-positive) 40%, transparent);
+  background: linear-gradient(135deg, rgba(14, 21, 37, 0.95) 0%, color-mix(in srgb, var(--color-positive) 8%, transparent) 100%);
 }
 
 .toast-item.toast-error {
-  border-color: rgba(244, 63, 94, 0.45);
-  background: linear-gradient(135deg, rgba(14, 21, 37, 0.95) 0%, rgba(244, 63, 94, 0.1) 100%);
+  border-color: color-mix(in srgb, var(--color-negative) 45%, transparent);
+  background: linear-gradient(135deg, rgba(14, 21, 37, 0.95) 0%, color-mix(in srgb, var(--color-negative) 10%, transparent) 100%);
 }
 
 .toast-item.toast-warning {
-  border-color: rgba(245, 158, 11, 0.4);
-  background: linear-gradient(135deg, rgba(14, 21, 37, 0.95) 0%, rgba(245, 158, 11, 0.08) 100%);
+  border-color: color-mix(in srgb, var(--neon-amber) 40%, transparent);
+  background: linear-gradient(135deg, rgba(14, 21, 37, 0.95) 0%, color-mix(in srgb, var(--neon-amber) 8%, transparent) 100%);
 }
 
 .toast-item.toast-info {
@@ -3780,9 +3887,9 @@ a.footer-creator-note {
 
 a.footer-creator-note:hover {
   color: var(--text-primary);
-  background: var(--surface-control-hover, rgba(255, 255, 255, 0.08));
-  border-color: var(--border-accent, rgba(56, 189, 248, 0.4));
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18), 0 0 12px rgba(56, 189, 248, 0.15);
+  background: var(--surface-control-hover);
+  border-color: var(--border-accent);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18), 0 0 12px color-mix(in srgb, var(--accent-color) 15%, transparent);
   transform: translateY(-1px);
 }
 
@@ -4022,7 +4129,7 @@ a.footer-creator-note:hover .footer-icon-accent {
   border-radius: 50%;
   background: var(--neon-green);
   border: 2px solid var(--bg-card);
-  box-shadow: 0 0 8px rgba(16, 185, 129, 0.6);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--color-positive) 60%, transparent);
 }
 
 .profile-info {
@@ -4479,11 +4586,11 @@ a.footer-creator-note:hover .footer-icon-accent {
   width: 56px;
   height: 56px;
   border-radius: 14px;
-  background: rgba(245, 158, 11, 0.12);
-  border: 1px solid rgba(245, 158, 11, 0.35);
+  background: color-mix(in srgb, var(--neon-amber) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--neon-amber) 35%, transparent);
   color: var(--neon-amber);
   margin-bottom: 14px;
-  box-shadow: 0 0 16px rgba(245, 158, 11, 0.2);
+  box-shadow: 0 0 16px color-mix(in srgb, var(--neon-amber) 20%, transparent);
 }
 
 .disclaimer-title {
@@ -4504,8 +4611,8 @@ a.footer-creator-note:hover .footer-icon-accent {
   display: flex;
   align-items: flex-start;
   gap: 14px;
-  background: rgba(245, 158, 11, 0.08);
-  border: 1px solid rgba(245, 158, 11, 0.3);
+  background: color-mix(in srgb, var(--neon-amber) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--neon-amber) 30%, transparent);
   border-radius: 10px;
   padding: 16px 20px;
   color: #fef08a;
@@ -4691,7 +4798,7 @@ a.footer-creator-note:hover .footer-icon-accent {
 
 .builder-auth-banner {
   padding: 10px 16px;
-  background: rgba(6, 182, 212, 0.08);
+  background: color-mix(in srgb, var(--accent-color) 8%, transparent);
   border-bottom: 1px solid var(--border-cyan);
   display: flex;
   align-items: center;
@@ -4737,7 +4844,7 @@ a.footer-creator-note:hover .footer-icon-accent {
 
 .builder-basket-row:hover {
   border-color: var(--border-cyan);
-  background: var(--surface-neutral-subtle, rgba(6, 182, 212, 0.03));
+  background: var(--surface-neutral-subtle);
 }
 
 .builder-basket-info {
@@ -4864,7 +4971,7 @@ a.footer-creator-note:hover .footer-icon-accent {
   font-size: 10px;
   padding: 1px 5px;
   border-radius: 10px;
-  background: rgba(6, 182, 212, 0.2);
+  background: color-mix(in srgb, var(--accent-color) 20%, transparent);
   color: var(--accent-text);
 }
 
@@ -5038,7 +5145,7 @@ a.footer-creator-note:hover .footer-icon-accent {
 
 .tv-ticker-item:hover,
 .tv-ticker-item.is-hovered {
-  background: rgba(6, 182, 212, 0.1);
+  background: color-mix(in srgb, var(--accent-color) 10%, transparent);
 }
 
 .tv-ticker-symbol-title {
@@ -5086,7 +5193,7 @@ a.footer-creator-note:hover .footer-icon-accent {
 
 @keyframes tickerFlashUp {
   0% {
-    background: rgba(16, 185, 129, 0.25);
+    background: color-mix(in srgb, var(--color-positive) 25%, transparent);
   }
 
   100% {
@@ -5096,7 +5203,7 @@ a.footer-creator-note:hover .footer-icon-accent {
 
 @keyframes tickerFlashDown {
   0% {
-    background: rgba(239, 68, 68, 0.25);
+    background: color-mix(in srgb, var(--color-negative) 25%, transparent);
   }
 
   100% {
@@ -5122,8 +5229,8 @@ a.footer-creator-note:hover .footer-icon-accent {
   color: var(--neon-green);
   padding: 2px 6px;
   border-radius: 4px;
-  background: rgba(16, 185, 129, 0.12);
-  border: 1px solid rgba(16, 185, 129, 0.25);
+  background: color-mix(in srgb, var(--color-positive) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-positive) 25%, transparent);
 }
 
 .tv-live-dot {
@@ -5255,7 +5362,7 @@ a.footer-creator-note:hover .footer-icon-accent {
   background: var(--bg-card);
   border: 1px solid var(--border-cyan);
   border-radius: 12px;
-  box-shadow: 0 25px 60px rgba(0, 0, 0, 0.85), 0 0 40px rgba(6, 182, 212, 0.25);
+  box-shadow: 0 25px 60px rgba(0, 0, 0, 0.85), 0 0 40px color-mix(in srgb, var(--accent-color) 25%, transparent);
   display: flex;
   flex-direction: column;
   position: relative;
@@ -5364,7 +5471,7 @@ a.footer-creator-note:hover .footer-icon-accent {
 .tv-chart-loading-spinner {
   width: 28px;
   height: 28px;
-  border: 2.5px solid rgba(6, 182, 212, 0.2);
+  border: 2.5px solid color-mix(in srgb, var(--accent-color) 20%, transparent);
   border-top-color: var(--accent-color, #06b6d4);
   border-radius: 50%;
   animation: tvSpin 0.75s linear infinite;
@@ -5470,7 +5577,7 @@ a.footer-creator-note:hover .footer-icon-accent {
   display: flex;
   flex-direction: column;
   min-height: 100vh;
-  background: radial-gradient(circle at 50% 20%, rgba(6, 182, 212, 0.08) 0%, rgba(9, 13, 22, 0.98) 75%),
+  background: radial-gradient(circle at 50% 20%, color-mix(in srgb, var(--accent-color) 8%, transparent) 0%, rgba(9, 13, 22, 0.98) 75%),
     linear-gradient(180deg, #090d16 0%, #060911 100%);
   color: var(--text-primary);
   position: relative;
@@ -5572,7 +5679,7 @@ a.footer-creator-note:hover .footer-icon-accent {
   min-height: 480px;
   background: radial-gradient(circle at center, rgba(14, 21, 37, 0.5) 0%, rgba(7, 10, 19, 0.9) 100%);
   border: 1px solid var(--accent-border);
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.45), inset 0 0 40px rgba(6, 182, 212, 0.05);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.45), inset 0 0 40px color-mix(in srgb, var(--accent-color) 5%, transparent);
   border-radius: 12px;
   position: relative;
   overflow: hidden;
@@ -5610,7 +5717,7 @@ a.footer-creator-note:hover .footer-icon-accent {
   width: 160px;
   height: 160px;
   border-radius: 50%;
-  background: radial-gradient(circle, var(--accent-text) 0%, rgba(6, 182, 212, 0) 70%);
+  background: radial-gradient(circle, var(--accent-text) 0%, transparent 70%);
   filter: blur(30px);
   opacity: 0.4;
   position: absolute;
@@ -5752,8 +5859,8 @@ a.footer-creator-note:hover .footer-icon-accent {
 }
 
 .step-tab-indicator.is-passed {
-  background: rgba(16, 185, 129, 0.2);
-  border-color: rgba(16, 185, 129, 0.45);
+  background: color-mix(in srgb, var(--color-positive) 20%, transparent);
+  border-color: color-mix(in srgb, var(--color-positive) 45%, transparent);
   color: var(--neon-green);
 }
 
@@ -5805,7 +5912,7 @@ a.footer-creator-note:hover .footer-icon-accent {
   border-radius: 8px;
   padding: 12px 14px;
   margin-bottom: 16px;
-  background: linear-gradient(180deg, rgba(6, 182, 212, 0.08) 0%, rgba(6, 182, 212, 0.02) 100%);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent-color) 8%, transparent) 0%, color-mix(in srgb, var(--accent-color) 2%, transparent) 100%);
 }
 
 .action-box-header {
@@ -5855,7 +5962,7 @@ a.footer-creator-note:hover .footer-icon-accent {
 }
 
 .tutorial-next-btn {
-  background: linear-gradient(135deg, rgba(6, 182, 212, 0.25) 0%, rgba(6, 182, 212, 0.12) 100%);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent-color) 25%, transparent) 0%, color-mix(in srgb, var(--accent-color) 12%, transparent) 100%);
   border-color: var(--accent-color);
   color: var(--accent-text);
   box-shadow: 0 0 10px var(--accent-glow);
@@ -5872,7 +5979,7 @@ a.footer-creator-note:hover .footer-icon-accent {
   background: linear-gradient(135deg, #10b981 0%, #059669 100%);
   border: 1px solid #34d399;
   color: #ffffff !important;
-  box-shadow: 0 2px 10px rgba(16, 185, 129, 0.35);
+  box-shadow: 0 2px 10px color-mix(in srgb, var(--color-positive) 35%, transparent);
   letter-spacing: 0.5px;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
 }
@@ -5881,7 +5988,7 @@ a.footer-creator-note:hover .footer-icon-accent {
   background: linear-gradient(135deg, #059669 0%, #047857 100%);
   border-color: #6ee7b7;
   color: #ffffff !important;
-  box-shadow: 0 0 18px rgba(16, 185, 129, 0.6);
+  box-shadow: 0 0 18px color-mix(in srgb, var(--color-positive) 60%, transparent);
   transform: translateY(-1px);
 }
 
@@ -6024,6 +6131,11 @@ a.footer-creator-note:hover .footer-icon-accent {
   .theme-chip,
   select.select-styled.tiny {
     min-height: 36px;
+  }
+
+  /* `.btn-xs` is compact on desktop; keep a tap-able hit box on touch. */
+  .btn-xs {
+    min-height: 32px;
   }
 
   .btn-group-item {
@@ -6460,11 +6572,11 @@ a.footer-creator-note:hover .footer-icon-accent {
 }
 
 .screener-row.selected-row {
-  background-color: rgba(6, 182, 212, 0.09) !important;
+  background-color: color-mix(in srgb, var(--accent-color) 9%, transparent) !important;
 }
 
 .screener-row.selected-row:hover {
-  background-color: rgba(6, 182, 212, 0.14) !important;
+  background-color: color-mix(in srgb, var(--accent-color) 14%, transparent) !important;
 }
 
 /* ==========================================================================
@@ -6481,17 +6593,17 @@ a.footer-creator-note:hover .footer-icon-accent {
 }
 
 .portfolio-gate-card:hover {
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45), 0 0 36px rgba(0, 229, 255, 0.18) !important;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45), 0 0 36px color-mix(in srgb, var(--accent-color) 18%, transparent) !important;
 }
 
 [data-theme="light"] .portfolio-gate-card {
   background: #ffffff !important;
-  border-color: rgba(6, 182, 212, 0.35) !important;
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.08), 0 0 24px rgba(6, 182, 212, 0.12) !important;
+  border-color: color-mix(in srgb, var(--accent-color) 35%, transparent) !important;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.08), 0 0 24px color-mix(in srgb, var(--accent-color) 12%, transparent) !important;
 }
 
 [data-theme="light"] .portfolio-gate-card:hover {
-  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.12), 0 0 30px rgba(6, 182, 212, 0.2) !important;
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.12), 0 0 30px color-mix(in srgb, var(--accent-color) 20%, transparent) !important;
 }
 
 .portfolio-gate-actions {
@@ -6515,8 +6627,8 @@ a.footer-creator-note:hover .footer-icon-accent {
 
 .nav-lock-badge {
   color: var(--accent-text);
-  background: rgba(0, 229, 255, 0.1);
-  border: 1px solid rgba(0, 229, 255, 0.25);
+  background: color-mix(in srgb, var(--accent-color) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent-color) 25%, transparent);
 }
 
 /* Interactive Card Styles */
@@ -6531,7 +6643,7 @@ a.footer-creator-note:hover .footer-icon-accent {
 }
 
 [data-theme="light"] .interactive-card:hover {
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08), 0 0 16px rgba(6, 182, 212, 0.15);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08), 0 0 16px color-mix(in srgb, var(--accent-color) 15%, transparent);
 }
 
 @media (max-width: 640px) {
@@ -6554,6 +6666,45 @@ a.footer-creator-note:hover .footer-icon-accent {
 .constituent-price,
 .custom-table td {
   font-variant-numeric: tabular-nums;
+}
+
+/* Text & layout utilities shared by several pages */
+.bold {
+  font-weight: 700;
+}
+
+.block {
+  display: block;
+}
+
+.column {
+  display: flex;
+  flex-direction: column;
+}
+
+.ellipsis {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.text-positive {
+  color: var(--color-positive);
+}
+
+.text-negative {
+  color: var(--color-negative);
+}
+
+.text-muted {
+  color: var(--text-muted);
+}
+
+.text-cyan {
+  color: var(--accent-text);
 }
 
 /* Shimmer pulse loading animation */
@@ -6617,21 +6768,21 @@ a.footer-creator-note:hover .footer-icon-accent {
 }
 
 .provenance-pill-live {
-  background: rgba(16, 185, 129, 0.12);
-  border: 1px solid rgba(16, 185, 129, 0.35);
-  color: #10b981;
+  background: color-mix(in srgb, var(--color-positive) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-positive) 35%, transparent);
+  color: var(--neon-green);
 }
 
 .provenance-pill-cached {
-  background: rgba(6, 182, 212, 0.12);
-  border: 1px solid rgba(6, 182, 212, 0.35);
+  background: color-mix(in srgb, var(--accent-color) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent-color) 35%, transparent);
   color: var(--accent-text);
 }
 
 .provenance-pill-standby {
-  background: rgba(245, 158, 11, 0.12);
-  border: 1px solid rgba(245, 158, 11, 0.35);
-  color: #f59e0b;
+  background: color-mix(in srgb, var(--neon-amber) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--neon-amber) 35%, transparent);
+  color: var(--neon-amber);
 }
 
 .pulse-indicator {
@@ -6657,21 +6808,21 @@ a.footer-creator-note:hover .footer-icon-accent {
 
 /* Diversification Score Badges */
 .badge-diversification-high {
-  background: rgba(16, 185, 129, 0.15);
-  color: #10b981;
-  border: 1px solid rgba(16, 185, 129, 0.3);
+  background: color-mix(in srgb, var(--color-positive) 15%, transparent);
+  color: var(--neon-green);
+  border: 1px solid color-mix(in srgb, var(--color-positive) 30%, transparent);
 }
 
 .badge-diversification-mod {
-  background: rgba(6, 182, 212, 0.15);
+  background: color-mix(in srgb, var(--accent-color) 15%, transparent);
   color: var(--accent-text);
-  border: 1px solid rgba(6, 182, 212, 0.3);
+  border: 1px solid color-mix(in srgb, var(--accent-color) 30%, transparent);
 }
 
 .badge-diversification-conc {
-  background: rgba(245, 158, 11, 0.15);
-  color: #f59e0b;
-  border: 1px solid rgba(245, 158, 11, 0.3);
+  background: color-mix(in srgb, var(--neon-amber) 15%, transparent);
+  color: var(--neon-amber);
+  border: 1px solid color-mix(in srgb, var(--neon-amber) 30%, transparent);
 }
 
 /* ==========================================================================
@@ -7215,7 +7366,7 @@ a.footer-creator-note:hover .footer-icon-accent {
 
   .screener-mobile-card.selected-card {
     border-color: var(--accent-border-glow);
-    background: rgba(6, 182, 212, 0.08);
+    background: color-mix(in srgb, var(--accent-color) 8%, transparent);
   }
 
   [data-theme="light"] .screener-mobile-card {
@@ -7225,7 +7376,7 @@ a.footer-creator-note:hover .footer-icon-accent {
   }
 
   [data-theme="light"] .screener-mobile-card.selected-card {
-    background: rgba(6, 182, 212, 0.06);
+    background: color-mix(in srgb, var(--accent-color) 6%, transparent);
     border-color: var(--accent-color);
   }
 
@@ -7421,7 +7572,11 @@ a.footer-creator-note:hover .footer-icon-accent {
   border-radius: 12px;
   padding: 24px 28px;
   position: relative;
-  overflow: hidden;
+  /* The instant-search dropdown is absolutely positioned inside this card.
+     Clipping it (overflow: hidden) cut the suggestion list off at the card
+     edge, so the card itself must not clip; the decorative top rule below
+     rounds its own corners instead. */
+  overflow: visible;
   backdrop-filter: blur(20px);
   box-shadow: var(--shadow-md, 0 4px 20px rgba(0, 0, 0, 0.2));
 }
@@ -7435,6 +7590,10 @@ a.footer-creator-note:hover .footer-icon-accent {
   height: 2px;
   background: linear-gradient(90deg, var(--neon-cyan, #06b6d4) 0%, var(--neon-purple, #8b5cf6) 50%, var(--neon-green, #10b981) 100%);
   opacity: 0.85;
+  /* Replaces the clipping the card used to provide for its rounded corners. */
+  border-top-left-radius: 12px;
+  border-top-right-radius: 12px;
+  pointer-events: none;
 }
 
 .stock-analysis-hero-header {
@@ -7454,10 +7613,10 @@ a.footer-creator-note:hover .footer-icon-accent {
   font-weight: 700;
   letter-spacing: 0.08em;
   color: var(--neon-cyan, #06b6d4);
-  background: rgba(6, 182, 212, 0.1);
+  background: color-mix(in srgb, var(--accent-color) 10%, transparent);
   padding: 4px 10px;
   border-radius: 20px;
-  border: 1px solid rgba(6, 182, 212, 0.25);
+  border: 1px solid color-mix(in srgb, var(--accent-color) 25%, transparent);
 }
 
 .stock-analysis-hero-actions {
@@ -7502,7 +7661,7 @@ a.footer-creator-note:hover .footer-icon-accent {
 
 .stock-analysis-search-input-wrapper:focus-within {
   border-color: var(--neon-cyan, #06b6d4);
-  box-shadow: 0 0 0 3px rgba(6, 182, 212, 0.2), inset 0 2px 4px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-color) 20%, transparent), inset 0 2px 4px rgba(0, 0, 0, 0.2);
 }
 
 .stock-analysis-search-icon {
@@ -7577,7 +7736,7 @@ a.footer-creator-note:hover .footer-icon-accent {
 
 .stock-analysis-search-dropdown-item:hover,
 .stock-analysis-search-dropdown-item:focus {
-  background: rgba(6, 182, 212, 0.12);
+  background: color-mix(in srgb, var(--accent-color) 12%, transparent);
   outline: none;
 }
 
@@ -7594,7 +7753,7 @@ a.footer-creator-note:hover .footer-icon-accent {
   font-size: 0.85rem;
   font-weight: 700;
   color: var(--neon-cyan, #06b6d4);
-  background: rgba(6, 182, 212, 0.1);
+  background: color-mix(in srgb, var(--accent-color) 10%, transparent);
   padding: 2px 6px;
   border-radius: 4px;
 }
@@ -7670,7 +7829,7 @@ a.footer-creator-note:hover .footer-icon-accent {
 }
 
 .stock-analysis-chip-btn:hover {
-  background: rgba(6, 182, 212, 0.15);
+  background: color-mix(in srgb, var(--accent-color) 15%, transparent);
   border-color: var(--neon-cyan, #06b6d4);
   color: var(--neon-cyan, #06b6d4);
 }
@@ -7907,15 +8066,15 @@ a.footer-creator-note:hover .footer-icon-accent {
 }
 
 .stock-analysis-theme-tab:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--surface-control-hover);
   color: var(--text-primary);
 }
 
 .stock-analysis-theme-tab.active {
-  background: rgba(6, 182, 212, 0.15);
+  background: color-mix(in srgb, var(--accent-color) 15%, transparent);
   border-color: var(--neon-cyan, #06b6d4);
   color: var(--neon-cyan, #06b6d4);
-  box-shadow: 0 0 12px rgba(6, 182, 212, 0.25);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--accent-color) 25%, transparent);
 }
 
 /* Stock Cards Grid */
@@ -7941,7 +8100,7 @@ a.footer-creator-note:hover .footer-icon-accent {
 .stock-analysis-card:hover,
 .stock-analysis-card:focus {
   border-color: var(--neon-cyan, #06b6d4);
-  box-shadow: 0 8px 24px -4px rgba(6, 182, 212, 0.2);
+  box-shadow: 0 8px 24px -4px color-mix(in srgb, var(--accent-color) 20%, transparent);
   outline: none;
 }
 
@@ -7963,7 +8122,7 @@ a.footer-creator-note:hover .footer-icon-accent {
   font-size: 0.8rem;
   font-weight: 700;
   color: var(--neon-cyan, #06b6d4);
-  background: rgba(6, 182, 212, 0.12);
+  background: color-mix(in srgb, var(--accent-color) 12%, transparent);
   padding: 2px 6px;
   border-radius: 4px;
 }
@@ -7987,7 +8146,7 @@ a.footer-creator-note:hover .footer-icon-accent {
 .stock-card-cap {
   font-size: 0.72rem;
   color: var(--neon-cyan, #06b6d4);
-  background: rgba(6, 182, 212, 0.1);
+  background: color-mix(in srgb, var(--accent-color) 10%, transparent);
   padding: 2px 6px;
   border-radius: 4px;
   font-variant-numeric: tabular-nums;
@@ -8016,7 +8175,7 @@ a.footer-creator-note:hover .footer-icon-accent {
 
 .stock-card-action-btn.added {
   color: var(--neon-green, #10b981);
-  background: rgba(16, 185, 129, 0.12);
+  background: color-mix(in srgb, var(--color-positive) 12%, transparent);
 }
 
 .stock-card-name {
@@ -8102,12 +8261,12 @@ a.footer-creator-note:hover .footer-icon-accent {
 }
 
 .metric-signal-badge.bullish {
-  background: rgba(16, 185, 129, 0.15);
+  background: color-mix(in srgb, var(--color-positive) 15%, transparent);
   color: var(--neon-green, #10b981);
 }
 
 .metric-signal-badge.bearish {
-  background: rgba(244, 63, 94, 0.15);
+  background: color-mix(in srgb, var(--color-negative) 15%, transparent);
   color: var(--neon-pink, #f43f5e);
 }
 
@@ -8168,7 +8327,7 @@ a.footer-creator-note:hover .footer-icon-accent {
 .stock-analysis-macro-card:hover,
 .stock-analysis-macro-card:focus {
   border-color: var(--neon-cyan, #06b6d4);
-  background: rgba(6, 182, 212, 0.08);
+  background: color-mix(in srgb, var(--accent-color) 8%, transparent);
   outline: none;
 }
 
@@ -8232,8 +8391,8 @@ a.footer-creator-note:hover .footer-icon-accent {
   align-items: center;
   justify-content: space-between;
   padding: 20px 24px;
-  background: linear-gradient(135deg, rgba(6, 182, 212, 0.08) 0%, rgba(139, 92, 246, 0.08) 100%);
-  border: 1px solid rgba(6, 182, 212, 0.25);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent-color) 8%, transparent) 0%, rgba(139, 92, 246, 0.08) 100%);
+  border: 1px solid color-mix(in srgb, var(--accent-color) 25%, transparent);
   border-radius: 12px;
   gap: 20px;
   flex-wrap: wrap;
@@ -8251,7 +8410,7 @@ a.footer-creator-note:hover .footer-icon-accent {
   width: 44px;
   height: 44px;
   border-radius: 10px;
-  background: rgba(6, 182, 212, 0.12);
+  background: color-mix(in srgb, var(--accent-color) 12%, transparent);
   display: flex;
   align-items: center;
   justify-content: center;

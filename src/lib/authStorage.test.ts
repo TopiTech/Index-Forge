@@ -1,11 +1,12 @@
 /**
- * Regression tests for the legacy-session migration in lib/auth.
+ * Regression tests for the auth session storage contract (SEC-06 / R51).
  *
- * getStoredAuth() migrates a legacy localStorage session into sessionStorage.
- * The migration must only delete the legacy entry after the sessionStorage
- * write succeeded: in an environment where sessionStorage is missing or
- * read-only (private browsing, storage policy), deleting it unconditionally
- * destroyed the only copy of the session and logged the user out on reload.
+ * `getStoredAuth()` migrates a legacy localStorage session once: the entry is
+ * adopted into memory (and into sessionStorage when the browser allows it) and
+ * then deleted, because `storeAuth()` never writes to localStorage again — the
+ * plaintext access password must not survive the tab. A rejected or missing
+ * sessionStorage therefore means "memory only": the tab keeps working, and a
+ * reload asks for a new login instead of silently restoring credentials.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { getStoredAuth, storeAuth, clearAuth, getAuthHeaders } from "./auth";
@@ -41,6 +42,8 @@ function createStorage(initial: Record<string, string> = {}, options: { failWrit
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  // Reset the module-level session so one test cannot leak into the next.
+  clearAuth();
 });
 
 describe("getStoredAuth legacy migration", () => {
@@ -56,26 +59,28 @@ describe("getStoredAuth legacy migration", () => {
     expect(local.data.has(AUTH_KEY)).toBe(false);
   });
 
-  it("keeps the legacy session when the sessionStorage write fails", () => {
+  it("keeps the legacy session in memory when the sessionStorage write fails", () => {
     const session = createStorage({}, { failWrites: true });
     const local = createStorage({ [AUTH_KEY]: JSON.stringify(SESSION) });
     vi.stubGlobal("sessionStorage", session.storage);
     vi.stubGlobal("localStorage", local.storage);
 
     const stored = getStoredAuth();
+    // The tab keeps working for this page load...
     expect(stored?.password).toBe(SESSION.password);
-    // The only copy of the session must survive so a reload stays logged in.
-    expect(local.data.has(AUTH_KEY)).toBe(true);
+    // ...but the plaintext entry is gone: nothing is written back, and a
+    // reload must ask for a new login instead of restoring the password.
+    expect(local.data.has(AUTH_KEY)).toBe(false);
   });
 
-  it("keeps the legacy session when sessionStorage is unavailable", () => {
+  it("keeps the legacy session in memory when sessionStorage is unavailable", () => {
     const local = createStorage({ [AUTH_KEY]: JSON.stringify(SESSION) });
     vi.stubGlobal("sessionStorage", undefined);
     vi.stubGlobal("localStorage", local.storage);
 
     const stored = getStoredAuth();
     expect(stored?.password).toBe(SESSION.password);
-    expect(local.data.has(AUTH_KEY)).toBe(true);
+    expect(local.data.has(AUTH_KEY)).toBe(false);
   });
 
   it("prefers the current sessionStorage entry over a legacy one", () => {
@@ -105,14 +110,28 @@ describe("storeAuth / clearAuth", () => {
     expect(session.data.has(AUTH_KEY)).toBe(false);
   });
 
-  it("falls back to localStorage when sessionStorage writes are rejected", () => {
+  it("keeps the session in memory only when sessionStorage writes are rejected", () => {
     const session = createStorage({}, { failWrites: true });
     const local = createStorage();
     vi.stubGlobal("sessionStorage", session.storage);
     vi.stubGlobal("localStorage", local.storage);
 
     storeAuth(SESSION);
-    expect(local.data.get(AUTH_KEY)).toBe(JSON.stringify(SESSION));
+    // SEC-06: the plaintext session must never be copied to localStorage.
+    expect(local.data.has(AUTH_KEY)).toBe(false);
+    // Other instances of this tab still see the login.
+    expect(getStoredAuth()?.password).toBe(SESSION.password);
+    expect(getStoredAuth()?.adminToken).toBeUndefined();
+  });
+
+  it("keeps the session in memory only when sessionStorage is unavailable", () => {
+    const local = createStorage();
+    vi.stubGlobal("sessionStorage", undefined);
+    vi.stubGlobal("localStorage", local.storage);
+
+    storeAuth(SESSION);
+    expect(local.data.has(AUTH_KEY)).toBe(false);
+    expect(getStoredAuth()?.password).toBe(SESSION.password);
   });
 
   it("sends the password header for authenticated requests", () => {

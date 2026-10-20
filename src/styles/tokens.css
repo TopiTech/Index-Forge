@@ -42,6 +42,8 @@
     --display-font: "Outfit", "Inter", system-ui, sans-serif;
     --mono-font: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo,
         Consolas, monospace;
+    /* Chart/tooltip rules reference the monospace stack as --font-mono. */
+    --font-mono: var(--mono-font);
 
     /* Type scale */
     --fs-2xs: 10px;
@@ -66,16 +68,26 @@
     --accent-border-glow: rgba(6, 182, 212, 0.55);
     --accent-subtle: rgba(6, 182, 212, 0.1);
     --accent-hover-bg: rgba(6, 182, 212, 0.16);
+    /* Read-only aliases: older component rules use these names, so they must
+       resolve through the accent tokens instead of a literal cyan. */
+    --accent-primary: var(--accent-color);
+
+    /* Static brand cyan, independent of the user's accent choice. */
+    --color-brand-cyan: var(--c-cyan-500);
 
     /* Market & status colors (semantic: they encode meaning, not decoration) */
     --neon-cyan: var(--accent-color);
-    --neon-cyan-glow: rgba(6, 182, 212, 0.25);
+    --neon-cyan-glow: var(--accent-glow);
     --neon-magenta: #a855f7;
     --neon-magenta-glow: rgba(168, 85, 247, 0.2);
     --neon-yellow: #eab308;
     --neon-red: #f43f5e;
     --neon-green: #10b981;
     --neon-amber: #f59e0b;
+    /* Rose/violet shorthands still referenced by chart + hero-card rules.
+       Aliases (not new literals) so theme swaps propagate automatically. */
+    --neon-pink: var(--neon-red);
+    --neon-purple: var(--neon-magenta);
 
     /* Gain/loss semantic aliases. Components reference these by role; the
        [data-theme="light"] block below swaps --neon-*, so the aliases
@@ -100,8 +112,14 @@
             rgba(16, 24, 43, 0.85) 0%,
             rgba(10, 15, 28, 0.8) 100%);
     --surface-control: rgba(255, 255, 255, 0.04);
+    /* Hover step for controls whose resting fill is --surface-control. */
+    --surface-control-hover: rgba(255, 255, 255, 0.08);
     --surface-inset: rgba(6, 9, 17, 0.55);
     --surface-neutral: rgba(255, 255, 255, 0.03);
+    /* Accent-tinted whisper used for row/basket hover feedback. */
+    --surface-neutral-subtle: color-mix(in srgb, var(--accent-color) 3%, transparent);
+    /* Soft canvas fill behind filter bars and chips. */
+    --bg-surface-soft: var(--surface-neutral);
     --surface-benchmark: rgba(14, 21, 37, 0.7);
     --surface-chart: linear-gradient(180deg,
             rgba(10, 15, 27, 0.7) 0%,
@@ -123,6 +141,8 @@
 
     /* Borders */
     --border-cyan: var(--accent-border);
+    /* Alias used by focus/hover borders that must follow the accent. */
+    --border-accent: var(--accent-border);
     --border-magenta: rgba(168, 85, 247, 0.25);
     --border-subtle: rgba(255, 255, 255, 0.07);
     --border-focus: var(--accent-border-glow);
@@ -139,6 +159,10 @@
     --glow-magenta: 0 1px 3px rgba(0, 0, 0, 0.3), 0 0 12px rgba(168, 85, 247, 0.2);
     --glow-green: 0 1px 3px rgba(0, 0, 0, 0.3), 0 0 10px rgba(16, 185, 129, 0.25);
     --glow-red: 0 1px 3px rgba(0, 0, 0, 0.3), 0 0 10px rgba(244, 63, 94, 0.25);
+
+    /* Resting elevation (non-glow) and the shared fast motion curve. */
+    --shadow-md: 0 4px 20px rgba(0, 0, 0, 0.2);
+    --transition-fast: 0.15s ease;
 }
 
 /* ========== Accent Color Variations (Dark Theme Defaults) ========== */
@@ -212,9 +236,13 @@
             rgba(255, 255, 255, 0.95) 0%,
             var(--accent-subtle) 100%);
     --surface-control: #e2e8f0;
+    --surface-control-hover: #cfd9e6;
     --surface-inset: rgba(241, 245, 249, 0.8);
     --surface-neutral: #f1f5f9;
+    /* Keep the accent whisper legible on white without a second literal. */
+    --surface-neutral-subtle: color-mix(in srgb, var(--accent-color) 4%, transparent);
     --surface-benchmark: #f8fafc;
+    --bg-surface-soft: var(--surface-benchmark);
     --surface-chart: linear-gradient(180deg, #f8fafc 0%, #e2e8f0 100%);
     --surface-chart-summary: #e2e8f0;
     --surface-table: #f8fafc;
@@ -233,6 +261,11 @@
 
     --border-subtle: rgba(15, 23, 42, 0.1);
     --border-cyan: var(--accent-border);
+
+    /* Brand cyan as text must stay readable on white, so follow the (darker)
+       light-theme accent instead of the raw #06b6d4 swatch. */
+    --color-brand-cyan: var(--accent-color);
+    --shadow-md: 0 4px 20px rgba(15, 23, 42, 0.08);
 
     --text-primary: var(--c-slate-900);
     --text-secondary: var(--c-slate-600);
@@ -318,6 +351,7 @@
     --content-max-width: 1480px;
 
     /* Z-Index Layers */
+    --z-header: 100;
     --z-sidebar-backdrop: 10000;
     --z-sidebar: 10001;
     --z-modal-overlay: 20000;

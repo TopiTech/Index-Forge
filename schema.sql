@@ -5,6 +5,10 @@ CREATE TABLE IF NOT EXISTS indices (
     base_value REAL DEFAULT 1000,
     sort_order INTEGER DEFAULT 99,
     owner_token_hash TEXT,
+    -- Unix seconds of the last owner-token issue/replacement. Owner tokens are
+    -- rejected by the API once they are older than 90 days, so every path that
+    -- writes owner_token_hash must also write this column.
+    owner_token_issued_at INTEGER,
     creator_id TEXT,
     created_at INTEGER
 );
@@ -65,7 +69,8 @@ CREATE TABLE IF NOT EXISTS rate_limits (
 -- a write-quota-limited D1 database.
 CREATE INDEX IF NOT EXISTS idx_rate_limits_window_start ON rate_limits(window_start);
 
-CREATE INDEX IF NOT EXISTS idx_basket_items_index_id ON basket_items(index_id);
+-- (index_id) is already covered by UNIQUE(index_id, ticker); a separate index
+-- only duplicates that prefix and adds a write per basket row.
 CREATE INDEX IF NOT EXISTS idx_indices_creator_id ON indices(creator_id);
 
 CREATE TABLE IF NOT EXISTS access_passwords (
@@ -81,12 +86,32 @@ CREATE TABLE IF NOT EXISTS access_passwords (
     updated_at INTEGER
 );
 
-CREATE INDEX IF NOT EXISTS idx_access_passwords_hash ON access_passwords(password_hash);
-
 CREATE TABLE IF NOT EXISTS admin_login_attempts (
     ip TEXT PRIMARY KEY,
     failed_count INTEGER NOT NULL DEFAULT 0,
     last_failed_at INTEGER NOT NULL,
     locked_until INTEGER NOT NULL DEFAULT 0
+);
+
+-- Short-lived administrator sessions. Only the SHA-256 of the bearer token is
+-- stored, so a database leak does not yield usable admin credentials.
+CREATE TABLE IF NOT EXISTS admin_sessions (
+    token_hash TEXT PRIMARY KEY,
+    account_id TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_admin_sessions_account_id ON admin_sessions(account_id);
+CREATE INDEX IF NOT EXISTS idx_admin_sessions_expires_at ON admin_sessions(expires_at);
+
+-- Per-IP, per-UTC-day budget for /api/sync-prices. The endpoint is
+-- unauthenticated and each ticker costs an external fetch plus D1 writes, so it
+-- needs a bound that survives isolate restarts (unlike the in-memory limiter).
+CREATE TABLE IF NOT EXISTS sync_quota (
+    ip TEXT NOT NULL,
+    day TEXT NOT NULL,
+    tickers INTEGER NOT NULL,
+    PRIMARY KEY (ip, day)
 );
 

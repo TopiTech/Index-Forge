@@ -1,37 +1,121 @@
+/**
+ * Single-key owner-token store (`custom_index_owners`).
+ *
+ * SEC-08: an owner token used to be valid forever. The Worker now stores
+ * `owner_token_issued_at` and rejects a token older than 90 days with a 403, so
+ * the client has to know the age of its own tokens as well:
+ *
+ * - values are `{ token, issuedAt }` objects;
+ * - a legacy string value (written by an older build) is read as
+ *   `issuedAt = now` and rewritten in the new shape;
+ * - `getIndexOwnerToken` returns `null` and prunes entries older than 90 days,
+ *   so an expired token is never sent (which would only produce a 403).
+ *
+ * Everything stays behind this module (one localStorage key, one shape), so no
+ * caller can read or write the store directly.
+ */
+
 const STORAGE_KEY = "custom_index_owners";
 
-interface OwnerStore {
-  [indexId: string]: string; // indexId -> ownerToken
+/** SEC-08: owner tokens expire 90 days after they were issued. */
+export const OWNER_TOKEN_MAX_AGE_MS = 90 * 24 * 60 * 60 * 1000;
+
+interface OwnerEntry {
+  token: string;
+  /** Epoch milliseconds at which the token was issued/saved. */
+  issuedAt: number;
 }
 
-function getStore(): OwnerStore {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return getEmptyStore();
-    // Corrupted or tampered storage ("null", "5", "[]", quoted strings) must
-    // degrade to an empty store instead of throwing on later property access.
-    const parsed: unknown = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return getEmptyStore();
-    // A null prototype keeps hostile keys such as "__proto__" in storage from
-    // resolving through Object.prototype on later property reads.
-    const store: OwnerStore = Object.create(null);
-    for (const [key, value] of Object.entries(parsed)) {
-      // Skip keys that interact with the object prototype chain when assigned
-      // through a plain object literal; index ids validated elsewhere can
-      // never contain underscores, so no legitimate entry is lost.
-      if (key === "__proto__" || key === "constructor" || key === "prototype") continue;
-      if (key.length > 0 && typeof value === "string") {
-        store[key] = value;
-      }
-    }
-    return store;
-  } catch {
-    return getEmptyStore();
-  }
+interface OwnerStore {
+  [indexId: string]: OwnerEntry;
 }
+
+/** Raw shape read from storage: the current object form or a legacy string. */
+type RawOwnerStore = Record<string, unknown>;
 
 function getEmptyStore(): OwnerStore {
   return Object.create(null);
+}
+
+/**
+ * Read the store and convert it to the current shape.
+ *
+ * Returns the store plus whether anything changed (a legacy string was
+ * migrated, or an expired entry was pruned) so the caller can persist the
+ * normalized copy.
+ */
+function readStore(now: number): { store: OwnerStore; changed: boolean } {
+  const store = getEmptyStore();
+  let raw: string | null = null;
+  try {
+    raw = localStorage.getItem(STORAGE_KEY);
+  } catch {
+    return { store, changed: false };
+  }
+  if (!raw) return { store, changed: false };
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return { store, changed: false };
+  }
+  // Corrupted or tampered storage ("null", "5", "[]", quoted strings) must
+  // degrade to an empty store instead of throwing on later property access.
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return { store, changed: false };
+  }
+
+  let changed = false;
+  for (const [key, value] of Object.entries(parsed as RawOwnerStore)) {
+    // Skip keys that interact with the object prototype chain when assigned
+    // through a plain object literal; index ids validated elsewhere can
+    // never contain underscores, so no legitimate entry is lost.
+    if (key === "__proto__" || key === "constructor" || key === "prototype") continue;
+    if (key.length === 0) continue;
+
+    const entry = parseEntry(value, now);
+    if (!entry) {
+      changed = true;
+      continue;
+    }
+    if (entry.migrated) changed = true;
+    if (now - entry.entry.issuedAt > OWNER_TOKEN_MAX_AGE_MS) {
+      // Expired: the Worker would answer 403, so the entry is dropped here.
+      changed = true;
+      continue;
+    }
+    store[key] = entry.entry;
+  }
+  return { store, changed };
+}
+
+/**
+ * Normalize one stored value.
+ *
+ * A legacy `string` value predates `issuedAt`; it is read as issued now (the
+ * Worker keeps accepting it for its own remaining lifetime) and rewritten.
+ */
+function parseEntry(
+  value: unknown,
+  now: number,
+): { entry: OwnerEntry; migrated: boolean } | null {
+  if (typeof value === "string") {
+    return value ? { entry: { token: value, issuedAt: now }, migrated: true } : null;
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  const token = typeof record.token === "string" ? record.token : "";
+  if (!token) return null;
+  const issuedAt =
+    typeof record.issuedAt === "number" && Number.isFinite(record.issuedAt) && record.issuedAt > 0
+      ? record.issuedAt
+      : now;
+  return {
+    entry: { token, issuedAt },
+    // A missing/invalid issuedAt is repaired on the next write.
+    migrated: !(typeof record.issuedAt === "number" && Number.isFinite(record.issuedAt)),
+  };
 }
 
 function setStore(store: OwnerStore): void {
@@ -42,40 +126,62 @@ function setStore(store: OwnerStore): void {
   }
 }
 
+/** Read the normalized store, persisting migrations and pruned entries once. */
+function getStore(now: number = Date.now()): OwnerStore {
+  const { store, changed } = readStore(now);
+  if (changed) setStore(store);
+  return store;
+}
+
 /**
- * Save an owner token for a custom index
+ * Save an owner token for a custom index. The issue time is recorded so the
+ * token can expire (SEC-08).
  */
-export function saveIndexOwnerToken(indexId: string, token: string): void {
+export function saveIndexOwnerToken(indexId: string, token: string, issuedAt?: number): void {
   if (!indexId || !token) return;
-  const store = getStore();
-  store[indexId] = token;
+  const now = Date.now();
+  const store = getStore(now);
+  store[indexId] = {
+    token,
+    issuedAt:
+      typeof issuedAt === "number" && Number.isFinite(issuedAt) && issuedAt > 0 ? issuedAt : now,
+  };
   setStore(store);
 }
 
 /**
- * Retrieve the owner token for a custom index
+ * Retrieve the owner token for a custom index.
+ *
+ * Returns `null` when the token is missing or older than 90 days; the expired
+ * entry is pruned from storage.
  */
 export function getIndexOwnerToken(indexId: string): string | null {
   if (!indexId) return null;
-  const store = getStore();
-  return store[indexId] || null;
+  const now = Date.now();
+  const { store, changed } = readStore(now);
+  if (changed) setStore(store);
+  const entry = store[indexId];
+  if (!entry) return null;
+  if (now - entry.issuedAt > OWNER_TOKEN_MAX_AGE_MS) return null;
+  return entry.token;
 }
 
 /**
- * Remove an owner token for a custom index
+ * Remove an owner token for a custom index.
  */
 export function removeIndexOwnerToken(indexId: string): void {
   if (!indexId) return;
   const store = getStore();
+  if (!(indexId in store)) return;
   delete store[indexId];
   setStore(store);
 }
 
 /**
- * Check whether the current browser is the owner/creator of the index
+ * Check whether the current browser is the owner/creator of the index.
+ * An expired token no longer makes this browser the owner.
  */
 export function isIndexOwner(indexId: string): boolean {
   if (!indexId) return false;
-  const store = getStore();
-  return Boolean(store[indexId]);
+  return getIndexOwnerToken(indexId) !== null;
 }

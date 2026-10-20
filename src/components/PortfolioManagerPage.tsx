@@ -210,9 +210,19 @@ export function PortfolioManagerPage({
     if (typeof window === "undefined") return;
     const handleStorage = (event: StorageEvent) => {
       if (!isAuthenticated) return;
-      if (event.key === STORAGE_KEY_PORTFOLIO) {
+      // `key === null` means the other tab cleared the whole storage, so both
+      // lists have to be reloaded; keeping the stale copy would write it back
+      // on this tab's next auto-save.
+      if (event.key === null || event.key === STORAGE_KEY_PORTFOLIO) {
+        // The incoming list is persisted data, so the "first visit sample"
+        // flag has to follow it. Without this the next add takes the
+        // sample branch (`setPositions([newPos])`) and deletes the other
+        // tab's holdings.
+        positionsPersistedRef.current = hasPersistedPortfolio();
         setPositions(loadPortfolioPositions());
-      } else if (event.key === STORAGE_KEY_WATCHLIST) {
+      }
+      if (event.key === null || event.key === STORAGE_KEY_WATCHLIST) {
+        watchlistPersistedRef.current = hasPersistedWatchlist();
         setWatchlist(loadWatchlist());
       }
     };
@@ -547,9 +557,19 @@ export function PortfolioManagerPage({
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
+    // The input must be cleared on every outcome: otherwise a failed read
+    // leaves the same file selected and re-picking it fires no change event.
+    const resetInput = () => {
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+    };
     reader.onload = (event) => {
       const content = event.target?.result as string;
-      if (!content) return;
+      if (!content) {
+        resetInput();
+        return;
+      }
       try {
         const res = deserializePortfolioFromCsv(content);
         if (!res.ok) {
@@ -566,10 +586,12 @@ export function PortfolioManagerPage({
       } catch {
         info("CSVファイルの読み込みまたは解析に失敗しました");
       } finally {
-        if (fileInputRef.current) {
-          fileInputRef.current.value = "";
-        }
+        resetInput();
       }
+    };
+    reader.onerror = () => {
+      resetInput();
+      info("CSVファイルの読み込みに失敗しました");
     };
     reader.readAsText(file, "UTF-8");
   };

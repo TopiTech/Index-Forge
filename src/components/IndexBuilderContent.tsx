@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useRef } from "react";
+import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import {
   Plus,
   Trash2,
@@ -40,6 +40,7 @@ import {
   calculateDiversificationScore,
 } from "../lib/indexSerialization";
 import { toSafeDownloadFileName } from "../lib/downloadFileName";
+import { safeRandomId } from "../lib/randomId";
 
 export interface StrategyPreset {
   id: string;
@@ -109,6 +110,14 @@ export interface IndexBuilderContentProps {
   onClose?: () => void;
   onPreviewInDashboard?: (index: CustomIndex) => void;
   isFullPage?: boolean;
+  /**
+   * Notified whenever the save request starts or settles.
+   *
+   * The modal shell needs this to block Escape/backdrop dismissal while the
+   * request is in flight: the basket lives in this component, so closing the
+   * dialog mid-save discards everything the user typed.
+   */
+  onSavingChange?: (isSaving: boolean) => void;
 }
 
 function WeightNumberInput({
@@ -174,6 +183,7 @@ export function IndexBuilderContent({
   onClose,
   onPreviewInDashboard,
   isFullPage = false,
+  onSavingChange,
 }: IndexBuilderContentProps) {
   const { session, isAuthenticated, isUser, maxStocks } = useAuth();
   const { success: toastSuccess, info: toastInfo, error: toastError, warning: toastWarning } =
@@ -224,6 +234,21 @@ export function IndexBuilderContent({
   const [customTheme, setCustomTheme] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // The modal shell decides whether Escape/backdrop may close the dialog, so
+  // the in-flight flag is lifted through a ref-stable callback (the shell
+  // re-renders on every save start/settle, the builder must not).
+  const onSavingChangeRef = useRef(onSavingChange);
+  useEffect(() => {
+    onSavingChangeRef.current = onSavingChange;
+  });
+  const updateSaving = useCallback((next: boolean) => {
+    setSaving(next);
+    onSavingChangeRef.current?.(next);
+  }, []);
+  // A closed/unmounted builder must not leave the shell thinking a save is
+  // still running, otherwise the reopen would be impossible to dismiss.
+  useEffect(() => () => onSavingChangeRef.current?.(false), []);
 
   // Real-time unauthenticated simulation hook
   const simulation = useSimulation(basket, baseValue);
@@ -467,13 +492,12 @@ export function IndexBuilderContent({
       return;
     }
 
-    setSaving(true);
+    updateSaving(true);
     setError(null);
-
     try {
-      const ownerToken = crypto.randomUUID();
+      const ownerToken = safeRandomId(24);
       const newIndex: CustomIndex = {
-        id: `idx-${crypto.randomUUID()}`,
+        id: `idx-${safeRandomId(12)}`,
         name: name.trim(),
         description:
           description.trim().slice(0, 500) || `${basket.length}銘柄で構成されたカスタム指数`,
@@ -493,7 +517,7 @@ export function IndexBuilderContent({
       console.error("Index save failed:", err);
       setError(err instanceof Error ? err.message : "保存処理中に予期せぬエラーが発生しました");
     } finally {
-      setSaving(false);
+      updateSaving(false);
     }
   };
 

@@ -168,7 +168,7 @@ export function useActiveFreshness(
   currentView: PageView,
   explicitProps?: Partial<TabFreshness>,
 ): TabFreshness {
-  const { getFreshness, globalLatestUpdatedAt } = useFreshnessContext();
+  const { getFreshness } = useFreshnessContext();
   const registered = getFreshness(currentView);
 
   return useMemo(() => {
@@ -208,13 +208,13 @@ export function useActiveFreshness(
 
     const explicitUpdatedAt = registered?.updatedAt ?? (isDashboard ? undefined : explicitProps?.updatedAt);
 
-    // If explicit timestamps are absent, fall back to global latest timestamp rather than leaving it empty
+    // Per-view resolution only. Filling the gap with a timestamp observed on a
+    // different tab made every view that fetches nothing report another page's
+    // fetch time as its own "last updated" and render the LIVE badge for data
+    // it never loaded. `null` is the honest answer: no data observed yet, so
+    // DataFreshness falls back to the registered custom status text.
     const resolvedUpdatedAt =
-      explicitUpdatedAt ||
-      benchmarkUpdatedAt ||
-      calculationUpdatedAt ||
-      globalLatestUpdatedAt ||
-      null;
+      explicitUpdatedAt || benchmarkUpdatedAt || calculationUpdatedAt || null;
 
     return {
       updatedAt: resolvedUpdatedAt,
@@ -227,5 +227,5 @@ export function useActiveFreshness(
       typeLabel,
       customStatusText,
     };
-  }, [currentView, explicitProps, registered, globalLatestUpdatedAt]);
+  }, [currentView, explicitProps, registered]);
 }

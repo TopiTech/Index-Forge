@@ -4,6 +4,7 @@ import { Sliders, X, AlertCircle, Sparkles } from "lucide-react";
 import type { UserPasswordItem } from "../types";
 import { useModalFocus } from "../hooks/useModalFocus";
 import { generateSecurePassword } from "../lib/auth";
+import { readApiErrorMessage } from "../lib/auth";
 
 interface EditPasswordModalProps {
   isOpen: boolean;
@@ -87,6 +88,13 @@ export function EditPasswordModal({
       setError("管理者へ昇格する場合は新しいパスワードを指定してください");
       return;
     }
+    // UI-16: never send an undefined id — it would update/silently no-op on an
+    // account that cannot be identified. Rows are validated before they reach
+    // the table, so this only fires for a stale selection.
+    if (!item.id) {
+      setError("対象アカウントのIDを特定できません。一覧を再読み込みしてから再試行してください。");
+      return;
+    }
 
     setLoading(true);
     setError(null);
@@ -127,8 +135,10 @@ export function EditPasswordModal({
         onSuccess();
         onClose();
       } else {
-        const data = await res.json().catch(() => ({}));
-        setError(data.error || `更新に失敗しました (HTTP ${res.status})`);
+        // UI-38: the body may be `{error}`, `{ok:false,error}` or a non-JSON
+        // gateway/500 page; never let the last case throw away the message.
+        const errorPayload: unknown = await res.json().catch(() => ({}));
+        setError(readApiErrorMessage(errorPayload, res.status, "パスワード設定を更新できませんでした"));
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "更新処理中にエラーが発生しました");

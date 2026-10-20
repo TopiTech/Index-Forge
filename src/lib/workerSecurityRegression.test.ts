@@ -21,6 +21,7 @@ import {
   clearAuthCache,
   clearMemoryRateLimits,
   checkMemoryRateLimit,
+  authenticatePassword,
   hashPassword,
   hashToken,
   resetPasswordTableEnsured,
@@ -163,15 +164,25 @@ describe("authenticatePassword row-scan budget", () => {
     }
 
     const env = createAuthEnv(users);
-    const res = await worker.fetch(verifyRequest("password-that-matches-nothing"), env as never);
+    // The truncation must be diagnosable: reporting "wrong password" here hid
+    // the cause and made the remaining accounts impossible to recover.
+    const authResult = await authenticatePassword(
+      verifyRequest("password-that-matches-nothing"),
+      env as never,
+      "password-that-matches-nothing",
+    );
+    expect(authResult.authenticated).toBe(false);
+    expect(String(authResult.error)).toContain("検証上限");
+    expect(String(authResult.error)).not.toContain("パスワードが正しくありません");
 
+    // The public verify endpoint must never surface that detail: it answers the
+    // same generic 401 for every failure so it cannot act as a password oracle
+    // (SEC-02).
+    const res = await worker.fetch(verifyRequest("password-that-matches-nothing"), env as never);
     expect(res.status).toBe(401);
     const data = (await res.json()) as { ok: boolean; error?: string };
     expect(data.ok).toBe(false);
-    // The truncation must be diagnosable: reporting "wrong password" here hid
-    // the cause and made the remaining accounts impossible to recover.
-    expect(String(data.error)).toContain("検証上限");
-    expect(String(data.error)).not.toContain("パスワードが正しくありません");
+    expect(String(data.error)).toBe("パスワードが正しくありません");
   });
 });
 
@@ -187,9 +198,11 @@ describe("legacy-schema index save retry", () => {
         bind: vi.fn().mockImplementation(() => statement),
         first: vi.fn().mockResolvedValue(null),
         all: vi.fn().mockImplementation(async () => {
+          // Any ownership lookup on this pre-migration schema fails: neither
+          // owner_token_hash nor owner_token_issued_at exists.
           if (
-            query.includes("SELECT id, owner_token_hash, creator_id FROM indices") ||
-            query.includes("SELECT id, owner_token_hash FROM indices")
+            query.includes("FROM indices WHERE id = ?") &&
+            (query.includes("owner_token_hash") || query.includes("owner_token_issued_at"))
           ) {
             throw new Error("no such column: owner_token_hash");
           }
@@ -383,7 +396,9 @@ describe("DELETE /api/indices/stock error semantics", () => {
         bind: vi.fn().mockImplementation(() => statement),
         first: vi.fn().mockResolvedValue(null),
         all: vi.fn().mockImplementation(async () => {
-          if (query.includes("SELECT id, owner_token_hash FROM indices")) {
+          if (query.includes("FROM indices WHERE id = ?")) {
+            // The index exists but carries no owner token, so only the
+            // administrator bypass can authorize the delete.
             return { results: [{ id: "solo-index", owner_token_hash: null }] };
           }
           if (query.includes("SELECT COUNT(*) as cnt FROM basket_items")) {

@@ -27,6 +27,7 @@ import {
   type StockQuoteFundamentals,
 } from "../lib/marketDataService";
 import { allocateEvenWeights } from "../lib/weights";
+import { changeTone, formatSignedPercent } from "./changeTone";
 import { escapeCsvCell } from "../lib/csv";
 import { toSafeDownloadFileName } from "../lib/downloadFileName";
 import type { PageView } from "../lib/navigation";
@@ -42,6 +43,64 @@ interface ScreenerPageProps {
 }
 
 type PresetKey = "TOP_GAINERS" | "HIGH_DIVIDEND" | "LOW_PBR" | "US_TECH" | null;
+
+/**
+ * Row shape the screener CSV export needs.
+ *
+ * The numeric columns are optional because the upstream payload can omit
+ * them; every cell is rendered through `escapeCsvCell`, so a missing or
+ * corrupted value must never break the export.
+ */
+export type ScreenerCsvRow = {
+  ticker: string;
+  name: string;
+  market: string;
+  theme: string;
+  price?: number | null;
+  changePercent?: number | null;
+  dividendYield?: number | null;
+  per?: number | null;
+  pbr?: number | null;
+  roe?: number | null;
+  technicalSignal: string;
+};
+
+/** Header row of the screener CSV export. */
+export const SCREENER_CSV_HEADERS = [
+  "コード",
+  "銘柄名",
+  "市場",
+  "テーマ",
+  "現在値",
+  "前日比(%)",
+  "予想配当利回り(%)",
+  "PER(倍)",
+  "PBR(倍)",
+  "ROE(%)",
+  "テクニカルシグナル",
+];
+
+/**
+ * Build one CSV row per screener result.
+ *
+ * A non-numeric (or non-finite) price/change column is exported as an empty
+ * cell instead of `NaN`, so a corrupted quote cannot break the export.
+ */
+export function buildScreenerCsvRows(results: ScreenerCsvRow[]): string[][] {
+  return results.map((s) => [
+    escapeCsvCell(s.ticker),
+    escapeCsvCell(s.name),
+    escapeCsvCell(s.market),
+    escapeCsvCell(s.theme),
+    escapeCsvCell(typeof s.price === "number" && Number.isFinite(s.price) ? s.price : ""),
+    escapeCsvCell(typeof s.changePercent === "number" && Number.isFinite(s.changePercent) ? s.changePercent.toFixed(2) : ""),
+    escapeCsvCell(typeof s.dividendYield === "number" ? s.dividendYield.toFixed(2) : ""),
+    escapeCsvCell(typeof s.per === "number" ? s.per.toFixed(1) : ""),
+    escapeCsvCell(typeof s.pbr === "number" ? s.pbr.toFixed(2) : ""),
+    escapeCsvCell(typeof s.roe === "number" ? s.roe.toFixed(1) : ""),
+    escapeCsvCell(s.technicalSignal),
+  ]);
+}
 
 /**
  * Lightweight SVG sparkline for displaying stock momentum at a glance.
@@ -108,6 +167,7 @@ export function ScreenerPage({
   useRegisterFreshness("screener", {
     loading,
     updatedAt: lastUpdatedAt,
+    stale: universe !== null && !isLive,
     typeLabel: "スクリーナー",
   });
 
@@ -125,15 +185,25 @@ export function ScreenerPage({
     const requestId = ++requestIdRef.current;
     setLoading(true);
     try {
-      const liveData = await fetchScreenerStocks({}, forceRefresh);
+      const rows = await fetchScreenerStocks({}, forceRefresh);
       if (!mountedRef.current || requestId !== requestIdRef.current) return;
-      if (liveData && liveData.length > 0) {
-        setUniverse(liveData);
-        setIsLive(true);
-        setLastUpdatedAt(Date.now());
+      if (!rows || rows.length === 0) {
+        // Nothing usable came back: the previous badge state must not survive.
+        setIsLive(false);
+        return;
       }
+      setUniverse(rows);
+      // Fallback rows returned by `fetchScreenerStocks` are the static
+      // baseline and are flagged `isDemoData`; only rows with real provenance
+      // may advertise LIVE or stamp a "last updated" time (DATA-26).
+      const hasLiveRows = rows.some((row) => !row.isDemoData);
+      setIsLive(hasLiveRows);
+      setLastUpdatedAt(hasLiveRows ? Date.now() : null);
     } catch {
-      // Keep the previous universe on failure; loading is reset below.
+      // Keep the previous universe on failure, but never keep claiming LIVE.
+      if (mountedRef.current && requestId === requestIdRef.current) {
+        setIsLive(false);
+      }
     } finally {
       if (mountedRef.current && requestId === requestIdRef.current) {
         setLoading(false);
@@ -337,32 +407,8 @@ export function ScreenerPage({
   // CSV Export
   const handleExportCsv = () => {
     if (results.length === 0) return;
-    const headers = [
-      "コード",
-      "銘柄名",
-      "市場",
-      "テーマ",
-      "現在値",
-      "前日比(%)",
-      "予想配当利回り(%)",
-      "PER(倍)",
-      "PBR(倍)",
-      "ROE(%)",
-      "テクニカルシグナル",
-    ];
-    const rows = results.map((s) => [
-      escapeCsvCell(s.ticker),
-      escapeCsvCell(s.name),
-      escapeCsvCell(s.market),
-      escapeCsvCell(s.theme),
-      escapeCsvCell(typeof s.price === "number" && Number.isFinite(s.price) ? s.price : ""),
-      escapeCsvCell(typeof s.changePercent === "number" && Number.isFinite(s.changePercent) ? s.changePercent.toFixed(2) : ""),
-      escapeCsvCell(typeof s.dividendYield === "number" ? s.dividendYield.toFixed(2) : ""),
-      escapeCsvCell(typeof s.per === "number" ? s.per.toFixed(1) : ""),
-      escapeCsvCell(typeof s.pbr === "number" ? s.pbr.toFixed(2) : ""),
-      escapeCsvCell(typeof s.roe === "number" ? s.roe.toFixed(1) : ""),
-      escapeCsvCell(s.technicalSignal),
-    ]);
+    const headers = SCREENER_CSV_HEADERS;
+    const rows = buildScreenerCsvRows(results);
     const csvContent = "\uFEFF" + [headers.join(","), ...rows.map((r) => r.join(","))].join("\r\n");
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
@@ -468,6 +514,11 @@ export function ScreenerPage({
             <span className="badge badge-accent mono tiny">MULTI-FACTOR SCREENER</span>
             <span
               className={`badge ${isLive ? "badge-success" : "badge-default"} mono tiny`}
+              title={
+                isLive
+                  ? "市場実データ（実データ来歴あり）を表示中"
+                  : "実データを取得できていないため、参考値（ベースライン）を表示中"
+              }
               style={{
                 fontSize: "0.68rem",
                 display: "inline-flex",
@@ -978,7 +1029,8 @@ export function ScreenerPage({
               </thead>
               <tbody>
                 {results.map((stock) => {
-                  const isPos = stock.changePercent >= 0;
+                  const changeValueTone = changeTone(stock.changePercent);
+                  const isPos = changeValueTone === "positive";
                   const isSelected = selectedTickers.has(stock.ticker);
                   return (
                     <tr
@@ -1086,13 +1138,17 @@ export function ScreenerPage({
                       <td
                         style={{
                           textAlign: "right",
-                          color: isPos ? "var(--color-positive)" : "var(--color-negative)",
+                          color:
+                            changeValueTone === "positive"
+                              ? "var(--color-positive)"
+                              : changeValueTone === "negative"
+                                ? "var(--color-negative)"
+                                : "var(--text-muted)",
                           fontVariantNumeric: "tabular-nums",
                         }}
                         className="mono bold"
                       >
-                        {isPos ? "+" : ""}
-                        {stock.changePercent.toFixed(2)}%
+                        {formatSignedPercent(stock.changePercent)}
                       </td>
 
                       <td
@@ -1162,7 +1218,8 @@ export function ScreenerPage({
             aria-label="スクリーナー結果カードリスト"
           >
             {results.map((stock) => {
-              const isPos = stock.changePercent >= 0;
+              const mobileTone = changeTone(stock.changePercent);
+              const isPos = mobileTone === "positive";
               const isSelected = selectedTickers.has(stock.ticker);
               return (
                 <article
@@ -1245,10 +1302,16 @@ export function ScreenerPage({
                       <span className="screener-mobile-stat-label">前日比</span>
                       <span
                         className="screener-mobile-stat-val mono bold tabular-nums"
-                        style={{ color: isPos ? "var(--color-positive)" : "var(--color-negative)" }}
+                        style={{
+                          color:
+                            mobileTone === "positive"
+                              ? "var(--color-positive)"
+                              : mobileTone === "negative"
+                                ? "var(--color-negative)"
+                                : "var(--text-muted)",
+                        }}
                       >
-                        {isPos ? "+" : ""}
-                        {stock.changePercent.toFixed(2)}%
+                        {formatSignedPercent(stock.changePercent)}
                       </span>
                     </div>
                     <div className="screener-mobile-stat">

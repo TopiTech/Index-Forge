@@ -161,8 +161,82 @@ describe("P2/P3: admin name validation and indices weight guard", () => {
   });
 
   it("coerces NULL weights instead of emitting NaN", () => {
+    // The SQL keeps NULL out of the numeric column and the reader replaces
+    // every non-positive weight with a positive one (DATA-09): the write
+    // endpoints reject a non-positive weight, so a basket read back from
+    // GET /api/indices has to stay saveable.
     expect(workerSrc).toContain("COALESCE(b.weight, 0) AS weight");
-    expect(workerSrc).toContain("Number.isFinite(rawWeight) ? rawWeight : 0");
+    expect(workerSrc).toContain("Number.isFinite(rawWeight) && rawWeight > 0 ? rawWeight : 1");
+    // The old "coerce to 0" repair would emit a weight the write API rejects.
+    expect(workerSrc).not.toContain("Number.isFinite(rawWeight) ? rawWeight : 0");
+  });
+
+  it("serves legacy NULL/zero basket weights as a positive weight", async () => {
+    setAllowMemoryCacheInTest(false);
+    const legacyRows = [
+      {
+        id: "legacy-idx",
+        name: "Legacy Index",
+        description: "",
+        base_value: 1000,
+        sort_order: 1,
+        ticker: "7203",
+        stock_name: "Toyota",
+        weight: null, // NULL legacy weight
+        theme: "Auto",
+      },
+      {
+        id: "legacy-idx",
+        name: "Legacy Index",
+        description: "",
+        base_value: 1000,
+        sort_order: 1,
+        ticker: "6758",
+        stock_name: "Sony",
+        weight: 0, // non-positive legacy weight
+        theme: "Tech",
+      },
+      {
+        id: "legacy-idx",
+        name: "Legacy Index",
+        description: "",
+        base_value: 1000,
+        sort_order: 1,
+        ticker: "AAPL",
+        stock_name: "Apple",
+        weight: 15,
+        theme: "Tech",
+      },
+    ];
+    const env = {
+      ASSETS: { fetch: vi.fn() },
+      DB: {
+        prepare: () => ({
+          all: async () => ({ results: legacyRows }),
+          bind: () => ({ all: async () => ({ results: legacyRows }) }),
+        }),
+      },
+    } as never;
+
+    const res = await worker.fetch(
+      new Request("http://localhost/api/indices", { method: "GET" }),
+      env,
+    );
+    expect(res.status).toBe(200);
+    const indices = (await res.json()) as Array<{
+      id: string;
+      basket: Array<{ ticker: string; weight: number }>;
+    }>;
+    expect(indices).toHaveLength(1);
+    const basket = indices[0].basket;
+    expect(basket).toHaveLength(3);
+    expect(basket.find((b) => b.ticker === "7203")?.weight).toBe(1);
+    expect(basket.find((b) => b.ticker === "6758")?.weight).toBe(1);
+    expect(basket.find((b) => b.ticker === "AAPL")?.weight).toBe(15);
+    for (const item of basket) {
+      expect(Number.isFinite(item.weight)).toBe(true);
+      expect(item.weight).toBeGreaterThan(0);
+    }
   });
 });
 

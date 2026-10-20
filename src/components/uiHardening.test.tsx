@@ -7,22 +7,31 @@
  * - the freshness context must not invent a "last updated" timestamp for data
  *   that was never fetched;
  * - the technical chart must not repeat its D1 write when only the quote
- *   object was replaced.
+ *   object was replaced;
+ * - the authentication mode switch is a toggle group, not a tab list.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 // The recovery script is read through Vite's `?raw` suffix: the jsdom
 // environment externalizes the Node built-ins, so `fs`/`path` are unusable
 // here.
 import assetRecoverySource from "../../public/asset-error-recovery.js?raw";
 import { StockTechnicalChart } from "./StockTechnicalChart";
+import { AuthModal } from "./AuthModal";
 import {
   FreshnessProvider,
   useActiveFreshness,
   useRegisterFreshness,
+  type TabFreshness,
 } from "../contexts/FreshnessContext";
 import { createStockQuote } from "../test-helpers/quote";
 import type { PageView } from "../lib/navigation";
+
+// The Turnstile widget loads an external script and polls for the challenge;
+// the mode switch does not depend on it.
+vi.mock("./TurnstileWidget", () => ({
+  TurnstileWidget: () => <div data-testid="turnstile-widget-stub" />,
+}));
 
 afterEach(() => {
   cleanup();
@@ -135,14 +144,32 @@ describe("static asset recovery script", () => {
 });
 
 describe("freshness context", () => {
-  function FreshnessProbe({ view }: { view: PageView }) {
-    const freshness = useActiveFreshness(view);
+  interface FreshnessState {
+    updatedAt: number | null;
+    loading: boolean;
+    typeLabel: string;
+    benchmarkUpdatedAt: number | null;
+    calculationUpdatedAt: number | null;
+  }
+
+  function FreshnessProbe({
+    view,
+    testId = "freshness",
+    explicitProps,
+  }: {
+    view: PageView;
+    testId?: string;
+    explicitProps?: Partial<TabFreshness>;
+  }) {
+    const freshness = useActiveFreshness(view, explicitProps);
     return (
-      <span data-testid="freshness">
+      <span data-testid={testId}>
         {JSON.stringify({
           updatedAt: freshness.updatedAt ?? null,
           loading: freshness.loading ?? false,
           typeLabel: freshness.typeLabel ?? null,
+          benchmarkUpdatedAt: freshness.benchmarkUpdatedAt ?? null,
+          calculationUpdatedAt: freshness.calculationUpdatedAt ?? null,
         })}
       </span>
     );
@@ -153,6 +180,10 @@ describe("freshness context", () => {
     return null;
   }
 
+  function readFreshness(element: HTMLElement): FreshnessState {
+    return JSON.parse(element.textContent ?? "{}") as FreshnessState;
+  }
+
   it("does not invent a timestamp for a view that never fetched data", () => {
     const { getByTestId } = render(
       <FreshnessProvider>
@@ -160,31 +191,118 @@ describe("freshness context", () => {
       </FreshnessProvider>,
     );
 
-    const state = JSON.parse(getByTestId("freshness").textContent ?? "{}") as {
-      updatedAt: number | null;
-      loading: boolean;
-      typeLabel: string;
-    };
+    const state = readFreshness(getByTestId("freshness"));
 
     expect(state.updatedAt).toBeNull();
     expect(state.loading).toBe(false);
     expect(state.typeLabel).toBe("スクリーナー");
   });
 
-  it("applies the global fallback once another view registered real data", () => {
+  it("does not leak another view's timestamp into a view without its own", () => {
     const registeredAt = 1_700_000_000_000;
     const { getByTestId } = render(
       <FreshnessProvider>
         <RegisteringView view="market" updatedAt={registeredAt} />
-        <FreshnessProbe view="screener" />
+        <FreshnessProbe view="market" testId="market-freshness" />
+        <FreshnessProbe view="screener" testId="screener-freshness" />
       </FreshnessProvider>,
     );
 
-    const state = JSON.parse(getByTestId("freshness").textContent ?? "{}") as {
-      updatedAt: number | null;
-    };
+    // The view that registered the timestamp still reports it.
+    expect(readFreshness(getByTestId("market-freshness")).updatedAt).toBe(registeredAt);
 
-    expect(state.updatedAt).toBe(registeredAt);
+    // UI-04: the screener fetched nothing, so it must not borrow the market
+    // page's fetch time as its own "last updated" (that rendered the LIVE
+    // badge for data it never loaded). It resolves to `null` instead.
+    const screener = readFreshness(getByTestId("screener-freshness"));
+    expect(screener.updatedAt).toBeNull();
+    expect(screener.loading).toBe(false);
+  });
+
+  it("still resolves the dashboard's own timestamps", () => {
+    const dashboardAt = 1_700_000_001_000;
+    const { getByTestId } = render(
+      <FreshnessProvider>
+        <RegisteringView view="dashboard" updatedAt={dashboardAt} />
+        <FreshnessProbe view="dashboard" testId="dashboard-freshness" />
+      </FreshnessProvider>,
+    );
+
+    expect(readFreshness(getByTestId("dashboard-freshness")).updatedAt).toBe(dashboardAt);
+  });
+
+  it("resolves the dashboard's explicit benchmark and calculation timestamps", () => {
+    const benchmarkAt = 1_700_000_002_000;
+    const calculationAt = 1_700_000_003_000;
+    const { getByTestId } = render(
+      <FreshnessProvider>
+        <FreshnessProbe
+          view="dashboard"
+          testId="dashboard-freshness"
+          explicitProps={{
+            benchmarkUpdatedAt: benchmarkAt,
+            calculationUpdatedAt: calculationAt,
+          }}
+        />
+      </FreshnessProvider>,
+    );
+
+    const dashboard = readFreshness(getByTestId("dashboard-freshness"));
+    expect(dashboard.benchmarkUpdatedAt).toBe(benchmarkAt);
+    expect(dashboard.calculationUpdatedAt).toBe(calculationAt);
+    expect(dashboard.updatedAt).toBe(benchmarkAt);
+  });
+});
+
+describe("authentication mode switch", () => {
+  it("exposes the administrator and general-user modes as a named toggle group", () => {
+    // The Turnstile configuration request fails in the test environment; the
+    // modal falls back to the default site key.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new Error("network disabled in test");
+      }),
+    );
+
+    render(<AuthModal isOpen onClose={vi.fn()} />);
+
+    // UI-13: the two modes share one form, so they are toggle buttons in a
+    // named group — not tabs without a tabpanel to control.
+    const group = screen.getByRole("group", { name: "認証モード切替" });
+    expect(screen.queryByRole("tablist")).toBeNull();
+
+    const adminButton = within(group).getByRole("button", { name: /管理者ログイン/ });
+    const userButton = within(group).getByRole("button", { name: /一般ユーザー/ });
+
+    // The selection state is exposed through aria-pressed.
+    expect(adminButton.getAttribute("aria-pressed")).toBe("true");
+    expect(userButton.getAttribute("aria-pressed")).toBe("false");
+
+    fireEvent.click(userButton);
+
+    expect(adminButton.getAttribute("aria-pressed")).toBe("false");
+    expect(userButton.getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("keeps the administrator lockout out of the general-user mode", () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new Error("network disabled in test");
+      }),
+    );
+
+    render(<AuthModal isOpen onClose={vi.fn()} />);
+
+    const group = screen.getByRole("group", { name: "認証モード切替" });
+    const userButton = within(group).getByRole("button", { name: /一般ユーザー/ });
+    fireEvent.click(userButton);
+
+    // The general-user form is never disabled by the administrator lockout.
+    const passwordInput = screen.getByLabelText(/アクセスパスワード/) as HTMLInputElement;
+    expect(passwordInput.disabled).toBe(false);
+    expect(screen.queryByText(/管理者ログインが一時ロックされています/)).toBeNull();
   });
 });
 

@@ -155,6 +155,14 @@ export function StockDetailPage({
   const isMacro = isMacroAsset(stock.ticker);
   const currencyMeta = getCurrencyMeta(stock.ticker, stock.market);
 
+  // Switching to another ticker must not keep the previously selected tab: a
+  // macro asset (index / FX / commodity) has no financial statements, so the
+  // FINANCIALS tab disappears and the panel rendered an orphan empty table
+  // under a macro header (UI-27).
+  useEffect(() => {
+    setActiveTab("CHART");
+  }, [stock.ticker]);
+
   // Calculate 52-week price position percentage
   const rawRange =
     typeof stock.yearHigh === "number" && typeof stock.yearLow === "number"
@@ -176,10 +184,11 @@ export function StockDetailPage({
       transition={{ duration: 0.3 }}
       className="page-container stock-detail-page"
     >
-      {/* Fallback / Demo Notice Banner */}
+      {/* Fallback / Demo Notice Banner (a static disclosure, not a live alert:
+          role="alert" made screen readers interrupt on every open) */}
       {stock.isDemoData && (
         <div
-          role="alert"
+          role="note"
           style={{
             display: "flex",
             alignItems: "center",
@@ -631,10 +640,10 @@ export function StockDetailPage({
           type="button"
           role="tab"
           id="stock-tab-chart"
-          aria-selected={activeTab === "CHART"}
+          aria-selected={isMacro || activeTab === "CHART"}
           aria-controls="stock-tabpanel-chart"
           tabIndex={activeTab === "CHART" ? 0 : -1}
-          className={`btn btn-sm ${activeTab === "CHART" ? "btn-accent" : "btn-ghost"}`}
+          className={`btn btn-sm ${isMacro || activeTab === "CHART" ? "btn-accent" : "btn-ghost"}`}
           onClick={() => setActiveTab("CHART")}
           onKeyDown={(e) => {
             if (!isMacro && (e.key === "ArrowRight" || e.key === "ArrowDown")) {
@@ -672,7 +681,7 @@ export function StockDetailPage({
       </div>
 
       {/* Tab 1: Interactive Hybrid Technical Chart Engine */}
-      {activeTab === "CHART" && (
+      {(activeTab === "CHART" || isMacro) && (
         <div
           role="tabpanel"
           id="stock-tabpanel-chart"
@@ -682,8 +691,10 @@ export function StockDetailPage({
         </div>
       )}
 
-      {/* Tab 2: Historical Financials Performance Table & Visuals */}
-      {activeTab === "FINANCIALS" && (
+      {/* Tab 2: Historical Financials Performance Table & Visuals.
+          Guarded by !isMacro: macro assets have no financial statements, so the
+          panel must never render an empty table (UI-27). */}
+      {activeTab === "FINANCIALS" && !isMacro && (
         <div
           role="tabpanel"
           id="stock-tabpanel-financials"

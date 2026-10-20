@@ -17,6 +17,7 @@ function readRepoFile(relativePath: string): string {
 }
 
 const schemaSql = readRepoFile("schema.sql");
+const migrationSql = readRepoFile("schema.migration.sql");
 const workerImpl = readRepoFile("worker/internal-impl.ts");
 const ciWorkflow = readRepoFile(".github/workflows/ci.yml");
 const wranglerConfig = readRepoFile("wrangler.jsonc");
@@ -36,13 +37,48 @@ describe("schema provisioning parity", () => {
     );
   });
 
-  it("keeps the basket_items and indices creator indexes", () => {
-    expect(schemaSql).toContain(
-      "CREATE INDEX IF NOT EXISTS idx_basket_items_index_id ON basket_items(index_id)",
-    );
+  it("keeps the indices creator index and drops the redundant lookup indexes", () => {
+    // The creator lookup is a real query (`WHERE creator_id = ?`), so its index
+    // has to exist in both provisioning paths.
     expect(schemaSql).toContain(
       "CREATE INDEX IF NOT EXISTS idx_indices_creator_id ON indices(creator_id)",
     );
+    expect(workerImpl).toContain(
+      "CREATE INDEX IF NOT EXISTS idx_indices_creator_id ON indices(creator_id)",
+    );
+
+    // INFRA-06: `idx_basket_items_index_id` only repeats the prefix of
+    // UNIQUE(index_id, ticker) and `idx_access_passwords_hash` backed a lookup
+    // that does not exist (password hashes are salted, so they are never
+    // searched). Re-adding either one only costs a write per row.
+    expect(schemaSql).not.toContain("idx_basket_items_index_id");
+    expect(schemaSql).not.toContain("idx_access_passwords_hash");
+    expect(workerImpl).not.toContain("idx_basket_items_index_id");
+    expect(workerImpl).not.toContain("idx_access_passwords_hash");
+
+    // The unique constraint that replaced the basket_items index must stay.
+    expect(schemaSql).toMatch(/UNIQUE\(index_id, ticker\)/);
+
+    // Existing databases get rid of the old indexes through the migration.
+    expect(migrationSql).toContain("DROP INDEX IF EXISTS idx_basket_items_index_id;");
+    expect(migrationSql).toContain("DROP INDEX IF EXISTS idx_access_passwords_hash;");
+    expect(migrationSql).toContain(
+      "CREATE INDEX IF NOT EXISTS idx_rate_limits_window_start ON rate_limits(window_start)",
+    );
+  });
+
+  it("provisions the admin session and sync quota tables in schema.sql", () => {
+    // SEC-01: administrator sessions are stored hashed, with an expiry.
+    expect(schemaSql).toMatch(/CREATE TABLE IF NOT EXISTS admin_sessions \([\s\S]*?token_hash/);
+    expect(schemaSql).toContain(
+      "CREATE INDEX IF NOT EXISTS idx_admin_sessions_account_id ON admin_sessions(account_id)",
+    );
+    expect(schemaSql).toContain(
+      "CREATE INDEX IF NOT EXISTS idx_admin_sessions_expires_at ON admin_sessions(expires_at)",
+    );
+
+    // SEC-11: the per-IP daily ticker budget for the unauthenticated sync.
+    expect(schemaSql).toMatch(/CREATE TABLE IF NOT EXISTS sync_quota \([\s\S]*?PRIMARY KEY \(ip, day\)/);
   });
 });
 

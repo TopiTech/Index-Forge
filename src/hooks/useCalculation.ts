@@ -5,6 +5,10 @@ import { calculateStockDetails } from "../lib/analytics";
 import { sanitizeBasketForRequest } from "../lib/indexEngine";
 import { getAuthHeaders } from "../lib/auth";
 import { isPriceCacheFresh } from "../lib/marketCache";
+// The "sync prices → calculate" contract (batch size, auth headers, warning
+// texts, abort policy) is owned by src/lib/priceSync so the dashboard and the
+// builder preview cannot drift apart again.
+import { syncPricesInBatches } from "../lib/priceSync";
 // The shared sync cache lives in src/lib/syncCache so the dashboard and the
 // builder cannot overwrite each other's entries. The re-exports keep the
 // historical import surface (`../hooks/useCalculation`) working for existing
@@ -35,20 +39,42 @@ export function updateLocalSyncCache(entries: (string | SyncCacheUpdateEntry)[])
 
 // In-memory cache for calculated index results across tab clicks (bounded to 50 entries)
 const MAX_CLIENT_CALC_CACHE_SIZE = 50;
-const clientCalcCache = new Map<
-  string,
-  { series: PricePoint[]; stockUniverse: StockSeries[]; timestamp: number }
->();
 
-export function setClientCalcCache(
-  key: string,
-  entry: { series: PricePoint[]; stockUniverse: StockSeries[]; timestamp: number },
-): void {
+/** One cached calculation result. */
+export interface ClientCalcCacheEntry {
+  series: PricePoint[];
+  stockUniverse: StockSeries[];
+  timestamp: number;
+}
+
+const clientCalcCache = new Map<string, ClientCalcCacheEntry>();
+
+export function setClientCalcCache(key: string, entry: ClientCalcCacheEntry): void {
+  // Delete first: overwriting an existing key must not evict an unrelated
+  // entry. The freed slot is reused by the new value, so the cache keeps its
+  // 50-entry bound without dropping a still-useful calculation.
+  clientCalcCache.delete(key);
   if (clientCalcCache.size >= MAX_CLIENT_CALC_CACHE_SIZE) {
     const oldestKey = clientCalcCache.keys().next().value;
     if (oldestKey) clientCalcCache.delete(oldestKey);
   }
   clientCalcCache.set(key, entry);
+}
+
+/**
+ * Read a cached calculation and mark it as the most recently used entry.
+ *
+ * The cache is a true LRU: a hit moves the entry to the end of the insertion
+ * order, so the entry evicted first is the one that has not been used for the
+ * longest time. Without the refresh the cache behaved like a FIFO and threw
+ * away the index the user keeps coming back to.
+ */
+export function getClientCalcCache(key: string): ClientCalcCacheEntry | undefined {
+  const entry = clientCalcCache.get(key);
+  if (!entry) return undefined;
+  clientCalcCache.delete(key);
+  clientCalcCache.set(key, entry);
+  return entry;
 }
 
 export function getClientCalcCacheSize(): number {
@@ -157,7 +183,8 @@ export function useCalculation(selectedIndex: CustomIndex | null, enabled = true
       activeCalculationKeyRef.current = basketKey;
 
       // SWR pattern: immediately populate from client memory cache if available
-      const cachedResult = clientCalcCache.get(basketKey);
+      // (a hit refreshes the LRU order, so the entry survives longer)
+      const cachedResult = getClientCalcCache(basketKey);
       if (cachedResult && !force) {
         setCustomSeries(cachedResult.series);
         setStockUniverse(cachedResult.stockUniverse);
@@ -239,76 +266,35 @@ export function useCalculation(selectedIndex: CustomIndex | null, enabled = true
           if (tickersToSync.length > 0) {
             bypassServerCalculationCache = true;
             setSyncing(true);
-            const BATCH_SIZE = 30;
-            const warnings: string[] = [];
-            const newlySynced: SyncCacheUpdateEntry[] = [];
+            const syncForce = determineSyncForce(force, session);
+            // The Worker caps one sync request at 12 tickers and rejects a
+            // larger batch with 400, so the batching, the auth headers, the
+            // warning texts and the abort policy all live in
+            // src/lib/priceSync (shared with the builder preview).
+            const { synced, warnings } = await syncPricesInBatches({
+              tickers: tickersToSync,
+              signal: controller.signal,
+              force: syncForce,
+              // Guests send no auth header at all.
+              authHeaders: getAuthHeaders(session),
+              isSuperseded: () => activeCalculationKeyRef.current !== basketKey,
+              onProgress: (completed, total) => {
+                setSyncProgress(Math.round((completed / total) * 100));
+              },
+            });
+            // An aborted sync (unmount, a newer index or a superseded
+            // request) must not publish any state.
+            if (controller.signal.aborted || activeCalculationKeyRef.current !== basketKey) {
+              return;
+            }
 
-            for (let i = 0; i < tickersToSync.length; i += BATCH_SIZE) {
-              if (controller.signal.aborted) return;
-
-              const chunk = tickersToSync.slice(i, i + BATCH_SIZE);
-              const syncForce = determineSyncForce(force, session);
-              try {
-                const syncRes = await fetch(`${API_BASE}/sync-prices`, {
-                  method: "POST",
-                  headers: {
-                    "Content-Type": "application/json",
-                    ...getAuthHeaders(session),
-                  },
-                  body: JSON.stringify({ tickers: chunk, force: syncForce }),
-                  signal: controller.signal,
-                });
-                if (controller.signal.aborted || activeCalculationKeyRef.current !== basketKey) return;
-
-                if (!syncRes.ok) {
-                  warnings.push(`同期バッチ ${Math.floor(i / BATCH_SIZE) + 1} が失敗しました`);
-                } else {
-                  const syncData = await syncRes.json();
-                  if (controller.signal.aborted || activeCalculationKeyRef.current !== basketKey) return;
-                  if (syncData.results) {
-                    for (const r of syncData.results) {
-                      if (r.status === "synced" || r.status === "cached") {
-                        const normalizedTicker =
-                          typeof r.ticker === "string" ? r.ticker.trim().toUpperCase() : "";
-                        if (normalizedTicker) {
-                          const syncTimestamp =
-                            typeof r.lastSynced === "number" && Number.isFinite(r.lastSynced) && r.lastSynced > 0
-                              ? (r.lastSynced < 1e11 ? Math.round(r.lastSynced * 1000) : Math.round(r.lastSynced))
-                              : Date.now();
-                          syncedTickersRef.current.set(normalizedTicker, syncTimestamp);
-                          newlySynced.push({
-                            ticker: normalizedTicker,
-                            lastSynced: syncTimestamp,
-                          });
-                        }
-                      }
-                    }
-                    const failed = syncData.results
-                      .filter((r: { status: string }) => r.status === "failed")
-                      .map((r: { ticker: string }) => r.ticker);
-                    if (failed.length > 0) {
-                      warnings.push(`一部銘柄の取得に失敗: ${failed.join(", ")}`);
-                    }
-                  }
-                }
-              } catch (err) {
-                if (
-                  controller.signal.aborted ||
-                  (err instanceof DOMException && err.name === "AbortError")
-                )
-                  return;
-                warnings.push(`同期バッチ ${Math.floor(i / BATCH_SIZE) + 1} で通信エラー`);
+            if (synced.length > 0) {
+              for (const entry of synced) {
+                syncedTickersRef.current.set(entry.ticker, entry.lastSynced);
               }
-
-              if (controller.signal.aborted) return;
-              setSyncProgress(Math.round(((i + chunk.length) / tickersToSync.length) * 100));
+              updateLocalSyncCache(synced);
             }
 
-            if (newlySynced.length > 0) {
-              updateLocalSyncCache(newlySynced);
-            }
-
-            if (controller.signal.aborted) return;
             setSyncing(false);
             if (warnings.length > 0) {
               // 機能的更新に変更: 直前に追加した「除外した銘柄」の警告を

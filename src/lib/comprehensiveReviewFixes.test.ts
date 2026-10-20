@@ -59,18 +59,29 @@ function createMockDb(handlers: {
 
 describe("Comprehensive Review Fixes", () => {
   describe("[CRIT-01] Quota Bypass Prevention on Existing Index Updates", () => {
+    // SEC-08: an owner token carries the time it was issued and is refused
+    // once it is older than 90 days. The ownership row therefore has to model
+    // `owner_token_issued_at`, otherwise the request is rejected because the
+    // token expired instead of because of the quota decision under test.
+    const FRESH_TOKEN_ISSUED_AT = Math.floor(Date.now() / 1000);
+
     it("rejects an update exceeding creator max_stocks even when caller only provides ownerToken (no password)", async () => {
       const validToken = "user-owner-token-123";
       const validHash = await hashToken(validToken);
 
       const db = createMockDb({
         all: (query) => {
-          if (query.includes("SELECT id, owner_token_hash, creator_id FROM indices")) {
+          if (
+            query.includes(
+              "SELECT id, owner_token_hash, owner_token_issued_at, creator_id FROM indices",
+            )
+          ) {
             return {
               results: [
                 {
                   id: "idx-user-1",
                   owner_token_hash: validHash,
+                  owner_token_issued_at: FRESH_TOKEN_ISSUED_AT,
                   creator_id: "user-creator-abc",
                 },
               ],
@@ -121,12 +132,17 @@ describe("Comprehensive Review Fixes", () => {
 
       const db = createMockDb({
         all: (query) => {
-          if (query.includes("SELECT id, owner_token_hash, creator_id FROM indices")) {
+          if (
+            query.includes(
+              "SELECT id, owner_token_hash, owner_token_issued_at, creator_id FROM indices",
+            )
+          ) {
             return {
               results: [
                 {
                   id: "idx-user-1",
                   owner_token_hash: validHash,
+                  owner_token_issued_at: FRESH_TOKEN_ISSUED_AT,
                   creator_id: "user-creator-abc",
                 },
               ],
@@ -177,12 +193,17 @@ describe("Comprehensive Review Fixes", () => {
       const validHash = await hashToken(validToken);
       const db = createMockDb({
         all: (query) => {
-          if (query.includes("SELECT id, owner_token_hash, creator_id FROM indices")) {
+          if (
+            query.includes(
+              "SELECT id, owner_token_hash, owner_token_issued_at, creator_id FROM indices",
+            )
+          ) {
             return {
               results: [
                 {
                   id: "idx-user-1",
                   owner_token_hash: validHash,
+                  owner_token_issued_at: FRESH_TOKEN_ISSUED_AT,
                   creator_id: "user-creator-abc",
                 },
               ],
@@ -249,12 +270,17 @@ describe("Comprehensive Review Fixes", () => {
           if (query.includes("SELECT ticker FROM basket_items WHERE index_id = ?")) {
             return { results: [{ ticker: "7203" }, { ticker: "9984" }] };
           }
-          if (query.includes("SELECT id, owner_token_hash, creator_id FROM indices")) {
+          if (
+            query.includes(
+              "SELECT id, owner_token_hash, owner_token_issued_at, creator_id FROM indices",
+            )
+          ) {
             return {
               results: [
                 {
                   id: "idx-user-1",
                   owner_token_hash: ownerHash,
+                  owner_token_issued_at: FRESH_TOKEN_ISSUED_AT,
                   creator_id: "limited-creator",
                 },
               ],
@@ -297,8 +323,21 @@ describe("Comprehensive Review Fixes", () => {
               results: Array.from({ length: 499 }, (_, index) => ({ ticker: `T${index}` })),
             };
           }
-          if (query.includes("SELECT id, owner_token_hash, creator_id FROM indices")) {
-            return { results: [{ id: "atomic-index", owner_token_hash: null, creator_id: null }] };
+          if (
+            query.includes(
+              "SELECT id, owner_token_hash, owner_token_issued_at, creator_id FROM indices",
+            )
+          ) {
+            return {
+              results: [
+                {
+                  id: "atomic-index",
+                  owner_token_hash: null,
+                  owner_token_issued_at: null,
+                  creator_id: null,
+                },
+              ],
+            };
           }
           return { results: [] };
         },
@@ -333,6 +372,59 @@ describe("Comprehensive Review Fixes", () => {
       expect(res.status).toBe(409);
       expect((await res.json()).error).toContain("同時更新により銘柄数上限に達しました");
     });
+
+    it("rejects an update with an expired owner token", async () => {
+      const validToken = "user-owner-token-123";
+      const validHash = await hashToken(validToken);
+      // SEC-08: an owner token is valid for 90 days after it was issued. The
+      // hash still matches, so only the issuance time can refuse the request.
+      const expiredIssuedAt = FRESH_TOKEN_ISSUED_AT - 91 * 24 * 60 * 60;
+      const db = createMockDb({
+        all: (query) => {
+          if (
+            query.includes(
+              "SELECT id, owner_token_hash, owner_token_issued_at, creator_id FROM indices",
+            )
+          ) {
+            return {
+              results: [
+                {
+                  id: "idx-user-1",
+                  owner_token_hash: validHash,
+                  owner_token_issued_at: expiredIssuedAt,
+                  creator_id: "user-creator-abc",
+                },
+              ],
+            };
+          }
+          if (query.includes("SELECT max_stocks FROM access_passwords WHERE id = ?")) {
+            return { results: [{ max_stocks: 10 }] };
+          }
+          return { results: [] };
+        },
+      });
+
+      const res = await worker.fetch(
+        new Request("http://localhost/api/indices", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-owner-token": validToken,
+          },
+          body: JSON.stringify({
+            id: "idx-user-1",
+            name: "Updated Index Name",
+            baseValue: 1000,
+            basket: [{ ticker: "7203", name: "Toyota", weight: 100 }],
+          }),
+        }),
+        { ASSETS: { fetch: vi.fn() }, DB: db, ADMIN_PASSWORD: "test-admin-password" } as any,
+      );
+
+      expect(res.status).toBe(403);
+      expect((await res.json()).error).toContain("有効期限");
+      expect(db.batch).not.toHaveBeenCalled();
+    });
   });
 
   describe("[HIGH-03] Large Basket D1 Batching", () => {
@@ -357,7 +449,11 @@ describe("Comprehensive Review Fixes", () => {
               ],
             };
           }
-          if (query.includes("SELECT id, owner_token_hash, creator_id FROM indices")) {
+          if (
+            query.includes(
+              "SELECT id, owner_token_hash, owner_token_issued_at, creator_id FROM indices",
+            )
+          ) {
             return { results: [] };
           }
           if (query.includes("SELECT COUNT(*) as count FROM indices WHERE creator_id = ?")) {

@@ -1,9 +1,15 @@
-import React, { useRef } from "react";
+import React, { Suspense, lazy, useCallback, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { X, Sliders } from "lucide-react";
+import { RefreshCw, X, Sliders } from "lucide-react";
 import type { CustomIndex } from "../data/indices";
 import { useModalFocus } from "../hooks/useModalFocus";
-import { IndexBuilderContent } from "./IndexBuilderContent";
+
+// The builder body pulls in recharts (via SimulationPreview), which must not
+// be part of the first paint. The dialog shell below is tiny, so it stays
+// static and the heavy form arrives on demand.
+const IndexBuilderContent = lazy(() =>
+  import("./IndexBuilderContent").then((m) => ({ default: m.IndexBuilderContent })),
+);
 
 export interface IndexBuilderModalProps {
   isOpen: boolean;
@@ -23,10 +29,16 @@ export function IndexBuilderModal({
 }: IndexBuilderModalProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const isBackdropMouseDownRef = useRef(false);
-  const handleClose = () => {
+  // Lifted from the builder body: the basket lives in the form, so a dismissal
+  // while the save request is in flight loses everything the user configured.
+  const [isSaving, setIsSaving] = useState(false);
+
+  const requestClose = useCallback(() => {
+    if (isSaving) return;
     onClose();
-  };
-  useModalFocus(isOpen, dialogRef, handleClose);
+  }, [isSaving, onClose]);
+
+  useModalFocus(isOpen, dialogRef, requestClose);
 
   if (!isOpen) return null;
 
@@ -36,7 +48,7 @@ export function IndexBuilderModal({
 
   const handleBackdropClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (isBackdropMouseDownRef.current && e.target === e.currentTarget) {
-      handleClose();
+      requestClose();
     }
     isBackdropMouseDownRef.current = false;
   };
@@ -64,6 +76,7 @@ export function IndexBuilderModal({
         aria-modal="true"
         aria-labelledby="modal-builder-title"
         aria-describedby="modal-builder-description"
+        aria-busy={isSaving || undefined}
         data-modal-dialog
         ref={dialogRef}
         onMouseDown={(e) => e.stopPropagation()}
@@ -105,13 +118,16 @@ export function IndexBuilderModal({
           </div>
           <button
             type="button"
-            onClick={handleClose}
+            onClick={requestClose}
             aria-label="閉じる"
+            disabled={isSaving}
+            title={isSaving ? "保存中は閉じられません" : "閉じる"}
             style={{
               background: "transparent",
               border: "none",
               color: "var(--text-secondary)",
-              cursor: "pointer",
+              cursor: isSaving ? "not-allowed" : "pointer",
+              opacity: isSaving ? 0.5 : 1,
               padding: 4,
             }}
           >
@@ -120,12 +136,35 @@ export function IndexBuilderModal({
         </div>
 
         {/* Modal Content */}
-        <IndexBuilderContent
-          onSave={onSave}
-          onClose={onClose}
-          onPreviewInDashboard={onPreviewInDashboard}
-          isFullPage={false}
-        />
+        <Suspense
+          fallback={
+            <div
+              role="status"
+              aria-live="polite"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 10,
+                minHeight: 320,
+                padding: 24,
+              }}
+            >
+              <RefreshCw size={20} className="animate-spin muted" aria-hidden="true" />
+              <span className="muted tiny mono">ビルダーを読み込み中...</span>
+            </div>
+          }
+        >
+          <IndexBuilderContent
+            onSave={onSave}
+            // Successful saves close the dialog from inside the form; only the
+            // Escape/backdrop/close-button paths go through the busy guard.
+            onClose={onClose}
+            onPreviewInDashboard={onPreviewInDashboard}
+            isFullPage={false}
+            onSavingChange={setIsSaving}
+          />
+        </Suspense>
       </motion.div>
     </div>
   );

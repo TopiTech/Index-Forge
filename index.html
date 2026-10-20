@@ -13,18 +13,7 @@
     href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@400;600;700;900&family=JetBrains+Mono:wght@400;500&display=swap"
     rel="stylesheet">
   <title>IndexForge</title>
-  <script>
-    (function () {
-      try {
-        var p = window.performance;
-        var nav = p && p.getEntriesByType && p.getEntriesByType("navigation");
-        var isReload = (nav && nav.length > 0 && nav[0].type === "reload") || (p && p.navigation && p.navigation.type === 1);
-        if (isReload) {
-          document.documentElement.classList.add("is-reload-suppressed");
-        }
-      } catch (e) { }
-    })();
-  </script>
+  <script src="/reload-suppress.js"></script>
 </head>
 
 <body>

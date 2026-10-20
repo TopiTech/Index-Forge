@@ -37,16 +37,40 @@ export function AuthModal({
   // Lockout / Rate limit info
   const [remainingAttempts, setRemainingAttempts] = useState<number | null>(null);
 
+  /**
+   * UI-06: the administrator login lockout, kept in a dedicated state.
+   *
+   * The lockout reported by `/api/auth/turnstile-config` counts *administrator*
+   * attempts (password + secret code + Turnstile). It must never disable the
+   * general-user form, which keeps its own server-side rate limit and stays
+   * usable while the administrator login is locked. This flag is therefore
+   * only consumed while the administrator mode is selected.
+   */
+  const [adminLockout, setAdminLockout] = useState(false);
+
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const {
     isLocked,
     remainingSeconds: lockoutRemainingSeconds,
     syncLockout,
-  } = useLockoutCountdown({ onExpire: () => setError(null) });
+  } = useLockoutCountdown({
+    onExpire: () => {
+      setError(null);
+      // The countdown ended: the administrator login is available again.
+      setAdminLockout(false);
+    },
+  });
 
   const passwordInputRef = useRef<HTMLInputElement>(null);
   const turnstileRef = useRef<TurnstileWidgetRef>(null);
+
+  /**
+   * UI-06: the lockout applies to the administrator form only. The
+   * general-user tab stays usable (the server enforces its own rate limit
+   * for it) and never shows the administrator lockout message.
+   */
+  const adminLocked = authMode === "admin" && (adminLockout || isLocked);
 
   // Fetch Turnstile configuration and admin lockout state when opened
   useEffect(() => {
@@ -60,7 +84,9 @@ export function AuthModal({
           setTurnstileSiteKey(cfg.siteKey);
         }
         if (cfg.lockout) {
+          // UI-06: this lockout is the administrator one.
           syncLockout(cfg.lockout.locked, cfg.lockout.remainingSeconds);
+          setAdminLockout(cfg.lockout.locked);
           setRemainingAttempts(cfg.lockout.remainingAttempts);
         }
       })
@@ -73,27 +99,35 @@ export function AuthModal({
     };
   }, [isOpen, syncLockout]);
 
-  const handleTabKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
+  /**
+   * Arrow-key navigation between the two mode buttons.
+   *
+   * UI-13: these are toggle buttons (`role="group"` + `aria-pressed`), not
+   * ARIA tabs — the two modes share one form, so there is no tabpanel for a
+   * tab to control. Both buttons stay in the tab order; the arrow keys are
+   * kept as a convenience.
+   */
+  const handleModeKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
     if (!["ArrowRight", "ArrowDown", "ArrowLeft", "ArrowUp", "Home", "End"].includes(event.key)) {
       return;
     }
     event.preventDefault();
-    const tabs = Array.from(
-      event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="tab"]') || [],
+    const buttons = Array.from(
+      event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>("button") || [],
     );
-    const currentIndex = tabs.indexOf(event.currentTarget);
+    const currentIndex = buttons.indexOf(event.currentTarget);
     if (currentIndex < 0) return;
 
     let nextIndex = currentIndex;
     if (event.key === "Home") nextIndex = 0;
-    else if (event.key === "End") nextIndex = tabs.length - 1;
+    else if (event.key === "End") nextIndex = buttons.length - 1;
     else if (event.key === "ArrowRight" || event.key === "ArrowDown")
-      nextIndex = (currentIndex + 1) % tabs.length;
+      nextIndex = (currentIndex + 1) % buttons.length;
     else if (event.key === "ArrowLeft" || event.key === "ArrowUp")
-      nextIndex = (currentIndex - 1 + tabs.length) % tabs.length;
+      nextIndex = (currentIndex - 1 + buttons.length) % buttons.length;
 
-    tabs[nextIndex]?.focus();
-    tabs[nextIndex]?.click();
+    buttons[nextIndex]?.focus();
+    buttons[nextIndex]?.click();
   };
 
   const handleClose = () => {
@@ -112,8 +146,9 @@ export function AuthModal({
 
     if (authMode === "admin") {
       // Admin Login flow (Password + Secret Code + Turnstile)
-      if (isLocked) {
-        setError(`アカウントが一時ロックされています。残り約${Math.ceil(lockoutRemainingSeconds / 60)}分後に再試行してください。`);
+      // UI-06: only the administrator login is subject to this lockout.
+      if (adminLocked) {
+        setError(`管理者ログインが一時ロックされています。残り約${Math.ceil(lockoutRemainingSeconds / 60)}分後に再試行してください。一般ユーザーでのログインは引き続き利用できます。`);
         return;
       }
       if (!password.trim()) {
@@ -141,6 +176,9 @@ export function AuthModal({
         setPassword("");
         setSecretCode("");
         setTurnstileToken("");
+        // A successful administrator login means the lockout is over.
+        syncLockout(false, 0);
+        setAdminLockout(false);
         if (onSuccess) onSuccess();
         onClose();
       } else if (res.cancelled) {
@@ -150,7 +188,10 @@ export function AuthModal({
         return;
       } else {
         if (res.locked) {
+          // UI-06: the server locked the administrator login; the
+          // general-user login is unaffected.
           syncLockout(true, res.remainingSeconds || 900);
+          setAdminLockout(true);
           setRemainingAttempts(0);
         } else if (typeof res.remainingAttempts === "number") {
           setRemainingAttempts(res.remainingAttempts);
@@ -193,9 +234,9 @@ export function AuthModal({
       ariaDescribedBy="auth-modal-description"
     >
       <form id="auth-modal-form" onSubmit={handleSubmit} style={{ padding: "4px 0" }}>
-        {/* Mode Selector Tabs */}
+        {/* Mode Selector (toggle buttons: both modes share this form) */}
         <div
-          role="tablist"
+          role="group"
           aria-label="認証モード切替"
           style={{
             display: "flex",
@@ -209,12 +250,9 @@ export function AuthModal({
         >
           <button
             type="button"
-            role="tab"
-            id="auth-modal-tab-admin"
-            aria-selected={authMode === "admin"}
-            aria-controls="auth-modal-form"
-            tabIndex={authMode === "admin" ? 0 : -1}
-            onKeyDown={handleTabKeyDown}
+            id="auth-modal-mode-admin"
+            aria-pressed={authMode === "admin"}
+            onKeyDown={handleModeKeyDown}
             onClick={() => {
               setAuthMode("admin");
               setError(null);
@@ -242,12 +280,9 @@ export function AuthModal({
           </button>
           <button
             type="button"
-            role="tab"
-            id="auth-modal-tab-user"
-            aria-selected={authMode === "user"}
-            aria-controls="auth-modal-form"
-            tabIndex={authMode === "user" ? 0 : -1}
-            onKeyDown={handleTabKeyDown}
+            id="auth-modal-mode-user"
+            aria-pressed={authMode === "user"}
+            onKeyDown={handleModeKeyDown}
             onClick={() => {
               setAuthMode("user");
               setError(null);
@@ -285,8 +320,8 @@ export function AuthModal({
             : description}
         </p>
 
-        {/* Lockout Warning */}
-        {isLocked && (
+        {/* Admin lockout warning (the general-user tab is not affected) */}
+        {adminLocked && (
           <div
             role="alert"
             aria-live="assertive"
@@ -304,17 +339,18 @@ export function AuthModal({
           >
             <Lock size={16} style={{ flexShrink: 0 }} />
             <div>
-              <strong>セキュリティロック発動中</strong>
+              <strong>管理者ログインのセキュリティロック発動中</strong>
               <div style={{ marginTop: 2 }}>
-                試行回数の上限に達したため一時ロックされています。
+                管理者ログインの試行回数の上限に達したため一時ロックされています。
                 残り約{Math.ceil(lockoutRemainingSeconds / 60)}分（{lockoutRemainingSeconds}秒）後に再試行できます。
+                「一般ユーザー」でのログインは引き続き利用できます。
               </div>
             </div>
           </div>
         )}
 
         {/* Error Alert */}
-        {error && !isLocked && (
+        {error && !adminLocked && (
           <div
             id="auth-modal-error"
             role="alert"
@@ -359,9 +395,11 @@ export function AuthModal({
               placeholder={authMode === "admin" ? "管理者パスワード" : "ユーザー用アクセスパスワード"}
               ref={passwordInputRef}
               autoComplete="current-password"
-              disabled={isLocked || loading || isSubmitting}
-              aria-invalid={Boolean(error)}
-              aria-describedby={error ? "auth-modal-error auth-modal-hint" : "auth-modal-hint"}
+              disabled={adminLocked || loading || isSubmitting}
+              aria-invalid={Boolean(error) && !adminLocked}
+              aria-describedby={
+                error && !adminLocked ? "auth-modal-error auth-modal-hint" : "auth-modal-hint"
+              }
               style={{
                 width: "100%",
                 padding: "10px 40px 10px 12px",
@@ -434,7 +472,7 @@ export function AuthModal({
                   value={secretCode}
                   onChange={(e) => setSecretCode(e.target.value)}
                   placeholder="ひらがな・カタカナ・英数字・記号で入力"
-                  disabled={isLocked || loading || isSubmitting}
+                  disabled={adminLocked || loading || isSubmitting}
                   style={{
                     width: "100%",
                     padding: "10px 40px 10px 12px",
@@ -482,7 +520,7 @@ export function AuthModal({
             </div>
 
             {/* Cloudflare Turnstile Verification Widget */}
-            {!isLocked && (
+            {!adminLocked && (
               <div style={{ marginBottom: 16 }}>
                 <span
                   id="auth-modal-turnstile-label"
@@ -530,7 +568,7 @@ export function AuthModal({
             disabled={
               loading ||
               isSubmitting ||
-              isLocked ||
+              adminLocked ||
               !password.trim() ||
               (authMode === "admin" && (!secretCode.trim() || !turnstileToken.trim()))
             }

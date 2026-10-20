@@ -115,11 +115,22 @@ const DEFAULT_PRESET_POSITIONS: PortfolioPosition[] = [
 
 const DEFAULT_PRESET_WATCHLIST: string[] = ["6857", "6920", "9984", "NVDA", "AAPL"];
 
-function getLocalStorage(): Storage | undefined {
-  if (typeof globalThis !== "undefined" && "localStorage" in globalThis) {
+/**
+ * The browser's local storage, or `null` when it is unavailable.
+ *
+ * The `localStorage` *getter* itself throws when storage is blocked (Safari
+ * private mode, blocked cookies, sandboxed iframe). Reading it outside a
+ * `try` let that `SecurityError` escape from the lazy `useState` initialiser
+ * of the portfolio page and took the whole application down, so this accessor
+ * must never throw.
+ */
+function getLocalStorage(): Storage | null {
+  try {
+    if (typeof globalThis === "undefined" || !("localStorage" in globalThis)) return null;
     return (globalThis as unknown as { localStorage: Storage }).localStorage;
+  } catch {
+    return null;
   }
-  return undefined;
 }
 
 /**
@@ -336,18 +347,14 @@ export function savePortfolioPositions(positions: PortfolioPosition[]): boolean 
  * addition would silently inject holdings the user never entered (they would
  * then appear in P&L, weights and the portfolio→index conversion).
  */
-function loadPersistedPositions(): PortfolioPosition[] {
-  const storage = getLocalStorage();
-  if (!storage) return [];
+function parsePersistedPositions(raw: string | null): PortfolioPosition[] {
+  if (raw === null) return [];
   try {
-    const raw = storage.getItem(STORAGE_KEY_PORTFOLIO);
-    if (raw !== null) {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) {
-        return parsed
-          .map(sanitizePosition)
-          .filter((position): position is PortfolioPosition => position !== null);
-      }
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      return parsed
+        .map(sanitizePosition)
+        .filter((position): position is PortfolioPosition => position !== null);
     }
   } catch {
     // Ignore storage parse error
@@ -355,17 +362,13 @@ function loadPersistedPositions(): PortfolioPosition[] {
   return [];
 }
 
-/** Same as loadPersistedPositions, for the watchlist key. */
-function loadPersistedWatchlist(): string[] {
-  const storage = getLocalStorage();
-  if (!storage) return [];
+/** Same as parsePersistedPositions, for the watchlist key. */
+function parsePersistedWatchlist(raw: string | null): string[] {
+  if (raw === null) return [];
   try {
-    const raw = storage.getItem(STORAGE_KEY_WATCHLIST);
-    if (raw !== null) {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) {
-        return sanitizeWatchlist(parsed);
-      }
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      return sanitizeWatchlist(parsed);
     }
   } catch {
     // Ignore storage parse error
@@ -374,13 +377,44 @@ function loadPersistedWatchlist(): string[] {
 }
 
 /**
+ * Number of read-modify-write attempts for the "add" helpers.
+ *
+ * Two tabs can append between this tab's read and its write. localStorage has
+ * no compare-and-swap, so the write is re-read and retried once; a second
+ * concurrent write landing inside that window is rare enough to accept.
+ */
+const MAX_ADD_ATTEMPTS = 2;
+
+/**
  * Appends a position to the portfolio. Returns `true` when successful.
+ *
+ * DATA-23: the list is re-read immediately before the write and the new entry
+ * is merged by id, so a concurrent tab's addition is not lost. A changed
+ * storage value (or a write that was clobbered) triggers one retry.
  */
 export function addPortfolioPosition(position: NewPortfolioPosition): boolean {
   const sanitized = sanitizePosition(createPortfolioPosition(position));
   if (!sanitized) return false;
-  const current = loadPersistedPositions();
-  return savePortfolioPositions([...current, sanitized]);
+
+  for (let attempt = 0; attempt < MAX_ADD_ATTEMPTS; attempt++) {
+    const before = readPersistedJson(STORAGE_KEY_PORTFOLIO);
+    const current = parsePersistedPositions(before);
+    if (current.some((existing) => existing.id === sanitized.id)) return true;
+
+    // Re-read right before writing: another tab may have appended while this
+    // one was parsing, in which case the write must be based on that value.
+    if (readPersistedJson(STORAGE_KEY_PORTFOLIO) !== before) continue;
+
+    if (!savePortfolioPositions([...current, sanitized])) return false;
+
+    // Verify the entry survived: if a concurrent tab wrote after us, merge onto
+    // its value instead of silently losing either addition.
+    const persisted = parsePersistedPositions(readPersistedJson(STORAGE_KEY_PORTFOLIO));
+    if (persisted.some((existing) => existing.id === sanitized.id)) return true;
+  }
+
+  lastSaveFailed = true;
+  return false;
 }
 
 // Load watchlist from localStorage
@@ -410,14 +444,31 @@ export function loadWatchlist(): string[] {
  * Appends a ticker to the watchlist. Returns `true` when the list changed and was saved,
  * `false` when it was already present or storage failed, so callers can report the difference
  * instead of always claiming success.
+ *
+ * DATA-23: same merge-retry contract as addPortfolioPosition — the persisted
+ * list is re-read immediately before the write and the ticker is merged by
+ * value, so a concurrent tab's addition is not overwritten.
  */
 export function addWatchlistTicker(ticker: string): boolean {
   const normalized = sanitizeWatchlist([ticker]);
   if (normalized.length === 0) return false;
+  const target = normalized[0];
 
-  const watchlist = loadPersistedWatchlist();
-  if (watchlist.includes(normalized[0])) return false;
-  return saveWatchlist([...watchlist, normalized[0]]);
+  for (let attempt = 0; attempt < MAX_ADD_ATTEMPTS; attempt++) {
+    const before = readPersistedJson(STORAGE_KEY_WATCHLIST);
+    const watchlist = parsePersistedWatchlist(before);
+    if (watchlist.includes(target)) return false;
+
+    if (readPersistedJson(STORAGE_KEY_WATCHLIST) !== before) continue;
+
+    if (!saveWatchlist([...watchlist, target])) return false;
+
+    const persisted = parsePersistedWatchlist(readPersistedJson(STORAGE_KEY_WATCHLIST));
+    if (persisted.includes(target)) return true;
+  }
+
+  lastSaveFailed = true;
+  return false;
 }
 
 // Save watchlist to localStorage
@@ -501,16 +552,21 @@ export function calculatePortfolioSummary(
         : undefined;
     const fxRate = isUSD ? (validCustomRate ?? fallbackRate) : 1;
 
-    const currentPrice =
-      live?.price && Number.isFinite(live.price) && live.price > 0
-        ? live.price
-        : pos.currentPrice && Number.isFinite(pos.currentPrice) && pos.currentPrice > 0
-          ? pos.currentPrice
-          : fund.price && Number.isFinite(fund.price) && fund.price > 0
-            ? fund.price
-            : pos.averageCost && Number.isFinite(pos.averageCost) && pos.averageCost > 0
-              ? pos.averageCost
-              : 0;
+    const hasLiveQuote =
+      typeof live?.price === "number" && Number.isFinite(live.price) && live.price > 0;
+    const hasPersistedPrice =
+      typeof pos.currentPrice === "number" &&
+      Number.isFinite(pos.currentPrice) &&
+      pos.currentPrice > 0;
+    const currentPrice = hasLiveQuote
+      ? (live?.price as number)
+      : hasPersistedPrice
+        ? (pos.currentPrice as number)
+        : fund.price && Number.isFinite(fund.price) && fund.price > 0
+          ? fund.price
+          : pos.averageCost && Number.isFinite(pos.averageCost) && pos.averageCost > 0
+            ? pos.averageCost
+            : 0;
     const marketValue = isUSD
       ? Number((pos.shares * currentPrice).toFixed(2))
       : Math.round(pos.shares * currentPrice);
@@ -541,6 +597,16 @@ export function calculatePortfolioSummary(
     const dailyChangeJpy = Math.round(dailyChange * fxRate) || 0;
     const annualDividendJpy = Math.round(annualDividend * fxRate) || 0;
 
+    // DATA-21: with neither a live quote nor a persisted currentPrice the
+    // market value is built from a static anchor (KNOWN_STOCK_ANCHORS) or the
+    // acquisition cost. That number must never read as live market data.
+    const usedAnchorPrice = !hasLiveQuote && !hasPersistedPrice;
+    const isDemoData = usedAnchorPrice
+      ? true
+      : live?.isDemoData !== undefined
+        ? live.isDemoData
+        : fund.isDemoData;
+
     return {
       ...pos,
       name: live?.name || fund.name,
@@ -559,7 +625,7 @@ export function calculatePortfolioSummary(
       annualDividendJpy,
       theme: fund.theme,
       sector: fund.sector,
-      isDemoData: live?.isDemoData !== undefined ? live.isDemoData : fund.isDemoData,
+      isDemoData,
       weightPercent: 0, // will compute below
     };
   });

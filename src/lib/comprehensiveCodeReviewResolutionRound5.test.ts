@@ -7,7 +7,9 @@ import {
   formatTickerChangePercent,
 } from "../../worker/internal";
 import { getEventDayOfWeek } from "../components/CalendarPage";
-import { normalizeSearchQuery } from "../data/stockUniverse";
+import { searchStockUniverse } from "../data/stockUniverse";
+import { searchPopularStocks } from "../data/popularStocks";
+import { getViewPath, resolveStockTicker } from "../lib/navigation";
 
 describe("Comprehensive Code Review Resolution Round 5", () => {
   const rootDir = process.cwd();
@@ -35,18 +37,23 @@ describe("Comprehensive Code Review Resolution Round 5", () => {
     });
 
     it("ensures clearing query parameters updates history when on the same pathname", () => {
-      // Simulating navigation logic:
-      // Current: /stock?ticker=7203
-      // Target: /stock
-      const currentPathWithSearch: string = "/stock?ticker=7203";
-      const targetPath: string = "/stock";
-      const shouldPush = currentPathWithSearch !== targetPath;
-      expect(shouldPush).toBe(true);
+      // Production helpers (`src/lib/navigation.ts`): the paths are built by
+      // the app itself, not by string literals inside the test.
+      const stockPath = getViewPath("stock");
+      expect(stockPath).toBe("/stock");
 
-      // Current: /stock
-      // Target: /stock
-      const identicalTarget = "/stock";
-      expect("/stock" !== identicalTarget).toBe(false);
+      // Current: /stock?ticker=7203
+      const currentSearch = "?ticker=7203";
+      const currentPathWithSearch = `${stockPath}${currentSearch}`;
+      // Target: /stock (the query parameters are cleared)
+      const targetPath = getViewPath("stock");
+
+      // Current and target differ, so the app has to push a new history
+      // entry (the guard itself is asserted above).
+      expect(currentPathWithSearch).not.toBe(targetPath);
+      // The ticker of the current URL is not carried over to the target.
+      expect(resolveStockTicker(stockPath, currentSearch)).toBe("7203");
+      expect(resolveStockTicker(targetPath, "")).toBeUndefined();
     });
   });
 
@@ -59,65 +66,39 @@ describe("Comprehensive Code Review Resolution Round 5", () => {
     });
 
     it("correctly matches complex multi-token stock queries across ticker, name, and theme", () => {
-      const sampleStock = {
-        ticker: "7203",
-        name: "トヨタ自動車",
-        theme: "モビリティ・EV",
-        sector: "輸送用機器",
-        aliasesNorm: "TOYOTA トヨタ トヨタジドウシャ 7203",
-        aliasesRaw: "toyota トヨタ トヨタ自動車 7203",
-      };
+      // Production search (`src/data/stockUniverse.ts`) - the very function
+      // the page calls for its suggestion list - instead of a copy of the
+      // filter that could never fail when the search changed.
+      const universeTickers = (query: string): string[] =>
+        searchStockUniverse(query, { limit: 8 }).map((s) => s.ticker);
 
-      const testSearch = (query: string): boolean => {
-        const rawQ = query.trim();
-        if (!rawQ) return false;
-        const normQ = normalizeSearchQuery(rawQ);
-        const q = rawQ.toLowerCase();
-        const tokens = normQ ? normQ.split(/\s+/).filter(Boolean) : [];
+      // Multi-token (AND) search: every token has to match the same instrument.
+      expect(universeTickers("7203 トヨタ")).toContain("7203");
+      expect(universeTickers("トヨタ 自動車")).toContain("7203");
+      // The aliases of the instrument and the NFKC / hiragana normalization
+      // are part of the match.
+      expect(universeTickers("TOYOTA 自動車")).toContain("7203");
+      expect(universeTickers("とよた 自動車")).toContain("7203");
+      // A token that does not match excludes the instrument (AND, not OR).
+      expect(universeTickers("7203 ソニー")).not.toContain("7203");
+      // A ticker prefix still resolves (fuzzy match).
+      expect(universeTickers("720")).toContain("7203");
+    });
 
-        const sNormName = normalizeSearchQuery(sampleStock.name);
-        const sNormTicker = normalizeSearchQuery(sampleStock.ticker);
-        const sNameLower = sampleStock.name.toLowerCase();
-        const sTickerLower = sampleStock.ticker.toLowerCase();
-        const sThemeLower = sampleStock.theme.toLowerCase();
-        const sThemeNorm = normalizeSearchQuery(sampleStock.theme);
-        const sSectorLower = sampleStock.sector.toLowerCase();
-        const sSectorNorm = normalizeSearchQuery(sampleStock.sector);
-        const sAliasesNorm = sampleStock.aliasesNorm;
-        const sAliasesRaw = sampleStock.aliasesRaw;
+    it("matches popular stocks by theme, ticker and name", () => {
+      // Production search (`src/data/popularStocks.ts`): the curated list
+      // carries the theme, the universe only carries sector and aliases.
+      const popularTickers = (query: string): string[] =>
+        searchPopularStocks(query, 8).map((s) => s.ticker);
 
-        const matchesToken = (tok: string): boolean => {
-          const tokLower = tok.toLowerCase();
-          return (
-            sTickerLower.includes(tokLower) ||
-            sNameLower.includes(tokLower) ||
-            sNormTicker.includes(tok) ||
-            sNormName.includes(tok) ||
-            sThemeLower.includes(tokLower) ||
-            sThemeNorm.includes(tok) ||
-            sSectorLower.includes(tokLower) ||
-            sSectorNorm.includes(tok) ||
-            sAliasesNorm.includes(tok) ||
-            sAliasesRaw.includes(tokLower)
-          );
-        };
-
-        if (tokens.length > 1) {
-          return tokens.every(matchesToken);
-        }
-        return (
-          matchesToken(normQ) ||
-          sTickerLower.includes(q) ||
-          sNameLower.includes(q) ||
-          sAliasesRaw.includes(q)
-        );
-      };
-
-      expect(testSearch("7203 トヨタ")).toBe(true);
-      expect(testSearch("モビリティ トヨタ")).toBe(true);
-      expect(testSearch("EV 7203")).toBe(true);
-      expect(testSearch("TOYOTA 自動車")).toBe(true);
-      expect(testSearch("7203 ソニー")).toBe(false);
+      expect(popularTickers("7203")).toContain("7203");
+      expect(popularTickers("トヨタ")).toContain("7203");
+      // Theme match: 7203 is filed under "モビリティ".
+      expect(popularTickers("モビリティ")).toContain("7203");
+      // Theme match on a US listing: TSLA is filed under "EV・自動運転".
+      expect(popularTickers("EV")).toContain("TSLA");
+      // Another instrument does not show up.
+      expect(popularTickers("ソニー")).not.toContain("7203");
     });
   });
 

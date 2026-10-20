@@ -6,6 +6,7 @@ import {
   resetPasswordTableEnsured,
 } from "../../worker/internal";
 import { isBenchmarkDataForSymbol, type BenchmarkData } from "../hooks/useBenchmark";
+import { resolveLiveQuotes } from "../components/TradingViewTickerTape";
 
 const TEST_ADMIN_PASSWORD = "test-admin-password-secure";
 
@@ -183,39 +184,138 @@ describe("Ticker tape staleness handling", () => {
       ],
     };
 
-    let isLive = true;
-    const setIsLive = (val: boolean) => {
-      isLive = val;
-    };
-
-    const freshQuotes = mockApiResponse.quotes.filter((q) => q && !q.stale);
-    if (mockApiResponse.allStale || freshQuotes.length === 0) {
-      setIsLive(false);
-    }
-
+    // The production tape logic (src/components/TradingViewTickerTape.tsx)
+    // refuses to claim LIVE while every quote the Worker reported is stale.
+    const { isLive, freshQuotes } = resolveLiveQuotes(mockApiResponse);
     expect(isLive).toBe(false);
+    expect(freshQuotes).toEqual([]);
+  });
+
+  it("keeps the tape live while at least one quote is fresh", () => {
+    const { isLive, freshQuotes } = resolveLiveQuotes({
+      allStale: false,
+      quotes: [
+        { proName: "TSE:7203", stale: true },
+        { proName: "TSE:9984", stale: false },
+      ],
+    });
+    expect(isLive).toBe(true);
+    expect(freshQuotes).toHaveLength(1);
+    expect(freshQuotes[0].proName).toBe("TSE:9984");
+  });
+
+  it("reports not live when no quote is fresh even if the Worker did not flag allStale", () => {
+    const { isLive, freshQuotes } = resolveLiveQuotes({
+      quotes: [{ proName: "TSE:7203", stale: true }],
+    });
+    expect(isLive).toBe(false);
+    expect(freshQuotes).toEqual([]);
   });
 });
 
-describe("Client-side boundary validation invariants", () => {
-  it("enforces maximum string lengths matching Worker specifications", () => {
-    const maxNameLen = 100;
-    const maxDescLen = 500;
-    const maxPasswordLen = 100;
+describe("Worker boundary validation invariants (name / description / password length)", () => {
+  it("rejects an account name longer than 100 characters", async () => {
+    const env = createMockEnv();
+    const req = new Request("http://localhost/api/admin/passwords", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-auth-password": TEST_ADMIN_PASSWORD,
+      },
+      body: JSON.stringify({
+        name: "A".repeat(101),
+        password: "boundary-password-123",
+        role: "user",
+      }),
+    });
 
-    const validName = "A".repeat(100);
-    const tooLongName = "A".repeat(101);
-    expect(validName.length <= maxNameLen).toBe(true);
-    expect(tooLongName.length > maxNameLen).toBe(true);
+    const res = await worker.fetch(req, env);
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error?: string };
+    expect(body.error).toBe("ユーザー名/ラベルは1〜100文字で入力してください");
+  });
 
-    const validDesc = "B".repeat(500);
-    const tooLongDesc = "B".repeat(501);
-    expect(validDesc.length <= maxDescLen).toBe(true);
-    expect(tooLongDesc.length > maxDescLen).toBe(true);
+  it("accepts an account name of exactly 100 characters", async () => {
+    const env = createMockEnv();
+    const req = new Request("http://localhost/api/admin/passwords", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-auth-password": TEST_ADMIN_PASSWORD,
+      },
+      body: JSON.stringify({
+        name: "A".repeat(100),
+        password: "boundary-password-123",
+        role: "user",
+      }),
+    });
 
-    const validPwd = "C".repeat(100);
-    const tooLongPwd = "C".repeat(101);
-    expect(validPwd.length <= maxPasswordLen).toBe(true);
-    expect(tooLongPwd.length > maxPasswordLen).toBe(true);
+    const res = await worker.fetch(req, env);
+    expect(res.status).toBe(201);
+  });
+
+  it("rejects a password longer than 100 characters", async () => {
+    const env = createMockEnv();
+    const req = new Request("http://localhost/api/admin/passwords", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-auth-password": TEST_ADMIN_PASSWORD,
+      },
+      body: JSON.stringify({
+        name: "Boundary User",
+        password: "C".repeat(101),
+        role: "user",
+      }),
+    });
+
+    const res = await worker.fetch(req, env);
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error?: string };
+    expect(body.error).toBe("パスワードは8〜100文字で入力してください");
+  });
+
+  it("rejects an index name longer than 100 characters", async () => {
+    const env = createMockEnv();
+    const req = new Request("http://localhost/api/indices", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-auth-password": TEST_ADMIN_PASSWORD,
+      },
+      body: JSON.stringify({
+        name: "A".repeat(101),
+        description: "boundary",
+        baseValue: 1000,
+        basket: [],
+      }),
+    });
+
+    const res = await worker.fetch(req, env);
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error?: string };
+    expect(body.error).toBe("Invalid name: must be 1-100 characters");
+  });
+
+  it("rejects an index description longer than 500 characters", async () => {
+    const env = createMockEnv();
+    const req = new Request("http://localhost/api/indices", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-auth-password": TEST_ADMIN_PASSWORD,
+      },
+      body: JSON.stringify({
+        name: "Boundary Index",
+        description: "B".repeat(501),
+        baseValue: 1000,
+        basket: [],
+      }),
+    });
+
+    const res = await worker.fetch(req, env);
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error?: string };
+    expect(body.error).toBe("Invalid description: max 500 characters");
   });
 });

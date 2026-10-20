@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { createPortal } from "react-dom";
 import { motion } from "framer-motion";
 import {
   TrendingUp,
@@ -29,6 +30,7 @@ import { formatStockPrice, formatStockChange } from "../lib/currency";
 import { POPULAR_STOCKS } from "../data/popularStocks";
 import { searchStockUniverse, normalizeSearchQuery, getUniverseStockByTicker } from "../data/stockUniverse";
 import { getRecentSearches } from "./GlobalSearchModal";
+import { changeTone, formatSignedPercent } from "./changeTone";
 import type { PageView } from "../lib/navigation";
 import { useRegisterFreshness } from "../contexts/FreshnessContext";
 
@@ -91,30 +93,74 @@ export function StockAnalysisPage({
   });
   const [loading, setLoading] = useState(false);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(null);
+  // Provenance of the currently displayed universe: fallback rows are flagged
+  // `isDemoData` by `fetchScreenerStocks`, and only real rows may claim LIVE or
+  // a "last updated" time (DATA-26).
+  const [isLive, setIsLive] = useState(false);
 
   useRegisterFreshness("stock", {
     loading,
     updatedAt: lastUpdatedAt,
+    stale: !isLive,
     typeLabel: "銘柄分析",
   });
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearchDropdownOpen, setIsSearchDropdownOpen] = useState(false);
+  // The suggestion list is rendered in a portal because the hero card clips its
+  // overflowing children (`overflow: hidden` for the decorative glow), which
+  // hid every result below the first few (UI-23).
+  const [searchDropdownRect, setSearchDropdownRect] = useState<{
+    top: number;
+    left: number;
+    width: number;
+  } | null>(null);
   const [selectedTheme, setSelectedTheme] = useState<ThemeCategory>("ALL");
   const [recentItems, setRecentItems] = useState<{ id: string; title: string; subtitle: string }[]>([]);
   const [addedWatchlistMap, setAddedWatchlistMap] = useState<Record<string, boolean>>({});
   const mountedRef = useRef(true);
   const requestIdRef = useRef(0);
   const searchFormRef = useRef<HTMLFormElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const searchDropdownRef = useRef<HTMLDivElement>(null);
+  const themeTabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
-      if (searchFormRef.current && !searchFormRef.current.contains(e.target as Node)) {
-        setIsSearchDropdownOpen(false);
-      }
+      const target = e.target as Node;
+      // The suggestion list lives in a document.body portal, so it is not a
+      // descendant of the form: without the second check the mousedown that
+      // starts a click on a suggestion closed the list and cancelled the click.
+      if (searchFormRef.current?.contains(target)) return;
+      if (searchDropdownRef.current?.contains(target)) return;
+      setIsSearchDropdownOpen(false);
     };
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
+
+  // Keep the portalled suggestion list anchored to the input while it is open
+  // (window resizes, page scrolls, virtual keyboard changes the viewport).
+  const measureSearchDropdown = useCallback(() => {
+    const input = searchInputRef.current;
+    if (!input) return;
+    const rect = input.getBoundingClientRect();
+    setSearchDropdownRect({ top: rect.bottom + 6, left: rect.left, width: rect.width });
+  }, []);
+
+  useEffect(() => {
+    if (!isSearchDropdownOpen) {
+      setSearchDropdownRect(null);
+      return;
+    }
+    measureSearchDropdown();
+    const handleReposition = () => measureSearchDropdown();
+    window.addEventListener("resize", handleReposition);
+    window.addEventListener("scroll", handleReposition, true);
+    return () => {
+      window.removeEventListener("resize", handleReposition);
+      window.removeEventListener("scroll", handleReposition, true);
+    };
+  }, [isSearchDropdownOpen, measureSearchDropdown]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -141,12 +187,21 @@ export function StockAnalysisPage({
     try {
       const data = await fetchScreenerStocks({}, forceRefresh);
       if (!mountedRef.current || requestId !== requestIdRef.current) return;
-      if (data && data.length > 0) {
-        setStocks(data);
-        setLastUpdatedAt(Date.now());
+      if (!data || data.length === 0) {
+        setIsLive(false);
+        return;
       }
+      setStocks(data);
+      // Baseline rows carry `isDemoData`; anything without a live row is a
+      // reference value and must not stamp "last updated" (DATA-26).
+      const hasLiveRows = data.some((row) => !row.isDemoData);
+      setIsLive(hasLiveRows);
+      setLastUpdatedAt(hasLiveRows ? Date.now() : null);
     } catch {
-      // Keep cached data
+      // Keep cached data, but never keep claiming LIVE after a failure.
+      if (mountedRef.current && requestId === requestIdRef.current) {
+        setIsLive(false);
+      }
     } finally {
       if (mountedRef.current && requestId === requestIdRef.current) {
         setLoading(false);
@@ -323,6 +378,28 @@ export function StockAnalysisPage({
     setAddedWatchlistMap((prev) => ({ ...prev, [ticker]: true }));
   };
 
+  /**
+   * WAI-ARIA tablist keyboard support for the theme tabs: arrows/Home/End move
+   * the selection and the roving tabindex (UI-33). Arrow keys also focus the
+   * next tab so the pattern matches the other tablists in the app.
+   */
+  const handleThemeTabKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>, index: number) => {
+    const keys = ["ArrowRight", "ArrowLeft", "ArrowDown", "ArrowUp", "Home", "End"];
+    if (!keys.includes(event.key)) return;
+    event.preventDefault();
+    let nextIndex = index;
+    if (event.key === "Home") nextIndex = 0;
+    else if (event.key === "End") nextIndex = THEME_TABS.length - 1;
+    else if (event.key === "ArrowRight" || event.key === "ArrowDown")
+      nextIndex = (index + 1) % THEME_TABS.length;
+    else nextIndex = (index - 1 + THEME_TABS.length) % THEME_TABS.length;
+
+    const nextTab = THEME_TABS[nextIndex];
+    if (!nextTab) return;
+    setSelectedTheme(nextTab.id);
+    themeTabRefs.current[nextTab.id]?.focus();
+  };
+
   const renderSparkline = (data?: number[], isPositive = true) => {
     if (!data || data.length < 2) return null;
     const validData = data.filter((v) => typeof v === "number" && Number.isFinite(v));
@@ -372,6 +449,17 @@ export function StockAnalysisPage({
             <span>INDIVIDUAL STOCK ANALYSIS PORTAL</span>
           </div>
           <div className="stock-analysis-hero-actions">
+            <span
+              className={`badge ${isLive ? "badge-success" : "badge-default"} mono tiny`}
+              style={{ alignSelf: "center" }}
+              title={
+                isLive
+                  ? "実データ来歴のある銘柄データを表示中"
+                  : "実データを取得できていないため、参考値（ベースライン）を表示中"
+              }
+            >
+              {isLive ? "● LIVE" : "参考値"}
+            </span>
             <button
               type="button"
               className="btn btn-sm btn-outline"
@@ -411,6 +499,7 @@ export function StockAnalysisPage({
             <div className="stock-analysis-search-input-wrapper">
               <Search size={18} className="stock-analysis-search-icon" aria-hidden="true" />
               <input
+                ref={searchInputRef}
                 type="text"
                 className="stock-analysis-search-input"
                 placeholder="銘柄コード（例: 7203）、企業名（例: トヨタ）、米国株（例: NVDA）で即座に分析..."
@@ -453,70 +542,93 @@ export function StockAnalysisPage({
               </button>
             </div>
 
-            {/* Instant Search Suggestions Dropdown */}
-            {isSearchDropdownOpen && searchQuery.trim() && (
-              <div className="stock-analysis-search-dropdown" role="listbox">
-                {searchResults.length > 0 ? (
-                  searchResults.map((item) => (
-                    <div
-                      key={item.ticker}
-                      role="option"
-                      tabIndex={0}
-                      aria-selected={false}
-                      className="stock-analysis-search-dropdown-item"
-                      onClick={() => {
-                        setIsSearchDropdownOpen(false);
-                        onOpenStockDetail(item.ticker);
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" || e.key === " ") {
-                          e.preventDefault();
+            {/* Instant Search Suggestions Dropdown.
+                Rendered in a body portal, positioned from the input rect: the
+                hero card clips overflow for its decorative glow, so an in-flow
+                list was cut off after the first result (UI-23). */}
+            {isSearchDropdownOpen &&
+              searchQuery.trim().length > 0 &&
+              searchDropdownRect &&
+              typeof document !== "undefined" &&
+              createPortal(
+                <div
+                  ref={searchDropdownRef}
+                  className="stock-analysis-search-dropdown"
+                  role="listbox"
+                  aria-label="銘柄検索候補"
+                  style={{
+                    position: "fixed",
+                    top: searchDropdownRect.top,
+                    left: searchDropdownRect.left,
+                    right: "auto",
+                    width: searchDropdownRect.width,
+                    maxHeight: "min(420px, 65vh)",
+                    overflowY: "auto",
+                    zIndex: "var(--z-sidebar)",
+                  }}
+                >
+                  {searchResults.length > 0 ? (
+                    searchResults.map((item) => (
+                      <div
+                        key={item.ticker}
+                        role="option"
+                        tabIndex={0}
+                        aria-selected={false}
+                        className="stock-analysis-search-dropdown-item"
+                        onClick={() => {
                           setIsSearchDropdownOpen(false);
                           onOpenStockDetail(item.ticker);
-                        } else if (e.key === "Escape") {
-                          e.preventDefault();
-                          setIsSearchDropdownOpen(false);
-                        }
-                      }}
-                    >
-                      <div className="stock-analysis-search-item-info">
-                        <span className="stock-analysis-search-ticker">{item.ticker}</span>
-                        <span className="stock-analysis-search-name">{item.name}</span>
-                        <span className="stock-analysis-search-theme">{item.theme || item.sector}</span>
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            setIsSearchDropdownOpen(false);
+                            onOpenStockDetail(item.ticker);
+                          } else if (e.key === "Escape") {
+                            e.preventDefault();
+                            setIsSearchDropdownOpen(false);
+                          }
+                        }}
+                      >
+                        <div className="stock-analysis-search-item-info">
+                          <span className="stock-analysis-search-ticker">{item.ticker}</span>
+                          <span className="stock-analysis-search-name">{item.name}</span>
+                          <span className="stock-analysis-search-theme">{item.theme || item.sector}</span>
+                        </div>
+                        <div className="stock-analysis-search-item-price">
+                          <span className="price-val">
+                            {formatStockPrice(item.price, item.ticker, { market: item.market })}
+                          </span>
+                          {(() => {
+                            const isZero = changeTone(item.changePercent) === "neutral";
+                            const isPos = changeTone(item.changePercent) === "positive";
+                            return (
+                              <span
+                                className={`change-val ${isZero ? "neutral" : isPos ? "positive" : "negative"}`}
+                                style={isZero ? { color: "var(--text-muted)" } : undefined}
+                              >
+                                {formatStockChange(item.change, item.ticker, { market: item.market })} ({formatSignedPercent(item.changePercent)})
+                              </span>
+                            );
+                          })()}
+                        </div>
                       </div>
-                      <div className="stock-analysis-search-item-price">
-                        <span className="price-val">
-                          {formatStockPrice(item.price, item.ticker, { market: item.market })}
-                        </span>
-                        {(() => {
-                          const isZero = Math.abs(item.changePercent) < 0.005 || item.changePercent === 0;
-                          const isPos = item.changePercent > 0;
-                          return (
-                            <span
-                              className={`change-val ${isZero ? "neutral" : isPos ? "positive" : "negative"}`}
-                              style={isZero ? { color: "var(--text-muted)" } : undefined}
-                            >
-                              {formatStockChange(item.change, item.ticker, { market: item.market })} ({!isZero && isPos ? "+" : ""}{item.changePercent.toFixed(2)}%)
-                            </span>
-                          );
-                        })()}
-                      </div>
+                    ))
+                  ) : (
+                    <div className="stock-analysis-search-empty">
+                      <span>一致する銘柄が見つかりませんでした。「{searchQuery}」のコードで直接分析を開くことができます。</span>
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-outline mt-2"
+                        onClick={() => onOpenStockDetail(searchQuery.trim().toUpperCase())}
+                      >
+                        コード「{searchQuery.trim().toUpperCase()}」で詳細を開く
+                      </button>
                     </div>
-                  ))
-                ) : (
-                  <div className="stock-analysis-search-empty">
-                    <span>一致する銘柄が見つかりませんでした。「{searchQuery}」のコードで直接分析を開くことができます。</span>
-                    <button
-                      type="button"
-                      className="btn btn-sm btn-outline mt-2"
-                      onClick={() => onOpenStockDetail(searchQuery.trim().toUpperCase())}
-                    >
-                      コード「{searchQuery.trim().toUpperCase()}」で詳細を開く
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
+                  )}
+                </div>,
+                document.body,
+              )}
           </form>
 
           {/* Quick Search Chips */}
@@ -718,18 +830,25 @@ export function StockAnalysisPage({
             </span>
           </div>
 
-          {/* Theme Selector Tabs */}
+          {/* Theme Selector Tabs (roving tabindex + arrow keys, UI-33) */}
           <div className="stock-analysis-theme-tabs" role="tablist" aria-label="テーマ切り替え">
-            {THEME_TABS.map((tab) => {
+            {THEME_TABS.map((tab, index) => {
               const isActive = selectedTheme === tab.id;
               return (
                 <button
                   key={tab.id}
+                  ref={(element) => {
+                    themeTabRefs.current[tab.id] = element;
+                  }}
                   type="button"
                   role="tab"
+                  id={`stock-analysis-theme-tab-${tab.id}`}
                   aria-selected={isActive}
+                  aria-controls="stock-analysis-theme-panel"
+                  tabIndex={isActive ? 0 : -1}
                   className={`stock-analysis-theme-tab ${isActive ? "active" : ""}`}
                   onClick={() => setSelectedTheme(tab.id)}
+                  onKeyDown={(event) => handleThemeTabKeyDown(event, index)}
                 >
                   <span className="tab-icon" aria-hidden="true">
                     {tab.icon}
@@ -741,10 +860,17 @@ export function StockAnalysisPage({
           </div>
         </div>
 
-        {/* Stock Cards Grid */}
-        <div className="stock-analysis-cards-grid">
+        {/* Stock Cards Grid (the tabpanel the theme tabs point at) */}
+        <div
+          role="tabpanel"
+          id="stock-analysis-theme-panel"
+          aria-labelledby={`stock-analysis-theme-tab-${selectedTheme}`}
+          tabIndex={0}
+        >
+          <div className="stock-analysis-cards-grid">
           {themeFilteredStocks.map((stock) => {
-            const isPositive = stock.changePercent >= 0;
+            const cardTone = changeTone(stock.changePercent);
+            const isPositive = cardTone === "positive";
             const isAdded = Boolean(addedWatchlistMap[stock.ticker]);
 
             return (
@@ -757,6 +883,12 @@ export function StockAnalysisPage({
                 role="button"
                 tabIndex={0}
                 onKeyDown={(e) => {
+                  // The card is a role="button" wrapper around real buttons.
+                  // Enter/Space pressed on「指数に追加」/「ポートフォリオに追加」
+                  // bubbled up and navigated to the detail page instead of
+                  // adding (UI-15), so only keys typed on the card itself may
+                  // activate the card.
+                  if (e.target !== e.currentTarget) return;
                   if (e.key === "Enter" || e.key === " ") {
                     e.preventDefault();
                     onOpenStockDetail(stock.ticker);
@@ -914,6 +1046,7 @@ export function StockAnalysisPage({
               </motion.div>
             );
           })}
+          </div>
         </div>
       </section>
 

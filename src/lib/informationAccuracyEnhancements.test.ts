@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 import {
   KNOWN_STOCK_ANCHORS,
   getStockFundamentals,
@@ -9,6 +9,12 @@ import { searchStockUniverse } from "../data/stockUniverse";
 import { POPULAR_STOCKS } from "../data/popularStocks";
 
 describe("Information Accuracy & Hardcoding Elimination Enhancements", () => {
+  afterEach(() => {
+    // Every network double is removed again, so no test can observe the stub
+    // of another test.
+    vi.unstubAllGlobals();
+  });
+
   describe("1. Real Anchor Data & Disclosed Financials", () => {
     it("provides authentic anchor profiles for key Japanese and US equities", () => {
       // Toyota 7203
@@ -165,32 +171,35 @@ describe("Information Accuracy & Hardcoding Elimination Enhancements", () => {
         },
       };
 
-      const originalFetch = globalThis.fetch;
-      globalThis.fetch = async (input: RequestInfo | URL) => {
-        const urlStr = String(input);
-        if (urlStr.includes("data.sec.gov")) {
-          return new Response(JSON.stringify(sampleFacts), {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-          });
-        }
-        return originalFetch(input);
-      };
+      // The company-facts document is downloaded from data.sec.gov. The stub
+      // answers that URL from the fixture above and every other URL with a
+      // local 404: the suite must not depend on network egress, and it must
+      // not silently fall back to a live answer for a request it does not
+      // know.
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL) => {
+          const urlStr = String(input);
+          if (urlStr.includes("data.sec.gov")) {
+            return new Response(JSON.stringify(sampleFacts), {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            });
+          }
+          return new Response("Not found", { status: 404 });
+        }),
+      );
 
-      try {
-        const finances = await fetchSecEdgarFinancials("NVDA");
-        expect(finances.length).toBe(3);
-        expect(finances[0].fiscalYear).toBe("2023 FY");
-        expect(finances[0].revenue).toBe(26974); // in million USD
-        expect(finances[0].netIncome).toBe(4368);
-        expect(finances[0].operatingIncome).toBe(4224);
+      const finances = await fetchSecEdgarFinancials("NVDA");
+      expect(finances.length).toBe(3);
+      expect(finances[0].fiscalYear).toBe("2023 FY");
+      expect(finances[0].revenue).toBe(26974); // in million USD
+      expect(finances[0].netIncome).toBe(4368);
+      expect(finances[0].operatingIncome).toBe(4224);
 
-        expect(finances[2].fiscalYear).toBe("2025 FY");
-        expect(finances[2].revenue).toBe(130497);
-        expect(finances[2].netIncome).toBe(72880);
-      } finally {
-        globalThis.fetch = originalFetch;
-      }
+      expect(finances[2].fiscalYear).toBe("2025 FY");
+      expect(finances[2].revenue).toBe(130497);
+      expect(finances[2].netIncome).toBe(72880);
     });
 
     it("dynamically parses Yahoo quoteSummary incomeStatementHistory in fetchLiveStockFundamentals", async () => {
@@ -227,47 +236,58 @@ describe("Information Accuracy & Hardcoding Elimination Enhancements", () => {
         },
       };
 
-      const originalFetch = globalThis.fetch;
-      globalThis.fetch = async (input: RequestInfo | URL) => {
-        const urlStr = String(input);
-        if (urlStr.includes("quoteSummary")) {
-          return new Response(JSON.stringify(sampleSummary), {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-          });
-        }
-        if (urlStr.includes("chart")) {
-          return new Response(
-            JSON.stringify({
-              chart: {
-                result: [
-                  {
-                    meta: { regularMarketPrice: 5000 },
-                    indicators: { quote: [{ close: [4800, 4900, 5000] }] },
-                  },
-                ],
-              },
-            }),
-            { status: 200, headers: { "Content-Type": "application/json" } },
-          );
-        }
-        return originalFetch(input);
-      };
+      // The helper talks to Yahoo (cookie, crumb, quoteSummary, chart). Every
+      // one of those URLs is answered from the fixtures above, and an unknown
+      // URL is answered locally as well, so the test never reaches the
+      // network and never depends on what Yahoo happens to answer.
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL) => {
+          const urlStr = String(input);
+          if (urlStr.startsWith("https://fc.yahoo.com")) {
+            return new Response("", {
+              status: 200,
+              headers: { "set-cookie": "A1=test-cookie; Path=/; Domain=.yahoo.com" },
+            });
+          }
+          if (urlStr.includes("/v1/test/getcrumb")) {
+            return new Response("test-crumb", { status: 200 });
+          }
+          if (urlStr.includes("quoteSummary")) {
+            return new Response(JSON.stringify(sampleSummary), {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            });
+          }
+          if (urlStr.includes("/v8/finance/chart/")) {
+            return new Response(
+              JSON.stringify({
+                chart: {
+                  result: [
+                    {
+                      meta: { regularMarketPrice: 5000 },
+                      indicators: { quote: [{ close: [4800, 4900, 5000] }] },
+                    },
+                  ],
+                },
+              }),
+              { status: 200, headers: { "Content-Type": "application/json" } },
+            );
+          }
+          return new Response("Not found", { status: 404 });
+        }),
+      );
 
-      try {
-        const data = await fetchLiveStockFundamentals("6857");
-        expect(data.historicalFinances).toBeDefined();
-        expect(data.historicalFinances.length).toBe(2);
-        // Reversed chronological order
-        expect(data.historicalFinances[0].fiscalYear).toBe("2024/3");
-        expect(data.historicalFinances[0].revenue).toBe(7000); // 7000億円
-        expect(data.historicalFinances[1].fiscalYear).toBe("2025/3");
-        expect(data.historicalFinances[1].revenue).toBe(8000); // 8000億円
-        expect(data.historicalFinances[1].operatingIncome).toBe(1500);
-        expect(data.historicalFinances[1].netIncome).toBe(1000);
-      } finally {
-        globalThis.fetch = originalFetch;
-      }
+      const data = await fetchLiveStockFundamentals("6857");
+      expect(data.historicalFinances).toBeDefined();
+      expect(data.historicalFinances.length).toBe(2);
+      // Reversed chronological order
+      expect(data.historicalFinances[0].fiscalYear).toBe("2024/3");
+      expect(data.historicalFinances[0].revenue).toBe(7000); // 7000億円
+      expect(data.historicalFinances[1].fiscalYear).toBe("2025/3");
+      expect(data.historicalFinances[1].revenue).toBe(8000); // 8000億円
+      expect(data.historicalFinances[1].operatingIncome).toBe(1500);
+      expect(data.historicalFinances[1].netIncome).toBe(1000);
     });
   });
 });

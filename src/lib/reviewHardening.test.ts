@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { beforeEach, describe, it, expect, vi } from "vitest";
 import worker from "../../worker/index";
-import { clearAuthCache, resetPasswordTableEnsured } from "../../worker/internal";
+import { clearAuthCache, resetPasswordTableEnsured, authenticatePassword } from "../../worker/internal";
 
 const TEST_ADMIN_PASSWORD = "test-admin-password";
 
@@ -158,16 +158,36 @@ describe("review hardening: separated auth rate-limit buckets", () => {
       return defaultPrepare(query);
     });
 
-    const res = await worker.fetch(
-      new Request("http://localhost/api/auth/verify", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password: TEST_ADMIN_PASSWORD }),
-      }),
-      env as any,
-    );
-    expect(res.status).toBe(401);
+    const req = new Request("http://localhost/api/auth/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password: TEST_ADMIN_PASSWORD }),
+    });
+
+    const res = await worker.fetch(req, env as any);
+    // The limiter is unavailable, so the request must fail closed: nothing may
+    // authenticate and no session may be handed out. The refusal is reported
+    // as a rate-limit condition (429), never as a wrong password, so a D1
+    // outage stays diagnosable.
+    expect(res.status).toBe(429);
     const data = await res.json();
+    expect(data.ok).toBe(false);
+    expect(data.role).toBeUndefined();
+    expect(data.id).toBeUndefined();
+    expect(data.adminToken).toBeUndefined();
     expect(data.error).toContain("認証試行回数");
+    expect(data.error).not.toContain("パスワードが正しくありません");
+
+    // The same distinction is owned by `authenticatePassword` (SEC-13 moved
+    // the limiter in front of the auth cache), so it is asserted there too.
+    const auth = await authenticatePassword(
+      req,
+      env as any,
+      TEST_ADMIN_PASSWORD,
+      "auth-login",
+    );
+    expect(auth.authenticated).toBe(false);
+    expect(auth.error).toContain("認証試行回数");
+    expect(auth.error).not.toContain("パスワードが正しくありません");
   });
 });

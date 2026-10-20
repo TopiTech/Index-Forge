@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   fetchSecEdgarFinancials,
   fetchLiveMarketCalendar,
@@ -14,115 +14,119 @@ import {
 import fs from "node:fs";
 import path from "node:path";
 
+/**
+ * Deterministic SEC EDGAR test double.
+ *
+ * `fetchSecEdgarFinancials` downloads the company-facts document from
+ * data.sec.gov. Letting that request escape makes the suite depend on network
+ * egress (and on the SEC rate limiter), so the document is served from a
+ * fixed payload here. Every other URL is answered locally as well: the test
+ * must never reach the network, whatever the environment looks like.
+ */
+function stubSecEdgarCompanyFacts(facts: unknown): void {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("data.sec.gov")) {
+        return new Response(JSON.stringify(facts), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response("Not found", { status: 404 });
+    }),
+  );
+}
+
 describe("Comprehensive Goal Code Review Final Verification Cycle", () => {
+  afterEach(() => {
+    // Every global stub installed by a test is removed again, so a test can
+    // never observe the stub of another test.
+    vi.unstubAllGlobals();
+  });
+
   describe("1. SEC EDGAR DPS extraction in fetchSecEdgarFinancials", () => {
-    const originalFetch = globalThis.fetch;
-
-    afterEach(() => {
-      globalThis.fetch = originalFetch;
-    });
-
     it("correctly extracts annual dividend per share (DPS) from CommonStockDividendsPerShareDeclared", async () => {
-      globalThis.fetch = async (input: RequestInfo | URL) => {
-        const urlStr = String(input);
-        if (urlStr.includes("companyfacts/CIK0000320193.json")) {
-          return new Response(
-            JSON.stringify({
-              facts: {
-                "us-gaap": {
-                  Revenues: {
-                    units: {
-                      USD: [
-                        { form: "10-K", fy: 2023, val: 383285000000, fp: "FY" },
-                        { form: "10-K", fy: 2024, val: 391035000000, fp: "FY" },
-                      ],
-                    },
-                  },
-                  NetIncomeLoss: {
-                    units: {
-                      USD: [
-                        { form: "10-K", fy: 2023, val: 96995000000, fp: "FY" },
-                        { form: "10-K", fy: 2024, val: 93736000000, fp: "FY" },
-                      ],
-                    },
-                  },
-                  EarningsPerShareDiluted: {
-                    units: {
-                      "USD/shares": [
-                        { form: "10-K", fy: 2023, val: 6.13, fp: "FY" },
-                        { form: "10-K", fy: 2024, val: 6.08, fp: "FY" },
-                      ],
-                    },
-                  },
-                  CommonStockDividendsPerShareDeclared: {
-                    units: {
-                      "USD/shares": [
-                        { form: "10-K", fy: 2023, val: 0.96, fp: "FY" },
-                        { form: "10-K", fy: 2024, val: 1.0, fp: "FY" },
-                      ],
-                    },
-                  },
-                },
+      stubSecEdgarCompanyFacts({
+        facts: {
+          "us-gaap": {
+            Revenues: {
+              units: {
+                USD: [
+                  { form: "10-K", fy: 2023, val: 383285000000, fp: "FY" },
+                  { form: "10-K", fy: 2024, val: 391035000000, fp: "FY" },
+                ],
               },
-            }),
-            { status: 200, headers: { "Content-Type": "application/json" } },
-          );
-        }
-        return new Response("Not found", { status: 404 });
-      };
+            },
+            NetIncomeLoss: {
+              units: {
+                USD: [
+                  { form: "10-K", fy: 2023, val: 96995000000, fp: "FY" },
+                  { form: "10-K", fy: 2024, val: 93736000000, fp: "FY" },
+                ],
+              },
+            },
+            EarningsPerShareDiluted: {
+              units: {
+                "USD/shares": [
+                  { form: "10-K", fy: 2023, val: 6.13, fp: "FY" },
+                  { form: "10-K", fy: 2024, val: 6.08, fp: "FY" },
+                ],
+              },
+            },
+            CommonStockDividendsPerShareDeclared: {
+              units: {
+                "USD/shares": [
+                  { form: "10-K", fy: 2023, val: 0.96, fp: "FY" },
+                  { form: "10-K", fy: 2024, val: 1.0, fp: "FY" },
+                ],
+              },
+            },
+          },
+        },
+      });
 
       const results = await fetchSecEdgarFinancials("AAPL");
       expect(results).toHaveLength(2);
       const fy23 = results.find((r) => r.fiscalYear === "2023 FY");
       const fy24 = results.find((r) => r.fiscalYear === "2024 FY");
-      expect(fy23?.dps).toBe(0.96);
-      expect(fy24?.dps).toBe(1.0);
+      // The fiscal years must exist before their values are asserted: a
+      // missing year would otherwise make the optional-chained assertions
+      // compare `undefined` and fail with a confusing message.
+      expect(fy23).toBeDefined();
+      expect(fy24).toBeDefined();
+      expect(fy23!.dps).toBe(0.96);
+      expect(fy24!.dps).toBe(1.0);
     });
 
     it("falls back to CommonStockDividendsPerShareCashPaid when declared is missing", async () => {
-      globalThis.fetch = async (input: RequestInfo | URL) => {
-        const urlStr = String(input);
-        if (urlStr.includes("companyfacts/CIK0000789019.json")) {
-          return new Response(
-            JSON.stringify({
-              facts: {
-                "us-gaap": {
-                  Revenues: {
-                    units: {
-                      USD: [
-                        { form: "10-K", fy: 2024, val: 245120000000, fp: "FY" },
-                      ],
-                    },
-                  },
-                  NetIncomeLoss: {
-                    units: {
-                      USD: [
-                        { form: "10-K", fy: 2024, val: 88136000000, fp: "FY" },
-                      ],
-                    },
-                  },
-                  EarningsPerShareDiluted: {
-                    units: {
-                      USD: [
-                        { form: "10-K", fy: 2024, val: 11.8, fp: "FY" },
-                      ],
-                    },
-                  },
-                  CommonStockDividendsPerShareCashPaid: {
-                    units: {
-                      USD: [
-                        { form: "10-K", fy: 2024, val: 3.0, fp: "FY" },
-                      ],
-                    },
-                  },
-                },
+      stubSecEdgarCompanyFacts({
+        facts: {
+          "us-gaap": {
+            Revenues: {
+              units: {
+                USD: [{ form: "10-K", fy: 2024, val: 245120000000, fp: "FY" }],
               },
-            }),
-            { status: 200, headers: { "Content-Type": "application/json" } },
-          );
-        }
-        return new Response("Not found", { status: 404 });
-      };
+            },
+            NetIncomeLoss: {
+              units: {
+                USD: [{ form: "10-K", fy: 2024, val: 88136000000, fp: "FY" }],
+              },
+            },
+            EarningsPerShareDiluted: {
+              units: {
+                "USD/shares": [{ form: "10-K", fy: 2024, val: 11.8, fp: "FY" }],
+              },
+            },
+            CommonStockDividendsPerShareCashPaid: {
+              units: {
+                "USD/shares": [{ form: "10-K", fy: 2024, val: 3.0, fp: "FY" }],
+              },
+            },
+          },
+        },
+      });
 
       const results = await fetchSecEdgarFinancials("MSFT");
       expect(results).toHaveLength(1);
@@ -144,16 +148,18 @@ describe("Comprehensive Goal Code Review Final Verification Cycle", () => {
     });
 
     it("populates lastKnownCalendarEvents even when fetchLiveMarketCalendarAsync has no live quotes", async () => {
-      const originalFetch = globalThis.fetch;
-      try {
-        globalThis.fetch = async () => new Response("Internal Server Error", { status: 500 });
-        expect(getLastKnownCalendarEvents()).toBeNull();
-        const events = await fetchLiveMarketCalendarAsync();
-        expect(events.length).toBeGreaterThan(0);
-        expect(getLastKnownCalendarEvents()).toBe(events);
-      } finally {
-        globalThis.fetch = originalFetch;
-      }
+      // The async helper asks Yahoo for the earnings calendar. The stub below
+      // answers every request with a server error, so the helper must fall
+      // back to the generated events - deterministically, without egress.
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => new Response("Internal Server Error", { status: 500 })),
+      );
+
+      expect(getLastKnownCalendarEvents()).toBeNull();
+      const events = await fetchLiveMarketCalendarAsync();
+      expect(events.length).toBeGreaterThan(0);
+      expect(getLastKnownCalendarEvents()).toBe(events);
     });
   });
 
@@ -161,11 +167,27 @@ describe("Comprehensive Goal Code Review Final Verification Cycle", () => {
     it("contains ALL, HIGH, MEDIUM, and LOW options in CalendarPage.tsx", () => {
       const calendarPagePath = path.resolve(__dirname, "../components/CalendarPage.tsx");
       const content = fs.readFileSync(calendarPagePath, "utf-8");
+      expect(content).toContain('type ImportanceFilter = "ALL" | "HIGH" | "MEDIUM" | "LOW";');
+      expect(content).toContain('useState<ImportanceFilter>("ALL")');
       expect(content).toContain('<option value="ALL">全重要度</option>');
       expect(content).toContain('<option value="HIGH">最重要 (HIGH)</option>');
       expect(content).toContain('<option value="MEDIUM">標準 (MEDIUM)</option>');
       expect(content).toContain('<option value="LOW">低 (LOW)</option>');
-      expect(content).toContain('useState<"ALL" | "HIGH" | "MEDIUM" | "LOW">("ALL")');
+    });
+
+    it("filters the importance by an exact match and labels the options accordingly", () => {
+      const calendarPagePath = path.resolve(__dirname, "../components/CalendarPage.tsx");
+      const content = fs.readFileSync(calendarPagePath, "utf-8");
+
+      // UI-09: the filter selects one importance level; it is not a
+      // threshold ("MEDIUM and above"), so the label must not claim one.
+      expect(content).toContain(
+        'if (importanceFilter !== "ALL" && e.importance !== importanceFilter) return false;',
+      );
+      expect(content).toContain('MEDIUM: "標準 (MEDIUM)"');
+      expect(content).not.toContain("MEDIUM以上");
+      // The rendered option must not advertise a threshold either.
+      expect(content).not.toMatch(/<option value="MEDIUM">[^<]*以上/);
     });
   });
 

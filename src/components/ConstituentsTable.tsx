@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, Suspense, lazy } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Card, Tag, SearchInput } from "./ui";
 import {
@@ -21,13 +21,19 @@ import type { BasketItem, StockDetail } from "../types";
 import { normalizeWeights } from "../lib/indexEngine";
 import { useAuth } from "../hooks/useAuth";
 import { AuthModal } from "./AuthModal";
-import { AddStockModal } from "./AddStockModal";
 import { ConfirmModal } from "./ConfirmModal";
 import { useToast } from "./Toast";
 import { toYahooSymbol } from "../lib/yahooSymbol";
 import { escapeCsvCell } from "../lib/csv";
 import { toSafeDownloadFileName } from "../lib/downloadFileName";
 import { formatStockPrice } from "../lib/currency";
+
+// PERF-01: the add-stock dialog searches the 4,500+ ticker universe, so it
+// carries that dataset. This table is rendered on the dashboard (first paint),
+// therefore the dialog is loaded on demand instead of with the table.
+const AddStockModal = lazy(() =>
+  import("./AddStockModal").then((m) => ({ default: m.AddStockModal })),
+);
 
 interface ConstituentsTableProps {
   basket: BasketItem[];
@@ -978,14 +984,16 @@ export function ConstituentsTable({
 
       {/* Add Stock Modal */}
       {onAddStock && canEdit && (
-        <AddStockModal
-          isOpen={isAddStockModalOpen}
-          onClose={() => setIsAddStockModalOpen(false)}
-          indexName={indexName}
-          currentCount={basket.length}
-          maxStocks={maxStocks}
-          onAddStock={handleAddStockSubmit}
-        />
+        <Suspense fallback={null}>
+          <AddStockModal
+            isOpen={isAddStockModalOpen}
+            onClose={() => setIsAddStockModalOpen(false)}
+            indexName={indexName}
+            currentCount={basket.length}
+            maxStocks={maxStocks}
+            onAddStock={handleAddStockSubmit}
+          />
+        </Suspense>
       )}
 
       {/* Confirm Stock Deletion Modal */}

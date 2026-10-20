@@ -148,12 +148,22 @@ describe("Page Reload Animation Suppression", () => {
   });
 
   describe("HTML & CSS Integration Verification", () => {
-    it("index.html contains early reload detection script in head", () => {
+    it("index.html loads the early reload detection script from /reload-suppress.js in head", () => {
+      // SEC-07: the inline IIFE moved out of index.html so the production CSP
+      // can drop 'unsafe-inline' from script-src. The head must reference the
+      // external file, and that file must carry the suppression logic.
       const htmlPath = path.resolve(__dirname, "../../index.html");
       const html = fs.readFileSync(htmlPath, "utf-8");
-      expect(html).toContain("is-reload-suppressed");
-      expect(html).toContain("navigation");
-      expect(html).toContain("reload");
+      expect(html).toContain('<script src="/reload-suppress.js"></script>');
+
+      const head = html.slice(html.indexOf("<head>"), html.indexOf("</head>"));
+      expect(head).toContain('<script src="/reload-suppress.js"></script>');
+
+      const scriptPath = path.resolve(__dirname, "../../public/reload-suppress.js");
+      const script = fs.readFileSync(scriptPath, "utf-8");
+      expect(script).toContain("is-reload-suppressed");
+      expect(script).toContain("navigation");
+      expect(script).toContain("reload");
     });
 
     it("src/index.css contains html.is-reload-suppressed animation overrides", () => {

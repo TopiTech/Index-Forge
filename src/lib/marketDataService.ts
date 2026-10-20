@@ -3,7 +3,10 @@
  * 統合投資情報プラットフォーム向けのマーケット情報、株価、ファンダメンタルズ、スクリーナー、カレンダーの取得・管理サービス
  */
 
-import { POPULAR_STOCKS } from "../data/popularStocks";
+// PERF-01: the curated list is imported from its own module. `data/popularStocks`
+// additionally re-exports the 4,500+ ticker universe, and importing it from
+// here put that dataset (303 KB / 64 KB gzip) into the first-paint graph.
+import { POPULAR_STOCKS } from "../data/popularStocksData";
 import { BASELINE_ASSET_QUOTES, type BaselineAssetQuote } from "../data/marketConstants";
 import {
   BOJ_MEETING_SCHEDULE,
@@ -11,7 +14,7 @@ import {
   getNextScheduledMeetings,
   MACRO_METRICS_DEFAULTS,
 } from "../data/macroSchedule";
-import { normalizeSearchQuery } from "../data/stockUniverse";
+import { normalizeSearchQuery } from "./searchNormalize";
 import { escapeCsvCell } from "./csv";
 
 export interface MarketAssetQuote {
@@ -24,6 +27,12 @@ export interface MarketAssetQuote {
   currency: string;
   sparkline?: number[];
   updatedAt: string;
+  /**
+   * True when the number did not come from this request's live fetch (previous
+   * snapshot, static baseline, or a synthesized sparkline). The Worker only
+   * emits the field when it is true (DATA-03).
+   */
+  stale?: boolean;
 }
 
 export interface SectorPerformance {
@@ -57,8 +66,9 @@ export interface MarketOverviewData {
   /**
    * データ出所のメタデータ (後方互換のためオプショナル)。
    * "fallback" の場合は実データ取得に失敗し、静的ベースラインを表示していることを示す。
+   * "mixed" は live 資産と stale 資産が混在していることを示す (Worker が比率で決定)。
    */
-  dataSource?: "fallback" | "live";
+  dataSource?: "fallback" | "live" | "mixed";
   /** データ生成時刻 (ISO 8601)。フォールバック表示時の鮮度確認に使用。 */
   dataAsOf?: string;
 }
@@ -1638,6 +1648,9 @@ function sanitizeQuote(raw: unknown): MarketAssetQuote | null {
     currency: typeof record.currency === "string" && record.currency ? record.currency : "USD",
     ...(sparkline.length > 0 ? { sparkline } : {}),
     updatedAt: typeof record.updatedAt === "string" && record.updatedAt ? record.updatedAt : "-",
+    // DATA-03: provenance is additive; keep it so the page can badge a stale
+    // asset instead of presenting a previous snapshot as a live quote.
+    ...(record.stale === true ? { stale: true } : {}),
   };
 }
 
@@ -1661,7 +1674,7 @@ export function normalizeMarketOverview(raw: unknown): MarketOverviewData | null
   const breadth = record.marketBreadth as Record<string, unknown> | undefined;
   const fallback = DEFAULT_MARKET_OVERVIEW;
   const dataSource =
-    record.dataSource === "fallback" || record.dataSource === "live"
+    record.dataSource === "fallback" || record.dataSource === "live" || record.dataSource === "mixed"
       ? record.dataSource
       : undefined;
   const dataAsOf = typeof record.dataAsOf === "string" ? record.dataAsOf : undefined;
@@ -1830,6 +1843,46 @@ export function clearStockFundamentalsClientCache(): void {
 }
 
 /**
+ * The only write path into `stockFundamentalsClientCache`.
+ *
+ * DATA-18: the fundamentals endpoint and the screener endpoint both feed this
+ * cache, and the screener used to insert its rows verbatim (`ticker`/`price`
+ * checked, every other field trusted). A single unvalidated row then poisoned
+ * every later read through `getCachedStockFundamentals`. Every write therefore
+ * goes through `sanitizeStockFundamentals`, so the cached object always has the
+ * typed shape the pages dereference.
+ *
+ * @param raw server payload (or already-normalized object) for this ticker
+ * @param baseline fallback used for absent fields
+ * @param ticker normalized ticker of the entry
+ * @param fetchedAt fetch timestamp recorded with the entry
+ */
+function cacheStockFundamentals(
+  raw: Record<string, unknown>,
+  baseline: StockQuoteFundamentals,
+  ticker: string,
+  fetchedAt: number = Date.now(),
+): StockQuoteFundamentals {
+  const data = sanitizeStockFundamentals(raw, baseline, ticker);
+  stockFundamentalsClientCache.set(ticker.trim().toUpperCase(), { data, fetchedAt });
+  return data;
+}
+
+/**
+ * DATA-18: is this screener row baseline/fallback data rather than a live
+ * quote? The Worker marks it explicitly (`isDemoData`), and older payloads may
+ * only carry a provenance flag, so both shapes are recognized.
+ */
+function isFallbackStockRow(raw: Record<string, unknown>): boolean {
+  return (
+    raw.isDemoData === true ||
+    raw.isFallback === true ||
+    raw.dataSource === "fallback" ||
+    raw.source === "fallback"
+  );
+}
+
+/**
  * Return cached fundamentals if available (e.g. preloaded by Screener),
  * otherwise falling back to baseline getStockFundamentals.
  */
@@ -1900,6 +1953,12 @@ export function formatMarketCapDisplay(marketCap: number, market: string): strin
  *
  * Each field is therefore validated on its own and falls back to the
  * baseline value when the payload does not carry a usable number.
+ *
+ * DATA-01: an explicit `null` on a nullable metric (per/pbr/dividendYield/roe/
+ * equityRatio/eps/dps) is a *value*, not a missing field: the Worker reports
+ * "赤字・非開示" as `null`, and substituting the static anchor there fabricated
+ * a PER for a loss-making company. Only an absent or non-numeric field falls
+ * back to the baseline.
  */
 export function sanitizeStockFundamentals(
   raw: Record<string, unknown>,
@@ -1909,12 +1968,13 @@ export function sanitizeStockFundamentals(
   const readNumber = (value: unknown, fallback: number): number =>
     typeof value === "number" && Number.isFinite(value) ? value : fallback;
 
-  const readNullableNumber = (value: unknown, fallback: number | null): number | null =>
-    value === null || value === undefined
-      ? fallback
-      : typeof value === "number" && Number.isFinite(value)
-        ? value
-        : fallback;
+  const readNullableNumber = (value: unknown, fallback: number | null): number | null => {
+    // An explicit null is the server's "not disclosed / not applicable" answer.
+    if (value === null) return null;
+    // Absent (undefined) or an unusable type/NaN keeps the previous behavior.
+    if (value === undefined) return fallback;
+    return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+  };
 
   const readText = (value: unknown, fallback: string): string =>
     typeof value === "string" && value.trim() ? value : fallback;
@@ -2050,11 +2110,7 @@ export async function fetchStockFundamentals(
           ) {
             const rawObj = raw as Record<string, unknown>;
             const baseline = getStockFundamentals(normTicker);
-            const data = sanitizeStockFundamentals(rawObj, baseline, normTicker);
-            stockFundamentalsClientCache.set(normTicker, {
-              data,
-              fetchedAt: Date.now(),
-            });
+            const data = cacheStockFundamentals(rawObj, baseline, normTicker);
             stockFundamentalsFailureCache.delete(normTicker);
             return data;
           }
@@ -2074,9 +2130,10 @@ export async function fetchStockFundamentals(
     return fallback;
   }
 
+  // Offline/non-browser callers get the baseline, still written through the
+  // single caching helper so the cached shape is identical everywhere.
   const baseline = getStockFundamentals(normTicker);
-  stockFundamentalsClientCache.set(normTicker, { data: baseline, fetchedAt: Date.now() });
-  return baseline;
+  return cacheStockFundamentals({ ...baseline }, baseline, normTicker);
 }
 
 // Screener Query Options
@@ -2273,26 +2330,32 @@ export async function fetchScreenerStocks(
           const raw = await res.json();
           if (Array.isArray(raw) && raw.length > 0) {
             const valid = raw.filter(
-              (item): item is StockQuoteFundamentals =>
+              (item): item is Record<string, unknown> =>
                 !!item &&
                 typeof item === "object" &&
-                typeof item.ticker === "string" &&
-                typeof item.price === "number" &&
-                Number.isFinite(item.price) &&
-                item.price > 0,
+                typeof (item as { ticker?: unknown }).ticker === "string" &&
+                typeof (item as { price?: unknown }).price === "number" &&
+                Number.isFinite((item as { price?: unknown }).price) &&
+                (item as { price: number }).price > 0,
             );
             if (valid.length > 0) {
-              screenerUniverseClientCache = valid;
-              screenerUniverseFetchedAt = Date.now();
+              const fetchedAt = Date.now();
+              // DATA-18: every screener row is sanitized through the same
+              // helper as the fundamentals endpoint, and a row the Worker
+              // served from its baseline is flagged as demo data so the UI can
+              // badge it (DATA-26 reads the flag).
+              const sanitizedRows = valid.map((item) => {
+                const ticker = (item.ticker as string).trim().toUpperCase();
+                // A baseline row is flagged before sanitization so the cached
+                // entry and the returned row carry the same provenance.
+                const raw = isFallbackStockRow(item) ? { ...item, isDemoData: true } : item;
+                const baseline = getStockFundamentals(ticker);
+                return cacheStockFundamentals(raw, baseline, ticker, fetchedAt);
+              });
+              screenerUniverseClientCache = sanitizedRows;
+              screenerUniverseFetchedAt = fetchedAt;
               screenerFailureUntil = 0;
-              // Also populate individual stock cache for faster StockDetailPage access
-              for (const stock of valid) {
-                stockFundamentalsClientCache.set(stock.ticker.toUpperCase(), {
-                  data: stock,
-                  fetchedAt: screenerUniverseFetchedAt,
-                });
-              }
-              return runStockScreener(options, valid);
+              return runStockScreener(options, sanitizedRows);
             }
           }
         }
@@ -2876,6 +2939,45 @@ export function escapeIcsText(text: string): string {
 }
 
 /**
+ * RFC 5545 §3.8.4.6 UID のサニタイズ。
+ *
+ * UID には制御文字を含められないため、外部由来 (Worker 応答) の id を
+ * `[A-Za-z0-9._-]` に限定します。未サニタイズのまま埋め込むと CRLF を含む
+ * id が iCalendar のプロパティを注入できます。
+ */
+export function sanitizeIcsUid(value: string): string {
+  const cleaned = (value ?? "").replace(/[^A-Za-z0-9._-]/g, "-");
+  return cleaned || "event";
+}
+
+/**
+ * RFC 5545 §3.1 の折返し (75 オクテット)。
+ *
+ * 折り返し行は先頭に空白を 1 つ持ちます。その空白も 75 オクテットに
+ * 含まれるため、継続行は 74 オクテットで分割します。UTF-8 の
+ * コードポイント境界で分割し、バイト列が壊れないようにします。
+ */
+export function foldIcsLine(line: string): string {
+  const encoder = new TextEncoder();
+  const segments: string[] = [];
+  let current = "";
+  let currentBytes = 0;
+  for (const char of line) {
+    const size = encoder.encode(char).length;
+    const limit = segments.length === 0 ? 75 : 74;
+    if (currentBytes + size > limit) {
+      segments.push(current);
+      current = "";
+      currentBytes = 0;
+    }
+    current += char;
+    currentBytes += size;
+  }
+  segments.push(current);
+  return segments.join("\r\n ");
+}
+
+/**
  * カレンダーイベント一覧を iCalendar (RFC 5545, .ics) 形式にエクスポート
  */
 export function exportCalendarToIcs(events: CalendarEvent[]): string {
@@ -2936,7 +3038,7 @@ export function exportCalendarToIcs(events: CalendarEvent[]): string {
     if (evt.description) descParts.push(evt.description);
 
     lines.push("BEGIN:VEVENT");
-    lines.push(`UID:${evt.id}-${dateStr}@indexforge.internal`);
+    lines.push(`UID:${sanitizeIcsUid(evt.id)}-${dateStr}@indexforge.internal`);
     lines.push(`DTSTAMP:${dtStamp}`);
     lines.push(`DTSTART;VALUE=DATE:${dateStr}`);
     lines.push(`DTEND;VALUE=DATE:${nextDayStr}`);
@@ -2950,7 +3052,10 @@ export function exportCalendarToIcs(events: CalendarEvent[]): string {
   }
 
   lines.push("END:VCALENDAR");
-  return lines.join("\r\n");
+  // RFC 5545 §3.1: すべての-content line は 75 オクテットで折り返します。
+  // 日本語の説明文は 200〜400 バイトになるため、折返しなしでは Outlook
+  // などの厳格なクライアントが説明文の末尾を切り捨てます。
+  return lines.map(foldIcsLine).join("\r\n");
 }
 
 /**

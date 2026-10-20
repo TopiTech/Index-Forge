@@ -23,13 +23,15 @@ export function IndexBuilderPage({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const pageContainerRef = useRef<HTMLDivElement>(null);
 
-  // updatedAt に毎レンダーの Date.now() を渡すと useRegisterFreshness の effect
-  // 依存値が毎回変化し、FreshnessContext の state 更新 → 再レンダー → 新しい
-  // Date.now() と自己増殖するため、マウント時点の固定値を登録する。
-  const [mountedAt] = useState(() => Date.now());
+  // The builder page fetches nothing: basket previews are computed from the
+  // simulation hook, and saving is the only write. Registering `Date.now()` as
+  // `updatedAt` claimed a data refresh that never happened (and the timestamp
+  // re-registered on every render, feeding the freshness context in a loop).
+  // With no timestamp the header now shows the status text below instead of a
+  // fabricated LIVE badge.
   useRegisterFreshness("builder", {
     typeLabel: "指数試算",
-    updatedAt: mountedAt,
+    customStatusText: "未保存の試算（保存すると指数一覧に反映されます）",
   });
 
   // Sync with native browser fullscreen changes (e.g. Esc key)

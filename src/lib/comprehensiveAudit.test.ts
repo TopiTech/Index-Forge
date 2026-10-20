@@ -20,6 +20,8 @@ interface IndexRecord {
   description: string;
   base_value: number;
   owner_token_hash: string | null;
+  /** Unix seconds of the last owner-token issue (SEC-08). */
+  owner_token_issued_at?: number | null;
   creator_id?: string | null;
   sort_order?: number;
 }
@@ -30,6 +32,123 @@ interface BasketRecord {
   name: string;
   weight: number;
   theme: string;
+}
+
+/**
+ * Split a SQL expression list on the commas that separate the expressions.
+ *
+ * A comma inside parentheses belongs to its expression (the
+ * `COALESCE((SELECT creator_id FROM indices WHERE id = ?), ?)` of the upsert
+ * for example) and must not split it.
+ */
+function splitSqlExpressions(text: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let current = "";
+  for (const ch of text) {
+    if (ch === "(") depth++;
+    else if (ch === ")") depth--;
+    if (ch === "," && depth === 0) {
+      parts.push(current.trim());
+      current = "";
+      continue;
+    }
+    current += ch;
+  }
+  if (current.trim()) parts.push(current.trim());
+  return parts;
+}
+
+/** Index of a keyword that is not nested inside parentheses. */
+function indexOfTopLevelKeyword(text: string, keyword: string): number {
+  const upper = text.toUpperCase();
+  const needle = keyword.toUpperCase();
+  let depth = 0;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === "(") {
+      depth++;
+      continue;
+    }
+    if (ch === ")") {
+      depth--;
+      continue;
+    }
+    if (depth !== 0 || !upper.startsWith(needle, i)) continue;
+    const before = i === 0 ? " " : text[i - 1];
+    const after = text[i + needle.length] ?? " ";
+    if (!/[A-Za-z0-9_]/.test(before) && !/[A-Za-z0-9_]/.test(after)) return i;
+  }
+  return -1;
+}
+
+/**
+ * Index of the placeholder that carries the value of an upsert expression.
+ *
+ * The Worker protects the stored metadata with
+ * `COALESCE((SELECT creator_id FROM indices WHERE id = ?), ?)`: the placeholder
+ * inside the sub-select is the row id, not the value. Only a placeholder
+ * outside such a sub-select carries the value.
+ */
+function valuePlaceholderSlot(expression: string): number {
+  const groupIsSelect: boolean[] = [];
+  let depth = 0;
+  let placeholderIndex = 0;
+  let valueSlot = -1;
+  for (let i = 0; i < expression.length; i++) {
+    const ch = expression[i];
+    if (ch === "(") {
+      depth++;
+      groupIsSelect[depth] = /^\s*SELECT\b/i.test(expression.slice(i + 1));
+    } else if (ch === ")") {
+      groupIsSelect[depth] = false;
+      depth--;
+    } else if (ch === "?") {
+      if (!groupIsSelect[depth] && valueSlot === -1) valueSlot = placeholderIndex;
+      placeholderIndex++;
+    }
+  }
+  return valueSlot;
+}
+
+/**
+ * Recover the column values of an `INSERT ... INTO indices` statement from
+ * its bound parameters.
+ *
+ * The Worker builds that statement dynamically: every optional column adds a
+ * placeholder, and `owner_token_issued_at` added one more. Mapping the values
+ * by column name (instead of by a fixed parameter offset) keeps the double
+ * correct when the statement gains or loses a column.
+ */
+function readIndexUpsertValues(query: string, params: unknown[]): Map<string, unknown> {
+  const values = new Map<string, unknown>();
+  const columnMatch = /INTO indices\s*\(([^)]*)\)/i.exec(query);
+  if (!columnMatch) return values;
+  const columns = columnMatch[1].split(",").map((column) => column.trim());
+  const rest = query.slice(columnMatch.index + columnMatch[0].length);
+
+  let expressions: string[];
+  if (/^\s*VALUES/i.test(rest)) {
+    const open = rest.indexOf("(");
+    const close = rest.lastIndexOf(")");
+    expressions = splitSqlExpressions(rest.slice(open + 1, close));
+  } else {
+    // `INSERT ... SELECT <expressions> [WHERE <guard>]`: the guard of the
+    // quota-guarded variant binds extra parameters that belong to no column.
+    const body = rest.replace(/^\s*SELECT/i, "");
+    const whereAt = indexOfTopLevelKeyword(body, "WHERE");
+    expressions = splitSqlExpressions(whereAt === -1 ? body : body.slice(0, whereAt));
+  }
+
+  let paramIndex = 0;
+  columns.forEach((column, columnIndex) => {
+    const expression = expressions[columnIndex] ?? "";
+    const placeholders = (expression.match(/\?/g) || []).length;
+    const slot = valuePlaceholderSlot(expression);
+    if (slot >= 0) values.set(column, params[paramIndex + slot]);
+    paramIndex += placeholders;
+  });
+  return values;
 }
 
 function createAuditTestEnv() {
@@ -110,21 +229,33 @@ function createAuditTestEnv() {
 
     const executeRun = async (params: unknown[] = []) => {
       if (query.includes("INTO indices")) {
-        const id = params[0] as string;
-        const name = params[1] as string;
-        const description = params[2] as string;
-        const baseValue = params[3] as number;
-        const hash = params[4] as string | null;
-        const creatorId = params.length >= 7 ? (params[6] as string | null) : null;
-        const sortOrder = params.length >= 10 && typeof params[9] === "number"
-          ? params[9]
-          : (indices.get(id)?.sort_order ?? 50);
+        // The upsert is built dynamically, so the values are recovered by
+        // column name instead of by a fixed parameter offset.
+        const values = readIndexUpsertValues(query, params);
+        const id = values.get("id") as string;
+        const name = values.get("name") as string;
+        const description = values.get("description") as string;
+        const baseValue = values.get("base_value") as number;
+        const hash = (values.get("owner_token_hash") ?? null) as string | null;
+        const issuedAt = (values.get("owner_token_issued_at") ?? null) as number | null;
+        // `COALESCE((SELECT creator_id FROM indices WHERE id = ?), ?)` keeps the
+        // stored creator of an existing index.
+        const existingCreatorId = indices.get(id)?.creator_id ?? null;
+        const creatorId = existingCreatorId ?? ((values.get("creator_id") ?? null) as string | null);
+        // `COALESCE(?, (SELECT sort_order FROM indices WHERE id = ?), 99)` keeps
+        // the stored order when the request does not provide one.
+        const requestedSortOrder = values.get("sort_order");
+        const sortOrder =
+          typeof requestedSortOrder === "number"
+            ? requestedSortOrder
+            : (indices.get(id)?.sort_order ?? 50);
         indices.set(id, {
           id,
           name,
           description,
           base_value: baseValue,
           owner_token_hash: hash || null,
+          owner_token_issued_at: issuedAt,
           creator_id: creatorId,
           sort_order: sortOrder,
         });
@@ -204,8 +335,10 @@ describe("Comprehensive Review & Hardening Audit", () => {
     it("preserves original creator's owner_token_hash when admin edits custom index", async () => {
       const { env, indices } = createAuditTestEnv();
 
-      // 1. User creates custom index
-      const userToken = "user-secret-uuid-1234";
+      // 1. User creates custom index.
+      // SEC-04: a newly set owner token has to match
+      // `^[A-Za-z0-9_-]{32,256}$`, so the fixture uses a strong token.
+      const userToken = "user-secret-token-0123456789abcdef";
       const createReq = new Request("http://localhost/api/indices", {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-auth-password": TEST_ADMIN_PASSWORD },
@@ -221,6 +354,10 @@ describe("Comprehensive Review & Hardening Audit", () => {
 
       const originalHash = indices.get("custom-my-portfolio")?.owner_token_hash;
       expect(originalHash).toBeTruthy();
+      // SEC-08: the issuance time is stored next to the hash.
+      const originalIssuedAt = indices.get("custom-my-portfolio")?.owner_token_issued_at;
+      expect(typeof originalIssuedAt).toBe("number");
+      expect(originalIssuedAt as number).toBeGreaterThan(0);
 
       // 2. Admin edits custom index (with admin auth, without user token)
       const adminEditReq = new Request("http://localhost/api/indices", {
@@ -232,7 +369,7 @@ describe("Comprehensive Review & Hardening Audit", () => {
         body: JSON.stringify({
           id: "custom-my-portfolio",
           name: "My Portfolio (Admin Reviewed)",
-          ownerToken: "admin-generated-uuid-5678", // Admin UI generated random token
+          ownerToken: "admin-generated-token-0123456789abcdef", // Admin UI generated random token
           basket: [
             { ticker: "7203", name: "Toyota", weight: 50 },
             { ticker: "9984", name: "SoftBank", weight: 50 },
@@ -245,6 +382,9 @@ describe("Comprehensive Review & Hardening Audit", () => {
       // Verify that the stored owner_token_hash was NOT overwritten with admin's token
       const afterAdminHash = indices.get("custom-my-portfolio")?.owner_token_hash;
       expect(afterAdminHash).toBe(originalHash);
+      // The issuance time belongs to the preserved token: resetting it would
+      // silently extend the lifetime of an already expired owner token.
+      expect(indices.get("custom-my-portfolio")?.owner_token_issued_at).toBe(originalIssuedAt);
 
       // 3. Original user updates index using their original userToken -> must succeed!
       const userUpdateReq = new Request("http://localhost/api/indices", {

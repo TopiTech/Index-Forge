@@ -1,6 +1,7 @@
 import { beforeEach, describe, it, expect, vi } from "vitest";
 import worker from "../../worker/index";
 import {
+  authenticatePassword,
   clearAuthCache,
   ensurePasswordTable,
   resetPasswordTableEnsured,
@@ -9,6 +10,14 @@ import {
 import { asWorkerEnv } from "../test-helpers/env";
 
 const TEST_ADMIN_PASSWORD = "test-admin-password";
+
+/**
+ * The message every rate-limited response carries.
+ *
+ * DATA-14 unified the error catalogue and localised the 429 message; the
+ * English "Rate limit exceeded" text no longer exists in the Worker.
+ */
+const RATE_LIMIT_MESSAGE = "リクエストが多すぎます。しばらく時間をおいてから再試行してください。";
 
 beforeEach(() => {
   clearAuthCache();
@@ -239,17 +248,49 @@ describe("Code review fixes: auth cache & same-password accounts", () => {
         body: JSON.stringify({ password: TEST_ADMIN_PASSWORD }),
       });
 
-    const first = await worker.fetch(makeReq(), env);
-    expect(first.status).toBe(200);
-    const callsAfterFirst = prepare.mock.calls.length;
-    expect(callsAfterFirst).toBeGreaterThan(0);
+    // `/api/auth/verify` can no longer authenticate the administrator (SEC-02),
+    // so the cache behaviour is asserted on the function that owns it.
+    const first = await authenticatePassword(makeReq(), env, TEST_ADMIN_PASSWORD);
+    expect(first.authenticated).toBe(true);
+    expect(first.role).toBe("admin");
+    expect(first.id).toBe("admin-master");
 
-    // Second identical request hits the cache: no additional D1 calls
-    const second = await worker.fetch(makeReq(), env);
-    expect(second.status).toBe(200);
-    expect(prepare.mock.calls.length).toBe(callsAfterFirst);
+    const callsAfterFirst = prepare.mock.calls.length;
+    const lookupsAfterFirst = countCredentialLookups(prepare);
+    expect(callsAfterFirst).toBeGreaterThan(0);
+    expect(lookupsAfterFirst).toBeGreaterThan(0);
+
+    // Second identical request hits the cache: the credential lookup (the
+    // account scan) is skipped entirely.
+    const second = await authenticatePassword(makeReq(), env, TEST_ADMIN_PASSWORD);
+    expect(second.authenticated).toBe(true);
+    expect(second.role).toBe("admin");
+    expect(second.id).toBe("admin-master");
+    expect(countCredentialLookups(prepare)).toBe(lookupsAfterFirst);
+
+    // SEC-13 moved the rate limiter in front of the auth cache, so a cached
+    // authentication costs exactly one extra D1 statement - the limiter
+    // reservation - and nothing else. The account scan is still skipped.
+    const newStatements = prepare.mock.calls
+      .slice(callsAfterFirst)
+      .map((call) => String(call[0]));
+    expect(newStatements.filter((q) => q.includes("INSERT INTO rate_limits")).length).toBe(1);
+    expect(newStatements.filter((q) => q.includes("FROM access_passwords")).length).toBe(0);
   });
 });
+
+/**
+ * Count the statements that look a credential up in D1.
+ *
+ * Both the `admin-master` lookup and the account scan qualify: neither of
+ * them may be repeated for a cached authentication.
+ */
+function countCredentialLookups(prepare: ReturnType<typeof vi.fn>): number {
+  return prepare.mock.calls.filter((call) => {
+    const query = String(call[0]);
+    return query.includes("FROM access_passwords") && query.includes("password_hash");
+  }).length;
+}
 
 describe("Code review fixes: basket size cap", () => {
   it("rejects POST /api/indices baskets larger than 500 items", async () => {
@@ -475,7 +516,7 @@ describe("Code review fixes: Security headers, rate limiting, and password schem
     );
     expect(res.status).toBe(429);
     const data = await res.json();
-    expect(data.error).toContain("Rate limit");
+    expect(data.error).toContain(RATE_LIMIT_MESSAGE);
   });
 
   it("enforces rate limiting on DELETE /api/indices/stock", async () => {
@@ -500,27 +541,120 @@ describe("Code review fixes: Security headers, rate limiting, and password schem
     );
     expect(res.status).toBe(429);
     const data = await res.json();
-    expect(data.error).toContain("Rate limit");
+    expect(data.error).toContain(RATE_LIMIT_MESSAGE);
   });
 
   it("ensures max_indices exists for both fresh and already-created password tables", async () => {
-    resetPasswordTableEnsured();
-    const executedDdl: string[] = [];
-    const { env } = createReviewEnv();
-    const origPrepare = env.DB.prepare;
-    env.DB.prepare = vi.fn().mockImplementation((query: string) => {
-      if (query.includes("CREATE TABLE IF NOT EXISTS access_passwords")) {
-        executedDdl.push(query);
-      }
-      if (query.includes("ALTER TABLE access_passwords ADD COLUMN max_indices")) {
-        executedDdl.push(query);
-      }
-      return origPrepare(query);
-    });
+    // DATA-11: ensurePasswordTable() probes sqlite_master / PRAGMA table_info
+    // and runs only the DDL that is actually missing, so the ALTER for
+    // `max_indices` is issued only when the column is really absent.
+    const fresh = createSchemaProbeEnv([], []);
+    await ensurePasswordTable(fresh.env);
+    const freshCreateTable = fresh.executedDdl.find((sql) =>
+      sql.includes("CREATE TABLE IF NOT EXISTS access_passwords"),
+    );
+    // A fresh database owns the column through the CREATE TABLE definition.
+    expect(freshCreateTable).toBeDefined();
+    expect(freshCreateTable).toContain("max_indices INTEGER DEFAULT NULL");
+    expect(fresh.executedDdl).not.toContain(
+      "ALTER TABLE access_passwords ADD COLUMN max_indices INTEGER DEFAULT NULL",
+    );
 
-    await ensurePasswordTable(env as any);
-    expect(executedDdl.length).toBeGreaterThan(0);
-    expect(executedDdl[0]).toContain("max_indices INTEGER DEFAULT NULL");
-    expect(executedDdl).toContain("ALTER TABLE access_passwords ADD COLUMN max_indices INTEGER DEFAULT NULL");
+    // An already-created table without the column still gets the ALTER.
+    resetPasswordTableEnsured();
+    const missingColumn = createSchemaProbeEnv(["access_passwords"], [
+      "id",
+      "name",
+      "password_hash",
+      "role",
+      "max_stocks",
+      "is_active",
+      "created_at",
+      "updated_at",
+    ]);
+    await ensurePasswordTable(missingColumn.env);
+    expect(missingColumn.executedDdl).toContain(
+      "ALTER TABLE access_passwords ADD COLUMN max_indices INTEGER DEFAULT NULL",
+    );
+    expect(
+      missingColumn.executedDdl.find((sql) =>
+        sql.includes("CREATE TABLE IF NOT EXISTS access_passwords"),
+      ),
+    ).toBeUndefined();
+
+    // An already-created table that already has the column is left alone:
+    // re-running the ALTER on every cold start was the defect DATA-11 fixed.
+    resetPasswordTableEnsured();
+    const existingColumn = createSchemaProbeEnv(["access_passwords"], [
+      "id",
+      "name",
+      "password_hash",
+      "role",
+      "max_stocks",
+      "max_indices",
+      "secret_code_hash",
+      "is_active",
+      "created_at",
+      "updated_at",
+    ]);
+    await ensurePasswordTable(existingColumn.env);
+    expect(existingColumn.executedDdl).not.toContain(
+      "ALTER TABLE access_passwords ADD COLUMN max_indices INTEGER DEFAULT NULL",
+    );
+    expect(
+      existingColumn.executedDdl.find((sql) =>
+        sql.includes("CREATE TABLE IF NOT EXISTS access_passwords"),
+      ),
+    ).toBeUndefined();
   });
 });
+
+/**
+ * D1 double for the schema-provisioning path.
+ *
+ * It answers the `sqlite_master` / `PRAGMA table_info` probes with the given
+ * objects and records every DDL statement that is actually executed.
+ */
+function createSchemaProbeEnv(existingTables: string[], existingColumns: string[]) {
+  const executedDdl: string[] = [];
+  const prepare = vi.fn().mockImplementation((query: string) => {
+    const okStatement = {
+      bind: () => ({
+        all: async () => ({ results: [] }),
+        run: async () => ({ success: true }),
+      }),
+      all: async () => ({ results: [] }),
+      run: async () => ({ success: true }),
+    };
+
+    if (query.includes("sqlite_master")) {
+      return {
+        ...okStatement,
+        all: async () => ({
+          results: existingTables.map((name) => ({ type: "table", name })),
+        }),
+      };
+    }
+
+    const pragmaTable = query.match(/PRAGMA table_info\((\w+)\)/)?.[1];
+    if (pragmaTable) {
+      const names = pragmaTable === "access_passwords" ? existingColumns : [];
+      return {
+        ...okStatement,
+        all: async () => ({ results: names.map((name) => ({ name })) }),
+      };
+    }
+
+    if (/^\s*(CREATE TABLE|CREATE INDEX|ALTER TABLE)/i.test(query)) {
+      executedDdl.push(query);
+    }
+    return okStatement;
+  });
+
+  return {
+    env: asWorkerEnv({
+      DB: { prepare, batch: vi.fn().mockResolvedValue([]) },
+    }) as Env,
+    executedDdl,
+  };
+}

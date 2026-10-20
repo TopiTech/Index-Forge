@@ -17,6 +17,11 @@ import { calculateRiskMetrics } from "../lib/analytics";
 import { filterByTimeframe } from "../lib/timeframe";
 import { isPriceCacheFresh } from "../lib/marketCache";
 import { mergeSyncCache, readSyncCache } from "../lib/syncCache";
+import { getAuthHeaders } from "../lib/auth";
+// The "sync prices → calculate" contract (batch size, auth headers, warning
+// texts, abort policy) is owned by src/lib/priceSync so the builder preview
+// and the dashboard cannot drift apart again.
+import { syncPricesInBatches } from "../lib/priceSync";
 import { useBenchmark, isBenchmarkDataForSymbol } from "./useBenchmark";
 
 export interface ConstituentPerformance {
@@ -62,23 +67,13 @@ const API_BASE = "/api";
 // overwrite each other's entries.
 
 /**
- * Maximum tickers accepted per /api/sync-prices request. The Worker rejects
- * larger requests with a 400 instead of silently truncating, so callers must
- * batch themselves.
+ * Split tickers into sync batches no larger than the Worker's request limit.
+ *
+ * The batching itself is implemented by src/lib/priceSync (the single owner
+ * of the sync contract); it is re-exported here because existing callers
+ * import it from this hook.
  */
-const SYNC_BATCH_SIZE = 30;
-
-/** Split tickers into sync batches no larger than the Worker's request limit. */
-export function buildSyncBatches(
-  tickers: readonly string[],
-  maxBatch = SYNC_BATCH_SIZE,
-): string[][] {
-  const batches: string[][] = [];
-  for (let i = 0; i < tickers.length; i += maxBatch) {
-    batches.push(tickers.slice(i, i + maxBatch));
-  }
-  return batches;
-}
+export { buildSyncBatches } from "../lib/priceSync";
 
 /**
  * What the simulation effect must do when the basket or its ticker set changes.
@@ -285,63 +280,34 @@ export function useSimulation(
         // The Worker refreshes its D1 price cache; the calculation below then
         // reads the refreshed rows.
         if (tickersToSync.length > 0) {
-          const syncWarnings: string[] = [];
-          const newlySynced: { ticker: string; lastSynced: number }[] = [];
-          for (const batch of buildSyncBatches(tickersToSync)) {
-            if (controller.signal.aborted || isSuperseded()) return;
-            try {
-              const syncRes = await fetch(`${API_BASE}/sync-prices`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ tickers: batch, force: false }),
-                signal: controller.signal,
-              });
-              if (controller.signal.aborted || isSuperseded()) return;
-              if (!syncRes.ok) {
-                syncWarnings.push(`価格同期バッチ ${batch.length} 件の取得に失敗しました`);
-                continue;
-              }
-              const syncData = (await syncRes.json().catch(() => ({}))) as {
-                results?: Array<{ ticker?: string; status?: string; lastSynced?: number }>;
-              };
-              if (!Array.isArray(syncData.results)) continue;
+          // The Worker caps one sync request at 12 tickers and rejects a
+          // larger batch with 400, so the batching, the auth headers, the
+          // warning texts and the abort policy all live in
+          // src/lib/priceSync (shared with the dashboard).
+          const { synced, warnings } = await syncPricesInBatches({
+            tickers: tickersToSync,
+            signal: controller.signal,
+            force: false,
+            // Guests send no auth header at all.
+            authHeaders: getAuthHeaders(),
+            isSuperseded,
+          });
+          // An aborted sync (unmount or a superseded basket) must not publish
+          // any state.
+          if (controller.signal.aborted || isSuperseded()) return;
 
-              const nowMs = Date.now();
-              for (const r of syncData.results) {
-                if (r.status === "synced" || r.status === "cached") {
-                  const nt = typeof r.ticker === "string" ? normalizeTicker(r.ticker) : "";
-                  if (nt) {
-                    newlySynced.push({
-                      ticker: nt,
-                      lastSynced:
-                        typeof r.lastSynced === "number" && Number.isFinite(r.lastSynced) && r.lastSynced > 0
-                          ? (r.lastSynced < 1e11 ? Math.round(r.lastSynced * 1000) : Math.round(r.lastSynced))
-                          : nowMs,
-                    });
-                  }
-                }
-              }
-              const failed = syncData.results
-                .filter((r) => r.status === "failed")
-                .map((r) => (typeof r.ticker === "string" ? r.ticker : ""));
-              if (failed.length > 0) {
-                syncWarnings.push(`一部銘柄の価格取得に失敗: ${failed.join(", ")}`);
-              }
-            } catch (err) {
-              if (
-                controller.signal.aborted ||
-                (err instanceof DOMException && err.name === "AbortError")
-              ) {
-                return;
-              }
-              syncWarnings.push("価格同期で通信エラーが発生しました");
-            }
+          if (synced.length > 0) {
+            // The freshness lookup is keyed by the normalized ticker, so the
+            // shared cache must be written with the same normalization.
+            mergeSyncCache(
+              synced.map((entry) => ({
+                ticker: normalizeTicker(entry.ticker),
+                lastSynced: entry.lastSynced,
+              })),
+            );
           }
-          if (newlySynced.length > 0) {
-            mergeSyncCache(newlySynced);
-          }
-          if (syncWarnings.length > 0) {
-            setSyncWarnings(Array.from(new Set(syncWarnings)));
+          if (warnings.length > 0) {
+            setSyncWarnings(Array.from(new Set(warnings)));
           }
         }
 

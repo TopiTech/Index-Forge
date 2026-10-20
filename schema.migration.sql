@@ -25,6 +25,17 @@ ALTER TABLE access_passwords ADD COLUMN max_indices INTEGER DEFAULT NULL;
 ALTER TABLE indices ADD COLUMN creator_id TEXT;
 CREATE INDEX IF NOT EXISTS idx_indices_creator_id ON indices(creator_id);
 
+-- Migration: owner tokens are no longer valid forever. Every write that sets
+-- owner_token_hash must also set owner_token_issued_at. Rows migrated here had
+-- no issue date, so the API treats a missing date as "grandfathered" and keeps
+-- them usable; the backfill below records the migration time so those rows
+-- enter the normal rotation window instead of an eternal exemption.
+ALTER TABLE indices ADD COLUMN owner_token_issued_at INTEGER;
+UPDATE indices
+   SET owner_token_issued_at = CAST(strftime('%s','now') AS INTEGER)
+ WHERE owner_token_issued_at IS NULL
+   AND owner_token_hash IS NOT NULL;
+
 -- Migration: Add admin_login_attempts table and secret_code_hash to access_passwords.
 CREATE TABLE IF NOT EXISTS admin_login_attempts (
     ip TEXT PRIMARY KEY,
@@ -35,6 +46,35 @@ CREATE TABLE IF NOT EXISTS admin_login_attempts (
 -- Note: the Worker automatically provisions secret_code_hash at runtime via ensurePasswordTable(),
 -- but if applying migrations manually to a pre-existing database lacking the column, uncomment:
 -- ALTER TABLE access_passwords ADD COLUMN secret_code_hash TEXT;
+
+-- Migration: administrator 2FA sessions (only the SHA-256 of the token is stored).
+CREATE TABLE IF NOT EXISTS admin_sessions (
+    token_hash TEXT PRIMARY KEY,
+    account_id TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_admin_sessions_account_id ON admin_sessions(account_id);
+CREATE INDEX IF NOT EXISTS idx_admin_sessions_expires_at ON admin_sessions(expires_at);
+
+-- Migration: per-IP daily ticker budget for the unauthenticated /api/sync-prices.
+CREATE TABLE IF NOT EXISTS sync_quota (
+    ip TEXT NOT NULL,
+    day TEXT NOT NULL,
+    tickers INTEGER NOT NULL,
+    PRIMARY KEY (ip, day)
+);
+
+-- Migration: the expired-window purge of rate_limits filters on window_start,
+-- which the (ip, endpoint) primary key does not cover. Without this index the
+-- purge is a full table scan on a write-quota-limited database.
+CREATE INDEX IF NOT EXISTS idx_rate_limits_window_start ON rate_limits(window_start);
+
+-- Migration: drop indexes that only duplicated an existing one. idx_basket_items_index_id
+-- repeats the prefix of UNIQUE(index_id, ticker); idx_access_passwords_hash backed a
+-- lookup that is never used (password hashes are salted, so they are never searched).
+DROP INDEX IF EXISTS idx_basket_items_index_id;
+DROP INDEX IF EXISTS idx_access_passwords_hash;
 
 
 -- Legacy releases stored issued passwords in plain text. Scrub those values

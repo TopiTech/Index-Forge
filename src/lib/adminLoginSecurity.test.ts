@@ -488,15 +488,76 @@ describe("Admin Login Security: Turnstile, Rate Limiting, and Secret Code", () =
   });
 
   describe("Content Security Policy (CSP)", () => {
+    /**
+     * Split the policy into its directives.
+     *
+     * SEC-07 removed `'unsafe-inline'` from `script-src` (the inline reload
+     * script moved to `public/reload-suppress.js`) and added `worker-src` and
+     * the TradingView widget origins. Asserting on the whole directive string
+     * would re-introduce that brittleness, so each directive is checked on its
+     * own: the required origins must be present, and `script-src` must stay
+     * free of `'unsafe-inline'`.
+     */
+    function parseCsp(header: string): Map<string, string[]> {
+      const directives = new Map<string, string[]>();
+      for (const part of header.split(";")) {
+        const tokens = part.trim().split(/\s+/).filter(Boolean);
+        if (tokens.length === 0) continue;
+        directives.set(tokens[0], tokens.slice(1));
+      }
+      return directives;
+    }
+
     it("includes https://challenges.cloudflare.com in script-src, frame-src, and connect-src", async () => {
       const { env } = createTestEnv();
       const req = new Request("http://localhost/");
       const res = await worker.fetch(req, env as any);
 
       const csp = res.headers.get("Content-Security-Policy") || "";
-      expect(csp).toContain("script-src 'self' 'unsafe-inline' https://s3.tradingview.com https://*.tradingview.com https://challenges.cloudflare.com");
-      expect(csp).toContain("frame-src 'self' https://www.tradingview-widget.com https://s.tradingview.com https://*.tradingview.com https://challenges.cloudflare.com");
-      expect(csp).toContain("connect-src 'self' https://*.tradingview.com https://*.tradingview-widget.com wss://*.tradingview.com https://challenges.cloudflare.com");
+      expect(csp).not.toBe("");
+      const directives = parseCsp(csp);
+
+      const scriptSrc = directives.get("script-src") || [];
+      const frameSrc = directives.get("frame-src") || [];
+      const connectSrc = directives.get("connect-src") || [];
+
+      expect(scriptSrc).toContain("https://challenges.cloudflare.com");
+      expect(frameSrc).toContain("https://challenges.cloudflare.com");
+      expect(connectSrc).toContain("https://challenges.cloudflare.com");
+
+      // The Turnstile widget still needs the TradingView origins.
+      expect(scriptSrc).toContain("'self'");
+      expect(scriptSrc).toContain("https://s3.tradingview.com");
+      expect(scriptSrc).toContain("https://*.tradingview.com");
+      expect(frameSrc).toContain("https://www.tradingview-widget.com");
+      expect(frameSrc).toContain("https://s.tradingview.com");
+      expect(connectSrc).toContain("wss://*.tradingview.com");
+    });
+
+    it("keeps 'unsafe-inline' out of script-src after the inline script was externalized", async () => {
+      const { env } = createTestEnv();
+      const req = new Request("http://localhost/");
+      const res = await worker.fetch(req, env as any);
+
+      const csp = res.headers.get("Content-Security-Policy") || "";
+      const directives = parseCsp(csp);
+
+      expect(directives.get("script-src") || []).not.toContain("'unsafe-inline'");
+      // style-src keeps its inline allowance: the app still ships inline styles.
+      expect(directives.get("style-src") || []).toContain("'unsafe-inline'");
+    });
+
+    it("declares worker-src and the TradingView widget origins for the embedded widgets", async () => {
+      const { env } = createTestEnv();
+      const req = new Request("http://localhost/");
+      const res = await worker.fetch(req, env as any);
+
+      const csp = res.headers.get("Content-Security-Policy") || "";
+      const directives = parseCsp(csp);
+
+      expect(directives.get("worker-src") || []).toEqual(["'self'", "blob:"]);
+      expect(directives.get("frame-src") || []).toContain("https://*.tradingview-widget.com");
+      expect(directives.get("img-src") || []).toContain("https://*.tradingview-widget.com");
     });
   });
 });

@@ -1,20 +1,65 @@
-import { beforeEach, describe, it, expect, vi } from "vitest";
+import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
 import worker from "../../worker/index";
 import {
   toYahooSymbol,
   SYSTEM_INDICES,
   hashToken,
+  authenticatePassword,
   clearAuthCache,
+  clearMemoryCache,
   resetPasswordTableEnsured,
   setAllowMemoryCacheInTest,
 } from "../../worker/internal";
 
 const TEST_ADMIN_PASSWORD = "test-admin-password";
 
+/**
+ * The message every rate-limited response carries.
+ *
+ * DATA-14 unified the error catalogue and localised the 429 message; the
+ * English "Rate limit exceeded" text no longer exists in the Worker.
+ */
+const RATE_LIMIT_MESSAGE = "リクエストが多すぎます。しばらく時間をおいてから再試行してください。";
+
 beforeEach(() => {
   clearAuthCache();
+  clearMemoryCache();
   resetPasswordTableEnsured();
 });
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+/**
+ * Deterministic Yahoo Finance test double.
+ *
+ * `/api/ticker-prices` reads the live quotes from Yahoo. Letting those
+ * requests escape turns the assertion into a network probe (and into a
+ * rate-limit victim on a shared runner), so every Yahoo URL is answered from
+ * a fixed table here. The stub reports "no live quote", which drives the
+ * endpoint down its documented static-fallback path.
+ */
+function stubYahooFinanceWithoutLiveData(): ReturnType<typeof vi.fn> {
+  const fetchSpy = vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.startsWith("https://fc.yahoo.com")) {
+      return new Response("", {
+        status: 200,
+        headers: { "set-cookie": "A1=test-cookie; Path=/; Domain=.yahoo.com" },
+      });
+    }
+    if (url.includes("/v1/test/getcrumb")) {
+      return new Response("test-crumb", { status: 200 });
+    }
+    return new Response(JSON.stringify({ chart: { result: [] } }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  });
+  vi.stubGlobal("fetch", fetchSpy);
+  return fetchSpy;
+}
 
 function createMockEnv(overrides?: Partial<any>) {
   const executeQuery = async (query: string, params: unknown[] = []) => {
@@ -467,21 +512,19 @@ describe("worker fetch handlers", () => {
     });
 
     // Mock fetch to return empty series (fresh fetch fails)
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ chart: { result: [] } }), { status: 200 }),
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ chart: { result: [] } }), { status: 200 }),
+      ),
     );
 
-    try {
-      const req = new Request("http://localhost/api/snapshot?symbol=%5EN225");
-      const res = await worker.fetch(req, env as any);
-      // Because cache is corrupt and fresh fetch returns no data, it cleanly returns 502 instead of unhandled 500 crash
-      expect(res.status).toBe(502);
-      const data = await res.json();
-      expect(data.error).toBeDefined();
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
+    const req = new Request("http://localhost/api/snapshot?symbol=%5EN225");
+    const res = await worker.fetch(req, env as any);
+    // Because cache is corrupt and fresh fetch returns no data, it cleanly returns 502 instead of unhandled 500 crash
+    expect(res.status).toBe(502);
+    const data = await res.json();
+    expect(data.error).toBeDefined();
   });
 
   it("hashToken generates a 64-character hex SHA-256 string", async () => {
@@ -697,7 +740,7 @@ describe("worker fetch handlers", () => {
     const res = await worker.fetch(req, env as any);
     expect(res.status).toBe(429);
     const data = await res.json();
-    expect(data.error).toContain("Rate limit exceeded");
+    expect(data.error).toContain(RATE_LIMIT_MESSAGE);
   });
 
   it("DELETE /api/indices returns 429 when rate limit is exceeded", async () => {
@@ -719,7 +762,7 @@ describe("worker fetch handlers", () => {
     const res = await worker.fetch(req, env as any);
     expect(res.status).toBe(429);
     const data = await res.json();
-    expect(data.error).toContain("Rate limit exceeded");
+    expect(data.error).toContain(RATE_LIMIT_MESSAGE);
   });
 
   it("POST /api/indices rejects ownerToken exceeding 256 characters with 400", async () => {
@@ -749,7 +792,12 @@ describe("worker fetch handlers", () => {
   });
 
   describe("Authentication & Admin Password Management", () => {
-    it("POST /api/auth/verify verifies the configured deployment admin password", async () => {
+    it("POST /api/auth/verify never authenticates the deployment admin password", async () => {
+      // SEC-02: `/api/auth/verify` is an unauthenticated endpoint, so it can
+      // only ever return a non-admin account. The deployment administrator
+      // password must therefore be rejected with the generic message instead of
+      // granting an admin session (the administrator logs in through
+      // `/api/auth/admin-login`, which issues an `x-admin-session` token).
       const env = createMockEnv();
       const req = new Request("http://localhost/api/auth/verify", {
         method: "POST",
@@ -758,10 +806,14 @@ describe("worker fetch handlers", () => {
       });
 
       const res = await worker.fetch(req, env as any);
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(401);
       const data = await res.json();
-      expect(data.ok).toBe(true);
-      expect(data.role).toBe("admin");
+      expect(data.ok).toBe(false);
+      expect(data.role).toBeUndefined();
+      expect(data.id).toBeUndefined();
+      expect(data.name).toBeUndefined();
+      expect(data.adminToken).toBeUndefined();
+      expect(data.error).toBe("パスワードが正しくありません");
     });
 
     it("POST /api/auth/verify rejects incorrect password with 401", async () => {
@@ -806,9 +858,30 @@ describe("worker fetch handlers", () => {
       });
 
       const res = await worker.fetch(req, env as any);
-      expect(res.status).toBe(401);
+      // The request must fail closed: the limiter is unavailable, so nothing
+      // may authenticate and no session may be handed out. The refusal is
+      // reported as a rate-limit condition (429), never as a wrong password,
+      // so a D1 outage stays diagnosable.
+      expect(res.status).toBe(429);
       const data = await res.json();
+      expect(data.ok).toBe(false);
+      expect(data.role).toBeUndefined();
+      expect(data.id).toBeUndefined();
+      expect(data.adminToken).toBeUndefined();
       expect(data.error).toContain("認証試行回数");
+      expect(data.error).not.toContain("パスワードが正しくありません");
+
+      // The same distinction is owned by `authenticatePassword` (SEC-13 moved
+      // the limiter in front of the auth cache), so it is asserted there too.
+      const auth = await authenticatePassword(
+        req,
+        env as any,
+        TEST_ADMIN_PASSWORD,
+        "auth-login",
+      );
+      expect(auth.authenticated).toBe(false);
+      expect(auth.error).toContain("認証試行回数");
+      expect(auth.error).not.toContain("パスワードが正しくありません");
     });
 
     it("GET /api/admin/passwords rejects non-admin with 403", async () => {
@@ -1130,6 +1203,8 @@ describe("worker fetch handlers", () => {
     it("returns ticker prices for all 9 symbols via GET /api/ticker-prices", async () => {
       setAllowMemoryCacheInTest(true);
       try {
+        // Hermetic: the endpoint must not depend on Yahoo being reachable.
+        stubYahooFinanceWithoutLiveData();
         const env = createMockEnv();
         const req = new Request("http://localhost/api/ticker-prices", {
           method: "GET",
@@ -1162,15 +1237,50 @@ describe("worker fetch handlers", () => {
         expect(typeof nikkei!.formattedPrice).toBe("string");
         expect(typeof nikkei!.formattedChange).toBe("string");
 
-        // ETag conditional check
+        // ETag conditional check. The precondition is asserted first: a
+        // missing ETag used to skip the whole revalidation block, so the
+        // 304 path was never exercised.
         const etag = res.headers.get("etag");
-        if (etag) {
-          const cachedReq = new Request("http://localhost/api/ticker-prices", {
-            method: "GET",
-            headers: { "if-none-match": etag },
-          });
-          const cachedRes = await worker.fetch(cachedReq, env as any);
-          expect(cachedRes.status).toBe(304);
+        expect(etag).toBeTruthy();
+        expect(typeof etag).toBe("string");
+
+        const cachedReq = new Request("http://localhost/api/ticker-prices", {
+          method: "GET",
+          headers: { "if-none-match": etag! },
+        });
+        const cachedRes = await worker.fetch(cachedReq, env as any);
+        expect(cachedRes.status).toBe(304);
+      } finally {
+        setAllowMemoryCacheInTest(false);
+      }
+    });
+
+    it("serves the static ticker fallback (and flags it as stale) when Yahoo has no live quote", async () => {
+      setAllowMemoryCacheInTest(true);
+      try {
+        const fetchSpy = stubYahooFinanceWithoutLiveData();
+        const env = createMockEnv();
+        const res = await worker.fetch(
+          new Request("http://localhost/api/ticker-prices", { method: "GET" }),
+          env as any,
+        );
+
+        expect(res.status).toBe(200);
+        // The request never left the process.
+        expect(fetchSpy).toHaveBeenCalled();
+
+        const data = (await res.json()) as {
+          quotes: { proName: string; price: number; stale?: boolean }[];
+          allStale?: boolean;
+        };
+        expect(data.quotes.length).toBe(9);
+        // No live quote was available, so every entry is the declared fallback
+        // and the payload must disclose that.
+        expect(data.allStale).toBe(true);
+        for (const quote of data.quotes) {
+          expect(quote.stale).toBe(true);
+          expect(Number.isFinite(quote.price)).toBe(true);
+          expect(quote.price).toBeGreaterThan(0);
         }
       } finally {
         setAllowMemoryCacheInTest(false);

@@ -132,6 +132,37 @@ export interface LiveQuoteItem {
   isPositive: boolean;
 }
 
+/** One quote row as returned by `GET /api/ticker-prices`. */
+interface TickerQuoteRow {
+  proName: string;
+  formattedPrice: string;
+  formattedChange: string;
+  formattedChangePercent: string;
+  isPositive: boolean;
+  stale?: boolean;
+}
+
+/** Body of `GET /api/ticker-prices`. */
+interface TickerQuotesResponse {
+  updatedAt?: string;
+  allStale?: boolean;
+  quotes?: TickerQuoteRow[];
+}
+
+/**
+ * DATA-29: a payload is only usable when it carries a quotes array.
+ *
+ * The ETag is committed only after this check succeeds, so a truncated or
+ * unexpected body cannot make the next poll answer `304` for quotes that were
+ * never applied.
+ */
+function isUsableQuotesPayload(
+  data: TickerQuotesResponse | null | undefined,
+): data is TickerQuotesResponse & { quotes: TickerQuoteRow[] } {
+  if (!data) return false;
+  return Array.isArray(data.quotes);
+}
+
 export function determineTickFlashDirection(
   prevFormattedPrice: string,
   newFormattedPrice: string,
@@ -143,6 +174,23 @@ export function determineTickFlashDirection(
     return newNum > prevNum ? "up" : "down";
   }
   return isPositiveFallback ? "up" : "down";
+}
+
+/**
+ * Decide whether the tape may claim LIVE, and return the quotes that are
+ * fresh enough to publish.
+ *
+ * Quotes flagged stale by the Worker are static/previous fallbacks. They must
+ * stay out of the live map so the tape remains in 参考値 mode and the badge
+ * never claims LIVE on fully-stale data (or when no quote is fresh at all).
+ */
+export function resolveLiveQuotes<T extends { stale?: boolean }>(data: {
+  allStale?: boolean;
+  quotes?: T[];
+}): { isLive: boolean; freshQuotes: T[] } {
+  const freshQuotes = (data.quotes ?? []).filter((q) => q && !q.stale);
+  const isLive = !data.allStale && freshQuotes.length > 0;
+  return { isLive, freshQuotes };
 }
 
 export function TradingViewTickerTape() {
@@ -158,6 +206,17 @@ export function TradingViewTickerTape() {
   const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const etagRef = useRef<string | null>(null);
 
+  /**
+   * DATA-29: identity of the newest quote request.
+   *
+   * Every poll starts a new generation and aborts the request that is still in
+   * flight, so a slow answer can never overwrite a newer one. Only the newest
+   * request may publish quotes, and an aborted or unmounted request must not
+   * write any state.
+   */
+  const requestGenerationRef = useRef(0);
+  const abortControllerRef = useRef<AbortController | null>(null);
+
   const isMountedRef = useRef(true);
 
   // Clear timers on unmount
@@ -165,6 +224,11 @@ export function TradingViewTickerTape() {
     isMountedRef.current = true;
     return () => {
       isMountedRef.current = false;
+      // DATA-29: the in-flight request is invalidated and aborted, so its
+      // response cannot publish quotes after unmount.
+      requestGenerationRef.current += 1;
+      abortControllerRef.current?.abort();
+      abortControllerRef.current = null;
       if (hoverTimerRef.current) {
         clearTimeout(hoverTimerRef.current);
       }
@@ -176,92 +240,96 @@ export function TradingViewTickerTape() {
 
   // Fetch real-time market quotes from worker API (with ETag conditional request)
   const fetchQuotes = useCallback(async () => {
+    // DATA-29: this request supersedes every older one. Only the newest
+    // generation may publish quotes.
+    const generation = requestGenerationRef.current + 1;
+    requestGenerationRef.current = generation;
+    abortControllerRef.current?.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
+    /** True while this request is the newest one and the tape is still mounted. */
+    const isCurrent = () =>
+      requestGenerationRef.current === generation &&
+      !controller.signal.aborted &&
+      isMountedRef.current;
+
     try {
       const headers: Record<string, string> = {};
       if (etagRef.current) {
         headers["If-None-Match"] = etagRef.current;
       }
-      const res = await fetch("/api/ticker-prices", { headers });
-      if (!isMountedRef.current) return;
+      const res = await fetch("/api/ticker-prices", { headers, signal: controller.signal });
+      if (!isCurrent()) return;
       if (res.status === 304) {
         // Data has not changed; retain current quotes and save client processing
         return;
       }
       if (!res.ok) return;
 
+      // DATA-29: the body is parsed and validated *before* the new ETag is
+      // committed. Committing it earlier would let the next poll answer `304`
+      // against the quotes that are still on screen, because the new body was
+      // never applied (parse failure / unusable payload).
+      const data = (await res.json()) as TickerQuotesResponse;
+      if (!isCurrent()) return;
+      if (!isUsableQuotesPayload(data)) return;
+
       const newEtag = res.headers.get("etag");
       if (newEtag) {
         etagRef.current = newEtag;
       }
 
-      const data = (await res.json()) as {
-        updatedAt?: string;
-        allStale?: boolean;
-        quotes?: {
-          proName: string;
-          formattedPrice: string;
-          formattedChange: string;
-          formattedChangePercent: string;
-          isPositive: boolean;
-          stale?: boolean;
-        }[];
-      };
+      // Quotes flagged stale by the Worker are static/previous fallbacks.
+      // Keep them out of the live map so the tape stays in 参考値 mode and
+      // the badge never claims LIVE on fully-stale data.
+      const { isLive: quotesAreLive, freshQuotes } = resolveLiveQuotes(data);
+      if (!quotesAreLive) {
+        setIsLive(false);
+        return;
+      }
+      const quotesToApply = freshQuotes;
+      const prev = liveQuotesRef.current;
+      const next = { ...prev };
+      const newFlashes: Record<string, "up" | "down"> = {};
 
-      if (!isMountedRef.current) return;
-
-      if (Array.isArray(data.quotes) && data.quotes.length > 0) {
-        // Quotes flagged stale by the Worker are static/previous fallbacks.
-        // Keep them out of the live map so the tape stays in 参考値 mode and
-        // the badge never claims LIVE on fully-stale data.
-        const freshQuotes = data.quotes.filter((q) => q && !q.stale);
-        if (data.allStale || freshQuotes.length === 0) {
-          if (isMountedRef.current) setIsLive(false);
-          return;
-        }
-        const quotesToApply = freshQuotes;
-        if (!isMountedRef.current) return;
-        const prev = liveQuotesRef.current;
-        const next = { ...prev };
-        const newFlashes: Record<string, "up" | "down"> = {};
-
-        for (const q of quotesToApply) {
-          if (q.proName && q.formattedPrice) {
-            const prevItem = prev[q.proName];
-            if (prevItem && prevItem.price !== q.formattedPrice) {
-              newFlashes[q.proName] = determineTickFlashDirection(
-                prevItem.price,
-                q.formattedPrice,
-                q.isPositive,
-              );
-            }
-            next[q.proName] = {
-              price: q.formattedPrice,
-              change: q.formattedChange,
-              changePercent: q.formattedChangePercent,
-              isPositive: q.isPositive,
-            };
+      for (const q of quotesToApply) {
+        if (q.proName && q.formattedPrice) {
+          const prevItem = prev[q.proName];
+          if (prevItem && prevItem.price !== q.formattedPrice) {
+            newFlashes[q.proName] = determineTickFlashDirection(
+              prevItem.price,
+              q.formattedPrice,
+              q.isPositive,
+            );
           }
-        }
-
-        setLiveQuotes(next);
-        liveQuotesRef.current = next;
-
-        if (Object.keys(newFlashes).length > 0) {
-          setFlashItems(newFlashes);
-          if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
-          flashTimerRef.current = setTimeout(() => {
-            if (isMountedRef.current) {
-              setFlashItems({});
-            }
-          }, 800);
-        }
-
-        if (isMountedRef.current) {
-          setIsLive(true);
+          next[q.proName] = {
+            price: q.formattedPrice,
+            change: q.formattedChange,
+            changePercent: q.formattedChangePercent,
+            isPositive: q.isPositive,
+          };
         }
       }
+
+      setLiveQuotes(next);
+      liveQuotesRef.current = next;
+
+      if (Object.keys(newFlashes).length > 0) {
+        setFlashItems(newFlashes);
+        if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
+        flashTimerRef.current = setTimeout(() => {
+          if (isMountedRef.current) {
+            setFlashItems({});
+          }
+        }, 800);
+      }
+
+      setIsLive(true);
     } catch {
-      // Gracefully retain existing or default values when offline/error
+      // Gracefully retain existing or default values when offline/error.
+      // A body that could not be parsed leaves the previous ETag untouched,
+      // so the next poll asks for the full payload again.
     }
   }, []);
 

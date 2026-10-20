@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { resolveStockTicker } from "./navigation";
 import {
   fetchUpcomingEvents,
@@ -14,6 +14,12 @@ describe("Comprehensive Project Code Review & Goal Fulfillment Tests", () => {
   beforeEach(() => {
     resetLastKnownScreenerUniverse();
     vi.restoreAllMocks();
+  });
+
+  afterEach(() => {
+    // The fetch stub of a test is removed again, so no test can observe the
+    // network double of another test.
+    vi.unstubAllGlobals();
   });
 
   describe("1. URL Navigation and Ticker Normalization Hardening", () => {
@@ -53,28 +59,34 @@ describe("Comprehensive Project Code Review & Goal Fulfillment Tests", () => {
 
   describe("2. Screener Universe Fallback & isDemoData Flag Propagation", () => {
     it("propagates isDemoData flag on screener items when live quote is unavailable", async () => {
-      const originalFetch = globalThis.fetch;
-      // Mock fetch failure so it must fall back to local generators
-      globalThis.fetch = vi.fn().mockRejectedValue(new Error("Network offline"));
+      // The Worker asks Yahoo for the quotes. The stub below fails every
+      // request, so the universe must be built from the local fallbacks -
+      // deterministically, without reaching the network.
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => {
+          throw new Error("Network offline");
+        }),
+      );
 
-      try {
-        const universe = await fetchLiveScreenerUniverse(null);
+      const universe = await fetchLiveScreenerUniverse(null);
 
-        expect(universe.length).toBeGreaterThan(0);
-        for (const item of universe) {
-          expect(item.ticker).toBeDefined();
-          expect(typeof item.price).toBe("number");
-          // When live quotes are not fetched, items derived from fallback get isDemoData: true
-          expect(item.isDemoData).toBe(true);
-        }
-      } finally {
-        globalThis.fetch = originalFetch;
+      expect(universe.length).toBeGreaterThan(0);
+      for (const item of universe) {
+        expect(item.ticker).toBeDefined();
+        expect(typeof item.price).toBe("number");
+        // When live quotes are not fetched, items derived from fallback get isDemoData: true
+        expect(item.isDemoData).toBe(true);
       }
     });
 
     it("preserves isDemoData flag from previous universe when network is down", async () => {
-      const originalFetch = globalThis.fetch;
-      globalThis.fetch = vi.fn().mockRejectedValue(new Error("Network offline"));
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => {
+          throw new Error("Network offline");
+        }),
+      );
 
       const mockPrev: StockQuoteFundamentals[] = [
         {
@@ -106,14 +118,11 @@ describe("Comprehensive Project Code Review & Goal Fulfillment Tests", () => {
         },
       ];
 
-      try {
-        const result = await fetchLiveScreenerUniverse(mockPrev);
-        const toyota = result.find((s) => s.ticker === "7203");
-        expect(toyota).toBeDefined();
-        expect(toyota?.isDemoData).toBe(true);
-      } finally {
-        globalThis.fetch = originalFetch;
-      }
+      const result = await fetchLiveScreenerUniverse(mockPrev);
+      const toyota = result.find((s) => s.ticker === "7203");
+      // The ticker must be part of the universe before its flag is asserted.
+      expect(toyota).toBeDefined();
+      expect(toyota!.isDemoData).toBe(true);
     });
   });
 
@@ -131,36 +140,36 @@ describe("Comprehensive Project Code Review & Goal Fulfillment Tests", () => {
         },
       ];
 
-      const originalFetch = globalThis.fetch;
-      globalThis.fetch = vi.fn().mockResolvedValue({
-        ok: true,
-        headers: new Headers({ "content-type": "application/json" }),
-        json: async () => mockEvents,
-      } as Response);
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(
+          async () =>
+            new Response(JSON.stringify(mockEvents), {
+              status: 200,
+              headers: { "content-type": "application/json" },
+            }),
+        ),
+      );
 
-      try {
-        const events = await fetchUpcomingEvents(true);
-        expect(events).toBeDefined();
-        expect(events.length).toBe(1);
-        expect(events[0].id).toBe("test-event-1");
-      } finally {
-        globalThis.fetch = originalFetch;
-      }
+      const events = await fetchUpcomingEvents(true);
+      expect(events).toBeDefined();
+      expect(events.length).toBe(1);
+      expect(events[0].id).toBe("test-event-1");
     });
 
     it("falls back to generated upcoming events when network fetch throws", async () => {
-      const originalFetch = globalThis.fetch;
-      globalThis.fetch = vi.fn().mockRejectedValue(new Error("Network offline"));
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => {
+          throw new Error("Network offline");
+        }),
+      );
 
-      try {
-        const events = await fetchUpcomingEvents(true);
-        expect(events).toBeDefined();
-        expect(events.length).toBeGreaterThan(0);
-        // Fallback events have source: fallback
-        expect(events.every((e) => e.source === "fallback")).toBe(true);
-      } finally {
-        globalThis.fetch = originalFetch;
-      }
+      const events = await fetchUpcomingEvents(true);
+      expect(events).toBeDefined();
+      expect(events.length).toBeGreaterThan(0);
+      // Fallback events have source: fallback
+      expect(events.every((e) => e.source === "fallback")).toBe(true);
     });
   });
 

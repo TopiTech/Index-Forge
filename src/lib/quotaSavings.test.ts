@@ -9,6 +9,7 @@ import {
   resetPasswordTableEnsured,
   authenticatePassword,
 } from "../../worker/internal";
+import type { Env } from "../../worker/internal";
 import {
   isTseMarketOpen,
   getTickerPollingInterval,
@@ -29,8 +30,20 @@ interface SavingsTestEnv {
   _syncLogs: Map<string, SyncLogRow>;
   _stockSeries: Map<string, StockSeriesRow>;
   _stockPrices: Map<string, { ticker: string; date: string; price: number }>;
-  _indices: any[];
+  _indices: Array<Record<string, unknown>>;
   _prepareCalls: string[];
+}
+
+/**
+ * Test-double boundary.
+ *
+ * The Worker entry point expects a complete Cloudflare `Env` (D1, assets,
+ * secrets). These tests only exercise the D1 statements, so the double
+ * implements the D1 surface alone. The cast is confined to this helper, which
+ * keeps the `any` out of the assertions and documents where the boundary is.
+ */
+function asWorkerEnv(env: SavingsTestEnv): Env {
+  return env as unknown as Env;
 }
 
 function createSavingsTestEnv(): SavingsTestEnv {
@@ -139,7 +152,7 @@ function createSavingsTestEnv(): SavingsTestEnv {
 
   const prepareMock = vi.fn().mockImplementation((query: string) => {
     return {
-      bind: vi.fn().mockImplementation((...params: any[]) => {
+      bind: vi.fn().mockImplementation((...params: unknown[]) => {
         return {
           all: () => Promise.resolve(execute(query, params)),
           run: () => Promise.resolve({ ...execute(query, params), success: true }),
@@ -150,9 +163,11 @@ function createSavingsTestEnv(): SavingsTestEnv {
     };
   });
 
-  const batchMock = vi.fn().mockImplementation((statements: any[]) => {
-    return Promise.all(statements.map((s: any) => (s.run ? s.run() : Promise.resolve())));
-  });
+  const batchMock = vi.fn().mockImplementation(
+    (statements: Array<{ run?: () => Promise<unknown> }>) => {
+      return Promise.all(statements.map((s) => (s.run ? s.run() : Promise.resolve())));
+    },
+  );
 
   env.DB = {
     prepare: prepareMock,
@@ -161,6 +176,27 @@ function createSavingsTestEnv(): SavingsTestEnv {
 
   return env;
 }
+
+/**
+ * Hermetic default: no request may leave the process.
+ *
+ * Every route exercised below is served from the D1 double, so an outbound
+ * request would be a bug (and would make the suite depend on network egress).
+ * The stub fails loudly instead of reaching the network; the two sync-prices
+ * tests replace it with their own deterministic Yahoo answer.
+ */
+beforeEach(() => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => {
+      throw new Error("Unexpected network access in quotaSavings.test.ts");
+    }),
+  );
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 describe("Cloudflare Quota Savings: Market-Aware Cache Duration", () => {
   it("extends TTL during weekend (Saturday JST) to save D1 quota until Monday open", () => {
@@ -211,14 +247,11 @@ describe("Cloudflare Quota Savings: Market-Aware Cache Duration", () => {
 });
 
 describe("Cloudflare Quota Savings: No-Op Write Skip on Identical Price Data", () => {
-  let originalFetch: typeof globalThis.fetch;
-
   beforeEach(() => {
-    originalFetch = globalThis.fetch;
     clearMemoryCache();
   });
   afterEach(() => {
-    globalThis.fetch = originalFetch;
+    vi.unstubAllGlobals();
     clearMemoryCache();
   });
 
@@ -236,23 +269,26 @@ describe("Cloudflare Quota Savings: No-Op Write Skip on Identical Price Data", (
     });
 
     // Yahoo Finance returns the exact same latest price (no change)
-    globalThis.fetch = vi.fn().mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          chart: {
-            result: [
-              {
-                timestamp: [1788220800, 1788307200],
-                indicators: { quote: [{ close: [2480, 2500] }] },
-              },
-            ],
-          },
-        }),
-        { status: 200, headers: { "content-type": "application/json" } },
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            chart: {
+              result: [
+                {
+                  timestamp: [1788220800, 1788307200],
+                  indicators: { quote: [{ close: [2480, 2500] }] },
+                },
+              ],
+            },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
       ),
     );
 
-    const initialBatchCalls = (env.DB.batch as any).mock.calls.length;
+    const initialBatchCalls = env.DB.batch.mock.calls.length;
 
     const res = await worker.fetch(
       new Request("http://localhost/api/sync-prices", {
@@ -260,7 +296,7 @@ describe("Cloudflare Quota Savings: No-Op Write Skip on Identical Price Data", (
         headers: { "cf-connecting-ip": "1.2.3.4" },
         body: JSON.stringify({ tickers: ["7203"] }),
       }),
-      env as any,
+      asWorkerEnv(env),
     );
 
     expect(res.status).toBe(200);
@@ -268,7 +304,7 @@ describe("Cloudflare Quota Savings: No-Op Write Skip on Identical Price Data", (
     expect(data.results[0].status).toBe("cached");
 
     // D1 batch write to stock_series must NOT have been called!
-    expect((env.DB.batch as any).mock.calls.length).toBe(initialBatchCalls);
+    expect(env.DB.batch.mock.calls.length).toBe(initialBatchCalls);
 
     // Only sync_logs was updated to prevent repeated fetch
     expect(env._syncLogs.has("7203")).toBe(true);
@@ -286,50 +322,50 @@ describe("Cloudflare Quota Savings: No-Op Write Skip on Identical Price Data", (
       updated_at: Math.floor(Date.now() / 1000) - 3600,
     });
 
-    globalThis.fetch = vi.fn().mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          chart: {
-            result: [
-              {
-                timestamp: [1788220800, 1788307200, 1788393600],
-                indicators: { quote: [{ close: [2480, 2490, 2500] }] },
-              },
-            ],
-          },
-        }),
-        { status: 200, headers: { "content-type": "application/json" } },
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            chart: {
+              result: [
+                {
+                  timestamp: [1788220800, 1788307200, 1788393600],
+                  indicators: { quote: [{ close: [2480, 2490, 2500] }] },
+                },
+              ],
+            },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
       ),
     );
 
-    const initialBatchCalls = (env.DB.batch as any).mock.calls.length;
+    const initialBatchCalls = env.DB.batch.mock.calls.length;
     const res = await worker.fetch(
       new Request("http://localhost/api/sync-prices", {
         method: "POST",
         headers: { "cf-connecting-ip": "1.2.3.4" },
         body: JSON.stringify({ tickers: ["7203"] }),
       }),
-      env as any,
+      asWorkerEnv(env),
     );
 
     expect(res.status).toBe(200);
     const data = await res.json();
     expect(data.results[0].status).toBe("synced");
-    expect((env.DB.batch as any).mock.calls.length).toBeGreaterThan(initialBatchCalls);
+    expect(env.DB.batch.mock.calls.length).toBeGreaterThan(initialBatchCalls);
     expect(JSON.parse(env._stockSeries.get("7203")!.prices)[1].close).toBe(2490);
   });
 });
 
 describe("Cloudflare Quota Savings: In-Memory Calculation Cache", () => {
-  let originalFetch: typeof globalThis.fetch;
-
   beforeEach(() => {
-    originalFetch = globalThis.fetch;
     clearMemoryCache();
     setAllowMemoryCacheInTest(true);
   });
   afterEach(() => {
-    globalThis.fetch = originalFetch;
+    vi.unstubAllGlobals();
     clearMemoryCache();
     setAllowMemoryCacheInTest(false);
   });
@@ -355,7 +391,7 @@ describe("Cloudflare Quota Savings: In-Memory Calculation Cache", () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ basket, baseValue: 1000 }),
       }),
-      env as any,
+      asWorkerEnv(env),
     );
     expect(res1.status).toBe(200);
     expect(res1.headers.get("x-cache")).toBeNull();
@@ -370,7 +406,7 @@ describe("Cloudflare Quota Savings: In-Memory Calculation Cache", () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ basket, baseValue: 1000 }),
       }),
-      env as any,
+      asWorkerEnv(env),
     );
     expect(res2.status).toBe(200);
     expect(res2.headers.get("x-cache")).toBe("HIT");
@@ -397,7 +433,7 @@ describe("Cloudflare Quota Savings: In-Memory Calculation Cache", () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ basket: originalBasket, baseValue: 1000 }),
       }),
-      env as any,
+      asWorkerEnv(env),
     );
     expect(first.status).toBe(200);
 
@@ -407,7 +443,7 @@ describe("Cloudflare Quota Savings: In-Memory Calculation Cache", () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ basket: renamedBasket, baseValue: 1000 }),
       }),
-      env as any,
+      asWorkerEnv(env),
     );
     expect(second.status).toBe(200);
     expect(second.headers.get("x-cache")).toBeNull();
@@ -433,7 +469,7 @@ describe("Cloudflare Quota Savings: In-Memory Calculation Cache", () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ basket, baseValue: 1000 }),
       }),
-      env as any,
+      asWorkerEnv(env),
     );
     expect(first.status).toBe(200);
 
@@ -453,7 +489,7 @@ describe("Cloudflare Quota Savings: In-Memory Calculation Cache", () => {
         headers: { "Content-Type": "application/json", "Cache-Control": "no-cache" },
         body: JSON.stringify({ basket, baseValue: 1000 }),
       }),
-      env as any,
+      asWorkerEnv(env),
     );
     expect(second.status).toBe(200);
     expect(second.headers.get("x-cache")).toBeNull();
@@ -477,7 +513,7 @@ describe("Cloudflare Quota Savings: ETag and 304 Not Modified Support", () => {
     const env = createSavingsTestEnv();
 
     // 1st call: GET /api/indices returns 200 with ETag
-    const res1 = await worker.fetch(new Request("http://localhost/api/indices"), env as any);
+    const res1 = await worker.fetch(new Request("http://localhost/api/indices"), asWorkerEnv(env));
     expect(res1.status).toBe(200);
     const etag = res1.headers.get("etag");
     expect(etag).toBeDefined();
@@ -488,7 +524,7 @@ describe("Cloudflare Quota Savings: ETag and 304 Not Modified Support", () => {
       new Request("http://localhost/api/indices", {
         headers: { "if-none-match": etag! },
       }),
-      env as any,
+      asWorkerEnv(env),
     );
     expect(res2.status).toBe(304);
     const text = await res2.text();
@@ -498,7 +534,7 @@ describe("Cloudflare Quota Savings: ETag and 304 Not Modified Support", () => {
   it("returns ETag header on /api/snapshot and responds with 304 when If-None-Match matches", async () => {
     const env = createSavingsTestEnv();
 
-    const res1 = await worker.fetch(new Request("http://localhost/api/snapshot?symbol=%5EN225"), env as any);
+    const res1 = await worker.fetch(new Request("http://localhost/api/snapshot?symbol=%5EN225"), asWorkerEnv(env));
     expect(res1.status).toBe(200);
     const etag = res1.headers.get("etag");
     expect(etag).toBeDefined();
@@ -507,7 +543,7 @@ describe("Cloudflare Quota Savings: ETag and 304 Not Modified Support", () => {
       new Request("http://localhost/api/snapshot?symbol=%5EN225", {
         headers: { "if-none-match": etag! },
       }),
-      env as any,
+      asWorkerEnv(env),
     );
     expect(res2.status).toBe(304);
   });
@@ -525,7 +561,9 @@ describe("Cloudflare Quota Savings: Auth and Password Table Caching", () => {
 
   it("caches successful auth result to skip redundant D1 queries in authenticatePassword", async () => {
     const prepareCalls: string[] = [];
-    const env: any = {
+    // Test-double boundary: only the D1 statement recorder and the admin
+    // password are needed for the authentication path.
+    const env = {
       DB: {
         prepare: vi.fn().mockImplementation((query: string) => {
           prepareCalls.push(query);
@@ -540,7 +578,7 @@ describe("Cloudflare Quota Savings: Auth and Password Table Caching", () => {
         }),
       },
       ADMIN_PASSWORD: TEST_ADMIN_PASSWORD,
-    };
+    } as unknown as Env;
 
     const req = new Request("http://localhost/api/admin/passwords", {
       headers: { "x-auth-password": TEST_ADMIN_PASSWORD },
@@ -551,11 +589,25 @@ describe("Cloudflare Quota Savings: Auth and Password Table Caching", () => {
     expect(auth1.authenticated).toBe(true);
     const countAfterFirst = prepareCalls.length;
     expect(countAfterFirst).toBeGreaterThan(0);
+    const credentialLookupsAfterFirst = prepareCalls.filter((q) =>
+      q.includes("FROM access_passwords"),
+    ).length;
+    expect(credentialLookupsAfterFirst).toBeGreaterThan(0);
 
-    // 2nd auth call with same password: hits authCache, 0 additional D1 calls!
+    // 2nd auth call with same password: the auth cache skips the credential
+    // lookup. SEC-13 moved the rate limiter in FRONT of the cache, so a cached
+    // authentication now costs exactly one extra D1 statement - the limiter
+    // reservation - and must not re-scan the accounts.
     const auth2 = await authenticatePassword(req, env);
     expect(auth2.authenticated).toBe(true);
-    expect(prepareCalls.length).toBe(countAfterFirst);
+    const newStatements = prepareCalls.slice(countAfterFirst);
+    expect(newStatements.length).toBeGreaterThanOrEqual(1);
+    expect(newStatements.filter((q) => q.includes("INSERT INTO rate_limits")).length).toBe(1);
+    // No account re-scan: the cached result must not trigger another lookup.
+    expect(newStatements.filter((q) => q.includes("FROM access_passwords")).length).toBe(0);
+    expect(prepareCalls.filter((q) => q.includes("FROM access_passwords")).length).toBe(
+      credentialLookupsAfterFirst,
+    );
   });
 });
 
@@ -575,7 +627,7 @@ describe("Cloudflare Quota Savings: In-Memory Rate Limiting for High-Frequency E
       headers: { "cf-connecting-ip": "1.2.3.4" },
     });
 
-    const res = await worker.fetch(req, env as any);
+    const res = await worker.fetch(req, asWorkerEnv(env));
     expect(res.status).toBe(200);
 
     const rateLimitWrites = env._prepareCalls.filter((q) =>
@@ -604,7 +656,7 @@ describe("Cloudflare Quota Savings: In-Memory Rate Limiting for High-Frequency E
       }),
     });
 
-    const res = await worker.fetch(req, env as any);
+    const res = await worker.fetch(req, asWorkerEnv(env));
     expect(res.status).toBe(200);
 
     const rateLimitWrites = env._prepareCalls.filter((q) =>
@@ -622,12 +674,12 @@ describe("Cloudflare Quota Savings: In-Memory Rate Limiting for High-Frequency E
 
     // Send 60 requests: all admitted in memory
     for (let i = 0; i < 60; i++) {
-      const res = await worker.fetch(makeReq(), env as any);
+      const res = await worker.fetch(makeReq(), asWorkerEnv(env));
       expect(res.status).toBe(200);
     }
 
     // 61st request: blocked by in-memory rate limit with 429
-    const res61 = await worker.fetch(makeReq(), env as any);
+    const res61 = await worker.fetch(makeReq(), asWorkerEnv(env));
     expect(res61.status).toBe(429);
 
     // D1 rate_limits writes must STILL be exactly zero!
@@ -639,6 +691,11 @@ describe("Cloudflare Quota Savings: In-Memory Rate Limiting for High-Frequency E
 });
 
 describe("Cloudflare Quota Savings: Market-Aware Snapshot TTL for TSE Hours", () => {
+  afterEach(() => {
+    // The frozen clock must never leak into another test.
+    vi.useRealTimers();
+  });
+
   it("reuses cached snapshot data beyond 5 minutes when market is closed (weekend)", async () => {
     const env = createSavingsTestEnv();
     // Pre-populate snapshot_cache with a Saturday timestamp (2 hours ago)
@@ -647,61 +704,61 @@ describe("Cloudflare Quota Savings: Market-Aware Snapshot TTL for TSE Hours", ()
     const twoHoursLater = Math.floor(new Date("2026-09-05T03:00:00Z").getTime() / 1000);
 
     env._prepareCalls = [];
-    const originalNow = Date.now;
-    try {
-      Date.now = () => twoHoursLater * 1000;
+    // The snapshot freshness is measured against the wall clock, so the clock
+    // is frozen with the fake-timer API instead of patching `Date.now`
+    // globally. Only `Date` is faked: the Worker path must keep its real
+    // timers so the awaited request can settle.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(twoHoursLater * 1000));
 
-      // Mock DB returning cache from 2 hours ago (7200s ago, well past former 300s TTL)
-      env.DB.prepare = vi.fn().mockImplementation((query: string) => {
-        env._prepareCalls.push(query);
-        if (query.includes("FROM snapshot_cache")) {
-          return {
-            bind: vi.fn().mockReturnThis(),
-            all: () =>
-              Promise.resolve({
-                results: [
-                  {
-                    data: JSON.stringify({
-                      snapshot: {
-                        symbol: "^N225",
-                        label: "日経225",
-                        current: 39000,
-                        change: 100,
-                        changePct: 0.26,
-                      },
-                      series: [{ date: "2026-09-04", close: 39000 }],
-                    }),
-                    cached_at: saturday10am,
-                  },
-                ],
-              }),
-            run: () => Promise.resolve({ success: true }),
-          };
-        }
+    // Mock DB returning cache from 2 hours ago (7200s ago, well past former 300s TTL)
+    env.DB.prepare = vi.fn().mockImplementation((query: string) => {
+      env._prepareCalls.push(query);
+      if (query.includes("FROM snapshot_cache")) {
         return {
           bind: vi.fn().mockReturnThis(),
-          all: () => Promise.resolve({ results: [] }),
+          all: () =>
+            Promise.resolve({
+              results: [
+                {
+                  data: JSON.stringify({
+                    snapshot: {
+                      symbol: "^N225",
+                      label: "日経225",
+                      current: 39000,
+                      change: 100,
+                      changePct: 0.26,
+                    },
+                    series: [{ date: "2026-09-04", close: 39000 }],
+                  }),
+                  cached_at: saturday10am,
+                },
+              ],
+            }),
           run: () => Promise.resolve({ success: true }),
         };
-      });
+      }
+      return {
+        bind: vi.fn().mockReturnThis(),
+        all: () => Promise.resolve({ results: [] }),
+        run: () => Promise.resolve({ success: true }),
+      };
+    });
 
-      const res = await worker.fetch(
-        new Request("http://localhost/api/snapshot?symbol=%5EN225"),
-        env as any,
-      );
+    const res = await worker.fetch(
+      new Request("http://localhost/api/snapshot?symbol=%5EN225"),
+      asWorkerEnv(env),
+    );
 
-      expect(res.status).toBe(200);
-      const data = await res.json();
-      expect(data.snapshot.current).toBe(39000);
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.snapshot.current).toBe(39000);
 
-      // Must NOT have written to snapshot_cache because the weekend cache is still fresh!
-      const snapshotWrites = env._prepareCalls.filter(
-        (q) => q.includes("snapshot_cache") && q.includes("INSERT"),
-      );
-      expect(snapshotWrites.length).toBe(0);
-    } finally {
-      Date.now = originalNow;
-    }
+    // Must NOT have written to snapshot_cache because the weekend cache is still fresh!
+    const snapshotWrites = env._prepareCalls.filter(
+      (q) => q.includes("snapshot_cache") && q.includes("INSERT"),
+    );
+    expect(snapshotWrites.length).toBe(0);
   });
 });
 

@@ -4,10 +4,11 @@ import {
   clearAuthCache,
   resetPasswordTableEnsured,
 } from "../../worker/internal";
-import { normalizeTicker } from "./indexEngine";
+import { normalizeTicker, sanitizeBasketForRequest } from "./indexEngine";
 import { asWorkerEnv } from "../test-helpers/env";
 
 const TEST_ADMIN_PASSWORD = "test-admin-password";
+const TEST_INDEX_ID = "goal-resolution-index";
 
 beforeEach(() => {
   clearAuthCache();
@@ -26,8 +27,45 @@ interface PasswordRecord {
   updated_at: number;
 }
 
+/**
+ * A row of the `basket_items` table as the Worker writes it.
+ * `rowid` models the SQLite row identifier the guarded DELETE relies on.
+ */
+interface BasketRow {
+  rowid: number;
+  index_id: string;
+  ticker: string;
+  name: string;
+  weight: number;
+  theme: string;
+}
+
+/**
+ * Applies the ticker's comparison semantics of the given SQL statement:
+ * `UPPER(ticker) = ?` compares case-insensitively, `ticker = ?` does not.
+ */
+function matchesTicker(row: BasketRow, ticker: string, query: string): boolean {
+  if (query.includes("UPPER(ticker)")) {
+    return row.ticker.toUpperCase() === ticker.toUpperCase();
+  }
+  return row.ticker === ticker;
+}
+
+/**
+ * Test double for the D1 tables the Worker touches in these scenarios.
+ *
+ * Only the statements the Worker actually issues are modelled, and each one
+ * keeps the *semantics* of the production SQL: a predicate written as
+ * `UPPER(ticker) = ?` matches case-insensitively, while a plain
+ * `ticker = ?` matches case-sensitively. A regression that makes the Worker
+ * case-sensitive therefore shows up as a failing assertion instead of passing
+ * silently.
+ */
 function createTestEnv() {
   const passwords = new Map<string, PasswordRecord>();
+  const indices = new Map<string, { id: string }>();
+  const basketItems: BasketRow[] = [];
+  let nextRowId = 1;
 
   const executeAll = async (query: string, params: unknown[] = []) => {
     if (query.includes("FROM access_passwords WHERE id = 'admin-master'")) {
@@ -44,6 +82,30 @@ function createTestEnv() {
       }
       matches.sort((a, b) => a.created_at - b.created_at);
       return { results: matches };
+    }
+    if (query.includes("FROM indices WHERE id = ?")) {
+      const indexId = params[0] as string;
+      const index = indices.get(indexId);
+      return { results: index ? [index] : [] };
+    }
+    if (query.includes("FROM basket_items")) {
+      const indexId = params[0] as string;
+      const rows = basketItems.filter((b) => b.index_id === indexId);
+      if (query.includes("COUNT(*)")) {
+        // "SELECT COUNT(*) as cnt FROM basket_items WHERE index_id = ? AND UPPER(ticker) = ?"
+        const ticker = typeof params[1] === "string" ? params[1] : undefined;
+        const matched = ticker === undefined ? rows : rows.filter((b) => matchesTicker(b, ticker, query));
+        return { results: [{ cnt: matched.length }] };
+      }
+      // "SELECT ticker FROM basket_items WHERE index_id = ?"
+      return {
+        results: rows.map((row) => ({
+          ticker: row.ticker,
+          name: row.name,
+          weight: row.weight,
+          theme: row.theme,
+        })),
+      };
     }
     return { results: [] };
   };
@@ -103,6 +165,65 @@ function createTestEnv() {
       }
       return { success: true };
     }
+    if (query.includes("INSERT OR REPLACE INTO basket_items")) {
+      const indexId = params[0] as string;
+      const ticker = params[1] as string;
+      const name = params[2] as string;
+      const weight = params[3] as number;
+      const theme = params[4] as string;
+      const existing = basketItems.find((b) => b.index_id === indexId && b.ticker === ticker);
+      if (existing) {
+        existing.name = name;
+        existing.weight = weight;
+        existing.theme = theme;
+        return { success: true, meta: { changes: 1 } };
+      }
+      basketItems.push({
+        rowid: nextRowId++,
+        index_id: indexId,
+        ticker,
+        name,
+        weight,
+        theme,
+      });
+      return { success: true, meta: { changes: 1 } };
+    }
+    if (query.includes("DELETE FROM basket_items") && query.includes("LIMIT 1")) {
+      // Guarded single-row delete:
+      // "DELETE ... WHERE rowid = (SELECT rowid ... WHERE index_id = ? AND UPPER(ticker) = ?
+      //  ORDER BY rowid LIMIT 1) AND (SELECT COUNT(*) ...) > 1"
+      const indexId = params[0] as string;
+      const ticker = params[1] as string;
+      const rows = basketItems.filter((b) => b.index_id === indexId);
+      if (rows.length <= 1) return { success: true, meta: { changes: 0 } };
+      const target = basketItems.find((b) => b.index_id === indexId && matchesTicker(b, ticker, query));
+      if (!target) return { success: true, meta: { changes: 0 } };
+      basketItems.splice(basketItems.indexOf(target), 1);
+      return { success: true, meta: { changes: 1 } };
+    }
+    if (query.includes("DELETE FROM basket_items") && query.includes("UPPER(ticker)")) {
+      // "DELETE FROM basket_items WHERE index_id = ? AND UPPER(ticker) = ?"
+      const indexId = params[0] as string;
+      const ticker = params[1] as string;
+      let changes = 0;
+      for (let i = basketItems.length - 1; i >= 0; i--) {
+        const row = basketItems[i];
+        if (row.index_id === indexId && matchesTicker(row, ticker, query)) {
+          basketItems.splice(i, 1);
+          changes += 1;
+        }
+      }
+      return { success: true, meta: { changes } };
+    }
+    if (query.includes("DELETE FROM basket_items")) {
+      // "DELETE FROM basket_items WHERE index_id = ?"
+      const indexId = params[0] as string;
+      const before = basketItems.length;
+      for (let i = basketItems.length - 1; i >= 0; i--) {
+        if (basketItems[i].index_id === indexId) basketItems.splice(i, 1);
+      }
+      return { success: true, meta: { changes: before - basketItems.length } };
+    }
     return { success: true };
   };
 
@@ -117,15 +238,36 @@ function createTestEnv() {
     };
   });
 
+  const batch = vi.fn().mockImplementation(async (statements: { run: () => Promise<unknown> }[]) => {
+    const results: unknown[] = [];
+    for (const statement of statements) {
+      results.push(await statement.run());
+    }
+    return results;
+  });
+
   const env = asWorkerEnv({
     DB: {
       prepare,
-      batch: async () => [],
+      batch,
     },
     ADMIN_PASSWORD: TEST_ADMIN_PASSWORD,
   });
 
-  return { env, passwords };
+  return {
+    env,
+    passwords,
+    indices,
+    basketItems,
+    /** Registers an index row so the Worker finds it during an ownership lookup. */
+    seedIndex: (indexId: string) => {
+      indices.set(indexId, { id: indexId });
+    },
+    /** Registers a constituent of an index. */
+    seedBasketItem: (row: Omit<BasketRow, "rowid">) => {
+      basketItems.push({ rowid: nextRowId++, ...row });
+    },
+  };
 }
 
 describe("Comprehensive Goal Resolution: Password Privilege Escalation Protection", () => {
@@ -269,52 +411,174 @@ describe("Comprehensive Goal Resolution: Ticker Normalization and Casing Consist
     expect(normalizeTicker("brk-b")).toBe("BRK-B");
   });
 
-  it("detects case-insensitive duplicates in basket operations", () => {
-    const basket = [
-      { ticker: "AAPL", name: "Apple", theme: "Tech", weight: 50 },
-      { ticker: "7203", name: "Toyota", theme: "Auto", weight: 50 },
-    ];
+  it("rejects a basket that holds the same ticker in two different casings", async () => {
+    const { env } = createTestEnv();
 
-    const isDuplicate = (candidate: string) => {
-      const clean = normalizeTicker(candidate);
-      return basket.some((b) => normalizeTicker(b.ticker) === clean);
-    };
+    const res = await worker.fetch(
+      new Request("http://localhost/api/indices", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-auth-password": TEST_ADMIN_PASSWORD,
+        },
+        body: JSON.stringify({
+          id: "case-insensitive-duplicate",
+          name: "Case Insensitive Duplicate",
+          basket: [
+            { ticker: "aapl", name: "Apple", theme: "Tech", weight: 50 },
+            { ticker: "AAPL", name: "Apple", theme: "Tech", weight: 50 },
+          ],
+        }),
+      }),
+      env,
+    );
 
-    expect(isDuplicate("aapl")).toBe(true);
-    expect(isDuplicate("AAPL")).toBe(true);
-    expect(isDuplicate(" 7203 ")).toBe(true);
-    expect(isDuplicate("MSFT")).toBe(false);
+    expect(res.status).toBe(400);
+    const data = await res.json();
+    // The Worker upper-cases every ticker before the duplicate check, so the
+    // case-variant pair is reported as the duplicate "AAPL".
+    expect(data.error).toBe("Duplicate ticker in basket: AAPL");
   });
 
-  it("removes stocks correctly regardless of ticker casing", () => {
-    const basket = [
+  it("keeps distinct tickers and drops only the case-insensitive duplicate when a basket is sanitized", () => {
+    const result = sanitizeBasketForRequest([
       { ticker: "AAPL", name: "Apple", theme: "Tech", weight: 50 },
+      { ticker: "aapl", name: "Apple", theme: "Tech", weight: 50 },
       { ticker: "MSFT", name: "Microsoft", theme: "Tech", weight: 50 },
-    ];
+    ]);
 
-    const removeStock = (ticker: string) => {
-      const clean = normalizeTicker(ticker);
-      return basket.filter((b) => normalizeTicker(b.ticker) !== clean);
-    };
-
-    const remaining = removeStock("aapl");
-    expect(remaining.length).toBe(1);
-    expect(remaining[0].ticker).toBe("MSFT");
+    // "aapl" is the case-insensitive duplicate of "AAPL"; "MSFT" is not one.
+    expect(result.basket.map((item) => item.ticker)).toEqual(["AAPL", "MSFT"]);
+    expect(result.dropped).toEqual(["AAPL"]);
   });
 
-  it("updates stock weight correctly regardless of ticker casing", () => {
-    const basket = [
-      { ticker: "AAPL", name: "Apple", theme: "Tech", weight: 50 },
-      { ticker: "MSFT", name: "Microsoft", theme: "Tech", weight: 50 },
-    ];
+  it("removes a constituent regardless of the ticker's casing", async () => {
+    const { env, seedIndex, seedBasketItem, basketItems } = createTestEnv();
+    seedIndex(TEST_INDEX_ID);
+    // A legacy lower-case constituent: the Worker has to match it
+    // case-insensitively, otherwise the request would silently do nothing.
+    seedBasketItem({
+      index_id: TEST_INDEX_ID,
+      ticker: "aapl",
+      name: "Apple",
+      theme: "Tech",
+      weight: 50,
+    });
+    seedBasketItem({
+      index_id: TEST_INDEX_ID,
+      ticker: "MSFT",
+      name: "Microsoft",
+      theme: "Tech",
+      weight: 50,
+    });
 
-    const updateWeight = (ticker: string, weight: number) => {
-      const clean = normalizeTicker(ticker);
-      return basket.map((b) => (normalizeTicker(b.ticker) === clean ? { ...b, weight } : b));
-    };
+    const res = await worker.fetch(
+      new Request(
+        `http://localhost/api/indices/stock?indexId=${TEST_INDEX_ID}&ticker=aapl`,
+        {
+          method: "DELETE",
+          headers: {
+            "x-auth-password": TEST_ADMIN_PASSWORD,
+          },
+        },
+      ),
+      env,
+    );
 
-    const updated = updateWeight("msft", 70);
-    expect(updated.find((b) => b.ticker === "MSFT")?.weight).toBe(70);
-    expect(updated.find((b) => b.ticker === "AAPL")?.weight).toBe(50);
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.ok).toBe(true);
+    // The Worker reports the normalized ticker.
+    expect(data.ticker).toBe("AAPL");
+    // The legacy "aapl" row is the one that was removed; "MSFT" survives.
+    expect(basketItems.map((item) => item.ticker)).toEqual(["MSFT"]);
+  });
+
+  it("updates the weight of a constituent regardless of the ticker's casing", async () => {
+    const { env, seedIndex, seedBasketItem, basketItems } = createTestEnv();
+    seedIndex(TEST_INDEX_ID);
+    seedBasketItem({
+      index_id: TEST_INDEX_ID,
+      ticker: "AAPL",
+      name: "Apple",
+      theme: "Tech",
+      weight: 50,
+    });
+    seedBasketItem({
+      index_id: TEST_INDEX_ID,
+      ticker: "MSFT",
+      name: "Microsoft",
+      theme: "Tech",
+      weight: 50,
+    });
+
+    const res = await worker.fetch(
+      new Request("http://localhost/api/indices/stock", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-auth-password": TEST_ADMIN_PASSWORD,
+        },
+        body: JSON.stringify({
+          indexId: TEST_INDEX_ID,
+          stock: { ticker: "msft", name: "Microsoft", theme: "Tech", weight: 70 },
+        }),
+      }),
+      env,
+    );
+
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.ok).toBe(true);
+    expect(data.ticker).toBe("MSFT");
+    // The existing constituent was updated in place: the new weight applies to
+    // "MSFT" and no second, duplicate row was created for "msft".
+    expect(basketItems).toHaveLength(2);
+    expect(basketItems.find((item) => item.ticker === "MSFT")?.weight).toBe(70);
+    expect(basketItems.find((item) => item.ticker === "AAPL")?.weight).toBe(50);
+  });
+
+  it("normalizes a legacy lower-case constituent when its weight is updated", async () => {
+    const { env, seedIndex, seedBasketItem, basketItems } = createTestEnv();
+    seedIndex(TEST_INDEX_ID);
+    seedBasketItem({
+      index_id: TEST_INDEX_ID,
+      ticker: "msft",
+      name: "Microsoft",
+      theme: "Tech",
+      weight: 50,
+    });
+    seedBasketItem({
+      index_id: TEST_INDEX_ID,
+      ticker: "AAPL",
+      name: "Apple",
+      theme: "Tech",
+      weight: 50,
+    });
+
+    const res = await worker.fetch(
+      new Request("http://localhost/api/indices/stock", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-auth-password": TEST_ADMIN_PASSWORD,
+        },
+        body: JSON.stringify({
+          indexId: TEST_INDEX_ID,
+          stock: { ticker: "msft", name: "Microsoft", theme: "Tech", weight: 70 },
+        }),
+      }),
+      env,
+    );
+
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.ok).toBe(true);
+    expect(data.ticker).toBe("MSFT");
+    // The legacy row was replaced by the normalized one: exactly two
+    // constituents, "MSFT" carrying the new weight.
+    expect(basketItems.map((item) => item.ticker).sort()).toEqual(["AAPL", "MSFT"]);
+    expect(basketItems.find((item) => item.ticker === "MSFT")?.weight).toBe(70);
+    expect(basketItems.find((item) => item.ticker === "AAPL")?.weight).toBe(50);
   });
 });

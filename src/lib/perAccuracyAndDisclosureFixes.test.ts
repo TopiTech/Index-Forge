@@ -6,6 +6,54 @@ import {
   type StockQuoteFundamentals,
 } from "./marketDataService";
 import worker from "../../worker/index";
+import type { Env } from "../../worker/internal";
+
+/**
+ * Test-double boundary.
+ *
+ * The Worker entry point requires a full Cloudflare `Env`, but the
+ * fundamentals route only needs the Yahoo lookup: no D1 and no asset binding
+ * are touched. The double therefore carries an empty environment, and the
+ * cast is confined to this helper so that no `any` reaches the assertions.
+ */
+const EMPTY_WORKER_ENV = {} as unknown as Env;
+
+/**
+ * Deterministic Yahoo Finance test double.
+ *
+ * The Worker fetches the quote summary (and the chart) from Yahoo. Answering
+ * those requests from a fixed table keeps the suite hermetic: it no longer
+ * depends on network egress and cannot be rate-limited by Yahoo. The chart
+ * response is empty on purpose - the PER resolution under test only depends on
+ * the quote summary.
+ */
+function stubYahooQuoteSummary(summary: unknown): void {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("https://fc.yahoo.com")) {
+        return new Response("", {
+          status: 200,
+          headers: { "set-cookie": "A1=test-cookie; Path=/; Domain=.yahoo.com" },
+        });
+      }
+      if (url.includes("/v1/test/getcrumb")) {
+        return new Response("test-crumb", { status: 200 });
+      }
+      if (url.includes("quoteSummary")) {
+        return new Response(JSON.stringify(summary), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify({ chart: { result: [] } }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }),
+  );
+}
 
 describe("PER Accuracy and Disclosure Handling (Approach 1: TTM-based Estimation)", () => {
   beforeEach(() => {
@@ -14,6 +62,7 @@ describe("PER Accuracy and Disclosure Handling (Approach 1: TTM-based Estimation
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   describe("1. Static Anchor and Baseline Integrity", () => {
@@ -93,18 +142,12 @@ describe("PER Accuracy and Disclosure Handling (Approach 1: TTM-based Estimation
         },
       };
 
-      vi.spyOn(globalThis, "fetch").mockImplementation(async (url: any) => {
-        const u = String(url);
-        if (u.includes("quoteSummary")) {
-          return new Response(JSON.stringify(mockSummary), { status: 200, headers: { "content-type": "application/json" } });
-        }
-        return new Response(JSON.stringify({ chart: { result: [] } }), { status: 200 });
-      });
+      stubYahooQuoteSummary(mockSummary);
 
       const req = new Request("http://localhost/api/stock/fundamentals?ticker=7203", {
         headers: { "cf-connecting-ip": "127.0.0.1" },
       });
-      const res = await worker.fetch(req, {} as any);
+      const res = await worker.fetch(req, EMPTY_WORKER_ENV);
       expect(res.status).toBe(200);
       const data = (await res.json()) as StockQuoteFundamentals;
 
@@ -140,18 +183,12 @@ describe("PER Accuracy and Disclosure Handling (Approach 1: TTM-based Estimation
         },
       };
 
-      vi.spyOn(globalThis, "fetch").mockImplementation(async (url: any) => {
-        const u = String(url);
-        if (u.includes("quoteSummary")) {
-          return new Response(JSON.stringify(mockSummary), { status: 200, headers: { "content-type": "application/json" } });
-        }
-        return new Response(JSON.stringify({ chart: { result: [] } }), { status: 200 });
-      });
+      stubYahooQuoteSummary(mockSummary);
 
       const req = new Request("http://localhost/api/stock/fundamentals?ticker=7203&refresh=1", {
         headers: { "cf-connecting-ip": "127.0.0.1" },
       });
-      const res = await worker.fetch(req, {} as any);
+      const res = await worker.fetch(req, EMPTY_WORKER_ENV);
       expect(res.status).toBe(200);
       const data = (await res.json()) as StockQuoteFundamentals;
 
@@ -184,18 +221,12 @@ describe("PER Accuracy and Disclosure Handling (Approach 1: TTM-based Estimation
         },
       };
 
-      vi.spyOn(globalThis, "fetch").mockImplementation(async (url: any) => {
-        const u = String(url);
-        if (u.includes("quoteSummary")) {
-          return new Response(JSON.stringify(mockSummary), { status: 200, headers: { "content-type": "application/json" } });
-        }
-        return new Response(JSON.stringify({ chart: { result: [] } }), { status: 200 });
-      });
+      stubYahooQuoteSummary(mockSummary);
 
       const req = new Request("http://localhost/api/stock/fundamentals?ticker=7203&refresh=1", {
         headers: { "cf-connecting-ip": "127.0.0.1" },
       });
-      const res = await worker.fetch(req, {} as any);
+      const res = await worker.fetch(req, EMPTY_WORKER_ENV);
       expect(res.status).toBe(200);
       const data = (await res.json()) as StockQuoteFundamentals;
 
@@ -228,18 +259,12 @@ describe("PER Accuracy and Disclosure Handling (Approach 1: TTM-based Estimation
         },
       };
 
-      vi.spyOn(globalThis, "fetch").mockImplementation(async (url: any) => {
-        const u = String(url);
-        if (u.includes("quoteSummary")) {
-          return new Response(JSON.stringify(mockSummary), { status: 200, headers: { "content-type": "application/json" } });
-        }
-        return new Response(JSON.stringify({ chart: { result: [] } }), { status: 200 });
-      });
+      stubYahooQuoteSummary(mockSummary);
 
       const req = new Request("http://localhost/api/stock/fundamentals?ticker=7203&refresh=1", {
         headers: { "cf-connecting-ip": "127.0.0.1" },
       });
-      const res = await worker.fetch(req, {} as any);
+      const res = await worker.fetch(req, EMPTY_WORKER_ENV);
       expect(res.status).toBe(200);
       const data = (await res.json()) as StockQuoteFundamentals;
 

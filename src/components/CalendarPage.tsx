@@ -84,6 +84,55 @@ export function getEventDayOfWeek(dateStr: string, fullDate?: string): string {
   return "";
 }
 
+type EventTypeFilter = "ALL" | "MACRO" | "EARNINGS";
+type ImportanceFilter = "ALL" | "HIGH" | "MEDIUM" | "LOW";
+type MarketFilter = "ALL" | "JP" | "US";
+
+/**
+ * Labels used by the empty state. They must describe the predicate that is
+ * actually applied: importance filtering is an exact match, so "MEDIUM" cannot
+ * be described as "標準以上 (MEDIUM+)".
+ */
+const IMPORTANCE_FILTER_LABELS: Record<Exclude<ImportanceFilter, "ALL">, string> = {
+  HIGH: "最重要 (HIGH)",
+  MEDIUM: "標準 (MEDIUM)",
+  LOW: "低 (LOW)",
+};
+
+/**
+ * Normalize a macro / earnings metric string for display.
+ *
+ * `-0.0` renders as "-0.0%" although the value is zero (e.g. a rounded
+ * year-on-year change). A zero has no sign, so the minus is dropped.
+ */
+export function normalizeMetricText(raw: string | undefined): string {
+  if (!raw) return "";
+  return raw.replace(/^-(0(?:\.0+)?)(\s*%?)$/, "$1$2");
+}
+
+export type MetricTone = "positive" | "negative" | "neutral";
+
+/**
+ * Tone for a metric value: zero is neutral, never "positive".
+ *
+ * Previously every 発表結果 was painted green, so a flat 0.0% looked like an
+ * improvement. Unparseable values are neutral too (the badge text carries the
+ * meaning).
+ */
+export function metricTone(raw: string | undefined): MetricTone {
+  const text = normalizeMetricText(raw).trim();
+  if (!text) return "neutral";
+  const numeric = Number(text.replace(/[%,\s]/g, "").replace(/^\+/, ""));
+  if (!Number.isFinite(numeric) || numeric === 0) return "neutral";
+  return numeric > 0 ? "positive" : "negative";
+}
+
+function metricToneColor(tone: MetricTone): string {
+  if (tone === "positive") return "var(--neon-green)";
+  if (tone === "negative") return "var(--neon-red)";
+  return "var(--text-secondary)";
+}
+
 export function CalendarPage({
   onNavigate,
   onOpenStockDetail,
@@ -91,15 +140,18 @@ export function CalendarPage({
   const [events, setEvents] = useState<CalendarEvent[]>(UPCOMING_EVENTS);
   const [loading, setLoading] = useState(false);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(null);
-  const [activeFilter, setActiveFilter] = useState<"ALL" | "MACRO" | "EARNINGS">("ALL");
+  const [activeFilter, setActiveFilter] = useState<EventTypeFilter>("ALL");
 
   useRegisterFreshness("calendar", {
     loading,
     updatedAt: lastUpdatedAt,
     typeLabel: "経済カレンダー",
+    // Calendar events are scheduled data, not a live quote: with no timestamp
+    // the header says so instead of borrowing another tab's fetch time.
+    customStatusText: "決算・マクロ日程（実データ未取得時は参考値）",
   });
-  const [importanceFilter, setImportanceFilter] = useState<"ALL" | "HIGH" | "MEDIUM" | "LOW">("ALL");
-  const [marketFilter, setMarketFilter] = useState<"ALL" | "JP" | "US">("ALL");
+  const [importanceFilter, setImportanceFilter] = useState<ImportanceFilter>("ALL");
+  const [marketFilter, setMarketFilter] = useState<MarketFilter>("ALL");
   const [searchQuery, setSearchQuery] = useState("");
   const [viewMode, setViewMode] = useState<"LIST" | "CALENDAR">("LIST");
   const [currentMonthDate, setCurrentMonthDate] = useState(() => new Date());
@@ -111,6 +163,18 @@ export function CalendarPage({
   } | null>(null);
 
   const { success: toastSuccess, info: toastInfo } = useToast();
+
+  /**
+   * Clear every filter, not just the event-type tab. The empty state offers
+   * "すべてのイベントを表示", which used to leave the importance/market/search
+   * filters applied and immediately showed the same empty state again.
+   */
+  const resetAllFilters = useCallback(() => {
+    setActiveFilter("ALL");
+    setImportanceFilter("ALL");
+    setMarketFilter("ALL");
+    setSearchQuery("");
+  }, []);
 
   const mountedRef = useRef(true);
   const requestIdRef = useRef(0);
@@ -130,7 +194,13 @@ export function CalendarPage({
       if (!mountedRef.current || requestId !== requestIdRef.current) return;
       if (data && data.length > 0) {
         setEvents(data);
-        setLastUpdatedAt(Date.now());
+        // A fallback response is generated locally from the schedule template,
+        // so it says nothing about the freshness of remote data. Stamping a
+        // fetch time for it made the header claim LIVE for events that were
+        // never retrieved (and are labeled 参考値 right below).
+        if (data.some((event) => event.source !== "fallback")) {
+          setLastUpdatedAt(Date.now());
+        }
       }
     } finally {
       if (mountedRef.current && requestId === requestIdRef.current) {
@@ -683,11 +753,7 @@ export function CalendarPage({
                     : activeFilter === "EARNINGS"
                       ? "主要企業決算"
                       : null,
-                  importanceFilter === "HIGH"
-                    ? "最重要 (HIGH)"
-                    : importanceFilter === "MEDIUM"
-                      ? "標準以上 (MEDIUM+)"
-                      : null,
+                  importanceFilter === "ALL" ? null : IMPORTANCE_FILTER_LABELS[importanceFilter],
                   marketFilter === "JP"
                     ? "国内東証 (TSE)"
                     : marketFilter === "US"
@@ -703,7 +769,7 @@ export function CalendarPage({
             <button
               type="button"
               className="btn btn-sm btn-outline"
-              onClick={() => setActiveFilter("ALL")}
+              onClick={resetAllFilters}
               style={{ marginTop: "8px" }}
             >
               すべてのイベントを表示
@@ -826,7 +892,7 @@ export function CalendarPage({
                     )}
                     {evt.actual && (
                       <div className="tiny muted">
-                        結果: <strong className="mono" style={{ color: "#10b981" }}>{evt.actual}</strong>
+                        結果: <strong className="mono" style={{ color: metricToneColor(metricTone(evt.actual)) }}>{evt.actual}</strong>
                       </div>
                     )}
 

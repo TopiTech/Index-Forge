@@ -1,6 +1,17 @@
-import { createContext, useContext, useState, useCallback, useMemo, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useState,
+  useCallback,
+  useMemo,
+  useEffect,
+  useRef,
+  type ReactNode,
+} from "react";
+import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { CheckCircle2, AlertTriangle, AlertCircle, Info, X } from "lucide-react";
+import { useOverlayRoot } from "./ModalBase";
 
 export type ToastType = "success" | "error" | "warning" | "info";
 
@@ -35,11 +46,100 @@ export function useToast() {
   return context;
 }
 
+/** Why an auto-dismiss timer is currently paused. */
+type PauseReason = "pointer" | "focus";
+
+interface ToastTimer {
+  handle: ReturnType<typeof setTimeout> | null;
+  /** Milliseconds left when the timer was last paused. */
+  remaining: number;
+  /** Wall clock at which the current (re)started run began. */
+  startedAt: number;
+}
+
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<ToastItemData[]>([]);
+  // Timer ownership lives in refs so a manual close or an unmount can always
+  // cancel the pending auto-dismiss (a bare setTimeout leaked one callback per
+  // toast and fired after the provider was gone).
+  const timersRef = useRef<Map<string, ToastTimer>>(new Map());
+  const pauseReasonsRef = useRef<Map<string, Set<PauseReason>>>(new Map());
+  const overlayRoot = useOverlayRoot();
 
-  const removeToast = useCallback((id: string) => {
-    setToasts((prev) => prev.filter((t) => t.id !== id));
+  const clearTimer = useCallback((id: string) => {
+    const timer = timersRef.current.get(id);
+    if (timer?.handle) clearTimeout(timer.handle);
+    timersRef.current.delete(id);
+    pauseReasonsRef.current.delete(id);
+  }, []);
+
+  const removeToast = useCallback(
+    (id: string) => {
+      clearTimer(id);
+      setToasts((prev) => prev.filter((t) => t.id !== id));
+    },
+    [clearTimer],
+  );
+
+  const startTimer = useCallback(
+    (id: string, duration: number) => {
+      const timer: ToastTimer = {
+        handle: null,
+        remaining: duration,
+        startedAt: Date.now(),
+      };
+      timer.handle = setTimeout(() => {
+        removeToast(id);
+      }, duration);
+      timersRef.current.set(id, timer);
+    },
+    [removeToast],
+  );
+
+  const pauseToast = useCallback((id: string, reason: PauseReason) => {
+    const timer = timersRef.current.get(id);
+    if (!timer || !timer.handle) return;
+    const reasons = pauseReasonsRef.current.get(id) ?? new Set<PauseReason>();
+    reasons.add(reason);
+    pauseReasonsRef.current.set(id, reasons);
+    // Another reason is already holding the timer: nothing to stop.
+    if (reasons.size > 1) return;
+    clearTimeout(timer.handle);
+    timer.handle = null;
+    timer.remaining = Math.max(0, timer.remaining - (Date.now() - timer.startedAt));
+  }, []);
+
+  const resumeToast = useCallback(
+    (id: string, reason: PauseReason) => {
+      const timer = timersRef.current.get(id);
+      if (!timer) return;
+      const reasons = pauseReasonsRef.current.get(id);
+      if (reasons) {
+        reasons.delete(reason);
+        // Still hovered, or still focused: keep the timer paused.
+        if (reasons.size > 0) return;
+        pauseReasonsRef.current.delete(id);
+      }
+      if (timer.handle || timer.remaining <= 0) return;
+      timer.startedAt = Date.now();
+      timer.handle = setTimeout(() => {
+        removeToast(id);
+      }, timer.remaining);
+    },
+    [removeToast],
+  );
+
+  // Cancel every pending timer when the provider unmounts.
+  useEffect(() => {
+    const timers = timersRef.current;
+    const pauseReasons = pauseReasonsRef.current;
+    return () => {
+      for (const timer of timers.values()) {
+        if (timer.handle) clearTimeout(timer.handle);
+      }
+      timers.clear();
+      pauseReasons.clear();
+    };
   }, []);
 
   const showToast = useCallback(
@@ -51,12 +151,10 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       setToasts((prev) => [...prev, { id, message, type, duration }]);
 
       if (duration > 0) {
-        setTimeout(() => {
-          removeToast(id);
-        }, duration);
+        startTimer(id, duration);
       }
     },
-    [removeToast],
+    [startTimer],
   );
 
   const success = useCallback(
@@ -87,21 +185,45 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     [showToast, success, error, warning, info, removeToast],
   );
 
+  const toastContainer = (
+    // Only one politeness model: each toast owns it (`role="alert"` for errors,
+    // `role="status"` otherwise). A live container on top of that announced
+    // every error twice and made polite messages interrupt.
+    <div className="toast-container" role="region" aria-label="通知一覧">
+      <AnimatePresence>
+        {toasts.map((toast) => (
+          <ToastItem
+            key={toast.id}
+            toast={toast}
+            onClose={() => removeToast(toast.id)}
+            onPause={(reason) => pauseToast(toast.id, reason)}
+            onResume={(reason) => resumeToast(toast.id, reason)}
+          />
+        ))}
+      </AnimatePresence>
+    </div>
+  );
+
   return (
     <ToastContext.Provider value={contextValue}>
       {children}
-      <div className="toast-container" aria-live="polite" role="region" aria-label="通知一覧">
-        <AnimatePresence>
-          {toasts.map((toast) => (
-            <ToastItem key={toast.id} toast={toast} onClose={() => removeToast(toast.id)} />
-          ))}
-        </AnimatePresence>
-      </div>
+      {/* Portaled to the overlay root so toasts stay visible in fullscreen. */}
+      {overlayRoot ? createPortal(toastContainer, overlayRoot) : toastContainer}
     </ToastContext.Provider>
   );
 }
 
-function ToastItem({ toast, onClose }: { toast: ToastItemData; onClose: () => void }) {
+function ToastItem({
+  toast,
+  onClose,
+  onPause,
+  onResume,
+}: {
+  toast: ToastItemData;
+  onClose: () => void;
+  onPause: (reason: PauseReason) => void;
+  onResume: (reason: PauseReason) => void;
+}) {
   const iconMap: Record<ToastType, ReactNode> = {
     success: <CheckCircle2 size={16} style={{ color: "var(--neon-green)" }} />,
     error: <AlertCircle size={16} style={{ color: "var(--neon-red)" }} />,
@@ -116,6 +238,12 @@ function ToastItem({ toast, onClose }: { toast: ToastItemData; onClose: () => vo
       exit={{ opacity: 0, scale: 0.9, transition: { duration: 0.2 } }}
       className={`toast-item toast-${toast.type}`}
       role={toast.type === "error" ? "alert" : "status"}
+      // Reading a toast (hover or keyboard focus) must not race the
+      // auto-dismiss timer.
+      onMouseEnter={() => onPause("pointer")}
+      onMouseLeave={() => onResume("pointer")}
+      onFocus={() => onPause("focus")}
+      onBlur={() => onResume("focus")}
     >
       <div className="toast-icon">{iconMap[toast.type]}</div>
       <div className="toast-message">{toast.message}</div>

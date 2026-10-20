@@ -8,6 +8,7 @@ import {
   SYSTEM_INDICES,
   clearAuthCache,
   resetPasswordTableEnsured,
+  DEFAULT_DEV_ADMIN_SECRET_CODE,
 } from "../../worker/internal";
 
 const TEST_ADMIN_PASSWORD = "test-admin-password";
@@ -251,21 +252,38 @@ function createSecurityTestEnv() {
             return { success: true };
           }
           if (query.includes("INTO indices")) {
-            const [id, name, description, baseValue, hash] = params as [
-              string,
-              string,
-              string,
-              number,
-              string | null,
-            ];
-            const creatorId = params.length >= 7 ? (params[6] as string | null) : null;
+            // Bind the values to their column names instead of assuming a fixed
+            // column order: the upsert gained `owner_token_issued_at`, and
+            // positional parsing silently wrote the index id into creator_id.
+            const columnsStart = query.indexOf("(");
+            const columnsEnd = query.indexOf(")", columnsStart);
+            const columns = query
+              .slice(columnsStart + 1, columnsEnd)
+              .split(",")
+              .map((column) => column.trim());
+            const values: Record<string, unknown> = {};
+            let cursor = 0;
+            for (const column of columns) {
+              if (column === "creator_id" || column === "created_at") {
+                cursor += 1; // the COALESCE subquery's id parameter
+                values[column] = params[cursor];
+                cursor += 1;
+              } else if (column === "sort_order") {
+                values[column] = params[cursor];
+                cursor += 2; // value + the COALESCE subquery's id parameter
+              } else {
+                values[column] = params[cursor];
+                cursor += 1;
+              }
+            }
+            const id = String(values.id);
             indices.set(id, {
               id,
-              name,
-              description,
-              base_value: baseValue,
-              owner_token_hash: hash || null,
-              creator_id: creatorId,
+              name: String(values.name ?? ""),
+              description: String(values.description ?? ""),
+              base_value: Number(values.base_value ?? 1000),
+              owner_token_hash: (values.owner_token_hash as string | null) ?? null,
+              creator_id: (values.creator_id as string | null) ?? null,
             });
             return { success: true };
           }
@@ -318,19 +336,40 @@ function createSecurityTestEnv() {
 }
 
 describe("Security and Admin Regression Tests", () => {
-  it("authenticates with the deployment admin secret when no customized password exists", async () => {
+  it("authenticates the deployment admin secret only through the two-factor admin login", async () => {
     const { env } = createSecurityTestEnv();
-    const req = new Request("http://localhost/api/auth/verify", {
+
+    // SEC-02: the public verify endpoint must never evaluate administrator rows.
+    const verifyReq = new Request("http://localhost/api/auth/verify", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ password: TEST_ADMIN_PASSWORD }),
     });
+    const verifyRes = await worker.fetch(verifyReq, env as any);
+    expect(verifyRes.status).toBe(401);
+    const verifyData = await verifyRes.json();
+    expect(verifyData.ok).toBe(false);
+    expect(verifyData.role).toBeUndefined();
 
-    const res = await worker.fetch(req, env as any);
-    expect(res.status).toBe(200);
-    const data = await res.json();
-    expect(data.ok).toBe(true);
-    expect(data.role).toBe("admin");
+    // The deployment admin secret still authenticates where the second factor
+    // is actually checked, and that response is the only place an
+    // administrator role and an admin session may come from.
+    const loginReq = new Request("http://localhost/api/auth/admin-login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        password: TEST_ADMIN_PASSWORD,
+        secretCode: DEFAULT_DEV_ADMIN_SECRET_CODE,
+        turnstileToken: "dummy-turnstile-token",
+      }),
+    });
+    const loginRes = await worker.fetch(loginReq, env as any);
+    expect(loginRes.status).toBe(200);
+    const loginData = await loginRes.json();
+    expect(loginData.ok).toBe(true);
+    expect(loginData.role).toBe("admin");
+    expect(typeof loginData.adminToken).toBe("string");
+    expect(loginData.adminToken.length).toBeGreaterThanOrEqual(32);
   });
 
   it("uses salted PBKDF2 hashes and only returns an issued password once", async () => {
@@ -399,11 +438,16 @@ describe("Security and Admin Regression Tests", () => {
     const oldLoginData = await oldLoginRes.json();
     expect(oldLoginData.ok).toBe(false);
 
-    // 3. Login with NEW password -> MUST SUCCEED (200)
-    const newLoginReq = new Request("http://localhost/api/auth/verify", {
+    // 3. Login with NEW password -> MUST SUCCEED (200) through the admin login
+    //    (the verify endpoint never returns an administrator role).
+    const newLoginReq = new Request("http://localhost/api/auth/admin-login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ password: "SuperSecretPassword2026!" }),
+      body: JSON.stringify({
+        password: "SuperSecretPassword2026!",
+        secretCode: DEFAULT_DEV_ADMIN_SECRET_CODE,
+        turnstileToken: "dummy-turnstile-token",
+      }),
     });
 
     const newLoginRes = await worker.fetch(newLoginReq, env as any);
@@ -411,6 +455,7 @@ describe("Security and Admin Regression Tests", () => {
     const newLoginData = await newLoginRes.json();
     expect(newLoginData.ok).toBe(true);
     expect(newLoginData.role).toBe("admin");
+    expect(typeof newLoginData.adminToken).toBe("string");
   });
 
   it("excludes admin-master from GET /api/admin/passwords response to prevent leakage", async () => {

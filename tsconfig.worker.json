@@ -12,12 +12,23 @@
     "noEmit": true,
     "types": ["./worker-configuration.d.ts"]
   },
+  // The Worker project must not pull in Vite/Node-only code: `vite.config.ts`
+  // needs Node globals that the Worker runtime does not have, so including it
+  // here used to force the whole of @types/node onto the Worker build (which in
+  // turn silently provided browser-only globals such as `localStorage` to the
+  // shared modules). It is typechecked by tsconfig.test.json instead.
+  //
+  // `src/lib` is intentionally not a root of this project. The modules the
+  // Worker actually imports (indexEngine, marketDataService, marketCache,
+  // yahooSymbol, ...) are still type-checked because TypeScript follows imports
+  // from the Worker entry. Browser-only helpers that only the React app uses
+  // (auth, portfolioStorage, syncCache, theme, ...) must not be compiled
+  // against the `WebWorker` lib: they are checked with DOM types by
+  // tsconfig.app.json and tsconfig.test.json.
   "include": [
     "worker/**/*.ts",
     "src/data/**/*.ts",
-    "src/lib/**/*.ts",
-    "src/types/**/*.ts",
-    "vite.config.ts"
+    "src/types/**/*.ts"
   ],
   "exclude": ["**/*.test.ts", "**/*.test.tsx", "**/*.spec.ts", "**/*.spec.tsx"]
 }

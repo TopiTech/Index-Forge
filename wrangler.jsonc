@@ -23,7 +23,10 @@
 		// produced no invocation logs in production.
 		"enabled": true,
 		"head_sampling_rate": 1,
-		"redact_query_string": false,
+		// Query strings are redacted from the invocation logs. A request that
+		// carries a credential in the query string must not leave it behind in
+		// the log store, and the API rejects such requests anyway.
+		"redact_query_string": true,
 		"logs": {
 			"enabled": true,
 			"head_sampling_rate": 1,

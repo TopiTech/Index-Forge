@@ -28,7 +28,13 @@ import {
 import { useAuth } from "../hooks/useAuth";
 import { useLockoutCountdown } from "../hooks/useLockoutCountdown";
 import { storeAuth, generateSecurePassword } from "../lib/auth";
-import { getTurnstileConfig, changeAdminSecretCode } from "../lib/auth";
+import {
+  getTurnstileConfig,
+  changeAdminSecretCode,
+  sanitizeUserPasswordList,
+  readApiErrorMessage,
+  clearAdminSession,
+} from "../lib/auth";
 import { toFiniteNumberOr } from "../lib/downloadFileName";
 import { SYSTEM_INDICES, type CustomIndex } from "../data/indices";
 import type { BasketItem, UserPasswordItem } from "../types";
@@ -40,6 +46,31 @@ import { ModalBase } from "./ModalBase";
 import { useToast } from "./Toast";
 import { equalizeWeightsExact, normalizeTicker } from "../lib/indexEngine";
 import { TurnstileWidget, type TurnstileWidgetRef } from "./TurnstileWidget";
+
+/**
+ * Message shown when the administrator session is no longer accepted.
+ *
+ * The session expires after eight hours and can be revoked by a password or
+ * secret-code change. The console must say so instead of showing a generic
+ * failure, and the dead token must not be presented again.
+ */
+export const ADMIN_SESSION_EXPIRED_MESSAGE =
+  "管理者セッションの有効期限が切れました。再度ログインしてください。";
+
+/**
+ * Turn a failed privileged response into a message.
+ *
+ * A 403 means the administrator session is gone: the token is dropped and the
+ * operator is asked to log in again. Every other status keeps the Worker's
+ * own message.
+ */
+export function reportAdminFailure(payload: unknown, status: number, fallback: string): string {
+  if (status === 403) {
+    clearAdminSession();
+    return ADMIN_SESSION_EXPIRED_MESSAGE;
+  }
+  return readApiErrorMessage(payload, status, fallback);
+}
 
 export function getPasswordStrength(pwd: string): {
   score: number;
@@ -75,6 +106,70 @@ export function PasswordStrengthBar({ password }: { password: string }) {
       </div>
     </div>
   );
+}
+
+/** Telemetry payload of `GET /api/admin/system-stats`. */
+interface SystemStatsData {
+  dbStatus: string;
+  indicesCount: number;
+  totalConstituents: number;
+  avgConstituentsPerIndex?: number;
+  userPasswordsCount: number;
+  activeUsersCount: number;
+  adminUsersCount: number;
+  cacheStats: {
+    hits?: number;
+    misses?: number;
+    hitRatio: string;
+  };
+  serverTime: string;
+  version: string;
+}
+
+function readFiniteNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function readString(value: unknown, fallback: string): string {
+  return typeof value === "string" && value.trim() ? value : fallback;
+}
+
+/**
+ * Validate the telemetry payload before it is typed.
+ *
+ * UI-38: `res.json()` used to be cast straight into the render, so a missing
+ * `cacheStats` object crashed the tab. Unknown fields fall back to safe
+ * defaults instead of being read as-is.
+ */
+function sanitizeSystemStats(raw: unknown): SystemStatsData | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const record = raw as Record<string, unknown>;
+  const indicesCount = readFiniteNumber(record.indicesCount);
+  const totalConstituents = readFiniteNumber(record.totalConstituents);
+  if (indicesCount === null || totalConstituents === null) return null;
+
+  const cacheRaw = record.cacheStats;
+  const cache =
+    cacheRaw && typeof cacheRaw === "object" && !Array.isArray(cacheRaw)
+      ? (cacheRaw as Record<string, unknown>)
+      : {};
+
+  return {
+    dbStatus: readString(record.dbStatus, "UNKNOWN"),
+    indicesCount,
+    totalConstituents,
+    avgConstituentsPerIndex: readFiniteNumber(record.avgConstituentsPerIndex) ?? undefined,
+    userPasswordsCount: readFiniteNumber(record.userPasswordsCount) ?? 0,
+    activeUsersCount: readFiniteNumber(record.activeUsersCount) ?? 0,
+    adminUsersCount: readFiniteNumber(record.adminUsersCount) ?? 0,
+    cacheStats: {
+      hits: readFiniteNumber(cache.hits) ?? 0,
+      misses: readFiniteNumber(cache.misses) ?? 0,
+      hitRatio: readString(cache.hitRatio, "-"),
+    },
+    serverTime: readString(record.serverTime, "-"),
+    version: readString(record.version, "unknown"),
+  };
 }
 
 interface AdminDashboardProps {
@@ -183,44 +278,67 @@ export function AdminDashboard({
   const [adminPwdMessage, setAdminPwdMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   // System Stats & Telemetry state
-  interface SystemStatsData {
-    dbStatus: string;
-    indicesCount: number;
-    totalConstituents: number;
-    avgConstituentsPerIndex?: number;
-    userPasswordsCount: number;
-    activeUsersCount: number;
-    adminUsersCount: number;
-    cacheStats: {
-      hits?: number;
-      misses?: number;
-      hitRatio: string;
-    };
-    serverTime: string;
-    version: string;
-  }
   const [systemStats, setSystemStats] = useState<SystemStatsData | null>(null);
   const [loadingStats, setLoadingStats] = useState(false);
   const [statsError, setStatsError] = useState<string | null>(null);
 
+  // UI-17: the telemetry fetch is abortable and generation-guarded, so a slow
+  // older response can never overwrite a newer one and nothing is written
+  // after unmount.
+  const statsAbortControllerRef = useRef<AbortController | null>(null);
+  const statsGenerationRef = useRef(0);
+  const isMountedRef = useRef(true);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
   const fetchSystemStats = useCallback(async () => {
     if (!isAdmin) return;
+
+    if (statsAbortControllerRef.current) {
+      statsAbortControllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    statsAbortControllerRef.current = controller;
+    const generation = statsGenerationRef.current + 1;
+    statsGenerationRef.current = generation;
+    const isCurrent = () =>
+      isMountedRef.current &&
+      generation === statsGenerationRef.current &&
+      !controller.signal.aborted;
+
     setLoadingStats(true);
     setStatsError(null);
     try {
       const res = await fetch("/api/admin/system-stats", {
         headers: getHeaders(),
+        signal: controller.signal,
       });
-      const data = await res.json();
-      if (res.ok && data.ok) {
-        setSystemStats(data.stats);
-      } else {
-        setStatsError(data.error || `HTTP ${res.status}`);
+      const payload = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+      if (!isCurrent()) return;
+      if (!res.ok || payload.ok !== true) {
+        setStatsError(reportAdminFailure(payload, res.status, "テレメトリを取得できませんでした"));
+        return;
       }
+      const stats = sanitizeSystemStats(payload.stats);
+      if (!stats) {
+        setStatsError("テレメトリ応答の形式が不正です。再取得してください。");
+        return;
+      }
+      setSystemStats(stats);
     } catch (err) {
-      setStatsError(err instanceof Error ? err.message : "テレメトリ取得に失敗しました");
+      if (controller.signal.aborted) return;
+      if (!isCurrent()) return;
+      const detail = err instanceof Error && err.message ? `: ${err.message}` : "";
+      setStatsError(`テレメトリ取得に失敗しました${detail}。再取得してください。`);
     } finally {
-      setLoadingStats(false);
+      // An aborted request must not clear the loading state: a newer request is
+      // already running and owns it.
+      if (isCurrent()) setLoadingStats(false);
     }
   }, [isAdmin, getHeaders]);
 
@@ -253,16 +371,25 @@ export function AdminDashboard({
         headers: getHeaders(),
         signal: controller.signal,
       });
-      if (res.ok) {
-        if (!controller.signal.aborted) {
-          const data = await res.json();
-          setPasswords(Array.isArray(data) ? data : []);
-        }
-      } else {
-        const data = await res.json().catch(() => ({}));
-        const errText = typeof data.error === "string" ? data.error : `エラー (${res.status})`;
+      // UI-38: a non-JSON error body (gateway 500, HTML page) must not throw.
+      const payload: unknown = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const errText = reportAdminFailure(payload, res.status, "パスワード一覧を取得できませんでした");
         console.error("Failed to fetch passwords:", errText);
         if (!controller.signal.aborted) setPasswordFetchError(errText);
+      } else if (!controller.signal.aborted) {
+        // UI-16: every field of every row is validated before it is typed; a
+        // payload that is not a list at all is reported instead of being shown
+        // as "no passwords issued yet".
+        const rows = sanitizeUserPasswordList(payload);
+        if (rows === null) {
+          console.error("Malformed password list response:", payload);
+          setPasswordFetchError(
+            "パスワード一覧の応答が不正です。再試行してください。解消しない場合は管理者セッションの有効期限を確認してください。",
+          );
+        } else {
+          setPasswords(rows);
+        }
       }
     } catch (err: unknown) {
       if (err instanceof Error && err.name === "AbortError") return;
@@ -300,6 +427,13 @@ export function AdminDashboard({
         // Release the guard synchronously so the next invocation can start.
         isFetchingPasswordsRef.current = false;
       }
+      // UI-17: abort the telemetry request and invalidate its generation so a
+      // late response cannot write state after the tab changed or unmounted.
+      if (statsAbortControllerRef.current) {
+        statsAbortControllerRef.current.abort();
+        statsAbortControllerRef.current = null;
+      }
+      statsGenerationRef.current += 1;
     };
   }, [isAdmin, activeTab, fetchPasswords, fetchSystemStats]);
 
@@ -473,9 +607,9 @@ export function AdminDashboard({
         }),
       });
 
-      const data = await res.json();
-      if (!res.ok || !data.ok) {
-        throw new Error(data.error || "パスワード作成に失敗しました");
+      const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+      if (!res.ok || data.ok !== true) {
+        throw new Error(reportAdminFailure(data, res.status, "パスワード作成に失敗しました"));
       }
 
       // The plaintext password is the value the operator just generated.
@@ -499,6 +633,13 @@ export function AdminDashboard({
   // Delete password confirmation
   const confirmDeletePassword = async () => {
     if (!passwordToDelete) return;
+    // UI-16: never send an unnamed/undefined id. Rows come from
+    // `sanitizeUserPasswordList`, so an empty id here means the state is stale.
+    if (!passwordToDelete.id) {
+      toastError("削除対象のアカウントIDを特定できません。一覧を再読み込みしてください。");
+      setPasswordToDelete(null);
+      return;
+    }
     setDeletingPassword(true);
     try {
       const res = await fetch(`/api/admin/passwords?id=${encodeURIComponent(passwordToDelete.id)}`, {
@@ -510,8 +651,8 @@ export function AdminDashboard({
         setPasswordToDelete(null);
         await fetchPasswords();
       } else {
-        const data = await res.json().catch(() => ({}));
-        toastError("削除に失敗しました: " + (data.error || `HTTP ${res.status}`));
+        const data: unknown = await res.json().catch(() => ({}));
+        toastError("削除に失敗しました: " + reportAdminFailure(data, res.status, "サーバーが処理を拒否しました"));
       }
     } catch (err) {
       toastError("削除に失敗しました: " + (err instanceof Error ? err.message : ""));
@@ -519,6 +660,20 @@ export function AdminDashboard({
       setDeletingPassword(false);
     }
   };
+
+  // UI-17: the "copied" feedback timer is owned by the component. A bare
+  // setTimeout kept running after unmount (and fired setState on a dead tree)
+  // and every extra click stacked another timer.
+  const copyFeedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (copyFeedbackTimerRef.current !== null) {
+        clearTimeout(copyFeedbackTimerRef.current);
+        copyFeedbackTimerRef.current = null;
+      }
+    },
+    [],
+  );
 
   // Copy password to clipboard
   const handleCopy = async (text: string, id: string) => {
@@ -536,7 +691,13 @@ export function AdminDashboard({
         document.body.removeChild(textarea);
       }
       setCopiedId(id);
-      setTimeout(() => setCopiedId(null), 2000);
+      if (copyFeedbackTimerRef.current !== null) {
+        clearTimeout(copyFeedbackTimerRef.current);
+      }
+      copyFeedbackTimerRef.current = setTimeout(() => {
+        copyFeedbackTimerRef.current = null;
+        setCopiedId(null);
+      }, 2000);
     } catch (err) {
       console.warn("Failed to copy password:", err);
     }
@@ -544,6 +705,10 @@ export function AdminDashboard({
 
   // Toggle active password
   const handleToggleActive = async (item: UserPasswordItem) => {
+    if (!item.id) {
+      toastError("対象アカウントのIDを特定できません。一覧を再読み込みしてください。");
+      return;
+    }
     try {
       const nextActive = item.is_active !== 1;
       const res = await fetch("/api/admin/passwords", {
@@ -561,8 +726,8 @@ export function AdminDashboard({
         toastSuccess(`「${item.name}」を${nextActive ? "有効化" : "無効化"}しました`);
         await fetchPasswords();
       } else {
-        const data = await res.json().catch(() => ({}));
-        toastError("状態更新に失敗しました: " + (data.error || `HTTP ${res.status}`));
+        const data: unknown = await res.json().catch(() => ({}));
+        toastError("状態更新に失敗しました: " + reportAdminFailure(data, res.status, "サーバーが処理を拒否しました"));
       }
     } catch (err) {
       console.error("状態更新エラー:", err);
@@ -769,9 +934,9 @@ export function AdminDashboard({
           newPassword: normalizedPassword,
         }),
       });
-      const data = await res.json();
-      if (!res.ok || !data.ok) {
-        throw new Error(data.error || "管理者パスワードの更新に失敗しました");
+      const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+      if (!res.ok || data.ok !== true) {
+        throw new Error(reportAdminFailure(data, res.status, "管理者パスワードの更新に失敗しました"));
       }
       setAdminPwdMessage({ type: "success", text: "管理者パスワードを正常に変更しました" });
       const updatedPassword = normalizedPassword;

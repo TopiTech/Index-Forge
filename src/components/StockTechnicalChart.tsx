@@ -40,6 +40,86 @@ export interface PriceDataPoint {
 }
 
 /**
+ * Axis label of a raw price-series date.
+ *
+ * The series arrives from the API as an ISO date string ("2026-10-14") and is
+ * shown on the axis as the Japanese "M/D" label. The month and the day are
+ * read from the string itself instead of through `new Date(isoString)`,
+ * because the latter is parsed as UTC midnight and therefore shifts the
+ * calendar day in every negative UTC offset.
+ */
+export function formatChartDisplayDate(dateStr: string): string {
+  if (!dateStr) return dateStr;
+  const parts = dateStr.split(/[-/]/);
+  if (parts.length >= 3) {
+    const m = parseInt(parts[1], 10);
+    const d = parseInt(parts[2], 10);
+    if (!Number.isNaN(m) && !Number.isNaN(d)) {
+      return `${m}/${d}`;
+    }
+    return dateStr;
+  }
+  const dt = new Date(dateStr);
+  return Number.isNaN(dt.getTime())
+    ? dateStr
+    : `${dt.getUTCMonth() + 1}/${dt.getUTCDate()}`;
+}
+
+/**
+ * Render one tooltip cell of the technical chart.
+ *
+ * Recharts hands over whatever the series holds, including `null` for a
+ * not-yet-computed SMA and `NaN` for a corrupted close. Rendering those
+ * directly would show "¥0" / "$0.00" and hide the gap, so every
+ * non-finite value is rendered as "--".
+ *
+ * Exported so the behaviour is verifiable against the real component logic
+ * instead of a copy of it.
+ */
+export function formatTechnicalTooltipValue(
+  val: unknown,
+  name: unknown,
+  ticker: string,
+): [string | number, string] {
+  const isValidNum = typeof val === "number" && Number.isFinite(val);
+  if (name === "volume") {
+    return [isValidNum ? val.toLocaleString() : "--", "出来高"];
+  }
+  if (name === "close") {
+    return [isValidNum ? formatStockPrice(val, ticker) : "--", "終値"];
+  }
+  if (name === "sma25") {
+    return [isValidNum ? formatStockPrice(val, ticker) : "--", "SMA 25日"];
+  }
+  if (name === "sma75") {
+    return [isValidNum ? formatStockPrice(val, ticker) : "--", "SMA 75日"];
+  }
+  return [isValidNum ? val : "--", String(name)];
+}
+
+/**
+ * Simple moving average over the `window` closes ending at `endIndex`.
+ *
+ * A corrupted close (`NaN`, a non-positive number or a missing value) is
+ * replaced by `fallbackPrice`, so one bad row cannot poison the average and
+ * turn the whole line into `NaN`.
+ */
+export function computeSma(
+  rawSeries: Array<{ close?: number }>,
+  endIndex: number,
+  window: number,
+  fallbackPrice: number,
+): number | null {
+  if (endIndex < window - 1) return null;
+  let sum = 0;
+  for (let k = endIndex - window + 1; k <= endIndex; k++) {
+    const c = rawSeries[k]?.close;
+    sum += typeof c === "number" && Number.isFinite(c) && c > 0 ? c : fallbackPrice;
+  }
+  return Math.round((sum / window) * 100) / 100;
+}
+
+/**
  * Generate deterministic fallback daily series when /api/sync-prices is unavailable or offline.
  * Anchors precisely to stock.yearLow, stock.yearHigh, stock.previousClose, and stock.price.
  */
@@ -193,6 +273,15 @@ export function StockTechnicalChart({
   );
   const [selectedRange, setSelectedRange] = useState<"1M" | "3M" | "ALL">("3M");
   const [localSeries, setLocalSeries] = useState<PriceDataPoint[]>([]);
+  /**
+   * DATA-27: provenance of `localSeries`.
+   *
+   * `true` when the rendered series is the deterministic fallback generated
+   * from the quote instead of historical prices fetched from the API. Such a
+   * series is a *reference* value, never live data, so the chart has to
+   * disclose it with a badge.
+   */
+  const [localSeriesIsSynthetic, setLocalSeriesIsSynthetic] = useState(false);
   const [localDataLoading, setLocalDataLoading] = useState(false);
   const [retryKey, setRetryKey] = useState(0);
 
@@ -311,7 +400,9 @@ export function StockTechnicalChart({
               const snapData = (await snapRes.json()) as {
                 series?: Array<{ date: string; close: number }>;
               };
-              if (Array.isArray(snapData.series) && snapData.series.length >= 3) {
+              // DATA-27: a short but real series is still real data and must
+              // be rendered as-is instead of being replaced by a synthetic one.
+              if (Array.isArray(snapData.series) && snapData.series.length >= 1) {
                 rawSeries = snapData.series;
               }
             }
@@ -372,49 +463,19 @@ export function StockTechnicalChart({
           }
         }
 
-        if (Array.isArray(rawSeries) && rawSeries.length >= 5) {
+        // DATA-27: a real series is kept as-is, however short it is. Only a
+        // missing/failed response falls back to the generated reference series.
+        if (Array.isArray(rawSeries) && rawSeries.length >= 1) {
             const total = rawSeries.length;
             const points: PriceDataPoint[] = [];
             for (let i = 0; i < total; i++) {
               const rawP = rawSeries[i].close;
               const p = Number.isFinite(rawP) && rawP > 0 ? rawP : stock.price;
               const dateStr = rawSeries[i].date;
-              let displayDate = dateStr;
-              if (dateStr) {
-                const parts = dateStr.split(/[-/]/);
-                if (parts.length >= 3) {
-                  const m = parseInt(parts[1], 10);
-                  const d = parseInt(parts[2], 10);
-                  if (!Number.isNaN(m) && !Number.isNaN(d)) {
-                    displayDate = `${m}/${d}`;
-                  }
-                } else {
-                  const dt = new Date(dateStr);
-                  displayDate = Number.isNaN(dt.getTime())
-                    ? dateStr
-                    : `${dt.getUTCMonth() + 1}/${dt.getUTCDate()}`;
-                }
-              }
+              const displayDate = formatChartDisplayDate(dateStr);
 
-              let sma25: number | null = null;
-              if (i >= 24) {
-                let sum = 0;
-                for (let k = i - 24; k <= i; k++) {
-                  const c = rawSeries[k]?.close;
-                  sum += typeof c === "number" && Number.isFinite(c) && c > 0 ? c : p;
-                }
-                sma25 = Math.round((sum / 25) * 100) / 100;
-              }
-
-              let sma75: number | null = null;
-              if (i >= 74) {
-                let sum = 0;
-                for (let k = i - 74; k <= i; k++) {
-                  const c = rawSeries[k]?.close;
-                  sum += typeof c === "number" && Number.isFinite(c) && c > 0 ? c : p;
-                }
-                sma75 = Math.round((sum / 75) * 100) / 100;
-              }
+              const sma25 = computeSma(rawSeries, i, 25, p);
+              const sma75 = computeSma(rawSeries, i, 75, p);
 
               const rawVol = (rawSeries[i] as { volume?: number })?.volume;
               const rawOpen = (rawSeries[i] as { open?: number })?.open;
@@ -460,6 +521,7 @@ export function StockTechnicalChart({
             }
             if (!isCancelled) {
               setLocalSeries(points);
+              setLocalSeriesIsSynthetic(false);
               setLocalDataLoading(false);
               return;
             }
@@ -471,6 +533,8 @@ export function StockTechnicalChart({
       if (!isCancelled) {
         const fallback = generateDeterministicHistory(stock, 80);
         setLocalSeries(fallback);
+        // DATA-27: the generated series is a reference value, not market data.
+        setLocalSeriesIsSynthetic(true);
         setLocalDataLoading(false);
       }
     }
@@ -621,6 +685,13 @@ export function StockTechnicalChart({
     isUS ? "US" : stock.market || "PRIME",
   );
 
+  /**
+   * DATA-27: the generated series is only drawn by the local engine, whose
+   * label never claims live data. Whenever that series is the one on screen,
+   * the chart has to disclose it as a reference (demo) value.
+   */
+  const showSyntheticBadge = effectiveMode === "LOCAL" && localSeriesIsSynthetic;
+
   return (
     <div
       className="card stock-technical-chart-container"
@@ -654,6 +725,15 @@ export function StockTechnicalChart({
                   ? "LOCAL QUANT ENGINE (US)"
                   : "LOCAL QUANT ENGINE (東証 日足・SMA)"}
           </span>
+          {/* DATA-27: the generated series is a reference value, not live data. */}
+          {showSyntheticBadge && (
+            <span
+              className="badge badge-warning tiny"
+              title="実データ（/api/calculate）を取得できなかったため、引用情報から生成した参考値（デモ）を描画しています。実数据类型は公式TradingViewでも確認できます。"
+            >
+              参考値（デモ）
+            </span>
+          )}
           <h3 style={{ fontSize: activeIsMobile ? "1rem" : "1.15rem", fontWeight: 600, margin: 0 }}>
             {stock.name} テクニカルチャート
           </h3>
@@ -953,22 +1033,9 @@ export function StockTechnicalChart({
                       boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
                     }}
                     labelStyle={{ color: "var(--text-primary)", fontWeight: 600, marginBottom: "4px" }}
-                    formatter={(val: unknown, name: unknown) => {
-                      const isValidNum = typeof val === "number" && Number.isFinite(val);
-                      if (name === "volume") {
-                        return [isValidNum ? val.toLocaleString() : "--", "出来高"];
-                      }
-                      if (name === "close") {
-                        return [isValidNum ? formatStockPrice(val, stock.ticker) : "--", "終値"];
-                      }
-                      if (name === "sma25") {
-                        return [isValidNum ? formatStockPrice(val, stock.ticker) : "--", "SMA 25日"];
-                      }
-                      if (name === "sma75") {
-                        return [isValidNum ? formatStockPrice(val, stock.ticker) : "--", "SMA 75日"];
-                      }
-                      return [isValidNum ? val : "--", String(name)];
-                    }}
+                    formatter={(val: unknown, name: unknown) =>
+                      formatTechnicalTooltipValue(val, name, stock.ticker)
+                    }
                   />
 
                   <Legend

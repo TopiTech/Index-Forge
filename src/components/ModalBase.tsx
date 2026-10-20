@@ -1,8 +1,45 @@
-import { useId, useRef, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { motion } from "framer-motion";
 import { X } from "lucide-react";
 import { useModalFocus } from "../hooks/useModalFocus";
+
+/**
+ * Resolve the DOM node fixed-position overlays must be portaled into.
+ *
+ * While an element is in native fullscreen the browser only paints that
+ * element's subtree, so overlays portaled to `document.body` (modals, toasts,
+ * command palette) become invisible. Following the fullscreen element keeps
+ * them on screen; `document.body` remains the normal root.
+ */
+export function getOverlayRoot(): HTMLElement | null {
+  if (typeof document === "undefined") return null;
+  const fullscreenElement = document.fullscreenElement as HTMLElement | null;
+  if (fullscreenElement) return fullscreenElement;
+  return document.body ?? null;
+}
+
+/**
+ * Overlay root that re-resolves on every `fullscreenchange`.
+ *
+ * Returns `null` during SSR (no `document`), where callers must render the
+ * overlay inline instead of portal-ing it anywhere.
+ */
+export function useOverlayRoot(): HTMLElement | null {
+  const [overlayRoot, setOverlayRoot] = useState<HTMLElement | null>(() => getOverlayRoot());
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const syncOverlayRoot = () => setOverlayRoot(getOverlayRoot());
+    // A fullscreen transition can happen between render and effect (e.g. the
+    // page loads already fullscreen), so resolve once on mount as well.
+    syncOverlayRoot();
+    document.addEventListener("fullscreenchange", syncOverlayRoot);
+    return () => document.removeEventListener("fullscreenchange", syncOverlayRoot);
+  }, []);
+
+  return overlayRoot;
+}
 
 export interface ModalBaseProps {
   isOpen: boolean;
@@ -20,6 +57,16 @@ export interface ModalBaseProps {
   initialFocusRef?: React.RefObject<HTMLElement | null>;
   variant?: "default" | "danger";
   showCloseButton?: boolean;
+  /**
+   * Move focus into the dialog when it opens (default `true`). Pointer-driven
+   * previews pass `false` so hovering does not steal the caret.
+   */
+  focusOnOpen?: boolean;
+  /**
+   * Lock background scrolling while open (default `true`). Non-blocking
+   * previews pass `false` so the page keeps scrolling under the pointer.
+   */
+  lockScroll?: boolean;
 }
 
 export function ModalBase({
@@ -38,11 +85,17 @@ export function ModalBase({
   initialFocusRef,
   variant = "default",
   showCloseButton = true,
+  focusOnOpen = true,
+  lockScroll = true,
 }: ModalBaseProps) {
   const internalDialogRef = useRef<HTMLDivElement>(null);
   const isBackdropMouseDownRef = useRef(false);
   const generatedTitleId = useId();
-  useModalFocus(isOpen, internalDialogRef, onClose, initialFocusRef);
+  const overlayRoot = useOverlayRoot();
+  useModalFocus(isOpen, internalDialogRef, onClose, initialFocusRef, {
+    focusOnOpen,
+    lockScroll,
+  });
 
   if (!isOpen) return null;
 
@@ -124,7 +177,5 @@ export function ModalBase({
     </div>
   );
 
-  return typeof document !== "undefined"
-    ? createPortal(modalContent, document.body)
-    : modalContent;
+  return overlayRoot ? createPortal(modalContent, overlayRoot) : modalContent;
 }

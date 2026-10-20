@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 /**
  * Regression guards for defects fixed in the full-project code review.
  *
@@ -8,23 +9,28 @@
  *    `indicesError && indices.length === 0` branch was unreachable and an
  *    unreachable server left users looking at built-in indices with no
  *    indication anything was wrong.
- * 3. useBenchmark wrote lastUpdatedAt from the fetch handlers before the
- *    abort guard, resurrecting stale "last updated" metadata for a benchmark
- *    the user had already switched away from.
+ * 3. useBenchmark publishes the snapshot of the request that is still current.
+ *    A superseded (replaced by another symbol) or aborted (unmounted) request
+ *    must publish neither state nor the shared session cache, otherwise stale
+ *    "last updated" metadata and a stale payload are served for the whole
+ *    cache TTL. The guard is behavioural now: the hook is rendered, a late
+ *    response is delivered and the published state is inspected.
  * 4. buildDashboardQuery compared update fields against `null` while the type
  *    only allowed `undefined`, so the parameter-delete branches were dead
  *    code and a stale `index=` survived deselection.
  */
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { buildDashboardQuery, parseDashboardParams } from "./navigation";
+import { useBenchmark } from "../hooks/useBenchmark";
 
-const appSource = readFileSync(resolve(process.cwd(), "src/App.tsx"), "utf8");
-const benchmarkHookSource = readFileSync(
-  resolve(process.cwd(), "src/hooks/useBenchmark.ts"),
-  "utf8",
-);
+// The jsdom environment externalizes the Node built-ins, so the source is
+// read through Vite's `?raw` suffix instead of `fs`/`path`.
+import appSource from "../App.tsx?raw";
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 describe("handleAddToPortfolio refuses a fabricated cost basis", () => {
   it("never falls back to a hard-coded price", () => {
@@ -60,35 +66,146 @@ describe("indices list failure is surfaced to the user", () => {
   });
 });
 
-describe("useBenchmark does not write lastUpdatedAt after abort", () => {
-  it("guards every async lastUpdatedAt write with the abort signal", () => {
-    // The two synchronous writes in the effect body (cache hit + reset) run
-    // before any request starts and need no guard. Every write that happens
-    // inside the async fetch chain must respect the abort signal, otherwise a
-    // superseded request resurrects stale "last updated" metadata.
-    const fetchChain = benchmarkHookSource.slice(
-      benchmarkHookSource.indexOf("fetch(`${API_BASE}/snapshot"),
+/** A `/api/snapshot` payload the hook accepts. */
+function snapshotPayload(symbol: string, current: number) {
+  return {
+    snapshot: {
+      symbol,
+      label: symbol,
+      current,
+      change: 1,
+      changePct: 0.5,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      description: "",
+    },
+    series: [{ date: "2026-01-01", close: current }],
+  };
+}
+
+function snapshotResponse(symbol: string, current: number): Response {
+  return new Response(JSON.stringify(snapshotPayload(symbol, current)), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  });
+}
+
+/** A response whose delivery is controlled by the test. */
+function deferredResponse() {
+  let resolveWith!: (value: Response) => void;
+  const promise = new Promise<Response>((resolve) => {
+    resolveWith = resolve;
+  });
+  return { promise, resolveWith };
+}
+
+/** Let every pending microtask of the hook's fetch chain settle. */
+async function flushAsyncChain(): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+describe("useBenchmark does not publish a superseded or aborted response", () => {
+  it("ignores the response of a request that has been replaced", async () => {
+    const first = deferredResponse();
+    const second = deferredResponse();
+    const fetchMock = vi.fn(
+      (): Promise<Response> =>
+        new Promise<Response>(() => {
+          // Requests that are not explicitly deferred never settle.
+        }),
     );
-    const asyncWrites = fetchChain.match(/setLastUpdatedAt\(/g) || [];
-    const guardedWrites =
-      fetchChain.match(/if \(!controller\.signal\.aborted\) \{[\s\S]*?setLastUpdatedAt\(/g) || [];
-    expect(asyncWrites.length).toBeGreaterThan(0);
-    expect(guardedWrites.length).toBe(asyncWrites.length);
+    fetchMock.mockImplementationOnce(() => first.promise);
+    fetchMock.mockImplementationOnce(() => second.promise);
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result } = renderHook(() => useBenchmark("^N225", true));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+    // The user switches to another benchmark: the first request is superseded.
+    act(() => {
+      result.current.setSelectedBenchmark("^GSPC");
+    });
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+
+    // The superseded response arrives late and must not be published.
+    await act(async () => {
+      first.resolveWith(snapshotResponse("^N225", 100));
+      await flushAsyncChain();
+    });
+
+    expect(result.current.benchmarkData).toBeNull();
+    expect(result.current.lastUpdatedAt).toBeNull();
+    // An aborted request must not report an error for a state that is gone.
+    expect(result.current.error).toBeNull();
+
+    // The request that is still current publishes its payload.
+    await act(async () => {
+      second.resolveWith(snapshotResponse("^GSPC", 200));
+      await flushAsyncChain();
+    });
+
+    expect(result.current.benchmarkData?.snapshot.symbol).toBe("^GSPC");
+    expect(result.current.lastUpdatedAt).not.toBeNull();
+    expect(result.current.error).toBeNull();
   });
 
-  it("never publishes an aborted response to the shared benchmark session cache", () => {
-    // The module cache feeds the next render, so an aborted request must not
-    // write to it either: a superseded response would overwrite a newer
-    // payload and be served for the full TTL.
-    const cacheWrites = benchmarkHookSource.match(
-      /benchmarkSessionCache\.set\(/g,
-    ) || [];
-    expect(cacheWrites.length).toBeGreaterThan(0);
-    const guardedCacheWrites =
-      benchmarkHookSource.match(
-        /if \(!controller\.signal\.aborted\) \{[\s\S]*?benchmarkSessionCache\.set\(/g,
-      ) || [];
-    expect(guardedCacheWrites.length).toBe(cacheWrites.length);
+  it("never publishes an aborted response to the shared benchmark session cache", async () => {
+    const pending = deferredResponse();
+    const fetchMock = vi.fn(
+      (): Promise<Response> =>
+        new Promise<Response>(() => {
+          // Never resolves: the request must be dropped by the unmount.
+        }),
+    );
+    fetchMock.mockImplementationOnce(() => pending.promise);
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { unmount } = renderHook(() => useBenchmark("BTC-USD", true));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+    // The consumer unmounts, so the request is aborted.
+    unmount();
+
+    await act(async () => {
+      pending.resolveWith(snapshotResponse("BTC-USD", 1));
+      await flushAsyncChain();
+    });
+
+    // The module cache feeds the next render: an aborted response must not
+    // have been written to it, otherwise the stale payload would be served
+    // for the whole cache TTL.
+    const next = renderHook(() => useBenchmark("BTC-USD", true));
+    expect(next.result.current.benchmarkData).toBeNull();
+    expect(next.result.current.loading).toBe(true);
+  });
+
+  it("publishes a resolved response to the shared benchmark session cache", async () => {
+    // Control for the assertion above: a response that is NOT aborted really
+    // does reach the module cache, so a missing cache entry after an abort
+    // proves that the aborted response was dropped.
+    const pending = deferredResponse();
+    const fetchMock = vi.fn(
+      (): Promise<Response> =>
+        new Promise<Response>(() => {
+          // Never resolves: the request must be dropped by the unmount.
+        }),
+    );
+    fetchMock.mockImplementationOnce(() => pending.promise);
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result } = renderHook(() => useBenchmark("^N225", true));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+    await act(async () => {
+      pending.resolveWith(snapshotResponse("^N225", 100));
+      await flushAsyncChain();
+    });
+
+    expect(result.current.benchmarkData?.snapshot.symbol).toBe("^N225");
+
+    // The next consumer of the same symbol is served from the cache.
+    const next = renderHook(() => useBenchmark("^N225", true));
+    expect(next.result.current.benchmarkData?.snapshot.symbol).toBe("^N225");
+    expect(next.result.current.loading).toBe(false);
   });
 });
 

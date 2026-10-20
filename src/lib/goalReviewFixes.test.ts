@@ -143,8 +143,11 @@ describe("Goal Review Fixes: stock_series write-skip validation in /api/sync-pri
                   ],
                 };
               }
-              if (query.includes("FROM stock_series WHERE ticker = ?")) {
-                return { results: [{ prices: existingPrices }] };
+              if (query.includes("FROM stock_series WHERE ticker IN (")) {
+                // DATA-07: the Worker reads the stored series of every
+                // candidate ticker with a single `IN (...)` query instead of
+                // one SELECT per ticker.
+                return { results: [{ ticker: "7203", prices: existingPrices }] };
               }
               if (query.includes("FROM sync_logs")) {
                 return { results: [] };
@@ -155,7 +158,7 @@ describe("Goal Review Fixes: stock_series write-skip validation in /api/sync-pri
               if (query.includes("INSERT OR REPLACE INTO stock_series")) {
                 stockSeriesWritten = true;
               }
-              return { success: true };
+              return { success: true, meta: { changes: 1 } };
             },
           }),
         })),
@@ -217,6 +220,8 @@ describe("Goal Review Fixes: stock_series write-skip validation in /api/sync-pri
   it("skips stock_series write when length, start point, and end point all match", async () => {
     let stockSeriesWritten = false;
     let syncLogsUpdated = false;
+    /** The `last_synced_at` value written to sync_logs (SEC-11). */
+    let syncLogValue: number | undefined;
 
     // Existing: 2 data points
     const existingPrices = JSON.stringify([
@@ -227,44 +232,54 @@ describe("Goal Review Fixes: stock_series write-skip validation in /api/sync-pri
     const mockEnv = {
       ADMIN_PASSWORD: TEST_ADMIN_PASSWORD,
       DB: {
-        prepare: vi.fn().mockImplementation((query: string) => ({
-          bind: (..._params: unknown[]) => ({
-            all: async () => {
-              if (query.includes("FROM indices")) {
-                return {
-                  results: [
-                    {
-                      id: "test",
-                      name: "Test",
-                      base_value: 1000,
-                      sort_order: 1,
-                      ticker: "7203",
-                      stock_name: "Toyota",
-                      weight: 100,
-                      theme: "Auto",
-                    },
-                  ],
-                };
-              }
-              if (query.includes("FROM stock_series WHERE ticker = ?")) {
-                return { results: [{ prices: existingPrices }] };
-              }
-              if (query.includes("FROM sync_logs")) {
-                return { results: [] };
-              }
-              return { results: [] };
+        prepare: vi.fn().mockImplementation((query: string) => {
+          let boundParams: unknown[] = [];
+          return {
+            bind: (...params: unknown[]) => {
+              boundParams = params;
+              return {
+                all: async () => {
+                  if (query.includes("FROM indices")) {
+                    return {
+                      results: [
+                        {
+                          id: "test",
+                          name: "Test",
+                          base_value: 1000,
+                          sort_order: 1,
+                          ticker: "7203",
+                          stock_name: "Toyota",
+                          weight: 100,
+                          theme: "Auto",
+                        },
+                      ],
+                    };
+                  }
+                  if (query.includes("FROM stock_series WHERE ticker IN (")) {
+                    // DATA-07: the stored series are read with one batched
+                    // `IN (...)` query for the whole request, so the double has
+                    // to answer that shape to exercise the identical-data check.
+                    return { results: [{ ticker: "7203", prices: existingPrices }] };
+                  }
+                  if (query.includes("FROM sync_logs")) {
+                    return { results: [] };
+                  }
+                  return { results: [] };
+                },
+                run: async () => {
+                  if (query.includes("INSERT OR REPLACE INTO stock_series")) {
+                    stockSeriesWritten = true;
+                  }
+                  if (query.includes("INSERT OR REPLACE INTO sync_logs")) {
+                    syncLogsUpdated = true;
+                    syncLogValue = Number(boundParams[1]);
+                  }
+                  return { success: true, meta: { changes: 1 } };
+                },
+              };
             },
-            run: async () => {
-              if (query.includes("INSERT OR REPLACE INTO stock_series")) {
-                stockSeriesWritten = true;
-              }
-              if (query.includes("INSERT OR REPLACE INTO sync_logs")) {
-                syncLogsUpdated = true;
-              }
-              return { success: true };
-            },
-          }),
-        })),
+          };
+        }),
         batch: vi.fn().mockImplementation(async (statements: any[]) => {
           stockSeriesWritten = true;
           return statements.map(() => ({ success: true }));
@@ -315,6 +330,11 @@ describe("Goal Review Fixes: stock_series write-skip validation in /api/sync-pri
       // Skip write!
       expect(stockSeriesWritten).toBe(false);
       expect(syncLogsUpdated).toBe(true);
+      // SEC-11: a successful sync records a positive timestamp. The negative
+      // "failure" marker is not written any more (the back-off lives in the
+      // Worker's in-memory map), so the log must never carry one.
+      expect(syncLogValue).toBeDefined();
+      expect(syncLogValue!).toBeGreaterThan(0);
     } finally {
       globalThis.fetch = originalFetch;
     }

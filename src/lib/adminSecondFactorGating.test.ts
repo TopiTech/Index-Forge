@@ -13,15 +13,23 @@
  *
  * Both now work only on local/test hosts; anywhere else the Worker fails
  * closed with an actionable message.
+ *
+ * The suite drives the real code paths: the exported helpers are called
+ * directly and the admin-login endpoint is exercised through
+ * `worker.fetch(request, env)` with a mocked D1, so a broken runtime
+ * behaviour fails the suite instead of passing on a source-text match.
  */
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import worker from "../../worker/index";
 import {
   DEFAULT_DEV_ADMIN_SECRET_CODE,
   TURNSTILE_DEFAULT_SECRET_KEY,
+  clearAuthCache,
   isLocalHostname,
   isLocalOrTestHost,
+  resetPasswordTableEnsured,
   verifyAdminSecretCode,
   verifyTurnstileToken,
 } from "../../worker/internal";
@@ -38,6 +46,8 @@ interface PasswordRecord {
   created_at: number;
   updated_at: number;
 }
+
+const TEST_ADMIN_PASSWORD = "test-master-admin-pwd";
 
 function createEnv(options: {
   adminSecretCode?: string;
@@ -67,14 +77,41 @@ function createEnv(options: {
         run: () => run(query),
       }),
     },
-    ADMIN_PASSWORD: "test-master-admin-pwd",
+    ADMIN_PASSWORD: TEST_ADMIN_PASSWORD,
   };
   if (options.adminSecretCode !== undefined) env.ADMIN_SECRET_CODE = options.adminSecretCode;
   return { env, passwords };
 }
 
+/** A siteverify answer that accepts the challenge. */
+function stubSuccessfulSiteverify(): ReturnType<typeof vi.fn> {
+  const fetchSpy = vi.fn(
+    async (_input: RequestInfo | URL, _init?: RequestInit) =>
+      new Response(JSON.stringify({ success: true }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+  );
+  vi.stubGlobal("fetch", fetchSpy);
+  return fetchSpy;
+}
+
+function adminLoginRequest(url: string, body: Record<string, unknown>): Request {
+  return new Request(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+beforeEach(() => {
+  clearAuthCache();
+  resetPasswordTableEnsured();
+});
+
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe("host classification for development defaults", () => {
@@ -193,17 +230,127 @@ describe("verifyTurnstileToken gating", () => {
 });
 
 describe("admin-login wiring", () => {
-  const source = readFileSync(resolve(process.cwd(), "worker/internal-impl.ts"), "utf8");
+  it("verifies the secret code on the admin-login endpoint", async () => {
+    // The endpoint must call the secret-code verification: a wrong code is
+    // refused with the Japanese second-factor message, and no administrator
+    // session is issued for it.
+    const fetchSpy = stubSuccessfulSiteverify();
+    const { env } = createEnv({ adminSecretCode: "configured-secret-42" });
+    env.TURNSTILE_SECRET_KEY = "real-turnstile-secret";
 
-  it("derives the development-default permission from the request host", () => {
-    const turnstileCall = source.indexOf("verifyTurnstileToken(");
+    const wrongRes = await worker.fetch(
+      adminLoginRequest("https://indexforge.test/api/auth/admin-login", {
+        password: TEST_ADMIN_PASSWORD,
+        secretCode: "wrong-secret-code",
+        turnstileToken: "dummy-turnstile-token",
+      }),
+      env as never,
+    );
+
+    expect(wrongRes.status).toBe(401);
+    const wrongData = (await wrongRes.json()) as Record<string, unknown>;
+    expect(wrongData.ok).toBe(false);
+    expect(String(wrongData.error)).toContain("秘密の暗号が正しくありません");
+    expect(wrongData.adminToken).toBeUndefined();
+
+    // The Turnstile challenge was really verified before the secret code.
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(String(fetchSpy.mock.calls[0][0])).toBe(
+      "https://challenges.cloudflare.com/turnstile/v0/siteverify",
+    );
+  });
+
+  it("accepts the configured secret code and issues an administrator session", async () => {
+    stubSuccessfulSiteverify();
+    const { env } = createEnv({ adminSecretCode: "configured-secret-42" });
+    env.TURNSTILE_SECRET_KEY = "real-turnstile-secret";
+
+    const res = await worker.fetch(
+      adminLoginRequest("https://indexforge.test/api/auth/admin-login", {
+        password: TEST_ADMIN_PASSWORD,
+        secretCode: "configured-secret-42",
+        turnstileToken: "dummy-turnstile-token",
+      }),
+      env as never,
+    );
+
+    expect(res.status).toBe(200);
+    const data = (await res.json()) as Record<string, unknown>;
+    expect(data.ok).toBe(true);
+    expect(data.role).toBe("admin");
+    // SEC-01: the successful login is what issues the `x-admin-session`
+    // credential every privileged endpoint requires.
+    expect(typeof data.adminToken).toBe("string");
+    expect(String(data.adminToken).length).toBeGreaterThan(0);
+  });
+
+  it("accepts the committed development code on a local host", async () => {
+    // The host classification is what decides whether the committed
+    // development code may be used at all, and a local host is a context in
+    // which it is allowed.
+    stubSuccessfulSiteverify();
+    const { env } = createEnv();
+    env.TURNSTILE_SECRET_KEY = "real-turnstile-secret";
+
+    const res = await worker.fetch(
+      adminLoginRequest("http://localhost/api/auth/admin-login", {
+        password: TEST_ADMIN_PASSWORD,
+        secretCode: DEFAULT_DEV_ADMIN_SECRET_CODE,
+        turnstileToken: "dummy-turnstile-token",
+      }),
+      env as never,
+    );
+
+    expect(res.status).toBe(200);
+    const data = (await res.json()) as Record<string, unknown>;
+    expect(data.ok).toBe(true);
+    expect(data.role).toBe("admin");
+  });
+
+  it("gives the siteverify round-trip a 5 second deadline", async () => {
+    // The siteverify call is the only external request without a deadline
+    // otherwise; a hung connection would hold the admin-login request open
+    // indefinitely. The deadline is asserted on the call arguments, because
+    // the abort itself only becomes observable after five seconds.
+    stubSuccessfulSiteverify();
+    const timeoutSpy = vi.spyOn(AbortSignal, "timeout");
+
+    const res = await verifyTurnstileToken(
+      "real-secret-key",
+      "any-token",
+      "203.0.113.7",
+      false,
+    );
+
+    expect(res.success).toBe(true);
+    expect(timeoutSpy).toHaveBeenCalledWith(5000);
+
+    const fetchSpy = vi.mocked(globalThis.fetch);
+    const init = fetchSpy.mock.calls[0][1];
+    expect(init?.signal).toBeInstanceOf(AbortSignal);
+    expect(init?.signal).toBe(timeoutSpy.mock.results[0].value);
+  });
+
+  it("derives the development-default permission from the request host (static contract)", () => {
+    // Static contract: the admin-login handler must derive the
+    // "development defaults are allowed" flag from the request's host instead
+    // of hard-coding it, so that the committed development code and the
+    // always-passing Turnstile test secret are refused on a public host.
+    //
+    // There is no runtime counterpart for the *refusal* half of this
+    // contract: the unit-test runtime is itself a development context, so
+    // `isLocalOrTestHost()` is true for every host here and both branches
+    // behave identically. The observable halves are covered elsewhere: the
+    // endpoint refuses a wrong secret code and accepts the configured one
+    // (above), the committed development code is accepted on a local host
+    // (above), and the host classification itself is asserted by
+    // `isLocalHostname` / `isLocalOrTestHost` (first describe block).
+    const source = readFileSync(resolve(process.cwd(), "worker/internal-impl.ts"), "utf8");
+
     const secretCodeCall = source.indexOf("verifyAdminSecretCode(\n            env,");
-    expect(turnstileCall).toBeGreaterThan(0);
     expect(secretCodeCall).toBeGreaterThan(0);
     expect(source.slice(secretCodeCall, secretCodeCall + 220)).toContain(
       "isLocalOrTestHost(url.hostname)",
     );
-    // The siteverify request must carry a deadline like every other external call.
-    expect(source).toContain('signal: AbortSignal.timeout(5000)');
   });
 });

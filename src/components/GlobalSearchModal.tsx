@@ -16,6 +16,7 @@ import { POPULAR_STOCKS, type PopularStock } from "../data/popularStocks";
 import { searchStockUniverse, ALL_UNIVERSE_STOCKS, normalizeSearchQuery, type StockMarket } from "../data/stockUniverse";
 import { DEFAULT_MARKET_OVERVIEW, isMacroAsset } from "../lib/marketDataService";
 import { useModalFocus } from "../hooks/useModalFocus";
+import { useOverlayRoot } from "./ModalBase";
 import { isInteractiveKeyTarget } from "../lib/keyboardTarget";
 import type { PageView } from "../lib/navigation";
 import type { CustomIndex } from "../data/indices";
@@ -33,33 +34,59 @@ export interface RecentSearchItem {
 
 export const RECENT_SEARCHES_STORAGE_KEY = "indexforge:recent_searches";
 
-export function getRecentSearches(): RecentSearchItem[] {
-  if (typeof localStorage === "undefined") return [];
+/** The subset of the Storage API the recent-search list needs. */
+type RecentSearchStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
+
+/**
+ * Resolve `localStorage` without touching it when it throws.
+ *
+ * `typeof localStorage` still evaluates the `window.localStorage` getter, and
+ * that getter throws a SecurityError when storage is blocked (third-party
+ * iframe, hardened privacy mode, "block all cookies"). The throw escaped the
+ * `try` block, so merely importing/rendering the search modal crashed the whole
+ * app. Reading the same property off `globalThis` (identical to
+ * `window.localStorage` in a browser) inside a `try` keeps every access safe,
+ * and also works in non-DOM runtimes.
+ */
+function safeLocalStorage(): RecentSearchStorage | null {
   try {
-    const raw = localStorage.getItem(RECENT_SEARCHES_STORAGE_KEY);
+    return (globalThis as { localStorage?: RecentSearchStorage }).localStorage ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export function getRecentSearches(): RecentSearchItem[] {
+  const storage = safeLocalStorage();
+  if (!storage) return [];
+  try {
+    const raw = storage.getItem(RECENT_SEARCHES_STORAGE_KEY);
     if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed.slice(0, 8) : [];
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as RecentSearchItem[]).slice(0, 8) : [];
   } catch {
     return [];
   }
 }
 
 export function saveRecentSearch(item: Omit<RecentSearchItem, "timestamp">): void {
-  if (typeof localStorage === "undefined") return;
+  const storage = safeLocalStorage();
+  if (!storage) return;
   try {
     const current = getRecentSearches().filter((x) => x.id !== item.id);
     const updated: RecentSearchItem[] = [{ ...item, timestamp: Date.now() }, ...current].slice(0, 8);
-    localStorage.setItem(RECENT_SEARCHES_STORAGE_KEY, JSON.stringify(updated));
+    storage.setItem(RECENT_SEARCHES_STORAGE_KEY, JSON.stringify(updated));
   } catch {
-    // ignore
+    // Storage full / revoked mid-session: recent searches are best-effort and
+    // must never block navigation.
   }
 }
 
 export function clearRecentSearches(): void {
-  if (typeof localStorage === "undefined") return;
+  const storage = safeLocalStorage();
+  if (!storage) return;
   try {
-    localStorage.removeItem(RECENT_SEARCHES_STORAGE_KEY);
+    storage.removeItem(RECENT_SEARCHES_STORAGE_KEY);
   } catch {
     // ignore
   }
@@ -155,6 +182,7 @@ export function GlobalSearchModal({
   const listRef = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const isBackdropMouseDownRef = useRef(false);
+  const overlayRoot = useOverlayRoot();
 
   // Focus trap, Escape handling and focus restoration are delegated to the
   // shared modal hook (same contract as every other dialog in the app); the
@@ -380,13 +408,19 @@ export function GlobalSearchModal({
 
   const handleSelect = useCallback(
     (item: (typeof filteredResults)[number]) => {
-      saveRecentSearch({
-        id: item.id,
-        title: item.title,
-        subtitle: item.subtitle,
-        type: item.type,
-        market: item.market,
-      });
+      // Recording history is best-effort: a blocked or full storage must never
+      // swallow the navigation the user asked for.
+      try {
+        saveRecentSearch({
+          id: item.id,
+          title: item.title,
+          subtitle: item.subtitle,
+          type: item.type,
+          market: item.market,
+        });
+      } catch {
+        // ignore: storage is unavailable
+      }
       if (item.type === "stock") {
         onNavigate("stock", `?ticker=${item.id}`);
       } else {
@@ -726,8 +760,7 @@ export function GlobalSearchModal({
     </div>
   );
 
-  if (typeof document !== "undefined") {
-    return createPortal(modalContent, document.body);
-  }
-  return modalContent;
+  // Portal into the overlay root (the fullscreen element when one is active);
+  // `null` during SSR, where the overlay renders inline.
+  return overlayRoot ? createPortal(modalContent, overlayRoot) : modalContent;
 }

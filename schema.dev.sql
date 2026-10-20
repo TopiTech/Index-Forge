@@ -1,3 +1,5 @@
+DROP TABLE IF EXISTS sync_quota;
+DROP TABLE IF EXISTS admin_sessions;
 DROP TABLE IF EXISTS admin_login_attempts;
 DROP TABLE IF EXISTS benchmark_cache;
 DROP TABLE IF EXISTS rate_limits;

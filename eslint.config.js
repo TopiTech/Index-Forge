@@ -52,6 +52,15 @@ export default tseslint.config(
     },
   },
   {
+    // Build/CI helper scripts run in Node, not in the browser.
+    files: ["scripts/**/*.{js,mjs}"],
+    languageOptions: {
+      globals: {
+        ...globals.node,
+      },
+    },
+  },
+  {
     files: ["**/*.test.{ts,tsx}"],
     languageOptions: {
       globals: {

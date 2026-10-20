@@ -10,7 +10,16 @@ import { calculateCustomIndex } from "../src/lib/indexEngine";
 import type { D1Database, D1PreparedStatement } from "@cloudflare/workers-types";
 import { SYSTEM_INDICES as SHARED_SYSTEM_INDICES } from "../src/data/indices";
 import { POPULAR_STOCKS } from "../src/data/popularStocks";
-import { BASELINE_ASSET_QUOTES } from "../src/data/marketConstants";
+import {
+  BASELINE_ASSET_QUOTES,
+  type BaselineAssetQuote,
+} from "../src/data/marketConstants";
+import {
+  BOJ_MEETING_SCHEDULE,
+  FOMC_MEETING_SCHEDULE,
+  getNextScheduledMeetings,
+  MACRO_METRICS_DEFAULTS,
+} from "../src/data/macroSchedule";
 import {
   getStockFundamentals,
   type MarketOverviewData,
@@ -66,6 +75,15 @@ export interface AuthResult {
   maxIndices?: number | null;
   id?: string;
   error?: string;
+  /**
+   * True when the attempt was refused by the rate limiter (or the limiter
+   * could not be evaluated and the check failed closed).
+   *
+   * The distinction matters: a limiter refusal is an infrastructure/rate
+   * condition, not a wrong credential. Reporting it as "wrong password"
+   * hid a D1 outage from both the user and the operator.
+   */
+  rateLimited?: boolean;
 }
 
 export interface YahooChartResponse {
@@ -209,6 +227,7 @@ export interface IndexWriteColumns {
   creatorId: boolean;
   createdAt: boolean;
   sortOrder?: boolean;
+  ownerTokenIssuedAt?: boolean;
 }
 
 export interface IndexWriteValues {
@@ -217,6 +236,8 @@ export interface IndexWriteValues {
   description: string;
   baseValue: number;
   ownerTokenHash: string | null;
+  /** Unix seconds at which `ownerTokenHash` was issued; null when unowned. */
+  ownerTokenIssuedAt: number | null;
   creatorId: string | null;
   createdAt: number;
   sortOrder: number | null;
@@ -253,6 +274,11 @@ export function prepareIndexUpsert(
     valueExpressions.push("?");
     params.push(values.ownerTokenHash);
   }
+  if (columns.ownerTokenIssuedAt !== false) {
+    columnNames.push("owner_token_issued_at");
+    valueExpressions.push("?");
+    params.push(values.ownerTokenIssuedAt);
+  }
   if (columns.creatorId) {
     columnNames.push("creator_id");
     valueExpressions.push("COALESCE((SELECT creator_id FROM indices WHERE id = ?), ?)");
@@ -282,6 +308,123 @@ export function prepareIndexUpsert(
   return env.DB.prepare(
     `${insertPrefix} INTO indices (${columnNames.join(", ")}) ${insertSource}`,
   ).bind(...params);
+}
+
+export interface IndexOwnershipLookup {
+  exists: boolean;
+  ownerTokenHash: string | null;
+  /**
+   * Unix seconds at which the stored hash was issued.
+   *
+   * `undefined` means the deployed schema has no `owner_token_issued_at`
+   * column, so expiry cannot be evaluated and the pre-expiry behaviour is kept.
+   * `null` means the column exists but the row predates issuance tracking; the
+   * token is grandfathered (kept working) and the runtime backfill records the
+   * migration time for it.
+   */
+  ownerTokenIssuedAt: number | null | undefined;
+  creatorId: string | null;
+  hasOwnerTokenHashColumn: boolean;
+  hasOwnerTokenIssuedAtColumn: boolean;
+}
+
+/**
+ * Column sets tried in order when reading an index' ownership metadata.
+ *
+ * D1 deployments can sit on different migration revisions, so a single query
+ * cannot assume every optional column exists. The order matters: the later sets
+ * drop `creator_id` first (quota provenance only), then all ownership metadata.
+ */
+const INDEX_OWNERSHIP_COLUMN_SETS: readonly (readonly string[])[] = [
+  ["owner_token_hash", "owner_token_issued_at", "creator_id"],
+  ["owner_token_hash", "owner_token_issued_at"],
+  ["owner_token_hash", "creator_id"],
+  ["owner_token_hash"],
+  [],
+];
+
+/**
+ * Read the owner token hash / issuance time / creator of an index.
+ *
+ * Every owner-token authorization path uses this so the hash and its issuance
+ * timestamp are always read together: verifying a token against a hash while
+ * ignoring when it was issued would let an expired token keep authorizing
+ * mutations.
+ */
+export async function lookupIndexOwnership(
+  env: Env,
+  indexId: string,
+): Promise<IndexOwnershipLookup> {
+  for (let candidateIndex = 0; candidateIndex < INDEX_OWNERSHIP_COLUMN_SETS.length; candidateIndex++) {
+    const columns = INDEX_OWNERSHIP_COLUMN_SETS[candidateIndex];
+    const sql = columns.length
+      ? `SELECT id, ${columns.join(", ")} FROM indices WHERE id = ?`
+      : "SELECT id FROM indices WHERE id = ?";
+    let row: D1Row | undefined;
+    try {
+      const { results } = await env.DB.prepare(sql).bind(indexId).all();
+      row = ((results || []) as D1Row[])[0];
+    } catch (err) {
+      const missingColumn = columns.find((column) => isMissingColumnError(err, column));
+      if (missingColumn === undefined) throw err;
+      // Jump to the first later column set that does not reference the missing
+      // column, so a stale migration cannot turn an ownership check into a 500.
+      const nextIndex = INDEX_OWNERSHIP_COLUMN_SETS.findIndex(
+        (set, i) => i > candidateIndex && !set.includes(missingColumn),
+      );
+      if (nextIndex === -1) throw err;
+      candidateIndex = nextIndex - 1;
+      continue;
+    }
+
+    const hasOwnerTokenHashColumn = columns.includes("owner_token_hash");
+    const hasOwnerTokenIssuedAtColumn = columns.includes("owner_token_issued_at");
+    if (!row) {
+      return {
+        exists: false,
+        ownerTokenHash: null,
+        ownerTokenIssuedAt: undefined,
+        creatorId: null,
+        hasOwnerTokenHashColumn,
+        hasOwnerTokenIssuedAtColumn,
+      };
+    }
+
+    const rawHash = row.owner_token_hash;
+    const rawIssuedAt = row.owner_token_issued_at;
+    let ownerTokenIssuedAt: number | null | undefined;
+    if (!hasOwnerTokenIssuedAtColumn) {
+      ownerTokenIssuedAt = undefined;
+    } else if (rawIssuedAt === null) {
+      ownerTokenIssuedAt = null;
+    } else if (rawIssuedAt === undefined) {
+      // A lightweight test double returned a row without the column value.
+      ownerTokenIssuedAt = undefined;
+    } else {
+      const numericIssuedAt = Number(rawIssuedAt);
+      ownerTokenIssuedAt = Number.isFinite(numericIssuedAt) ? numericIssuedAt : null;
+    }
+
+    return {
+      exists: true,
+      ownerTokenHash: typeof rawHash === "string" && rawHash.length > 0 ? rawHash : null,
+      ownerTokenIssuedAt,
+      creatorId:
+        typeof row.creator_id === "string" && row.creator_id.length > 0 ? row.creator_id : null,
+      hasOwnerTokenHashColumn,
+      hasOwnerTokenIssuedAtColumn,
+    };
+  }
+  // Unreachable: the final column set is the empty one, which cannot reference
+  // a missing column. Kept to satisfy the return contract.
+  return {
+    exists: false,
+    ownerTokenHash: null,
+    ownerTokenIssuedAt: undefined,
+    creatorId: null,
+    hasOwnerTokenHashColumn: false,
+    hasOwnerTokenIssuedAtColumn: false,
+  };
 }
 
 // D1 allows at most 100 bound parameters per SQL statement. A basket row has
@@ -358,7 +501,51 @@ export function prepareBasketItemWrites(
 // the worker without drifting into a duplicate definition.
 export const SYSTEM_INDICES = SHARED_SYSTEM_INDICES;
 
+/**
+ * Description suffix per baseline category.
+ *
+ * The snapshot endpoint renders the label and the description next to the
+ * chart, so the description states what kind of instrument the symbol is.
+ */
+const BASELINE_CATEGORY_DESCRIPTIONS: Record<BaselineAssetQuote["category"], string> = {
+  INDEX: "株価指数 (日足)",
+  FX: "為替レート",
+  COMMODITY: "商品先物 (日足)",
+  BOND: "金利指標 (日足)",
+  CRYPTO: "暗号資産 (日足)",
+};
+
+/**
+ * Build the benchmark entries for every asset the market UI renders.
+ *
+ * The UI treats indices, FX, commodities, bonds and crypto as benchmarks, so
+ * the allow-list is derived from BASELINE_ASSET_QUOTES instead of a hand
+ * maintained list that could drift away from the UI. The label and the
+ * description come from the same baseline definition, which keeps the
+ * snapshot metadata and the offline fallback consistent.
+ */
+function buildBaselineBenchmarkEntries(): Record<string, { label: string; desc: string }> {
+  const entries: Record<string, { label: string; desc: string }> = {};
+  for (const asset of BASELINE_ASSET_QUOTES) {
+    if (Object.prototype.hasOwnProperty.call(entries, asset.symbol)) continue;
+    entries[asset.symbol] = {
+      label: asset.name,
+      desc: `${asset.name} ${BASELINE_CATEGORY_DESCRIPTIONS[asset.category]}`,
+    };
+  }
+  return entries;
+}
+
+/**
+ * Benchmarks /api/snapshot may serve.
+ *
+ * The map doubles as the allow-list: a symbol that is not listed is rejected
+ * with 400 instead of being proxied to Yahoo Finance.
+ */
 export const BENCHMARK_MAP: Record<string, { label: string; desc: string }> = {
+  ...buildBaselineBenchmarkEntries(),
+  // Explicit entries keep the historical label/description of the four
+  // symbols the endpoint has always served.
   "^N225": { label: "日経225", desc: "日経平均株価 (日足)" },
   "^GSPC": { label: "S&P 500", desc: "S&P 500 米国株価指数" },
   "USDJPY=X": { label: "米ドル/円", desc: "USD/JPY 為替レート" },
@@ -463,9 +650,166 @@ export const MAX_BASKET_ITEMS = 500;
 // This lets us apply a short retry backoff without ever treating failed data
 // retrieval as fresh price data.
 export const SYNC_FAILURE_RETRY_SECONDS = 5 * 60;
+
+// Maximum number of tickers a single /api/sync-prices request may refresh.
+// Every ticker costs one Yahoo Finance chart request plus D1 writes, and the
+// endpoint is unauthenticated, so the cap keeps one request far below the
+// Workers subrequest limit.
+export const MAX_SYNC_TICKERS_PER_REQUEST = 12;
+
+// Daily per-IP ticker budget for /api/sync-prices, tracked in `sync_quota`.
+// The per-request rate limiter only caps the number of requests, so a caller
+// could otherwise repeat the same request until the Yahoo/D1 budget is gone.
+// The budget covers the largest built-in index (175 constituents) roughly 28
+// times a day, so a legitimate forced refresh never exhausts it while an
+// unattended caller still hits a hard ceiling.
+export const SYNC_DAILY_TICKER_BUDGET = 5000;
+
+/**
+ * Recent price-fetch failures per ticker (Unix seconds).
+ *
+ * The negative `sync_logs` marker is no longer written: an unauthenticated
+ * caller could turn every failed Yahoo fetch into a D1 write. Legacy negative
+ * markers are still read so an already-provisioned database keeps its
+ * back-off, while new failures are tracked in memory for the lifetime of the
+ * isolate.
+ */
+const syncFailureTimestamps = new Map<string, number>();
+
+/** Upper bound of the in-memory failure map. */
+export const MAX_SYNC_FAILURE_ENTRIES = 2000;
+
+/** Drop the failures whose retry window has already passed. */
+function pruneSyncFailureTimestamps(now: number): void {
+  for (const [ticker, failedAt] of syncFailureTimestamps) {
+    if (now - failedAt >= SYNC_FAILURE_RETRY_SECONDS) {
+      syncFailureTimestamps.delete(ticker);
+    }
+  }
+}
+
+/** Record a failed fetch so the ticker is not fetched again immediately. */
+function recordSyncFailure(ticker: string, now: number): void {
+  pruneSyncFailureTimestamps(now);
+  if (syncFailureTimestamps.size >= MAX_SYNC_FAILURE_ENTRIES) {
+    // The map is bounded: drop the oldest entry so a burst of failures on
+    // distinct tickers cannot grow it without limit.
+    const oldestKey = syncFailureTimestamps.keys().next().value;
+    if (oldestKey !== undefined) syncFailureTimestamps.delete(oldestKey);
+  }
+  syncFailureTimestamps.set(ticker, now);
+}
+
+/** True while the ticker is still inside its retry back-off window. */
+function isSyncFailureBackedOff(ticker: string, now: number): boolean {
+  const failedAt = syncFailureTimestamps.get(ticker);
+  if (failedAt === undefined) return false;
+  if (now - failedAt >= SYNC_FAILURE_RETRY_SECONDS) {
+    syncFailureTimestamps.delete(ticker);
+    return false;
+  }
+  return true;
+}
+
+/** Forget a failure after the ticker has been fetched successfully. */
+function clearSyncFailure(ticker: string): void {
+  syncFailureTimestamps.delete(ticker);
+}
+
+/**
+ * Forget every remembered sync failure.
+ *
+ * The back-off map is module state, so it survives between requests inside one
+ * isolate (that is the point) and also between test cases in the same file.
+ * Tests need a way to start from a clean slate, otherwise a ticker that
+ * failed in one case silently skips the network in the next one.
+ */
+export function resetSyncFailureState(): void {
+  syncFailureTimestamps.clear();
+}
+
+/**
+ * Read the stored price series of the given tickers.
+ *
+ * The rows are fetched with a single `IN (...)` statement (chunked to stay
+ * below D1's bound-parameter limit) instead of one SELECT per ticker: the
+ * previous per-ticker lookup multiplied the D1 query count of a sync request
+ * by the number of tickers.
+ */
+async function loadStockSeriesByTicker(
+  env: Env,
+  tickers: string[],
+): Promise<Map<string, string>> {
+  const seriesByTicker = new Map<string, string>();
+  if (tickers.length === 0) return seriesByTicker;
+  try {
+    for (let offset = 0; offset < tickers.length; offset += D1_MAX_BOUND_PARAMETERS) {
+      const chunk = tickers.slice(offset, offset + D1_MAX_BOUND_PARAMETERS);
+      const placeholders = chunk.map(() => "?").join(", ");
+      const { results } = await env.DB.prepare(
+        `SELECT ticker, prices FROM stock_series WHERE ticker IN (${placeholders})`,
+      )
+        .bind(...chunk)
+        .all();
+      for (const row of (results || []) as D1Row[]) {
+        const ticker = typeof row.ticker === "string" ? row.ticker : "";
+        const prices = typeof row.prices === "string" ? row.prices : "";
+        if (ticker && prices) seriesByTicker.set(ticker, prices);
+      }
+    }
+  } catch (err) {
+    // Comparing against the stored series is an optimisation only: when the
+    // rows cannot be read the sync simply writes the freshly fetched series.
+    if (!isMissingTableError(err, "stock_series")) {
+      console.warn("sync-prices: failed to read the stored stock_series:", err);
+    }
+  }
+  return seriesByTicker;
+}
+
 export const PASSWORD_HASH_PREFIX = "pbkdf2-sha256";
 export const PASSWORD_HASH_ITERATIONS = 100_000;
 export const AUTH_RATE_LIMIT_MAX = 10;
+
+// Owner tokens authorize mutations of one index without an account; the token
+// itself is the only secret, so a guessable value is equivalent to no ownership
+// check at all. Newly issued/chosen tokens must therefore be long and random.
+// Legacy short tokens keep *verifying* (backward compatibility) but can no
+// longer be *set*, and they are upgraded on the next token replacement.
+export const OWNER_TOKEN_PATTERN = /^[A-Za-z0-9_-]{32,256}$/;
+export const OWNER_TOKEN_MAX_AGE_SECONDS = 90 * 24 * 60 * 60;
+export const OWNER_TOKEN_EXPIRED_MESSAGE =
+  "所有者トークンの有効期限が切れています。管理者に再発行を依頼してください。";
+export const OWNER_TOKEN_FORMAT_MESSAGE =
+  "所有者トークンは32文字以上の英数字・ハイフン・アンダースコアで指定してください";
+
+/** Cryptographically strong owner token: 32 random bytes as 64 hex characters. */
+export function generateOwnerToken(): string {
+  return bytesToHex(crypto.getRandomValues(new Uint8Array(32)));
+}
+
+export function isValidOwnerTokenFormat(token: string): boolean {
+  return OWNER_TOKEN_PATTERN.test(token.trim());
+}
+
+/**
+ * Whether a stored `owner_token_issued_at` must be treated as expired.
+ *
+ * Invariant: `undefined` means the queried column is absent (a legacy database
+ * or a minimal test double) — expiry cannot be evaluated, so ownership keeps
+ * working as before. An explicit `null` means the column exists but the row
+ * predates issuance tracking, so the age is unknown: the row is *grandfathered*
+ * (treated as valid) because the alternative silently locks every pre-existing
+ * owner out of their own index. The migration and the runtime provisioner
+ * backfill the issue date of those rows, after which the normal 90-day window
+ * applies. Only a present, unparsable or outdated timestamp expires a token.
+ */
+export function isOwnerTokenExpired(issuedAt: unknown, nowSeconds: number): boolean {
+  if (issuedAt === undefined || issuedAt === null) return false;
+  const issued = Number(issuedAt);
+  if (!Number.isFinite(issued) || issued <= 0) return true;
+  return nowSeconds - issued > OWNER_TOKEN_MAX_AGE_SECONDS;
+}
 
 // Hash an owner token or password for secure storage
 export async function hashToken(token: string): Promise<string> {
@@ -605,180 +949,271 @@ export async function runStatement(env: Env, sql: string): Promise<void> {
   }
 }
 
-export async function ensurePasswordTable(env: Env): Promise<void> {
-  if (isPasswordTableEnsured) return;
-  try {
-    await runStatement(
-      env,
-      `
-    CREATE TABLE IF NOT EXISTS access_passwords (
+export interface SchemaStep {
+  /** sqlite_master object that makes this step unnecessary (table or index). */
+  existing?: { kind: "table" | "index"; name: string };
+  /** Column that makes this step unnecessary; skipped when its table is absent. */
+  column?: { table: string; name: string };
+  sql: string;
+}
+
+/**
+ * Objects the Worker may have to provision at runtime.
+ *
+ * `schema.sql` remains the canonical definition; this list only patches a
+ * database that predates a table or column. It is declarative so
+ * ensurePasswordTable() can probe once and run only what is actually missing:
+ * the previous implementation issued ~15 DDL statements on every cold start,
+ * swallowed every failure, and therefore re-ran them forever.
+ */
+export const REQUIRED_SCHEMA_STEPS: SchemaStep[] = [
+  {
+    existing: { kind: "table", name: "access_passwords" },
+    sql: `CREATE TABLE IF NOT EXISTS access_passwords (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
         password_hash TEXT NOT NULL,
         role TEXT NOT NULL DEFAULT 'user',
         max_stocks INTEGER DEFAULT 10,
         max_indices INTEGER DEFAULT NULL,
+        secret_code_hash TEXT,
         is_active INTEGER DEFAULT 1,
         created_at INTEGER NOT NULL,
         updated_at INTEGER
-      )
-    `,
-    );
-    try {
-      await runStatement(
-        env,
-        "ALTER TABLE access_passwords ADD COLUMN max_indices INTEGER DEFAULT NULL",
-      );
-    } catch {
-      // The column already exists on current schemas.
-    }
-    try {
-      await runStatement(
-        env,
-        "ALTER TABLE access_passwords ADD COLUMN secret_code_hash TEXT",
-      );
-    } catch {
-      // The column already exists on current schemas.
-    }
-    try {
-      await runStatement(
-        env,
-        `
-        CREATE TABLE IF NOT EXISTS admin_login_attempts (
+      )`,
+  },
+  {
+    column: { table: "access_passwords", name: "max_indices" },
+    sql: "ALTER TABLE access_passwords ADD COLUMN max_indices INTEGER DEFAULT NULL",
+  },
+  {
+    column: { table: "access_passwords", name: "secret_code_hash" },
+    sql: "ALTER TABLE access_passwords ADD COLUMN secret_code_hash TEXT",
+  },
+  {
+    existing: { kind: "table", name: "admin_login_attempts" },
+    sql: `CREATE TABLE IF NOT EXISTS admin_login_attempts (
           ip TEXT PRIMARY KEY,
           failed_count INTEGER NOT NULL DEFAULT 0,
           last_failed_at INTEGER NOT NULL,
           locked_until INTEGER NOT NULL DEFAULT 0
-        )
-      `,
-      );
-    } catch {
-      // The table may already exist on an upgraded database.
-    }
-    // Ensure all columns on indices exist for unmigrated databases
-    try {
-      await runStatement(env, "ALTER TABLE indices ADD COLUMN owner_token_hash TEXT");
-    } catch {
-      // The column may already exist on an upgraded database.
-    }
-    try {
-      await runStatement(env, "ALTER TABLE indices ADD COLUMN created_at INTEGER");
-    } catch {
-      // The column may already exist on an upgraded database.
-    }
-    try {
-      await runStatement(env, "ALTER TABLE indices ADD COLUMN creator_id TEXT");
-    } catch {
-      // The column may already exist on an upgraded database.
-    }
-    try {
-      await runStatement(env, "ALTER TABLE indices ADD COLUMN sort_order INTEGER DEFAULT 99");
-    } catch {
-      // The column may already exist on an upgraded database.
-    }
-    // Ensure benchmark_cache table if not exists
-    try {
-      await runStatement(
-        env,
-        `
-        CREATE TABLE IF NOT EXISTS benchmark_cache (
+        )`,
+  },
+  {
+    existing: { kind: "table", name: "admin_sessions" },
+    sql: `CREATE TABLE IF NOT EXISTS admin_sessions (
+          token_hash TEXT PRIMARY KEY,
+          account_id TEXT NOT NULL,
+          created_at INTEGER NOT NULL,
+          expires_at INTEGER NOT NULL
+        )`,
+  },
+  {
+    existing: { kind: "table", name: "benchmark_cache" },
+    sql: `CREATE TABLE IF NOT EXISTS benchmark_cache (
           symbol TEXT PRIMARY KEY,
           data TEXT NOT NULL,
           cached_at INTEGER NOT NULL
-        )
-      `,
-      );
-    } catch {
-      // The table may already exist on an upgraded database.
-    }
-    // Ensure creator_id index on indices
-    try {
-      await runStatement(
-        env,
-        "CREATE INDEX IF NOT EXISTS idx_indices_creator_id ON indices(creator_id)",
-      );
-    } catch {
-      // The index may already exist or column not yet added
-    }
-    // Ensure rate_limits table if not exists
-    try {
-      await runStatement(
-        env,
-        `
-        CREATE TABLE IF NOT EXISTS rate_limits (
+        )`,
+  },
+  {
+    existing: { kind: "table", name: "rate_limits" },
+    sql: `CREATE TABLE IF NOT EXISTS rate_limits (
           ip TEXT NOT NULL,
           endpoint TEXT NOT NULL,
           request_count INTEGER DEFAULT 1,
           window_start INTEGER NOT NULL,
           PRIMARY KEY (ip, endpoint)
-        )
-      `,
-      );
-    } catch {
-      // The table may already exist on an upgraded database.
-    }
-    // The expired-window purge filters on window_start, which is not covered
-    // by the primary key. Without this index the purge is a full table scan.
-    try {
-      await runStatement(
-        env,
-        "CREATE INDEX IF NOT EXISTS idx_rate_limits_window_start ON rate_limits(window_start)",
-      );
-    } catch {
-      // The index may already exist.
-    }
-    // Ensure sync_logs table if not exists
-    try {
-      await runStatement(
-        env,
-        `
-        CREATE TABLE IF NOT EXISTS sync_logs (
+        )`,
+  },
+  {
+    // The expired-window purge filters on window_start, which the primary key
+    // does not cover; without this index the purge is a full table scan.
+    existing: { kind: "index", name: "idx_rate_limits_window_start" },
+    sql: "CREATE INDEX IF NOT EXISTS idx_rate_limits_window_start ON rate_limits(window_start)",
+  },
+  {
+    existing: { kind: "table", name: "sync_logs" },
+    sql: `CREATE TABLE IF NOT EXISTS sync_logs (
           ticker TEXT PRIMARY KEY,
           last_synced_at INTEGER NOT NULL
-        )
-      `,
-      );
-    } catch {
-      // The table may already exist on an upgraded database.
-    }
-    // Ensure snapshot_cache table if not exists
-    try {
-      await runStatement(
-        env,
-        `
-        CREATE TABLE IF NOT EXISTS snapshot_cache (
+        )`,
+  },
+  {
+    existing: { kind: "table", name: "snapshot_cache" },
+    sql: `CREATE TABLE IF NOT EXISTS snapshot_cache (
           id INTEGER PRIMARY KEY CHECK (id = 1),
           data TEXT NOT NULL,
           cached_at INTEGER NOT NULL
-        )
-      `,
-      );
-    } catch {
-      // The table may already exist on an upgraded database.
-    }
-    // Ensure stock_series table if not exists
-    try {
-      await runStatement(
-        env,
-        `
-        CREATE TABLE IF NOT EXISTS stock_series (
+        )`,
+  },
+  {
+    existing: { kind: "table", name: "stock_series" },
+    sql: `CREATE TABLE IF NOT EXISTS stock_series (
           ticker TEXT PRIMARY KEY,
           prices TEXT NOT NULL,
           updated_at INTEGER NOT NULL
-        )
-      `,
-      );
-    } catch {
-      // The table may already exist on an upgraded database.
+        )`,
+  },
+  {
+    existing: { kind: "table", name: "sync_quota" },
+    sql: `CREATE TABLE IF NOT EXISTS sync_quota (
+          ip TEXT NOT NULL,
+          day TEXT NOT NULL,
+          tickers INTEGER NOT NULL,
+          PRIMARY KEY (ip, day)
+        )`,
+  },
+  {
+    column: { table: "indices", name: "owner_token_hash" },
+    sql: "ALTER TABLE indices ADD COLUMN owner_token_hash TEXT",
+  },
+  {
+    column: { table: "indices", name: "owner_token_issued_at" },
+    sql: "ALTER TABLE indices ADD COLUMN owner_token_issued_at INTEGER",
+  },
+  {
+    column: { table: "indices", name: "created_at" },
+    sql: "ALTER TABLE indices ADD COLUMN created_at INTEGER",
+  },
+  {
+    column: { table: "indices", name: "creator_id" },
+    sql: "ALTER TABLE indices ADD COLUMN creator_id TEXT",
+  },
+  {
+    column: { table: "indices", name: "sort_order" },
+    sql: "ALTER TABLE indices ADD COLUMN sort_order INTEGER DEFAULT 99",
+  },
+  {
+    existing: { kind: "index", name: "idx_indices_creator_id" },
+    sql: "CREATE INDEX IF NOT EXISTS idx_indices_creator_id ON indices(creator_id)",
+  },
+  {
+    existing: { kind: "index", name: "idx_admin_sessions_account_id" },
+    sql: "CREATE INDEX IF NOT EXISTS idx_admin_sessions_account_id ON admin_sessions(account_id)",
+  },
+  {
+    existing: { kind: "index", name: "idx_admin_sessions_expires_at" },
+    sql: "CREATE INDEX IF NOT EXISTS idx_admin_sessions_expires_at ON admin_sessions(expires_at)",
+  },
+];
+
+/** Distinguishes "another request already created it" from a real DDL failure. */
+export function isAlreadyExistsError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return /already exists|duplicate column name/i.test(message);
+}
+
+interface SchemaProbe {
+  tables: Set<string>;
+  indexes: Set<string>;
+  columns: Map<string, Set<string>>;
+}
+
+export const PROBED_COLUMN_TABLES = ["access_passwords", "indices"] as const;
+
+async function probeSchemaObjects(env: Env): Promise<SchemaProbe | null> {
+  try {
+    const { results } = await env.DB.prepare(
+      "SELECT type, name FROM sqlite_master WHERE type IN ('table', 'index')",
+    ).all();
+    const tables = new Set<string>();
+    const indexes = new Set<string>();
+    for (const row of (results || []) as { type?: unknown; name?: unknown }[]) {
+      const name = typeof row.name === "string" ? row.name : "";
+      if (!name) continue;
+      if (row.type === "table") tables.add(name);
+      else if (row.type === "index") indexes.add(name);
     }
-    isPasswordTableEnsured = true;
+    const columns = new Map<string, Set<string>>();
+    for (const table of PROBED_COLUMN_TABLES) {
+      if (!tables.has(table)) continue;
+      const info = await env.DB.prepare(`PRAGMA table_info(${table})`).all();
+      const names = new Set<string>();
+      for (const row of (info.results || []) as { name?: unknown }[]) {
+        if (typeof row.name === "string") names.add(row.name);
+      }
+      columns.set(table, names);
+    }
+    return { tables, indexes, columns };
   } catch (err) {
-    // Schema initialization is best-effort; log the failure so operators can
-    // spot persistent D1 connectivity or permission issues in production logs.
-    console.warn(
-      "ensurePasswordTable: schema initialisation failed (will retry on next request):",
-      err,
-    );
+    // A failed probe is not fatal: the DDL below is idempotent, so falling
+    // back to "apply everything" is safe. It stays retryable because the
+    // ensured flag is only set for steps that actually succeeded.
+    console.warn("ensurePasswordTable: schema probe failed, applying idempotent DDL:", err);
+    return null;
+  }
+}
+
+/**
+ * Backfill `owner_token_issued_at` for rows that predate issuance tracking.
+ *
+ * The API treats a missing issue date as "grandfathered" so that no existing
+ * owner is locked out of their own index, but recording the date gives those
+ * rows the normal rotation window instead of an eternal exemption. The write
+ * only happens when a row actually needs it, so a provisioned database costs
+ * one extra read per cold start.
+ */
+export const OWNER_TOKEN_ISSUED_AT_BACKFILL_SQL =
+  "UPDATE indices SET owner_token_issued_at = CAST(strftime('%s','now') AS INTEGER) WHERE owner_token_issued_at IS NULL AND owner_token_hash IS NOT NULL";
+
+async function backfillOwnerTokenIssuedAt(env: Env, probe: SchemaProbe | null): Promise<void> {
+  const columnPresent = probe
+    ? probe.tables.has("indices") &&
+      Boolean(probe.columns.get("indices")?.has("owner_token_issued_at"))
+    : true;
+  if (!columnPresent) return;
+  try {
+    const { results } = await env.DB.prepare(
+      "SELECT COUNT(*) AS pending FROM indices WHERE owner_token_issued_at IS NULL AND owner_token_hash IS NOT NULL",
+    ).all();
+    const row = (results || [])[0] as { pending?: unknown } | undefined;
+    const pending = Number(row?.pending ?? 0);
+    if (!Number.isFinite(pending) || pending <= 0) return;
+    await runStatement(env, OWNER_TOKEN_ISSUED_AT_BACKFILL_SQL);
+  } catch (err) {
+    // A failed backfill leaves the rows grandfathered (still usable), so it
+    // must not block the rest of the provisioning.
+    console.warn("ensurePasswordTable: owner_token_issued_at backfill failed:", err);
+  }
+}
+
+export async function ensurePasswordTable(env: Env): Promise<void> {
+  if (isPasswordTableEnsured) return;
+  const probe = await probeSchemaObjects(env);
+  let allRequiredStepsApplied = true;
+
+  for (const step of REQUIRED_SCHEMA_STEPS) {
+    if (probe) {
+      if (step.existing) {
+        const present =
+          step.existing.kind === "table"
+            ? probe.tables.has(step.existing.name)
+            : probe.indexes.has(step.existing.name);
+        if (present) continue;
+      }
+      if (step.column) {
+        // A missing table means the CREATE TABLE step above (schema.sql on a
+        // fresh database) owns every column; there is nothing to ALTER yet.
+        if (!probe.tables.has(step.column.table)) continue;
+        if (probe.columns.get(step.column.table)?.has(step.column.name)) continue;
+      }
+    }
+
+    try {
+      await runStatement(env, step.sql);
+    } catch (err) {
+      if (isAlreadyExistsError(err)) continue;
+      if (step.column && isMissingTableError(err, step.column.table)) continue;
+      allRequiredStepsApplied = false;
+      console.error("ensurePasswordTable: failed to provision schema object:", err);
+    }
+  }
+
+  await backfillOwnerTokenIssuedAt(env, probe);
+
+  if (allRequiredStepsApplied) {
+    isPasswordTableEnsured = true;
   }
 }
 
@@ -996,8 +1431,17 @@ export async function checkAdminLoginLockout(
     const remainingAttempts = Math.max(0, ADMIN_LOGIN_MAX_ATTEMPTS - count);
     return { locked: false, remainingSeconds: 0, remainingAttempts, failedCount: count };
   } catch (err) {
+    // Fail closed: if the attempt table cannot be read, the lockout state is
+    // unknown, and admitting the login would disable the only brute-force
+    // protection on the admin second factor. The endpoint reports a lockout
+    // (429) and the operator sees the error in the logs.
     console.error("Failed to check admin login lockout:", err);
-    return { locked: false, remainingSeconds: 0, remainingAttempts: ADMIN_LOGIN_MAX_ATTEMPTS, failedCount: 0 };
+    return {
+      locked: true,
+      remainingSeconds: ADMIN_LOGIN_LOCKOUT_SECONDS,
+      remainingAttempts: 0,
+      failedCount: ADMIN_LOGIN_MAX_ATTEMPTS,
+    };
   }
 }
 
@@ -1015,7 +1459,14 @@ export async function checkAdminLoginLockout(
 export async function recordAdminLoginFailure(
   env: Env,
   ip: string,
-): Promise<{ locked: boolean; remainingSeconds: number; remainingAttempts: number; failedCount: number }> {
+): Promise<{
+  locked: boolean;
+  remainingSeconds: number;
+  remainingAttempts: number;
+  failedCount: number;
+  /** True when the attempt could not be recorded (D1 failure); callers must 503. */
+  unavailable?: boolean;
+}> {
   await ensurePasswordTable(env);
   const now = Math.floor(Date.now() / 1000);
   try {
@@ -1053,8 +1504,18 @@ export async function recordAdminLoginFailure(
       failedCount,
     };
   } catch (err) {
+    // Fail closed: an unrecordable failure must neither admit the attempt nor
+    // be reported as a normal wrong-password (which would let an attacker
+    // exhaust guesses while the counter stays at zero). The endpoint answers
+    // 503 for `unavailable` attempts.
     console.error("Failed to record admin login failure:", err);
-    return { locked: false, remainingSeconds: 0, remainingAttempts: ADMIN_LOGIN_MAX_ATTEMPTS - 1, failedCount: 1 };
+    return {
+      locked: true,
+      remainingSeconds: ADMIN_LOGIN_LOCKOUT_SECONDS,
+      remainingAttempts: 0,
+      failedCount: ADMIN_LOGIN_MAX_ATTEMPTS,
+      unavailable: true,
+    };
   }
 }
 
@@ -1070,6 +1531,53 @@ export async function resetAdminLoginAttempts(env: Env, ip: string): Promise<voi
   } catch (err) {
     console.error("Failed to reset admin login attempts:", err);
   }
+}
+
+export const ADMIN_LOGIN_ATTEMPT_RETENTION_SECONDS = 24 * 60 * 60;
+export const RATE_LIMIT_ROW_RETENTION_SECONDS = 3600;
+
+/**
+ * Purge rows that no longer gate anything.
+ *
+ * All three tables are written by unauthenticated traffic: rate limit windows,
+ * administrator sessions (expired tokens must not linger) and admin login
+ * attempts (one row per attacking IP). Without a purge they grow without bound
+ * on a write-quota-limited D1 database.
+ */
+export async function purgeExpiredSecurityRows(
+  env: Env,
+  now: number = Math.floor(Date.now() / 1000),
+): Promise<void> {
+  const jobs: { sql: string; params: (number | string)[]; table: string }[] = [
+    {
+      table: "rate_limits",
+      sql: "DELETE FROM rate_limits WHERE window_start < ?",
+      params: [now - RATE_LIMIT_ROW_RETENTION_SECONDS],
+    },
+    {
+      table: "admin_sessions",
+      sql: "DELETE FROM admin_sessions WHERE expires_at <= ?",
+      params: [now],
+    },
+    {
+      table: "admin_login_attempts",
+      sql: "DELETE FROM admin_login_attempts WHERE last_failed_at < ? AND locked_until <= ?",
+      params: [now - ADMIN_LOGIN_ATTEMPT_RETENTION_SECONDS, now],
+    },
+  ];
+  await Promise.all(
+    jobs.map(async (job) => {
+      try {
+        await env.DB.prepare(job.sql).bind(...job.params).run();
+      } catch (err) {
+        // A missing optional table (legacy database) is expected; anything else
+        // is worth a log line but must not fail the request that triggered it.
+        if (!isMissingTableError(err, job.table)) {
+          console.warn(`purgeExpiredSecurityRows: failed to purge ${job.table}:`, err);
+        }
+      }
+    }),
+  );
 }
 
 
@@ -1246,12 +1754,21 @@ export async function findPasswordCollision(
 // This matches the maximum length enforced when creating passwords.
 export const MAX_AUTH_PASSWORD_LENGTH = 100;
 
+/**
+ * Verify an account password.
+ *
+ * `allowAdmin` exists because `/api/auth/verify` is the unauthenticated
+ * password oracle: it must never evaluate the master admin row or any account
+ * whose role is "admin". Such rows are skipped entirely (no PBKDF2 work, no
+ * distinguishable error) and every failure returns the same generic message.
+ */
 export async function authenticatePassword(
   request: Request,
   env: Env,
   explicitPassword?: string | null,
   rateLimitEndpoint = "auth-api",
   ctx?: WorkerExecutionContext,
+  allowAdmin = true,
 ): Promise<AuthResult> {
   const pwd =
     explicitPassword !== undefined && explicitPassword !== null
@@ -1277,21 +1794,6 @@ export async function authenticatePassword(
   }
 
   const pwdHash = await hashToken(pwd);
-  // Cache only the master admin result. The cache is keyed by the SHA-256 of
-  // the raw password, so caching regular users here would be unsafe: two
-  // accounts that share the same password would collide and the first
-  // account's role/limits would be served to the second. There is exactly one
-  // admin-master row, so its result is unambiguous and it is also the hottest
-  // authenticated path (every admin request). Regular users always scan D1,
-  // which also makes deactivation and limit changes take effect immediately.
-  const cachedAuth = authCache.get(pwdHash);
-  if (cachedAuth && Date.now() < cachedAuth.expiresAt && cachedAuth.result.id === "admin-master") {
-    return cachedAuth.result;
-  }
-  // Snapshot the generation before verifying: if a password change clears the
-  // cache while this verification is in flight, the result must not be cached
-  // (the old password would otherwise keep authenticating for the TTL).
-  const cacheGenerationAtStart = authCacheGeneration;
 
   // Schema bootstrap must happen BEFORE the fail-closed rate-limit check. On a
   // fresh, unmigrated database the rate_limits INSERT inside checkRateLimit
@@ -1308,69 +1810,92 @@ export async function authenticatePassword(
     return {
       authenticated: false,
       error: "認証試行回数が上限に達しました。しばらくしてから再試行してください",
+      rateLimited: true,
     };
   }
 
+  // The cache read happens AFTER the rate limit: a cached credential used to
+  // bypass the limiter entirely, so a hit was both unthrottled and able to keep
+  // authenticating for the cache TTL from an isolate that had not seen the
+  // password change.
+  //
+  // The cache is keyed by the SHA-256 of the raw password. Password uniqueness
+  // is enforced on create/update (findPasswordCollision), so at most one account
+  // can match a given key and caching user results cannot serve one account's
+  // role/limits to another. Every mutation clears the cache, so deactivation and
+  // limit changes take effect immediately; the TTL only bounds staleness for
+  // isolates that missed the clear.
+  const cachedAuth = authCache.get(pwdHash);
+  if (cachedAuth && Date.now() < cachedAuth.expiresAt) {
+    if (allowAdmin || cachedAuth.result.role !== "admin") {
+      return cachedAuth.result;
+    }
+  }
+  // Snapshot the generation before verifying: if a password change clears the
+  // cache while this verification is in flight, the result must not be cached
+  // (the old password would otherwise keep authenticating for the TTL).
+  const cacheGenerationAtStart = authCacheGeneration;
+
   try {
-    // Schema bootstrap already ran above (before the fail-closed rate-limit
-    // check); go straight to the credential lookup.
+    // 1. Check if customized master admin password exists in D1. Skipped
+    // entirely when the caller may not receive admin results.
+    if (allowAdmin) {
+      const { results: adminMasterRows } = await env.DB.prepare(
+        "SELECT id, name, password_hash, role, max_stocks, is_active FROM access_passwords WHERE id = 'admin-master'",
+      ).all();
 
-    // 1. Check if customized master admin password exists in D1
-    const { results: adminMasterRows } = await env.DB.prepare(
-      "SELECT id, name, password_hash, role, max_stocks, is_active FROM access_passwords WHERE id = 'admin-master'",
-    ).all();
+      const masterRow = (adminMasterRows || []).find((r: D1Row) => r.id === "admin-master") as
+        | {
+            id: string;
+            name: string;
+            password_hash: string;
+            role: "admin";
+            max_stocks: number | null;
+            is_active: number;
+          }
+        | undefined;
 
-    const masterRow = (adminMasterRows || []).find((r: D1Row) => r.id === "admin-master") as
-      | {
-          id: string;
-          name: string;
-          password_hash: string;
-          role: "admin";
-          max_stocks: number | null;
-          is_active: number;
+      if (masterRow) {
+        // Once a master row exists, only that row may authenticate the master
+        // account. In particular, an unavailable D1 must never re-enable a
+        // fallback password.
+        if (
+          masterRow.is_active === 1 &&
+          typeof masterRow.password_hash === "string" &&
+          (await verifyPasswordHash(pwd, masterRow.password_hash))
+        ) {
+          await upgradeLegacyPasswordHash(env, masterRow.id, pwd, masterRow.password_hash);
+          const res: AuthResult = {
+            authenticated: true,
+            role: "admin",
+            name: masterRow.name || "管理者",
+            maxStocks: null,
+            maxIndices: null,
+            id: "admin-master",
+          };
+          if (cacheGenerationAtStart === authCacheGeneration) {
+            setAuthCache(pwdHash, { result: res, expiresAt: Date.now() + 60 * 1000 });
+          }
+          return res;
         }
-      | undefined;
-
-    if (masterRow) {
-      // Once a master row exists, only that row may authenticate the master
-      // account. In particular, an unavailable D1 must never re-enable a
-      // fallback password.
-      if (
-        masterRow.is_active === 1 &&
-        typeof masterRow.password_hash === "string" &&
-        (await verifyPasswordHash(pwd, masterRow.password_hash))
-      ) {
-        await upgradeLegacyPasswordHash(env, masterRow.id, pwd, masterRow.password_hash);
-        const res: AuthResult = {
-          authenticated: true,
-          role: "admin",
-          name: masterRow.name || "管理者",
-          maxStocks: null,
-          maxIndices: null,
-          id: "admin-master",
-        };
-        if (cacheGenerationAtStart === authCacheGeneration) {
-          setAuthCache(pwdHash, { result: res, expiresAt: Date.now() + 60 * 1000 });
+      } else {
+        // A first deployment may use the secret configured in the Worker
+        // environment. There is deliberately no built-in/default password.
+        const masterAdminPassword = env.ADMIN_PASSWORD?.trim();
+        if (masterAdminPassword && timingSafeEqual(await hashToken(masterAdminPassword), pwdHash)) {
+          const res: AuthResult = {
+            authenticated: true,
+            role: "admin",
+            name: "管理者",
+            maxStocks: null,
+            maxIndices: null,
+            id: "admin-master",
+          };
+          if (cacheGenerationAtStart === authCacheGeneration) {
+            setAuthCache(pwdHash, { result: res, expiresAt: Date.now() + 60 * 1000 });
+          }
+          return res;
         }
-        return res;
-      }
-    } else {
-      // A first deployment may use the secret configured in the Worker
-      // environment. There is deliberately no built-in/default password.
-      const masterAdminPassword = env.ADMIN_PASSWORD?.trim();
-      if (masterAdminPassword && timingSafeEqual(await hashToken(masterAdminPassword), pwdHash)) {
-        const res: AuthResult = {
-          authenticated: true,
-          role: "admin",
-          name: "管理者",
-          maxStocks: null,
-          maxIndices: null,
-          id: "admin-master",
-        };
-        if (cacheGenerationAtStart === authCacheGeneration) {
-          setAuthCache(pwdHash, { result: res, expiresAt: Date.now() + 60 * 1000 });
-        }
-        return res;
       }
     }
 
@@ -1378,13 +1903,17 @@ export async function authenticatePassword(
     let passwordRows: D1Row[] | undefined;
     try {
       const dbRes = await env.DB.prepare(
-        "SELECT id, name, role, max_stocks, max_indices, is_active, password_hash FROM access_passwords WHERE is_active = 1 AND id != 'admin-master' ORDER BY created_at ASC",
+        allowAdmin
+          ? "SELECT id, name, role, max_stocks, max_indices, is_active, password_hash FROM access_passwords WHERE is_active = 1 AND id != 'admin-master' ORDER BY created_at ASC"
+          : "SELECT id, name, role, max_stocks, max_indices, is_active, password_hash FROM access_passwords WHERE is_active = 1 AND id != 'admin-master' AND role != 'admin' ORDER BY created_at ASC",
       ).all();
       passwordRows = dbRes.results;
     } catch (lookupErr: unknown) {
       if (!isMissingColumnError(lookupErr, "max_indices")) throw lookupErr;
       const dbRes = await env.DB.prepare(
-        "SELECT id, name, role, max_stocks, is_active, password_hash FROM access_passwords WHERE is_active = 1 AND id != 'admin-master' ORDER BY created_at ASC",
+        allowAdmin
+          ? "SELECT id, name, role, max_stocks, is_active, password_hash FROM access_passwords WHERE is_active = 1 AND id != 'admin-master' ORDER BY created_at ASC"
+          : "SELECT id, name, role, max_stocks, is_active, password_hash FROM access_passwords WHERE is_active = 1 AND id != 'admin-master' AND role != 'admin' ORDER BY created_at ASC",
       ).all();
       passwordRows = dbRes.results;
     }
@@ -1404,6 +1933,12 @@ export async function authenticatePassword(
       if (typeof user.password_hash !== "string") {
         continue;
       }
+      // Defence in depth: the SQL above already excludes admin rows for
+      // non-admin callers, but a legacy adapter or an unexpected schema must
+      // not turn this scan into an admin password oracle.
+      if (!allowAdmin && user.role === "admin") {
+        continue;
+      }
       checkedCount++;
       if (!(await verifyPasswordHash(pwd, user.password_hash))) {
         if (checkedCount >= MAX_AUTH_ROW_VERIFICATIONS) {
@@ -1417,8 +1952,6 @@ export async function authenticatePassword(
         continue;
       }
       await upgradeLegacyPasswordHash(env, user.id, pwd, user.password_hash);
-      // NOTE: deliberately NOT cached in authCache — see the comment above
-      // about same-password collisions across user accounts.
       const res: AuthResult = {
         authenticated: true,
         role: user.role,
@@ -1433,6 +1966,9 @@ export async function authenticatePassword(
             : null,
         id: user.id,
       };
+      if (cacheGenerationAtStart === authCacheGeneration) {
+        setAuthCache(pwdHash, { result: res, expiresAt: Date.now() + 60 * 1000 });
+      }
       return res;
     }
     if (scanTruncated) {
@@ -1446,7 +1982,293 @@ export async function authenticatePassword(
     console.error("Auth DB error:", err);
   }
 
+  // A single generic message for every failure when admin results are not
+  // allowed: the verify endpoint must not distinguish "no such account" from
+  // "this is an admin password".
   return { authenticated: false, error: "パスワードが正しくありません" };
+}
+
+/**
+ * Administrator sessions.
+ *
+ * The admin login (password + secret code + Turnstile) only proves the second
+ * factor once; every privileged call afterwards presents the short-lived
+ * session token issued here. The token is never stored: only its SHA-256 is
+ * kept, so a database leak does not yield usable administrator credentials.
+ */
+export const ADMIN_SESSION_HEADER = "x-admin-session";
+export const ADMIN_SESSION_TTL_SECONDS = 8 * 60 * 60;
+export const ADMIN_SESSION_RATE_LIMIT_ENDPOINT = "admin-session";
+// The dashboard issues a handful of privileged requests per view; the limit
+// must not trip on ordinary use, only on an abusive loop.
+export const ADMIN_SESSION_RATE_LIMIT_MAX = 120;
+
+export function getAdminSessionToken(request: Request): string {
+  return request.headers.get(ADMIN_SESSION_HEADER)?.trim() || "";
+}
+
+/**
+ * Issue an administrator session and return the raw bearer token.
+ *
+ * `ip` is accepted for auditing: the account rate limiter keys on it, and the
+ * only place a login IP is recorded is the Worker log (never the token row).
+ */
+export async function createAdminSession(
+  env: Env,
+  accountId: string,
+  ip: string,
+): Promise<string> {
+  await ensurePasswordTable(env);
+  const token = bytesToHex(crypto.getRandomValues(new Uint8Array(32)));
+  const tokenHash = await hashToken(token);
+  const now = Math.floor(Date.now() / 1000);
+  try {
+    await env.DB.prepare(
+      "INSERT OR REPLACE INTO admin_sessions (token_hash, account_id, created_at, expires_at) VALUES (?, ?, ?, ?)",
+    )
+      .bind(tokenHash, accountId, now, now + ADMIN_SESSION_TTL_SECONDS)
+      .run();
+  } catch (err) {
+    // Never report a successful 2FA login without a usable session: the caller
+    // would render the admin surface and every request would 403.
+    console.error(`Failed to create admin session for ${accountId} from ${ip}:`, err);
+    throw err;
+  }
+  return token;
+}
+
+/**
+ * Resolve the presented `x-admin-session` header to an administrator.
+ *
+ * Fails closed on any infrastructure problem (rate limiter or D1), and requires
+ * the account to still be an active admin: revoking the role or deactivating
+ * the account invalidates every session it holds.
+ */
+export async function authenticateAdminSession(
+  request: Request,
+  env: Env,
+  ctx?: WorkerExecutionContext,
+): Promise<AuthResult> {
+  const token = getAdminSessionToken(request);
+  if (!token) {
+    return { authenticated: false, error: "管理者セッションが必要です" };
+  }
+  if (token.length < 32 || token.length > 256) {
+    return { authenticated: false, error: "管理者セッションが無効です" };
+  }
+
+  await ensurePasswordTable(env);
+  const ip = getClientIp(request);
+  if (
+    !(await checkRateLimit(
+      env,
+      ip,
+      ADMIN_SESSION_RATE_LIMIT_ENDPOINT,
+      ADMIN_SESSION_RATE_LIMIT_MAX,
+      true,
+      ctx,
+    ))
+  ) {
+    return {
+      authenticated: false,
+      error: "管理操作が多すぎます。しばらくしてから再試行してください",
+      rateLimited: true,
+    };
+  }
+
+  const tokenHash = await hashToken(token);
+  const now = Math.floor(Date.now() / 1000);
+  try {
+    const { results } = await env.DB.prepare(
+      `SELECT s.account_id, s.expires_at, p.name, p.role, p.is_active, p.max_stocks, p.max_indices
+       FROM admin_sessions s
+       JOIN access_passwords p ON p.id = s.account_id
+       WHERE s.token_hash = ? AND s.expires_at > ? AND p.role = 'admin' AND p.is_active = 1`,
+    )
+      .bind(tokenHash, now)
+      .all();
+    const row = (results || [])[0] as
+      | {
+          account_id?: string;
+          expires_at?: number;
+          name?: string;
+          role?: string;
+          is_active?: number;
+          max_stocks?: number | null;
+          max_indices?: number | null;
+        }
+      | undefined;
+    if (!row || typeof row.account_id !== "string" || row.account_id.length === 0) {
+      return { authenticated: false, error: "管理者セッションが無効または期限切れです" };
+    }
+    return {
+      authenticated: true,
+      role: "admin",
+      name: typeof row.name === "string" && row.name.trim() ? row.name : "管理者",
+      maxStocks: row.max_stocks !== null && row.max_stocks !== undefined ? Number(row.max_stocks) : null,
+      maxIndices:
+        row.max_indices !== null && row.max_indices !== undefined ? Number(row.max_indices) : null,
+      id: row.account_id,
+    };
+  } catch (err) {
+    console.error("Failed to validate admin session:", err);
+    return { authenticated: false, error: "管理者セッションを検証できませんでした" };
+  }
+}
+
+/** Revoke one session (logout). Idempotent. */
+export async function revokeAdminSession(env: Env, token: string): Promise<void> {
+  const trimmed = typeof token === "string" ? token.trim() : "";
+  if (!trimmed) return;
+  try {
+    const tokenHash = await hashToken(trimmed);
+    await env.DB.prepare("DELETE FROM admin_sessions WHERE token_hash = ?").bind(tokenHash).run();
+  } catch (err) {
+    if (!isMissingTableError(err, "admin_sessions")) {
+      console.error("Failed to revoke admin session:", err);
+    }
+  }
+}
+
+/** Revoke every session of one account (password change, account deletion). */
+export async function revokeAdminSessionsForAccount(env: Env, accountId: string): Promise<void> {
+  try {
+    await env.DB.prepare("DELETE FROM admin_sessions WHERE account_id = ?").bind(accountId).run();
+  } catch (err) {
+    if (!isMissingTableError(err, "admin_sessions")) {
+      console.error("Failed to revoke admin sessions for account:", err);
+    }
+  }
+}
+
+/** Revoke every administrator session (master password / secret code change). */
+export async function revokeAllAdminSessions(env: Env): Promise<void> {
+  try {
+    await env.DB.prepare("DELETE FROM admin_sessions").run();
+  } catch (err) {
+    if (!isMissingTableError(err, "admin_sessions")) {
+      console.error("Failed to revoke all admin sessions:", err);
+    }
+  }
+}
+
+/**
+ * Cleanup statements run in the same batch as an account deletion.
+ *
+ * `owner_both` clears the ownership credentials of every index the account
+ * created; without it, deleting a user left their owner tokens valid forever
+ * (SEC-05). The remaining steps degrade gracefully on a schema that predates
+ * the corresponding column/table.
+ */
+export type AccountCleanupStep = "owner_both" | "owner_hash" | "creator" | "sessions";
+
+export const ACCOUNT_CLEANUP_SQL: Record<AccountCleanupStep, string> = {
+  owner_both:
+    "UPDATE indices SET owner_token_hash = NULL, owner_token_issued_at = NULL WHERE creator_id = ?",
+  owner_hash: "UPDATE indices SET owner_token_hash = NULL WHERE creator_id = ?",
+  creator: "UPDATE indices SET creator_id = NULL WHERE creator_id = ?",
+  sessions: "DELETE FROM admin_sessions WHERE account_id = ?",
+};
+
+/**
+ * Drop the cleanup steps a legacy schema cannot host.
+ *
+ * Returns false when the error is unrelated to an optional schema object, so
+ * the caller rethrows instead of looping forever on a genuine failure.
+ */
+export function dropUnsupportedAccountCleanupStep(
+  steps: AccountCleanupStep[],
+  error: unknown,
+): boolean {
+  const hasOwnerStep = steps.includes("owner_both") || steps.includes("owner_hash");
+  if (hasOwnerStep && isMissingColumnError(error, "creator_id")) {
+    // Without `creator_id` the ownership statements cannot be scoped to the
+    // account at all, and `creator` itself is unavailable too.
+    const remaining = steps.filter((step) => step === "sessions");
+    steps.length = 0;
+    steps.push(...remaining);
+    return true;
+  }
+  if (steps.includes("owner_both") && isMissingColumnError(error, "owner_token_issued_at")) {
+    steps.splice(steps.indexOf("owner_both"), 1, "owner_hash");
+    return true;
+  }
+  if (steps.includes("owner_both") && isMissingColumnError(error, "owner_token_hash")) {
+    steps.splice(steps.indexOf("owner_both"), 1);
+    return true;
+  }
+  if (steps.includes("owner_hash") && isMissingColumnError(error, "owner_token_hash")) {
+    steps.splice(steps.indexOf("owner_hash"), 1);
+    return true;
+  }
+  if (steps.includes("creator") && isMissingColumnError(error, "creator_id")) {
+    steps.splice(steps.indexOf("creator"), 1);
+    return true;
+  }
+  if (steps.includes("sessions") && isMissingTableError(error, "admin_sessions")) {
+    steps.splice(steps.indexOf("sessions"), 1);
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Test-only switch for the legacy "administrator password alone is enough"
+ * path.
+ *
+ * Production can never reach it: `isAdminPasswordFallbackAllowed()` returns
+ * false whenever `isTestRuntime()` is false, regardless of this override. Tests
+ * keep working because the pre-existing suite authenticates admin endpoints
+ * with `x-auth-password` only; a dedicated regression test disables the
+ * fallback to assert that a password-only admin call is rejected in production
+ * behaviour.
+ */
+let passwordAdminFallbackOverride: boolean | null = null;
+
+export function setAllowPasswordAdminFallbackForTests(allow: boolean | null): void {
+  passwordAdminFallbackOverride = allow;
+}
+
+export function isAdminPasswordFallbackAllowed(): boolean {
+  if (!isTestRuntime()) return false;
+  return passwordAdminFallbackOverride ?? true;
+}
+
+/**
+ * The single gate for every privileged path.
+ *
+ * A valid `x-admin-session` is required; the password alone is never enough
+ * (except for the test-only fallback above).
+ */
+export async function authenticateAdmin(
+  request: Request,
+  env: Env,
+  ctx?: WorkerExecutionContext,
+): Promise<AuthResult> {
+  const sessionAuth = await authenticateAdminSession(request, env, ctx);
+  if (sessionAuth.authenticated) return sessionAuth;
+  if (!isAdminPasswordFallbackAllowed()) return sessionAuth;
+
+  const passwordAuth = await authenticatePassword(request, env, null, "auth-api", ctx);
+  if (passwordAuth.authenticated && passwordAuth.role === "admin") {
+    return passwordAuth;
+  }
+  return sessionAuth;
+}
+
+/**
+ * Response for a refused administrative request.
+ *
+ * A rate-limited attempt (or a limiter that failed closed) is a 429 carrying
+ * the limiter's message; a missing or invalid administrator session is a 403.
+ * Reporting both as "管理者権限が必要です" made a D1 outage indistinguishable
+ * from a permission problem, for the user and for the operator.
+ */
+export function adminAuthFailureResponse(auth: AuthResult, request: Request): Response {
+  if (auth.rateLimited) {
+    return json({ error: auth.error || RATE_LIMIT_ERROR_MESSAGE }, 429, request);
+  }
+  return json({ error: "管理者権限が必要です" }, 403, request);
 }
 
 // In-memory cache for warm worker isolates to minimize D1 reads
@@ -1491,9 +2313,16 @@ export function setAllowMemoryCacheInTest(allow: boolean): void {
  * checked as well.
  */
 export function isTestRuntime(): boolean {
-  if (typeof process !== "undefined") {
-    if (process.env?.VITEST) return true;
-    if (process.env?.NODE_ENV === "test") return true;
+  // `process` is not part of the Workers runtime (and is not in the Worker
+  // tsconfig's lib). Reading it through globalThis keeps the Worker bundle free
+  // of a bare Node global reference while still detecting vitest, which defines
+  // it.
+  const nodeProcess = (globalThis as { process?: { env?: Record<string, string | undefined> } })
+    .process;
+  const nodeEnv = nodeProcess?.env;
+  if (nodeEnv) {
+    if (nodeEnv.VITEST) return true;
+    if (nodeEnv.NODE_ENV === "test") return true;
   }
   try {
     return (import.meta as unknown as { env?: { MODE?: string } }).env?.MODE === "test";
@@ -2153,14 +2982,37 @@ export const SECTOR_SAMPLE_DEFINITIONS: Array<{ name: string; market: "TSE"; tic
     { name: "鉱業・エネルギー", market: "TSE", tickers: ["1605.T", "5020.T"] },
   ];
 
-export let lastKnownMarketOverview: MarketOverviewData | null = null;
+/**
+ * Market overview payload with per-asset provenance.
+ *
+ * `stale` is additive: it is present (and true) only when the quoted
+ * price/change came from a previous snapshot or from the static baseline, or
+ * when the sparkline had to be synthesized. `dataSource` is derived from the
+ * ratio of live assets instead of "one live asset means the whole dashboard is
+ * live", which previously labelled an almost entirely fabricated view as
+ * リアルタイム.
+ */
+export type MarketOverviewAssetQuote = MarketAssetQuote & { stale?: boolean };
+
+export type MarketOverviewPayload = Omit<
+  MarketOverviewData,
+  "indices" | "forex" | "commodities" | "crypto" | "dataSource"
+> & {
+  indices: MarketOverviewAssetQuote[];
+  forex: MarketOverviewAssetQuote[];
+  commodities: MarketOverviewAssetQuote[];
+  crypto: MarketOverviewAssetQuote[];
+  dataSource: "live" | "mixed" | "fallback";
+};
+
+export let lastKnownMarketOverview: MarketOverviewPayload | null = null;
 export function resetLastKnownMarketOverview(): void {
   lastKnownMarketOverview = null;
 }
 
 export async function fetchLiveMarketOverview(
-  prevOverview?: MarketOverviewData | null,
-): Promise<MarketOverviewData> {
+  prevOverview?: MarketOverviewPayload | null,
+): Promise<MarketOverviewPayload> {
   const querySymbols = OVERVIEW_ASSET_DEFS.map((d) => d.querySymbol);
   const sectorTickers = Array.from(new Set(SECTOR_SAMPLE_DEFINITIONS.flatMap((s) => s.tickers)));
   const allSymbolsToFetch = Array.from(new Set([...querySymbols, ...sectorTickers]));
@@ -2284,8 +3136,9 @@ export async function fetchLiveMarketOverview(
   }
 
   // Helper to build a MarketAssetQuote
-  const buildAssetQuote = (def: OverviewAssetDef): MarketAssetQuote => {
+  const buildAssetQuote = (def: OverviewAssetDef): MarketOverviewAssetQuote => {
     const live = quotesMap.get(def.querySymbol);
+    const hasLivePrice = live !== undefined && Number.isFinite(live.price) && live.price > 0;
     const prevQuote = prevOverview
       ? [
           ...prevOverview.indices,
@@ -2295,11 +3148,13 @@ export async function fetchLiveMarketOverview(
         ].find((a) => a.symbol === def.symbol)
       : undefined;
 
-    const price = live?.price ?? prevQuote?.price ?? def.defaultPrice;
-    const change = live?.change ?? prevQuote?.change ?? def.defaultChange;
-    const changePercent =
-      live?.changePercent ?? prevQuote?.changePercent ?? def.defaultChangePercent;
+    const price = hasLivePrice ? live.price : (prevQuote?.price ?? def.defaultPrice);
+    const change = hasLivePrice ? live.change : (prevQuote?.change ?? def.defaultChange);
+    const changePercent = hasLivePrice
+      ? live.changePercent
+      : (prevQuote?.changePercent ?? def.defaultChangePercent);
     let spark = sparkMap.get(def.querySymbol) ?? prevQuote?.sparkline;
+    let sparkSynthesized = false;
     if (!spark || spark.length === 0) {
       const prevClose = live?.prevClose ?? price - change;
       spark = [
@@ -2308,7 +3163,12 @@ export async function fetchLiveMarketOverview(
         Number(((prevClose + price) / 2).toFixed(2)),
         price,
       ];
+      sparkSynthesized = true;
     }
+
+    // A quote is stale when the number did not come from this request's live
+    // fetch, or when its sparkline is a synthetic shape rather than a series.
+    const stale = !hasLivePrice || sparkSynthesized;
 
     return {
       symbol: def.symbol,
@@ -2319,7 +3179,8 @@ export async function fetchLiveMarketOverview(
       changePercent: Number(changePercent.toFixed(2)),
       currency: def.currency,
       sparkline: spark,
-      updatedAt: quotesMap.size > 0 ? "リアルタイム" : "参考値 (ベースライン)",
+      updatedAt: hasLivePrice ? "リアルタイム" : "参考値 (ベースライン)",
+      ...(stale ? { stale: true as const } : {}),
     };
   };
 
@@ -2355,12 +3216,17 @@ export async function fetchLiveMarketOverview(
   });
 
   const totalSamples = totalSampleGainers + totalSampleLosers + totalSampleUnchanged;
-  const gainRatio = totalSamples > 0 ? totalSampleGainers / totalSamples : 0.62;
-  const lossRatio = totalSamples > 0 ? totalSampleLosers / totalSamples : 0.33;
-  const extrapolatedGainers = Math.round(1650 * gainRatio);
-  const extrapolatedLosers = Math.round(1650 * lossRatio);
-  const extrapolatedUnchanged = Math.max(0, 1650 - extrapolatedGainers - extrapolatedLosers);
-  const sentimentScore = Math.max(10, Math.min(90, Math.round(gainRatio * 80 + 15)));
+  // Breadth is an extrapolation from the sampled sector constituents. With no
+  // samples at all there is nothing to extrapolate from, so report zeroes (and
+  // dataSource "fallback") instead of a plausible-looking 62/33 split.
+  const gainRatio = totalSamples > 0 ? totalSampleGainers / totalSamples : 0;
+  const lossRatio = totalSamples > 0 ? totalSampleLosers / totalSamples : 0;
+  const extrapolatedGainers = totalSamples > 0 ? Math.round(1650 * gainRatio) : 0;
+  const extrapolatedLosers = totalSamples > 0 ? Math.round(1650 * lossRatio) : 0;
+  const extrapolatedUnchanged =
+    totalSamples > 0 ? Math.max(0, 1650 - extrapolatedGainers - extrapolatedLosers) : 0;
+  const sentimentScore =
+    totalSamples > 0 ? Math.max(10, Math.min(90, Math.round(gainRatio * 80 + 15))) : 0;
 
   // 4. Fetch news from Yahoo Search
   let newsList: MarketOverviewData["news"] = [];
@@ -2453,8 +3319,17 @@ export async function fetchLiveMarketOverview(
     ];
   }
 
+  const allAssetQuotes = [...indices, ...forex, ...commodities, ...crypto];
+  const liveAssetCount = allAssetQuotes.filter((asset) => asset.stale !== true).length;
+  const dataSource: MarketOverviewPayload["dataSource"] =
+    liveAssetCount === 0
+      ? "fallback"
+      : liveAssetCount === allAssetQuotes.length
+        ? "live"
+        : "mixed";
+
   return {
-    dataSource: quotesMap.size > 0 ? "live" : "fallback",
+    dataSource,
     dataAsOf: new Date().toISOString(),
     indices,
     forex,
@@ -2534,6 +3409,26 @@ interface YahooQuoteSummaryResponse {
   };
 }
 
+/**
+ * Normalise a dividend yield to percent.
+ *
+ * Yahoo exposes the same metric on two different scales: `quoteSummary`'s
+ * `summaryDetail.dividendYield` is a fraction (0.025 = 2.5%), while the v7
+ * `quote` endpoint's `dividendYield` is already a percentage (2.5) and its
+ * `trailingAnnualDividendYield` is a fraction. Both producers used to convert ad
+ * hoc, so the detail page and the screener disagreed by 100x for the same
+ * ticker. Every conversion goes through this helper.
+ */
+export function normalizeDividendYield(
+  raw: unknown,
+  scale: "fraction" | "percent",
+): number | null {
+  if (typeof raw !== "number" || !Number.isFinite(raw) || raw < 0) return null;
+  const percent = scale === "fraction" ? raw * 100 : raw;
+  if (!Number.isFinite(percent)) return null;
+  return Number(percent.toFixed(2));
+}
+
 export async function fetchLiveStockFundamentals(ticker: string, env?: Env): Promise<StockQuoteFundamentals> {
   const input = ticker.trim().toUpperCase();
   const matchedPreset =
@@ -2602,6 +3497,10 @@ export async function fetchLiveStockFundamentals(ticker: string, env?: Env): Pro
     ? []
     : baseline.historicalFinances;
   let hasLivePrice = false;
+  // True once this request obtained valuation metrics from Yahoo. When a live
+  // price exists without them, the nullable metrics below are reported as null
+  // instead of falling back to the static anchor (DATA-01/DATA-02).
+  let liveValuationMetrics = false;
 
   const currentYear = new Date().getFullYear();
 
@@ -2751,6 +3650,23 @@ export async function fetchLiveStockFundamentals(ticker: string, env?: Env): Pro
     yearLow = detail.fiftyTwoWeekLow?.raw || chartMeta.fiftyTwoWeekLow || yearLow;
 
     if (!isMacroAsset) {
+      // The static anchor only describes a *demo* payload. As soon as a live
+      // price was obtained, every nullable valuation metric starts from null so
+      // that a metric Yahoo does not return is reported as missing instead of
+      // silently borrowing the anchor's value.
+      if (hasLivePrice) {
+        per = null;
+        pbr = null;
+        dividendYield = null;
+        dps = null;
+        eps = null;
+        roe = null;
+        equityRatio = null;
+        isEstimatedPer = false;
+        perNote = undefined;
+        liveValuationMetrics = true;
+      }
+
       const rawCap = detail.marketCap?.raw || priceObj.marketCap?.raw || 0;
       if (rawCap > 0) {
         marketCap = isUS ? Math.round(rawCap / 1_000_000) : Math.round(rawCap / 100_000_000);
@@ -2782,8 +3698,9 @@ export async function fetchLiveStockFundamentals(ticker: string, env?: Env): Pro
       if (livePbr && livePbr > 0) pbr = Number(livePbr.toFixed(2));
 
       const rawDiv = detail.dividendYield?.raw;
-      if (typeof rawDiv === "number" && Number.isFinite(rawDiv)) {
-        dividendYield = Number((rawDiv * 100).toFixed(2));
+      const normalizedDividendYield = normalizeDividendYield(rawDiv, "fraction");
+      if (normalizedDividendYield !== null) {
+        dividendYield = normalizedDividendYield;
       }
       const rawDivRate = detail.dividendRate?.raw;
       if (typeof rawDivRate === "number" && Number.isFinite(rawDivRate)) {
@@ -3010,10 +3927,12 @@ export async function fetchLiveStockFundamentals(ticker: string, env?: Env): Pro
               perNote = undefined;
             }
             if (typeof q.priceToBook === "number" && q.priceToBook > 0) pbr = Number(q.priceToBook.toFixed(2));
-            if (typeof q.trailingAnnualDividendYield === "number" && Number.isFinite(q.trailingAnnualDividendYield)) {
-              dividendYield = Number((q.trailingAnnualDividendYield * 100).toFixed(2));
-            } else if (typeof q.dividendYield === "number" && Number.isFinite(q.dividendYield)) {
-              dividendYield = Number(q.dividendYield.toFixed(2));
+            const trailingYieldPercent = normalizeDividendYield(q.trailingAnnualDividendYield, "fraction");
+            if (trailingYieldPercent !== null) {
+              dividendYield = trailingYieldPercent;
+            } else {
+              const quoteYieldPercent = normalizeDividendYield(q.dividendYield, "percent");
+              if (quoteYieldPercent !== null) dividendYield = quoteYieldPercent;
             }
             if (typeof q.dividendRate === "number" && Number.isFinite(q.dividendRate)) {
               dps = Number(q.dividendRate.toFixed(isUS ? 2 : 1));
@@ -3036,6 +3955,7 @@ export async function fetchLiveStockFundamentals(ticker: string, env?: Env): Pro
             if (typeof companyName === "string" && companyName.trim().length > 0 && !matchedPreset && !baselineAsset) {
               name = companyName.trim();
             }
+            liveValuationMetrics = true;
           }
         }
       } catch {
@@ -3092,6 +4012,22 @@ export async function fetchLiveStockFundamentals(ticker: string, env?: Env): Pro
     } catch {
       // DB best effort
     }
+  }
+
+  // A live price must never be paired with the static anchor's valuation
+  // metrics: when Yahoo supplied no valuation data at all (only a price from
+  // the chart endpoint or the D1 series cache), report those metrics as null
+  // rather than presenting anchor estimates as current fundamentals.
+  if (hasLivePrice && !liveValuationMetrics && !isMacroAsset) {
+    per = null;
+    pbr = null;
+    dividendYield = null;
+    roe = null;
+    equityRatio = null;
+    eps = null;
+    dps = null;
+    isEstimatedPer = false;
+    perNote = undefined;
   }
 
   return {
@@ -3290,13 +4226,15 @@ export async function fetchLiveScreenerUniverse(
         pbr = prev?.pbr ?? null;
       }
 
-      if (typeof q.dividendYield === "number" && Number.isFinite(q.dividendYield)) {
-        dividendYield = Number(q.dividendYield.toFixed(2));
-      } else if (
-        typeof q.trailingAnnualDividendYield === "number" &&
-        Number.isFinite(q.trailingAnnualDividendYield)
-      ) {
-        dividendYield = Number((q.trailingAnnualDividendYield * 100).toFixed(2));
+      const screenerQuoteYield = normalizeDividendYield(q.dividendYield, "percent");
+      const screenerTrailingYield = normalizeDividendYield(
+        q.trailingAnnualDividendYield,
+        "fraction",
+      );
+      if (screenerQuoteYield !== null) {
+        dividendYield = screenerQuoteYield;
+      } else if (screenerTrailingYield !== null) {
+        dividendYield = screenerTrailingYield;
       } else {
         dividendYield = prev?.dividendYield ?? null;
       }
@@ -3447,86 +4385,6 @@ export async function fetchLiveScreenerUniverse(
   return universe;
 }
 
-// 日銀金融政策決定会合 (BOJ) スケジュール公定マスター (2024 - 2027)
-const BOJ_MEETING_SCHEDULE: ReadonlyArray<{ year: number; month: number; day: number }> = [
-  // 2024
-  { year: 2024, month: 1, day: 23 },
-  { year: 2024, month: 3, day: 19 },
-  { year: 2024, month: 4, day: 26 },
-  { year: 2024, month: 6, day: 14 },
-  { year: 2024, month: 7, day: 31 },
-  { year: 2024, month: 9, day: 20 },
-  { year: 2024, month: 10, day: 31 },
-  { year: 2024, month: 12, day: 19 },
-  // 2025
-  { year: 2025, month: 1, day: 24 },
-  { year: 2025, month: 3, day: 19 },
-  { year: 2025, month: 5, day: 1 },
-  { year: 2025, month: 6, day: 13 },
-  { year: 2025, month: 7, day: 31 },
-  { year: 2025, month: 9, day: 19 },
-  { year: 2025, month: 10, day: 30 },
-  { year: 2025, month: 12, day: 19 },
-  // 2026
-  { year: 2026, month: 1, day: 23 },
-  { year: 2026, month: 3, day: 19 },
-  { year: 2026, month: 4, day: 28 },
-  { year: 2026, month: 6, day: 16 },
-  { year: 2026, month: 7, day: 31 },
-  { year: 2026, month: 9, day: 18 },
-  { year: 2026, month: 10, day: 30 },
-  { year: 2026, month: 12, day: 18 },
-  // 2027
-  { year: 2027, month: 1, day: 22 },
-  { year: 2027, month: 3, day: 19 },
-  { year: 2027, month: 4, day: 28 },
-  { year: 2027, month: 6, day: 16 },
-  { year: 2027, month: 7, day: 30 },
-  { year: 2027, month: 9, day: 22 },
-  { year: 2027, month: 10, day: 29 },
-  { year: 2027, month: 12, day: 17 },
-];
-
-// 米FOMC スケジュール公定マスター (2024 - 2027)
-const FOMC_MEETING_SCHEDULE: ReadonlyArray<{ year: number; month: number; day: number }> = [
-  // 2024
-  { year: 2024, month: 1, day: 31 },
-  { year: 2024, month: 3, day: 20 },
-  { year: 2024, month: 5, day: 1 },
-  { year: 2024, month: 6, day: 12 },
-  { year: 2024, month: 7, day: 31 },
-  { year: 2024, month: 9, day: 18 },
-  { year: 2024, month: 11, day: 7 },
-  { year: 2024, month: 12, day: 18 },
-  // 2025
-  { year: 2025, month: 1, day: 29 },
-  { year: 2025, month: 3, day: 19 },
-  { year: 2025, month: 5, day: 7 },
-  { year: 2025, month: 6, day: 18 },
-  { year: 2025, month: 7, day: 30 },
-  { year: 2025, month: 9, day: 17 },
-  { year: 2025, month: 10, day: 29 },
-  { year: 2025, month: 12, day: 10 },
-  // 2026
-  { year: 2026, month: 1, day: 28 },
-  { year: 2026, month: 3, day: 18 },
-  { year: 2026, month: 5, day: 6 },
-  { year: 2026, month: 6, day: 17 },
-  { year: 2026, month: 7, day: 29 },
-  { year: 2026, month: 9, day: 16 },
-  { year: 2026, month: 11, day: 4 },
-  { year: 2026, month: 12, day: 16 },
-  // 2027
-  { year: 2027, month: 1, day: 27 },
-  { year: 2027, month: 3, day: 17 },
-  { year: 2027, month: 5, day: 5 },
-  { year: 2027, month: 6, day: 16 },
-  { year: 2027, month: 7, day: 28 },
-  { year: 2027, month: 9, day: 22 },
-  { year: 2027, month: 11, day: 3 },
-  { year: 2027, month: 12, day: 15 },
-];
-
 function adjustToWeekday(d: Date): Date {
   const res = new Date(d);
   const day = res.getDay();
@@ -3535,6 +4393,9 @@ function adjustToWeekday(d: Date): Date {
   return res;
 }
 
+// 日銀金融政策決定会合 (BOJ) / 米FOMC の公定日程とマクロ指標の前回値・予想値は
+// src/data/macroSchedule を単一の情報源とする。Worker 側に重複定義していた頃は、
+// 片方だけが更新されて 2027年12月以降のイベントが黙って消えていた。
 function generateUpcomingMacroEvents(refDate = new Date()): CalendarEvent[] {
   const mStr = (m: number) => String(m).padStart(2, "0");
   const dStr = (d: number) => String(d).padStart(2, "0");
@@ -3544,48 +4405,47 @@ function generateUpcomingMacroEvents(refDate = new Date()): CalendarEvent[] {
   const events: CalendarEvent[] = [];
   const refTime = refDate.getTime() - 24 * 60 * 60 * 1000; // 過去24時間以内は当日分として保持
 
+  // Macros are template events derived from the published central-bank
+  // calendar, never fetched observations: flag them as fallback at the source so
+  // no later branch can drop the label (previously the label was applied only
+  // when the *earnings* fetch returned nothing, so a single live earnings event
+  // silently promoted every template macro to "live").
+  const fallbackMacro = (): Pick<CalendarEvent, "source"> => ({ source: "fallback" });
+
   // 1. 日銀会合 (直近2回)
-  let bojCount = 0;
-  for (const item of BOJ_MEETING_SCHEDULE) {
-    const d = new Date(item.year, item.month - 1, item.day);
-    if (d.getTime() >= refTime && bojCount < 2) {
-      events.push({
-        id: `macro-boj-${item.year}-${mStr(item.month)}`,
-        date: fmt(d),
-        fullDate: fmtFull(d),
-        type: "MACRO",
-        title: "日銀金融政策決定会合・総裁記者会見",
-        importance: "HIGH",
-        time: "15:30 JST",
-        market: "TSE",
-        previous: "0.25%",
-        forecast: "0.50%",
-        description: "日銀金融政策決定会合後の総裁定例記者会見。政策金利判断や国債買入れ方針に注目。",
-      });
-      bojCount++;
-    }
+  for (const d of getNextScheduledMeetings(BOJ_MEETING_SCHEDULE, refDate, 2)) {
+    events.push({
+      id: `macro-boj-${d.getFullYear()}-${mStr(d.getMonth() + 1)}`,
+      date: fmt(d),
+      fullDate: fmtFull(d),
+      type: "MACRO",
+      title: "日銀金融政策決定会合・総裁記者会見",
+      importance: "HIGH",
+      time: "15:30 JST",
+      market: "TSE",
+      previous: MACRO_METRICS_DEFAULTS.boj.previous,
+      forecast: MACRO_METRICS_DEFAULTS.boj.forecast,
+      description: MACRO_METRICS_DEFAULTS.boj.description,
+      ...fallbackMacro(),
+    });
   }
 
   // 2. 米FOMC (直近2回)
-  let fomcCount = 0;
-  for (const item of FOMC_MEETING_SCHEDULE) {
-    const d = new Date(item.year, item.month - 1, item.day);
-    if (d.getTime() >= refTime && fomcCount < 2) {
-      events.push({
-        id: `macro-fomc-${item.year}-${mStr(item.month)}`,
-        date: fmt(d),
-        fullDate: fmtFull(d),
-        type: "MACRO",
-        title: "米FOMC 政策金利発表 & パウエル議長記者会見",
-        importance: "HIGH",
-        time: "03:00 JST",
-        market: "US",
-        previous: "4.75%",
-        forecast: "4.50%",
-        description: "米連邦公開市場委員会（FOMC）政策金利発表および議長会見。FF金利誘導目標。",
-      });
-      fomcCount++;
-    }
+  for (const d of getNextScheduledMeetings(FOMC_MEETING_SCHEDULE, refDate, 2)) {
+    events.push({
+      id: `macro-fomc-${d.getFullYear()}-${mStr(d.getMonth() + 1)}`,
+      date: fmt(d),
+      fullDate: fmtFull(d),
+      type: "MACRO",
+      title: "米FOMC 政策金利発表 & パウエル議長記者会見",
+      importance: "HIGH",
+      time: "03:00 JST",
+      market: "US",
+      previous: MACRO_METRICS_DEFAULTS.fomc.previous,
+      forecast: MACRO_METRICS_DEFAULTS.fomc.forecast,
+      description: MACRO_METRICS_DEFAULTS.fomc.description,
+      ...fallbackMacro(),
+    });
   }
 
   // 3. 米雇用統計 (当月または翌月の第1金曜日、直近2回)
@@ -3610,9 +4470,10 @@ function generateUpcomingMacroEvents(refDate = new Date()): CalendarEvent[] {
         importance: "HIGH",
         time: "21:30 JST",
         market: "US",
-        previous: "14.2万人",
-        forecast: "15.0万人",
-        description: "米労働省発表。非農業部門雇用者数変化、失業率、平均時給の伸び率。",
+        previous: MACRO_METRICS_DEFAULTS.jobs.previous,
+        forecast: MACRO_METRICS_DEFAULTS.jobs.forecast,
+        description: MACRO_METRICS_DEFAULTS.jobs.description,
+        ...fallbackMacro(),
       });
     }
   }
@@ -3636,9 +4497,10 @@ function generateUpcomingMacroEvents(refDate = new Date()): CalendarEvent[] {
         importance: "HIGH",
         time: "21:30 JST",
         market: "US",
-        previous: "2.7%",
-        forecast: "2.6%",
-        description: "米労働省発表。総合およびコア消費者物価指数のインフレ動向。",
+        previous: MACRO_METRICS_DEFAULTS.cpi.previous,
+        forecast: MACRO_METRICS_DEFAULTS.cpi.forecast,
+        description: MACRO_METRICS_DEFAULTS.cpi.description,
+        ...fallbackMacro(),
       });
     }
   }
@@ -3662,9 +4524,10 @@ function generateUpcomingMacroEvents(refDate = new Date()): CalendarEvent[] {
         importance: "HIGH",
         time: "08:30 JST",
         market: "TSE",
-        previous: "2.8%",
-        forecast: "2.7%",
-        description: "総務省発表。生鮮食品を除くコアCPI前年比。日銀利上げ判断の重要指標。",
+        previous: MACRO_METRICS_DEFAULTS.jpCpi.previous,
+        forecast: MACRO_METRICS_DEFAULTS.jpCpi.forecast,
+        description: MACRO_METRICS_DEFAULTS.jpCpi.description,
+        ...fallbackMacro(),
       });
     }
   }
@@ -3847,7 +4710,10 @@ export function fetchLiveMarketCalendar(
   universe?: StockQuoteFundamentals[],
   refDate = new Date(),
 ): CalendarEvent[] {
-  const macros = generateUpcomingMacroEvents(refDate).map((m) => ({ ...m, source: "fallback" }));
+  // generateUpcomingMacroEvents() already labels every template macro as
+  // fallback; re-labelling here would hide the fact that the label belongs to
+  // the event itself.
+  const macros = generateUpcomingMacroEvents(refDate);
   const earnings = generateFallbackEarningsEvents(universe, refDate);
   const combined = sortCalendarEvents([...macros, ...earnings], refDate);
   if (!lastKnownCalendarEvents) {
@@ -3979,7 +4845,7 @@ export async function fetchLiveMarketCalendarAsync(
   // 実データ決算イベントをフォールバック決算リストと統合
   const fallbackEarnings = generateFallbackEarningsEvents(universe, refDate);
   let finalEarnings: CalendarEvent[] = [];
-  let finalMacros = macroEvents;
+  const finalMacros = macroEvents;
 
   if (liveEarnings.length > 0) {
     // 取得できた実データがあれば該当銘柄を実データに置換し、新規実データ銘柄を追加 (日本企業イベントの脱落を防止)
@@ -4001,9 +4867,7 @@ export async function fetchLiveMarketCalendarAsync(
       }
     }
   } else {
-    // 実データ取得ゼロ件 (ネットワーク不通など): 全イベントに source: fallback を付与
     finalEarnings = fallbackEarnings;
-    finalMacros = macroEvents.map((m) => ({ ...m, source: "fallback" }));
   }
 
   const combined = sortCalendarEvents([...finalMacros, ...finalEarnings], refDate);
@@ -4222,6 +5086,12 @@ export async function parseJsonBody(
 export const RATE_LIMIT_WINDOW = 60; // seconds
 export const RATE_LIMIT_MAX = 60; // max requests per window per endpoint
 
+// Single Japanese message for every 429 response: the UI is Japanese, and a
+// mixed-language error surface made it impossible to distinguish a rate limit
+// from a validation failure in the browser console.
+export const RATE_LIMIT_ERROR_MESSAGE =
+  "リクエストが多すぎます。しばらく時間をおいてから再試行してください。";
+
 // Endpoints that receive high read/compute traffic use in-memory rate limiting
 // to prevent exhausting Cloudflare D1's 100,000 rows/month write quota (approx 3,333 writes/day).
 export const HIGH_FREQUENCY_RATE_LIMIT_ENDPOINTS = new Set([
@@ -4232,6 +5102,10 @@ export const HIGH_FREQUENCY_RATE_LIMIT_ENDPOINTS = new Set([
   "stock-fundamentals",
   "stocks-screener",
   "market-calendar",
+  // Administrator session checks run on every privileged call. They must not
+  // spend a D1 write each time (the free tier allows ~3,300 writes/day), and
+  // the per-isolate limiter is sufficient for this low-volume traffic.
+  "admin-session",
   // The index list is the only read endpoint the UI refetches after every
   // mutation; an unauthenticated client could otherwise loop it without any
   // per-IP limit (each request costs JSON.stringify + SHA-256 for the ETag).
@@ -4249,6 +5123,26 @@ export function clearMemoryRateLimits(): void {
   memoryRateLimits.clear();
 }
 
+/**
+ * Free capacity in the in-memory limiter: drop expired windows first, then fall
+ * back to FIFO eviction of the oldest key.
+ *
+ * The previous size-based eviction removed `keys().next()` unconditionally, so
+ * a still-active window could be evicted while hundreds of expired entries (one
+ * per past client) stayed behind — resetting that client's budget.
+ */
+export function pruneMemoryRateLimits(now: number, windowSeconds: number): void {
+  for (const [existingKey, existing] of memoryRateLimits) {
+    if (now - existing.windowStart >= windowSeconds) {
+      memoryRateLimits.delete(existingKey);
+    }
+  }
+  if (memoryRateLimits.size >= MAX_MEMORY_RATE_LIMIT_ENTRIES) {
+    const oldestKey = memoryRateLimits.keys().next().value;
+    if (oldestKey) memoryRateLimits.delete(oldestKey);
+  }
+}
+
 export function checkMemoryRateLimit(
   ip: string,
   endpoint: string,
@@ -4261,8 +5155,7 @@ export function checkMemoryRateLimit(
 
   if (!record || now - record.windowStart >= windowSeconds) {
     if (!record && memoryRateLimits.size >= MAX_MEMORY_RATE_LIMIT_ENTRIES) {
-      const oldestKey = memoryRateLimits.keys().next().value;
-      if (oldestKey) memoryRateLimits.delete(oldestKey);
+      pruneMemoryRateLimits(now, windowSeconds);
     }
     memoryRateLimits.set(key, { count: 1, windowStart: now });
     return true;
@@ -4305,14 +5198,15 @@ export async function checkRateLimit(
 
   const now = Math.floor(Date.now() / 1000);
   try {
-    // Probabilistic cleanup of dead rate_limit rows (approx every 100 requests)
+    // Probabilistic cleanup of dead rate_limit / admin session / login attempt
+    // rows (approx every 100 requests). All three are written by unauthenticated
+    // traffic and would otherwise grow without bound.
     if (Math.random() < 0.01) {
-      const purgePromise = env.DB.prepare("DELETE FROM rate_limits WHERE window_start < ?")
-        .bind(now - 3600)
-        .run()
-        .catch(() => {});
+      const purgePromise = purgeExpiredSecurityRows(env, now);
       if (ctx && typeof ctx.waitUntil === "function") {
         ctx.waitUntil(purgePromise);
+      } else {
+        void purgePromise;
       }
     }
 
@@ -4358,13 +5252,25 @@ export default {
       const url = new URL(request.url);
 
       if (url.pathname === "/api/health") {
+        if (request.method !== "GET") {
+          return json({ error: "Method not allowed. Use GET." }, 405, request, { allow: "GET" });
+        }
         return json({ ok: true, service: "indexforge-worker" }, 200, request);
       }
 
       // Cloudflare Turnstile設定および管理者ロックアウト状態取得
-      if (url.pathname === "/api/auth/turnstile-config" && request.method === "GET") {
+      if (url.pathname === "/api/auth/turnstile-config") {
+        if (request.method !== "GET") {
+          return json({ error: "Method not allowed. Use GET." }, 405, request, { allow: "GET" });
+        }
         try {
           const ip = getClientIp(request);
+          // This endpoint reads the admin lockout table on every call, so it
+          // must not be reachable without a bound. In-memory only: it is a
+          // cheap abuse damper for a public probe, not a security control.
+          if (!checkMemoryRateLimit(ip, "auth-turnstile-config", 30)) {
+            return json({ error: RATE_LIMIT_ERROR_MESSAGE }, 429, request);
+          }
           const lockout = await checkAdminLoginLockout(env, ip);
           const siteKey = env.TURNSTILE_SITE_KEY?.trim() || TURNSTILE_DEFAULT_SITE_KEY;
           return json(
@@ -4455,6 +5361,17 @@ export default {
           );
           if (!isSecretValid) {
             const fail = await recordAdminLoginFailure(env, ip);
+            if (fail.unavailable) {
+              return json(
+                {
+                  ok: false,
+                  error:
+                    "試行回数を記録できないため、安全のためログインを中止しました。しばらくしてから再試行してください。",
+                },
+                503,
+                request,
+              );
+            }
             if (fail.locked) {
               const minutes = Math.ceil(fail.remainingSeconds / 60);
               return json(
@@ -4482,8 +5399,28 @@ export default {
 
           // 3. 管理者パスワード検証
           const auth = await authenticatePassword(request, env, password, "auth-login", ctx);
+          if (auth.rateLimited) {
+            // A refused attempt is not a credential guess: do not count it
+            // towards the lockout counter, and tell the caller to wait.
+            return json(
+              { ok: false, error: auth.error || RATE_LIMIT_ERROR_MESSAGE },
+              429,
+              request,
+            );
+          }
           if (!auth.authenticated || auth.role !== "admin") {
             const fail = await recordAdminLoginFailure(env, ip);
+            if (fail.unavailable) {
+              return json(
+                {
+                  ok: false,
+                  error:
+                    "試行回数を記録できないため、安全のためログインを中止しました。しばらくしてから再試行してください。",
+                },
+                503,
+                request,
+              );
+            }
             if (fail.locked) {
               const minutes = Math.ceil(fail.remainingSeconds / 60);
               return json(
@@ -4509,8 +5446,26 @@ export default {
             );
           }
 
-          // 4. 成功時: 失敗カウントをリセット
+          // 4. 成功時: 失敗カウントをリセットし、管理者セッションを発行する。
+          // 以降の管理APIは x-admin-session を要求するため、この応答で発行しないと
+          // 「2要素認証は通ったのに管理操作が全て403」という状態になる。
           await resetAdminLoginAttempts(env, ip);
+          let adminToken: string;
+          try {
+            adminToken = await createAdminSession(env, auth.id || "admin-master", ip);
+          } catch {
+            // Never answer 200 without a usable session: the client would keep
+            // the admin surface open while every privileged call returns 403.
+            return json(
+              {
+                ok: false,
+                error:
+                  "管理者セッションを発行できませんでした。しばらくしてから再試行してください。",
+              },
+              503,
+              request,
+            );
+          }
 
           return json(
             {
@@ -4520,6 +5475,7 @@ export default {
               maxStocks: auth.maxStocks,
               maxIndices: auth.maxIndices ?? null,
               id: auth.id,
+              adminToken,
             },
             200,
             request,
@@ -4536,35 +5492,35 @@ export default {
           const parsed = await parseJsonBody(request);
           if (!parsed.ok) return parsed.response;
           const password = typeof parsed.body.password === "string" ? parsed.body.password : "";
-          const requestedRole = typeof parsed.body.role === "string" ? parsed.body.role : undefined;
-          const userOnly = Boolean(
-            parsed.body.userOnly === true ||
-            requestedRole === "user" ||
-            request.headers.get("x-auth-mode") === "user",
-          );
-          const auth = await authenticatePassword(request, env, password, "auth-login", ctx);
-          if (!auth.authenticated) {
+          // `userOnly` / `role` / `x-auth-mode` are still accepted for backward
+          // compatibility with older clients but deliberately ignored: this
+          // endpoint can only ever return a non-admin account.
+          //
+          // Evaluating admin rows here made the public endpoint a password
+          // oracle for the master credential (no lockout, no Turnstile, and the
+          // 403 branch confirmed which passwords were administrative).
+          const auth = await authenticatePassword(request, env, password, "auth-login", ctx, false);
+          if (auth.rateLimited) {
+            // The limiter refused the attempt (or failed closed). That is an
+            // infrastructure condition, not a wrong credential: reporting it
+            // as "wrong password" hid a D1 outage from the user and operator.
             return json(
-              { ok: false, error: auth.error || "パスワードが正しくありません" },
-              401,
+              { ok: false, error: auth.error || RATE_LIMIT_ERROR_MESSAGE },
+              429,
               request,
             );
           }
-          if (userOnly && auth.role === "admin") {
+          if (!auth.authenticated || auth.role === "admin") {
             return json(
-              {
-                ok: false,
-                error:
-                  "管理者としてログインするには「管理者ログイン」から秘密の暗号およびTurnstile認証を行ってください",
-              },
-              403,
+              { ok: false, error: "パスワードが正しくありません" },
+              401,
               request,
             );
           }
           return json(
             {
               ok: true,
-              role: auth.role,
+              role: "user",
               name: auth.name,
               maxStocks: auth.maxStocks,
               maxIndices: auth.maxIndices ?? null,
@@ -4579,12 +5535,32 @@ export default {
         }
       }
 
+      // ログアウト (冪等): 提示された管理者セッションを失効させる
+      if (url.pathname === "/api/auth/logout") {
+        if (request.method !== "POST") {
+          return json({ error: "Method not allowed. Use POST." }, 405, request, { allow: "POST" });
+        }
+        try {
+          const token = getAdminSessionToken(request);
+          if (token) {
+            await revokeAdminSession(env, token);
+          }
+          return json({ ok: true }, 200, request);
+        } catch (err) {
+          // Logging out must always look successful to the client: a stale
+          // session row is harmless (it expires) and leaking the difference
+          // would tell a caller whether a guessed token existed.
+          console.error("Logout endpoint error:", err);
+          return json({ ok: true }, 200, request);
+        }
+      }
+
       // 管理者向け: ユーザーパスワード一覧取得 (マスター管理者を除外)
       if (url.pathname === "/api/admin/passwords" && request.method === "GET") {
         try {
-          const auth = await authenticatePassword(request, env, null, "auth-api", ctx);
-          if (!auth.authenticated || auth.role !== "admin") {
-            return json({ error: "管理者権限が必要です" }, 403, request);
+          const auth = await authenticateAdmin(request, env, ctx);
+          if (!auth.authenticated) {
+            return adminAuthFailureResponse(auth, request);
           }
           await ensurePasswordTable(env);
           let results: D1Row[] | undefined;
@@ -4610,9 +5586,9 @@ export default {
       // 管理者向け: ユーザーパスワード新規作成（銘柄数制限設定 & 指数上限設定）
       if (url.pathname === "/api/admin/passwords" && request.method === "POST") {
         try {
-          const auth = await authenticatePassword(request, env, null, "auth-api", ctx);
-          if (!auth.authenticated || auth.role !== "admin") {
-            return json({ error: "管理者権限が必要です" }, 403, request);
+          const auth = await authenticateAdmin(request, env, ctx);
+          if (!auth.authenticated) {
+            return adminAuthFailureResponse(auth, request);
           }
           const parsed = await parseJsonBody(request);
           if (!parsed.ok) return parsed.response;
@@ -4738,9 +5714,9 @@ export default {
       // 管理者向け: ユーザーパスワード更新
       if (url.pathname === "/api/admin/passwords" && request.method === "PUT") {
         try {
-          const auth = await authenticatePassword(request, env, null, "auth-api", ctx);
-          if (!auth.authenticated || auth.role !== "admin") {
-            return json({ error: "管理者権限が必要です" }, 403, request);
+          const auth = await authenticateAdmin(request, env, ctx);
+          if (!auth.authenticated) {
+            return adminAuthFailureResponse(auth, request);
           }
           const parsed = await parseJsonBody(request);
           if (!parsed.ok) return parsed.response;
@@ -4950,6 +5926,12 @@ export default {
             return json({ error: "指定されたIDのアカウントが見つかりません" }, 404, request);
           }
           clearAuthCache();
+          // A role change or deactivation must not leave a live administrator
+          // session behind: the session check already joins is_active/role, but
+          // revoking is immediate and also covers a later reactivation.
+          if (role === "admin" || role === "user" || isActive !== undefined) {
+            await revokeAdminSessionsForAccount(env, id);
+          }
 
           return json({ ok: true }, 200, request);
         } catch (err) {
@@ -4961,9 +5943,9 @@ export default {
       // 管理者向け: ユーザーパスワード削除
       if (url.pathname === "/api/admin/passwords" && request.method === "DELETE") {
         try {
-          const auth = await authenticatePassword(request, env, null, "auth-api", ctx);
-          if (!auth.authenticated || auth.role !== "admin") {
-            return json({ error: "管理者権限が必要です" }, 403, request);
+          const auth = await authenticateAdmin(request, env, ctx);
+          if (!auth.authenticated) {
+            return adminAuthFailureResponse(auth, request);
           }
           const id = url.searchParams.get("id");
           if (!id) {
@@ -4973,21 +5955,35 @@ export default {
             return json({ error: "マスター管理者パスワードは削除できません" }, 403, request);
           }
           await ensurePasswordTable(env);
+          // Deleting the account must also destroy everything that could still
+          // authenticate it: its administrator sessions and the owner tokens of
+          // the indices it created. Leaving those behind kept a deleted user's
+          // credentials usable (SEC-05).
+          const cleanup: AccountCleanupStep[] = ["owner_both", "creator", "sessions"];
           let deleteChanges: number | undefined;
-          try {
-            const batchResults = await env.DB.batch([
-              env.DB.prepare("UPDATE indices SET creator_id = NULL WHERE creator_id = ?").bind(id),
-              env.DB.prepare("DELETE FROM access_passwords WHERE id = ?").bind(id),
-            ]);
-            deleteChanges = (
-              batchResults as Array<{ meta?: { changes?: number } }> | undefined
-            )?.[1]?.meta?.changes;
-          } catch (deleteBatchErr: unknown) {
-            if (!isMissingColumnError(deleteBatchErr, "creator_id")) throw deleteBatchErr;
-            const legacyDelete = await env.DB.prepare("DELETE FROM access_passwords WHERE id = ?")
-              .bind(id)
-              .run();
-            deleteChanges = (legacyDelete as { meta?: { changes?: number } }).meta?.changes;
+          for (;;) {
+            const statements = cleanup.map((step) =>
+              env.DB.prepare(ACCOUNT_CLEANUP_SQL[step]).bind(id),
+            );
+            statements.push(env.DB.prepare("DELETE FROM access_passwords WHERE id = ?").bind(id));
+            try {
+              const batchResults = await env.DB.batch(statements);
+              const results = batchResults as
+                | Array<{ meta?: { changes?: number } }>
+                | undefined;
+              // D1 returns one result per statement. Lightweight D1 adapters
+              // may return a shorter array, so fall back to the last available
+              // result instead of reading a missing entry as a successful
+              // no-op (which reported 200 for a non-existent account).
+              deleteChanges =
+                results?.[statements.length - 1]?.meta?.changes ??
+                results?.[(results?.length ?? 0) - 1]?.meta?.changes;
+              break;
+            } catch (deleteBatchErr: unknown) {
+              if (!dropUnsupportedAccountCleanupStep(cleanup, deleteBatchErr)) {
+                throw deleteBatchErr;
+              }
+            }
           }
           if (deleteChanges === 0) {
             return json({ error: "指定されたIDのアカウントが見つかりません" }, 404, request);
@@ -5003,8 +5999,11 @@ export default {
       // 管理者向け: 管理者マスターパスワード変更 (平文保存は行わない)
       if (url.pathname === "/api/admin/admin-password" && request.method === "PUT") {
         try {
-          const auth = await authenticatePassword(request, env, null, "auth-api", ctx);
-          if (!auth.authenticated || auth.role !== "admin" || auth.id !== "admin-master") {
+          const auth = await authenticateAdmin(request, env, ctx);
+          if (!auth.authenticated) {
+            return adminAuthFailureResponse(auth, request);
+          }
+          if (auth.id !== "admin-master") {
             return json({ error: "管理者権限が必要です" }, 403, request);
           }
           const parsed = await parseJsonBody(request);
@@ -5041,6 +6040,10 @@ export default {
             .bind(hash, now, now)
             .run();
           clearAuthCache();
+          // Every issued session is bound to the old credential. Revoke them
+          // all so a stolen/leaked session cannot survive a master password
+          // change.
+          await revokeAllAdminSessions(env);
 
           return json({ ok: true, message: "管理者パスワードを更新しました" }, 200, request);
         } catch (err) {
@@ -5055,8 +6058,11 @@ export default {
         (request.method === "PUT" || request.method === "POST")
       ) {
         try {
-          const auth = await authenticatePassword(request, env, null, "auth-api", ctx);
-          if (!auth.authenticated || auth.role !== "admin" || auth.id !== "admin-master") {
+          const auth = await authenticateAdmin(request, env, ctx);
+          if (!auth.authenticated) {
+            return adminAuthFailureResponse(auth, request);
+          }
+          if (auth.id !== "admin-master") {
             return json({ error: "管理者権限が必要です" }, 403, request);
           }
           const parsed = await parseJsonBody(request);
@@ -5108,6 +6114,9 @@ export default {
               .bind(hash, now)
               .run();
           }
+          // The second factor changed: previously issued sessions proved the
+          // old one, so they must not keep authorizing administrative calls.
+          await revokeAllAdminSessions(env);
 
           return json({ ok: true, message: "秘密の暗号を更新しました" }, 200, request);
         } catch (err) {
@@ -5119,18 +6128,27 @@ export default {
       // 管理者向け: システム運用・健全性メトリクス取得
       if (url.pathname === "/api/admin/system-stats" && request.method === "GET") {
         try {
-          const auth = await authenticatePassword(request, env, null, "auth-api", ctx);
-          if (!auth.authenticated || auth.role !== "admin") {
-            return json({ error: "管理者権限が必要です" }, 403, request);
+          const auth = await authenticateAdmin(request, env, ctx);
+          if (!auth.authenticated) {
+            return adminAuthFailureResponse(auth, request);
           }
           await ensurePasswordTable(env);
 
           let totalUsers = 0;
           let activeUsers = 0;
           let adminUsers = 0;
+          // Each probe reports whether it actually succeeded: claiming
+          // CONNECTED while every count query failed hid D1 outages from the
+          // operator dashboard.
+          let passwordsProbeOk = false;
+          let indicesProbeOk = false;
+          let rateLimitsProbeOk = false;
           try {
             const pwdRows = await env.DB.prepare(
-              "SELECT role, is_active, COUNT(*) as count FROM access_passwords GROUP BY role, is_active",
+              // admin-master is the built-in master account, not a managed
+              // user: counting it made the "users" metric permanently off by
+              // one and its admin role inflate adminUsersCount.
+              "SELECT role, is_active, COUNT(*) as count FROM access_passwords WHERE id != 'admin-master' GROUP BY role, is_active",
             ).all();
             for (const r of pwdRows.results || []) {
               const row = r as { role?: string; is_active?: number; count?: number };
@@ -5139,8 +6157,9 @@ export default {
               if (row.is_active === 1) activeUsers += c;
               if (row.role === "admin") adminUsers += c;
             }
-          } catch {
-            // fallback
+            passwordsProbeOk = true;
+          } catch (err) {
+            console.error("system-stats: access_passwords aggregate failed:", err);
           }
 
           let indicesCount = 0;
@@ -5150,17 +6169,26 @@ export default {
             indicesCount = idxRes?.count ?? 0;
             const bktRes = await env.DB.prepare("SELECT COUNT(*) as count FROM basket_items").first<{ count: number }>();
             totalConstituents = bktRes?.count ?? 0;
-          } catch {
-            // fallback
+            indicesProbeOk = true;
+          } catch (err) {
+            console.error("system-stats: index counts failed:", err);
           }
 
           let rateLimitEntries = 0;
           try {
             const rlRes = await env.DB.prepare("SELECT COUNT(*) as count FROM rate_limits").first<{ count: number }>();
             rateLimitEntries = rlRes?.count ?? 0;
-          } catch {
-            // fallback
+            rateLimitsProbeOk = true;
+          } catch (err) {
+            console.error("system-stats: rate_limits count failed:", err);
           }
+
+          const allProbesOk = passwordsProbeOk && indicesProbeOk && rateLimitsProbeOk;
+          const dbStatus = allProbesOk
+            ? "CONNECTED"
+            : passwordsProbeOk || indicesProbeOk || rateLimitsProbeOk
+              ? "DEGRADED"
+              : "DISCONNECTED";
 
           const avgConstituentsPerIndex =
             indicesCount > 0 ? Number((totalConstituents / indicesCount).toFixed(1)) : 0;
@@ -5171,13 +6199,13 @@ export default {
               : "N/A";
 
           const stats = {
-            dbStatus: "CONNECTED",
+            dbStatus,
             indicesCount,
             totalConstituents,
             avgConstituentsPerIndex,
             userPasswordsCount: totalUsers,
             activeUsersCount: activeUsers,
-            adminUsersCount: Math.max(1, adminUsers),
+            adminUsersCount: adminUsers,
             cacheStats: {
               hits: cacheHits,
               misses: cacheMisses,
@@ -5212,7 +6240,7 @@ export default {
             ctx,
           );
           if (!allowed) {
-            return json({ error: "Rate limit exceeded. Please try again later." }, 429, request);
+            return json({ error: RATE_LIMIT_ERROR_MESSAGE }, 429, request);
           }
 
           const parsed = await parseJsonBody(request);
@@ -5245,7 +6273,16 @@ export default {
             return json({ error: "この操作にはパスワード認証が必要です" }, 401, request);
           }
 
-          if (SYSTEM_INDICES.has(cleanIndexId) && auth.role !== "admin") {
+          // Administrator capabilities require the admin session, not just the
+          // master password: a password-only admin must not be able to mutate a
+          // system index.
+          const adminAuth = await authenticateAdmin(request, env, ctx);
+          if (adminAuth.rateLimited) {
+            return adminAuthFailureResponse(adminAuth, request);
+          }
+          const isAdmin = adminAuth.authenticated;
+
+          if (SYSTEM_INDICES.has(cleanIndexId) && !isAdmin) {
             return json({ error: "システム指数の銘柄変更には管理者権限が必要です" }, 403, request);
           }
 
@@ -5296,56 +6333,16 @@ export default {
             .all();
 
           // 所有権チェック（非管理者の場合）
-          let existingHash: string | null = null;
-          let existingCreatorId: string | null = null;
-          let hasCheckedIndex = false;
-          try {
-            const { results } = await env.DB.prepare(
-              "SELECT id, owner_token_hash, creator_id FROM indices WHERE id = ?",
-            )
-              .bind(cleanIndexId)
-              .all();
-            if (results && results.length > 0) {
-              hasCheckedIndex = true;
-              const index = results[0] as { owner_token_hash?: string; creator_id?: string | null };
-              existingHash = index.owner_token_hash || null;
-              existingCreatorId =
-                typeof index.creator_id === "string" && index.creator_id.length > 0
-                  ? index.creator_id
-                  : null;
-            }
-          } catch (lookupErr: unknown) {
-            if (
-              !isMissingColumnError(lookupErr, "creator_id") &&
-              !isMissingColumnError(lookupErr, "owner_token_hash")
-            ) {
-              throw lookupErr;
-            }
-            try {
-              const { results } = await env.DB.prepare(
-                "SELECT id, owner_token_hash FROM indices WHERE id = ?",
-              )
-                .bind(cleanIndexId)
-                .all();
-              if (results && results.length > 0) {
-                hasCheckedIndex = true;
-                existingHash =
-                  (results[0] as { owner_token_hash?: string }).owner_token_hash || null;
-              }
-            } catch (lookupErr2: unknown) {
-              if (!isMissingColumnError(lookupErr2, "owner_token_hash")) throw lookupErr2;
-              const { results } = await env.DB.prepare("SELECT id FROM indices WHERE id = ?")
-                .bind(cleanIndexId)
-                .all();
-              if (results && results.length > 0) hasCheckedIndex = true;
-            }
-          }
+          const ownership = await lookupIndexOwnership(env, cleanIndexId);
+          const existingHash = ownership.ownerTokenHash;
+          const existingCreatorId = ownership.creatorId;
+          const hasCheckedIndex = ownership.exists;
 
           if (!hasCheckedIndex) {
             return json({ error: "Index not found" }, 404, request);
           }
 
-          if (auth.role !== "admin") {
+          if (!isAdmin) {
             if (existingHash) {
               const providedToken =
                 request.headers.get("x-owner-token")?.trim() ||
@@ -5366,6 +6363,11 @@ export default {
                   403,
                   request,
                 );
+              }
+              if (
+                isOwnerTokenExpired(ownership.ownerTokenIssuedAt, Math.floor(Date.now() / 1000))
+              ) {
+                return json({ error: OWNER_TOKEN_EXPIRED_MESSAGE }, 403, request);
               }
             } else {
               return json(
@@ -5396,7 +6398,7 @@ export default {
             // original creator even when the caller authenticates through a
             // different non-admin account.
             if (
-              auth.role !== "admin" &&
+              !isAdmin &&
               existingCreatorId &&
               existingCreatorId !== "admin-master"
             ) {
@@ -5545,7 +6547,7 @@ export default {
             ctx,
           );
           if (!allowed) {
-            return json({ error: "Rate limit exceeded. Please try again later." }, 429, request);
+            return json({ error: RATE_LIMIT_ERROR_MESSAGE }, 429, request);
           }
 
           const rawIndexId = url.searchParams.get("indexId");
@@ -5568,10 +6570,9 @@ export default {
           }
           const indexId = rawIndexId.trim();
           const ticker = rawTicker.trim().toUpperCase();
-          const providedToken =
-            url.searchParams.get("ownerToken")?.trim() ||
-            request.headers.get("x-owner-token")?.trim() ||
-            "";
+          // Header only: a `?ownerToken=` query value leaked the secret into
+          // access and proxy logs (SEC-03).
+          const providedToken = request.headers.get("x-owner-token")?.trim() || "";
           if (providedToken.length > 256) {
             return json({ error: "作成者トークンは256文字以内で指定してください" }, 400, request);
           }
@@ -5581,36 +6582,26 @@ export default {
             return json({ error: "この操作にはパスワード認証が必要です" }, 401, request);
           }
 
-          if (SYSTEM_INDICES.has(indexId) && auth.role !== "admin") {
+          const adminAuth = await authenticateAdmin(request, env, ctx);
+          if (adminAuth.rateLimited) {
+            return adminAuthFailureResponse(adminAuth, request);
+          }
+          const isAdmin = adminAuth.authenticated;
+
+          if (SYSTEM_INDICES.has(indexId) && !isAdmin) {
             return json({ error: "システム指数の銘柄削除には管理者権限が必要です" }, 403, request);
           }
 
           // 所有権チェック（非管理者の場合）
-          let existingHash: string | null = null;
-          let hasCheckedIndex = false;
-          try {
-            const { results } = await env.DB.prepare(
-              "SELECT id, owner_token_hash FROM indices WHERE id = ?",
-            )
-              .bind(indexId)
-              .all();
-            if (results && results.length > 0) {
-              hasCheckedIndex = true;
-              existingHash = (results[0] as { owner_token_hash?: string }).owner_token_hash || null;
-            }
-          } catch (lookupErr: unknown) {
-            if (!isMissingColumnError(lookupErr, "owner_token_hash")) throw lookupErr;
-            const { results } = await env.DB.prepare("SELECT id FROM indices WHERE id = ?")
-              .bind(indexId)
-              .all();
-            if (results && results.length > 0) hasCheckedIndex = true;
-          }
+          const ownership = await lookupIndexOwnership(env, indexId);
+          const existingHash = ownership.ownerTokenHash;
+          const hasCheckedIndex = ownership.exists;
 
           if (!hasCheckedIndex) {
             return json({ error: "Index not found" }, 404, request);
           }
 
-          if (auth.role !== "admin") {
+          if (!isAdmin) {
             if (existingHash) {
               if (!providedToken) {
                 return json(
@@ -5631,6 +6622,11 @@ export default {
                   403,
                   request,
                 );
+              }
+              if (
+                isOwnerTokenExpired(ownership.ownerTokenIssuedAt, Math.floor(Date.now() / 1000))
+              ) {
+                return json({ error: OWNER_TOKEN_EXPIRED_MESSAGE }, 403, request);
               }
             } else {
               return json(
@@ -5700,7 +6696,7 @@ export default {
           const ip = getClientIp(request);
           const allowed = await checkRateLimit(env, ip, "snapshot", RATE_LIMIT_MAX, false, ctx);
           if (!allowed) {
-            return json({ error: "Rate limit exceeded. Please try again later." }, 429, request);
+            return json({ error: RATE_LIMIT_ERROR_MESSAGE }, 429, request);
           }
 
           const now = Math.floor(Date.now() / 1000);
@@ -5715,8 +6711,15 @@ export default {
             return json({ error: "Unsupported symbol parameter" }, 400, request);
           }
 
+          // A forced request must not be answered from either cache layer
+          // (memory or D1): the other cached GET endpoints handle the same
+          // `?refresh=1` / `Cache-Control: no-cache` contract this way.
+          const forceRefresh =
+            url.searchParams.get("refresh") !== null ||
+            requestsFreshCalculation(request);
+
           const memKey = `snapshot:${symbol}`;
-          const memCachedEntry = getMemoryCacheEntry<unknown>(memKey);
+          const memCachedEntry = forceRefresh ? null : getMemoryCacheEntry<unknown>(memKey);
           if (memCachedEntry) {
             const memCached = memCachedEntry.data;
             const remainingTtl = Math.max(10, memCachedEntry.remainingSeconds);
@@ -5769,7 +6772,7 @@ export default {
               ? getMarketAwareCacheDuration(new Date(cacheRow.cached_at * 1000))
               : SNAPSHOT_CACHE_TTL;
 
-          if (cacheRow && now - cacheRow.cached_at < snapshotTtl) {
+          if (cacheRow && !forceRefresh && now - cacheRow.cached_at < snapshotTtl) {
             try {
               const parsedData = parseSnapshotResponseData(
                 JSON.parse(cacheRow.data),
@@ -5947,7 +6950,7 @@ export default {
             symbol === "^N225" ? Math.max(300, Math.min(getMarketAwareCacheDuration(), 1800)) : 300;
           setMemoryCache(memKey, responseData, freshMemTtl);
           const freshEtag = await generateETag(JSON.stringify(responseData));
-          if (matchesIfNoneMatch(request.headers.get("if-none-match"), freshEtag)) {
+          if (!forceRefresh && matchesIfNoneMatch(request.headers.get("if-none-match"), freshEtag)) {
             return notModified(request, {
               etag: freshEtag,
               "cache-control": `public, max-age=60, s-maxage=${freshSMaxAge}, stale-while-revalidate=300, stale-if-error=86400`,
@@ -5976,7 +6979,7 @@ export default {
             ctx,
           );
           if (!allowed) {
-            return json({ error: "Rate limit exceeded. Please try again later." }, 429, request);
+            return json({ error: RATE_LIMIT_ERROR_MESSAGE }, 429, request);
           }
 
           const forceRefresh =
@@ -6062,7 +7065,7 @@ export default {
             ctx,
           );
           if (!allowed) {
-            return json({ error: "Rate limit exceeded. Please try again later." }, 429, request);
+            return json({ error: RATE_LIMIT_ERROR_MESSAGE }, 429, request);
           }
 
           const forceRefresh =
@@ -6141,7 +7144,7 @@ export default {
             ctx,
           );
           if (!allowed) {
-            return json({ error: "Rate limit exceeded. Please try again later." }, 429, request);
+            return json({ error: RATE_LIMIT_ERROR_MESSAGE }, 429, request);
           }
 
           const forceRefresh =
@@ -6208,7 +7211,7 @@ export default {
             ctx,
           );
           if (!allowed) {
-            return json({ error: "Rate limit exceeded. Please try again later." }, 429, request);
+            return json({ error: RATE_LIMIT_ERROR_MESSAGE }, 429, request);
           }
 
           const forceRefresh =
@@ -6274,7 +7277,7 @@ export default {
             ctx,
           );
           if (!allowed) {
-            return json({ error: "Rate limit exceeded. Please try again later." }, 429, request);
+            return json({ error: RATE_LIMIT_ERROR_MESSAGE }, 429, request);
           }
 
           const forceRefresh =
@@ -6342,7 +7345,7 @@ export default {
         try {
           const ip = getClientIp(request);
           if (!(await checkRateLimit(env, ip, "indices-list", RATE_LIMIT_MAX, false, ctx))) {
-            return json({ error: "Rate limit exceeded. Please try again later." }, 429, request);
+            return json({ error: RATE_LIMIT_ERROR_MESSAGE }, 429, request);
           }
 
           const cachedIndices = getMemoryCache<unknown>("api:indices");
@@ -6479,16 +7482,19 @@ export default {
             if (row.ticker) {
               const ticker = String(row.ticker).trim().toUpperCase();
               if (!ticker) continue;
-              // Legacy rows may carry NULL or zero weights; coerce defensively so the
-              // API never emits NaN or non-positive weight into the basket payload.
+              // Legacy rows may carry NULL, zero or negative weights. The write
+              // endpoints reject a non-positive weight, so a basket read from
+              // this API must always be saveable again: every non-positive
+              // weight is replaced by an equal positive value (DATA-09).
               const rawWeight = Number(row.weight);
+              const weight = Number.isFinite(rawWeight) && rawWeight > 0 ? rawWeight : 1;
               indicesMap.get(id)!.basket.push({
                 ticker,
                 name:
                   row.stock_name != null && String(row.stock_name).trim()
                     ? String(row.stock_name).trim()
                     : ticker,
-                weight: Number.isFinite(rawWeight) ? rawWeight : 0,
+                weight,
                 theme: row.theme ? String(row.theme) : "",
               });
             }
@@ -6521,7 +7527,7 @@ export default {
           const ip = getClientIp(request);
           const allowed = await checkRateLimit(env, ip, "indices");
           if (!allowed) {
-            return json({ error: "Rate limit exceeded. Please try again later." }, 429, request);
+            return json({ error: RATE_LIMIT_ERROR_MESSAGE }, 429, request);
           }
 
           const parsed = await parseJsonBody(request);
@@ -6574,10 +7580,21 @@ export default {
               ? body.id.trim()
               : `custom-${crypto.randomUUID()}`;
 
-          // Password authentication and role check
+          // Password authentication and the administrator decision.
+          //
+          // The master password alone is no longer an authorization: an
+          // administrator must also present the short-lived `x-admin-session`
+          // issued by /api/auth/admin-login. `authenticateAdmin` is the single
+          // gate (it owns the test-only password fallback, which production
+          // never enables), so a password-only admin cannot edit system
+          // indices or take any other admin bypass here.
           const explicitPwd = typeof body.password === "string" ? body.password : null;
           const auth = await authenticatePassword(request, env, explicitPwd, "auth-api", ctx);
-          const isAdmin = auth.authenticated && auth.role === "admin";
+          const adminAuth = await authenticateAdmin(request, env, ctx);
+          if (adminAuth.rateLimited) {
+            return adminAuthFailureResponse(adminAuth, request);
+          }
+          const isAdmin = adminAuth.authenticated;
 
           if (SYSTEM_INDICES.has(id) && !isAdmin) {
             return json({ error: "システム指数の編集には管理者権限が必要です" }, 403, request);
@@ -6706,50 +7723,17 @@ export default {
             headerOwnerToken ||
             "";
 
-          // Check if index already exists in D1
-          let existingHash: string | null = null;
-          let existingCreatorId: string | null = null;
-          let isExisting = false;
-          let hasOwnerTokenHashColumn = true;
-          try {
-            const { results } = await env.DB.prepare(
-              "SELECT id, owner_token_hash, creator_id FROM indices WHERE id = ?",
-            )
-              .bind(id)
-              .all();
-            if (results && results.length > 0) {
-              isExisting = true;
-              const row = results[0] as { owner_token_hash?: string; creator_id?: string | null };
-              existingHash = row.owner_token_hash || null;
-              existingCreatorId = row.creator_id || null;
-            }
-          } catch (lookupErr: unknown) {
-            if (
-              !isMissingColumnError(lookupErr, "creator_id") &&
-              !isMissingColumnError(lookupErr, "owner_token_hash")
-            ) {
-              throw lookupErr;
-            }
-            try {
-              const { results } = await env.DB.prepare(
-                "SELECT id, owner_token_hash FROM indices WHERE id = ?",
-              )
-                .bind(id)
-                .all();
-              if (results && results.length > 0) {
-                isExisting = true;
-                existingHash =
-                  (results[0] as { owner_token_hash?: string }).owner_token_hash || null;
-              }
-            } catch (lookupErr2: unknown) {
-              if (!isMissingColumnError(lookupErr2, "owner_token_hash")) throw lookupErr2;
-              hasOwnerTokenHashColumn = false;
-              const { results } = await env.DB.prepare("SELECT id FROM indices WHERE id = ?")
-                .bind(id)
-                .all();
-              if (results && results.length > 0) isExisting = true;
-            }
-          }
+          // Check if index already exists in D1. The hash and its issuance
+          // timestamp are read together so the expiry policy below always sees
+          // the age of the token it is authorizing.
+          const ownership = await lookupIndexOwnership(env, id);
+          const existingHash = ownership.ownerTokenHash;
+          const existingCreatorId = ownership.creatorId;
+          const existingIssuedAt = ownership.ownerTokenIssuedAt;
+          const isExisting = ownership.exists;
+          const hasOwnerTokenHashColumn = ownership.hasOwnerTokenHashColumn;
+          const hasOwnerTokenIssuedAtColumn = ownership.hasOwnerTokenIssuedAtColumn;
+          const nowSeconds = Math.floor(Date.now() / 1000);
 
           // The client UI requires a password before saving. Enforce that
           // boundary on the API as well: otherwise callers can create new
@@ -6880,6 +7864,10 @@ export default {
           }
 
           let targetHash: string | null = null;
+          // Issuance timestamp that belongs to `targetHash`. Kept next to the
+          // hash so a preserved token keeps its original age (and therefore its
+          // expiry) while a newly minted/replaced token starts a fresh window.
+          let targetIssuedAt: number | null = null;
 
           if (isExisting) {
             // If index already exists and has an owner token hash, require authorization (admin bypasses)
@@ -6900,7 +7888,13 @@ export default {
                     request,
                   );
                 }
+                if (isOwnerTokenExpired(existingIssuedAt, nowSeconds)) {
+                  return json({ error: OWNER_TOKEN_EXPIRED_MESSAGE }, 403, request);
+                }
+                // Preserved, so the original issuance time (or its absence on a
+                // pre-issuance-tracking row) is what the expiry policy must see.
                 targetHash = existingHash;
+                targetIssuedAt = existingIssuedAt ?? null;
               } else {
                 return json(
                   { error: "この指数は保護されているため更新できません（管理者権限が必要です）" },
@@ -6916,9 +7910,16 @@ export default {
               } else if (existingHash) {
                 // 2. Preserve existing owner's hash so admin edits don't hijack ownership or lock out users.
                 targetHash = existingHash;
+                targetIssuedAt = existingIssuedAt ?? null;
               } else if (providedToken) {
-                // 3. Unowned custom index being edited by admin
+                // 3. Unowned custom index being edited by admin. This sets a
+                // brand-new secret, so it must satisfy the token strength rules
+                // instead of inheriting the old "any string up to 256" contract.
+                if (!isValidOwnerTokenFormat(providedToken)) {
+                  return json({ error: OWNER_TOKEN_FORMAT_MESSAGE }, 400, request);
+                }
                 targetHash = await hashToken(providedToken);
+                targetIssuedAt = nowSeconds;
               }
             }
           } else {
@@ -6927,18 +7928,25 @@ export default {
               targetHash = null;
             } else {
               if (!providedToken) {
-                providedToken = crypto.randomUUID();
+                // Mint a strong token rather than a UUID: owner tokens are the
+                // only secret protecting the index, and callers that predate
+                // the strength rule still get a usable, unguessable value.
+                providedToken = generateOwnerToken();
+              } else if (!isValidOwnerTokenFormat(providedToken)) {
+                return json({ error: OWNER_TOKEN_FORMAT_MESSAGE }, 400, request);
               }
               targetHash = await hashToken(providedToken);
+              targetIssuedAt = nowSeconds;
             }
           }
 
-          const nowMs = Math.floor(Date.now() / 1000);
           const creatorId = isExisting
             ? existingCreatorId
             : auth.authenticated && auth.id
               ? auth.id
-              : null;
+              : adminAuth.authenticated && adminAuth.id
+                ? adminAuth.id
+                : null;
 
           const buildIndexStatements = (columns: IndexWriteColumns): D1PreparedStatement[] => {
             const quotaGuarded = userIndexLimit !== null && columns.creatorId;
@@ -6954,8 +7962,9 @@ export default {
                 description,
                 baseValue,
                 ownerTokenHash: targetHash,
+                ownerTokenIssuedAt: targetIssuedAt,
                 creatorId,
-                createdAt: nowMs,
+                createdAt: nowSeconds,
                 sortOrder,
                 useReplace: isExisting || !hasOwnerTokenHashColumn,
                 creationLimit: quotaGuarded ? userIndexLimit : undefined,
@@ -6981,6 +7990,10 @@ export default {
           // pretending that ownership/quota metadata was persisted.
           let indexWriteColumns: IndexWriteColumns = {
             ownerTokenHash: hasOwnerTokenHashColumn,
+            // Only write the issuance timestamp when the ownership columns and
+            // the timestamp column are both known to exist. Omitting it on a
+            // legacy schema keeps the INSERT valid instead of failing closed.
+            ownerTokenIssuedAt: hasOwnerTokenHashColumn && hasOwnerTokenIssuedAtColumn,
             creatorId: hasOwnerTokenHashColumn,
             createdAt: hasOwnerTokenHashColumn,
             sortOrder: true,
@@ -7009,6 +8022,7 @@ export default {
             } catch (batchErr: unknown) {
               const mentionsMissingColumn =
                 isMissingColumnError(batchErr, "owner_token_hash") ||
+                isMissingColumnError(batchErr, "owner_token_issued_at") ||
                 isMissingColumnError(batchErr, "created_at") ||
                 isMissingColumnError(batchErr, "creator_id") ||
                 isMissingColumnError(batchErr, "sort_order");
@@ -7037,6 +8051,9 @@ export default {
                 ownerTokenHash:
                   indexWriteColumns.ownerTokenHash &&
                   !isMissingColumnError(batchErr, "owner_token_hash"),
+                ownerTokenIssuedAt:
+                  (indexWriteColumns.ownerTokenIssuedAt ?? true) &&
+                  !isMissingColumnError(batchErr, "owner_token_issued_at"),
                 creatorId:
                   indexWriteColumns.creatorId && !isMissingColumnError(batchErr, "creator_id"),
                 createdAt:
@@ -7049,11 +8066,13 @@ export default {
                 nextColumns.ownerTokenHash !== indexWriteColumns.ownerTokenHash &&
                 !nextColumns.ownerTokenHash
               ) {
+                nextColumns.ownerTokenIssuedAt = false;
                 nextColumns.creatorId = false;
                 nextColumns.createdAt = false;
               }
               if (
                 nextColumns.ownerTokenHash === indexWriteColumns.ownerTokenHash &&
+                nextColumns.ownerTokenIssuedAt === indexWriteColumns.ownerTokenIssuedAt &&
                 nextColumns.creatorId === indexWriteColumns.creatorId &&
                 nextColumns.createdAt === indexWriteColumns.createdAt &&
                 nextColumns.sortOrder === indexWriteColumns.sortOrder
@@ -7066,19 +8085,29 @@ export default {
           clearMemoryCache("api:indices");
           clearMemoryCache("calc:");
 
+          // Only return an owner token when the final write actually persisted
+          // its hash. On an unmigrated legacy schema the token cannot authorize
+          // a later owner operation, so returning it would create a misleading
+          // "owned" index in the browser. An admin edit that preserves another
+          // owner's token never echoes that token back.
+          const responseOwnerToken =
+            indexWriteColumns.ownerTokenHash && !SYSTEM_INDICES.has(id)
+              ? isAdmin && isExisting && existingHash
+                ? undefined
+                : providedToken
+              : undefined;
+
           return json(
             {
               ok: true,
               id,
-              // Only return an owner token when the final write actually persisted
-              // its hash. On an unmigrated legacy schema the token cannot authorize
-              // a later owner operation, so returning it would create a misleading
-              // "owned" index in the browser.
-              ownerToken:
-                indexWriteColumns.ownerTokenHash && !SYSTEM_INDICES.has(id)
-                  ? isAdmin && isExisting && existingHash
-                    ? undefined
-                    : providedToken
+              ownerToken: responseOwnerToken,
+              // The issuance the client must persist alongside the token. Only
+              // sent when the write persisted the timestamp column, so a legacy
+              // database cannot advertise an age it never stored.
+              ownerTokenIssuedAt:
+                responseOwnerToken && indexWriteColumns.ownerTokenIssuedAt !== false
+                  ? (targetIssuedAt ?? undefined)
                   : undefined,
               message: "Index saved successfully",
             },
@@ -7097,7 +8126,7 @@ export default {
           const ip = getClientIp(request);
           const allowed = await checkRateLimit(env, ip, "indices");
           if (!allowed) {
-            return json({ error: "Rate limit exceeded. Please try again later." }, 429, request);
+            return json({ error: RATE_LIMIT_ERROR_MESSAGE }, 429, request);
           }
 
           const rawId = url.searchParams.get("id");
@@ -7111,10 +8140,10 @@ export default {
             return json({ error: "Invalid or missing index id parameter" }, 400, request);
           }
           const id = rawId.trim();
-          const providedToken =
-            url.searchParams.get("ownerToken")?.trim() ||
-            request.headers.get("x-owner-token")?.trim() ||
-            "";
+          // Owner tokens are credentials, so they are accepted only from the
+          // request header. A `?ownerToken=` value used to work here and wrote
+          // the secret into every access/proxy log for the URL.
+          const providedToken = request.headers.get("x-owner-token")?.trim() || "";
           if (providedToken.length > 256) {
             return json(
               { error: "Invalid ownerToken: must be a string up to 256 characters" },
@@ -7127,32 +8156,21 @@ export default {
             return json({ error: "Cannot delete built-in system index" }, 403, request);
           }
 
-          let existingHash: string | null = null;
-          let isExisting = false;
-          try {
-            const { results } = await env.DB.prepare(
-              "SELECT id, owner_token_hash FROM indices WHERE id = ?",
-            )
-              .bind(id)
-              .all();
-            if (results && results.length > 0) {
-              isExisting = true;
-              existingHash = (results[0] as { owner_token_hash?: string }).owner_token_hash || null;
-            }
-          } catch (lookupErr: unknown) {
-            if (!isMissingColumnError(lookupErr, "owner_token_hash")) throw lookupErr;
-            const { results } = await env.DB.prepare("SELECT id FROM indices WHERE id = ?")
-              .bind(id)
-              .all();
-            if (results && results.length > 0) isExisting = true;
-          }
+          const ownership = await lookupIndexOwnership(env, id);
+          const existingHash = ownership.ownerTokenHash;
+          const isExisting = ownership.exists;
 
           if (!isExisting) {
             return json({ error: "Index not found" }, 404, request);
           }
 
-          const auth = await authenticatePassword(request, env, null, "auth-api", ctx);
-          const isAdmin = auth.authenticated && auth.role === "admin";
+          // Administrators must present a valid `x-admin-session`; the master
+          // password alone is not an authorization.
+          const auth = await authenticateAdmin(request, env, ctx);
+          if (auth.rateLimited) {
+            return adminAuthFailureResponse(auth, request);
+          }
+          const isAdmin = auth.authenticated;
 
           if (!isAdmin) {
             if (existingHash) {
@@ -7170,6 +8188,9 @@ export default {
                   403,
                   request,
                 );
+              }
+              if (isOwnerTokenExpired(ownership.ownerTokenIssuedAt, Math.floor(Date.now() / 1000))) {
+                return json({ error: OWNER_TOKEN_EXPIRED_MESSAGE }, 403, request);
               }
             } else {
               // Protected / legacy index without hash can only be deleted by admin
@@ -7202,7 +8223,7 @@ export default {
           const ip = getClientIp(request);
           const allowed = await checkRateLimit(env, ip, "sync-prices", RATE_LIMIT_MAX, false, ctx);
           if (!allowed) {
-            return json({ error: "Rate limit exceeded. Please try again later." }, 429, request);
+            return json({ error: RATE_LIMIT_ERROR_MESSAGE }, 429, request);
           }
 
           const parsed = await parseJsonBody(request);
@@ -7231,8 +8252,14 @@ export default {
           }
           // Keep the request within Cloudflare's subrequest limits. Silently
           // truncating used to make callers believe every ticker was refreshed.
-          if (rawTickers.length > 30) {
-            return json({ error: "At most 30 tickers may be synced per request" }, 400, request);
+          if (rawTickers.length > MAX_SYNC_TICKERS_PER_REQUEST) {
+            return json(
+              {
+                error: `1リクエストで同期できる銘柄は最大${MAX_SYNC_TICKERS_PER_REQUEST}件です`,
+              },
+              400,
+              request,
+            );
           }
           const tickers = Array.from(
             new Set((rawTickers as string[]).map((t) => t.trim().toUpperCase())),
@@ -7246,6 +8273,7 @@ export default {
             }
           }
           await ensurePasswordTable(env);
+
           const results: { ticker: string; status: string; count?: number; lastSynced?: number }[] =
             [];
           const now = Math.floor(Date.now() / 1000);
@@ -7275,23 +8303,74 @@ export default {
           const toFetch: string[] = [];
           for (const ticker of tickers) {
             const lastSynced = lastSyncedMap.get(ticker);
-            if (!force && lastSynced !== undefined) {
-              if (lastSynced < 0) {
-                const failedAt = -lastSynced;
-                if (now - failedAt < SYNC_FAILURE_RETRY_SECONDS) {
-                  // Do not report a failed fetch as "cached": the client would
-                  // persist that status and suppress later retries despite
-                  // having no fresh prices.
-                  results.push({ ticker, status: "failed" });
+            if (!force) {
+              if (lastSynced !== undefined) {
+                if (lastSynced < 0) {
+                  const failedAt = -lastSynced;
+                  if (now - failedAt < SYNC_FAILURE_RETRY_SECONDS) {
+                    // Do not report a failed fetch as "cached": the client would
+                    // persist that status and suppress later retries despite
+                    // having no fresh prices.
+                    results.push({ ticker, status: "failed" });
+                    continue;
+                  }
+                } else if (lastSynced > 0 && isPriceCacheFresh(now, lastSynced)) {
+                  results.push({ ticker, status: "cached", lastSynced });
                   continue;
                 }
-              } else if (lastSynced > 0 && isPriceCacheFresh(now, lastSynced)) {
-                results.push({ ticker, status: "cached", lastSynced });
+              }
+              // Back-off for the failures this isolate recorded: the negative
+              // sync_logs marker is no longer written, so the retry window
+              // lives in memory until the isolate is recycled.
+              if (isSyncFailureBackedOff(ticker, now)) {
+                results.push({ ticker, status: "failed" });
                 continue;
               }
             }
             toFetch.push(ticker);
           }
+
+          // Per-IP daily budget. The request rate limiter only caps the number
+          // of requests, so a caller could repeat the same request until the
+          // Yahoo/D1 budget is exhausted. The budget is charged atomically in
+          // D1 for the tickers that are actually fetched: a request whose
+          // tickers are all cached performs no external call and must not
+          // consume the budget. The UPDATE only applies while the daily total
+          // stays within the budget, so a rejected request leaves the counter
+          // untouched.
+          if (toFetch.length > 0) {
+            const quotaDay = new Date().toISOString().slice(0, 10);
+            try {
+              const quotaResult = await env.DB.prepare(
+                `INSERT INTO sync_quota (ip, day, tickers) VALUES (?, ?, ?)
+                 ON CONFLICT(ip, day) DO UPDATE SET
+                   tickers = sync_quota.tickers + excluded.tickers
+                 WHERE sync_quota.tickers + excluded.tickers <= ?`,
+              )
+                .bind(ip, quotaDay, toFetch.length, SYNC_DAILY_TICKER_BUDGET)
+                .run();
+              if (quotaResult.meta.changes !== 1) {
+                return json(
+                  { error: "本日の価格同期上限に達しました。しばらくしてから再試行してください。" },
+                  429,
+                  request,
+                );
+              }
+            } catch (quotaErr: unknown) {
+              // A database that predates the quota table must not lose the
+              // endpoint: the per-request rate limit still applies, so the
+              // request continues with the quota unenforced.
+              console.warn("sync-prices: the daily quota could not be enforced:", quotaErr);
+            }
+          }
+
+          // Read the stored series of every candidate ticker in one query:
+          // the identical-data check below must not cost one SELECT per
+          // ticker (DATA-07). A forced sync always rewrites the series, so it
+          // does not need the stored rows at all.
+          const storedSeriesByTicker = force
+            ? new Map<string, string>()
+            : await loadStockSeriesByTicker(env, toFetch);
 
           // Fetch in parallel batches (concurrency = 5)
           const CONCURRENCY = 5;
@@ -7302,17 +8381,13 @@ export default {
                 const symbol = toYahooSymbol(ticker);
                 const series = await fetchYahooFinance(symbol);
                 if (series.length > 0) {
+                  clearSyncFailure(ticker);
                   // Check if existing stock_series has identical latest data to skip expensive D1 writes
                   let shouldSkipWrite = false;
                   if (!force) {
-                    try {
-                      const { results: existingRows } = await env.DB.prepare(
-                        "SELECT prices FROM stock_series WHERE ticker = ?",
-                      )
-                        .bind(ticker)
-                        .all();
-                      const existingPricesValue = (existingRows?.[0] as D1Row | undefined)?.prices;
-                      if (typeof existingPricesValue === "string") {
+                    const existingPricesValue = storedSeriesByTicker.get(ticker);
+                    if (typeof existingPricesValue === "string") {
+                      try {
                         const existingPrices: unknown = JSON.parse(existingPricesValue);
                         const normalizedExistingPrices = sanitizePriceSeries(existingPrices);
                         if (Array.isArray(existingPrices) && existingPrices.length > 0) {
@@ -7327,9 +8402,10 @@ export default {
                             shouldSkipWrite = true;
                           }
                         }
+                      } catch {
+                        // A malformed stored series must not abort the sync:
+                        // the freshly fetched series is written instead.
                       }
-                    } catch {
-                      // ignore
                     }
                   }
 
@@ -7450,18 +8526,11 @@ export default {
                   clearMemoryCache("calc:");
                   return { ticker, status: "synced", count: series.length, lastSynced: now };
                 }
-                // Record a short-lived negative cache marker. Using a positive
-                // "last synced" timestamp here would falsely declare stale or
-                // missing prices fresh for an entire market-cache window.
-                try {
-                  await env.DB.prepare(
-                    "INSERT OR REPLACE INTO sync_logs (ticker, last_synced_at) VALUES (?, ?)",
-                  )
-                    .bind(ticker, -now)
-                    .run();
-                } catch (logErr: unknown) {
-                  if (!isMissingTableError(logErr, "sync_logs")) throw logErr;
-                }
+                // Record a short-lived back-off. The negative sync_logs marker
+                // is no longer written: an unauthenticated caller could turn
+                // every failed Yahoo fetch into a D1 write. The retry window
+                // lives in memory until the isolate is recycled.
+                recordSyncFailure(ticker, now);
                 return { ticker, status: "failed" };
               }),
             );
@@ -7470,6 +8539,9 @@ export default {
               if (r.status === "fulfilled") {
                 results.push(r.value);
               } else {
+                // A rejected fetch is a failure too: apply the same back-off so
+                // the ticker is not retried immediately.
+                recordSyncFailure(batch[idx], now);
                 results.push({ ticker: batch[idx], status: "failed" });
               }
             }
@@ -7488,7 +8560,7 @@ export default {
           const ip = getClientIp(request);
           const allowed = await checkRateLimit(env, ip, "calculate", RATE_LIMIT_MAX, false, ctx);
           if (!allowed) {
-            return json({ error: "Rate limit exceeded. Please try again later." }, 429, request);
+            return json({ error: RATE_LIMIT_ERROR_MESSAGE }, 429, request);
           }
 
           const parsedCalc = await parseJsonBody(request);
@@ -7736,7 +8808,7 @@ export default {
           headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload");
           headers.set(
             "Content-Security-Policy",
-            "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'self'; form-action 'self'; script-src 'self' 'unsafe-inline' https://s3.tradingview.com https://*.tradingview.com https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://*.tradingview.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https://s3.tradingview.com https://*.tradingview.com; frame-src 'self' https://www.tradingview-widget.com https://s.tradingview.com https://*.tradingview.com https://challenges.cloudflare.com; connect-src 'self' https://*.tradingview.com https://*.tradingview-widget.com wss://*.tradingview.com https://challenges.cloudflare.com",
+            "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'self'; form-action 'self'; script-src 'self' https://s3.tradingview.com https://*.tradingview.com https://challenges.cloudflare.com; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://*.tradingview.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https://s3.tradingview.com https://*.tradingview.com https://*.tradingview-widget.com; frame-src 'self' https://www.tradingview-widget.com https://s.tradingview.com https://*.tradingview.com https://challenges.cloudflare.com https://*.tradingview-widget.com; connect-src 'self' https://*.tradingview.com https://*.tradingview-widget.com wss://*.tradingview.com https://challenges.cloudflare.com",
           );
           headers.set("Permissions-Policy", "camera=(), geolocation=(), microphone=()");
 

@@ -1,4 +1,4 @@
-import type { AuthSession } from "../types";
+import type { AuthSession, UserPasswordItem } from "../types";
 
 const AUTH_STORAGE_KEY = "custom_stock_index_auth";
 
@@ -13,6 +13,71 @@ function getSessionStorage(): Storage | null {
 function getLocalStorage(): Storage | null {
   try {
     return typeof localStorage === "undefined" ? null : localStorage;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The current session of this tab, kept in memory.
+ *
+ * SEC-06 / R51 (corrected): this is *not* a fallback copy of a persisted
+ * session, it is the primary one. `useAuth()` is instantiated by a dozen
+ * components, and without a shared in-memory session every other instance
+ * would only see what storage happens to return.
+ *
+ * The plaintext access password must never reach `localStorage`: an entry
+ * there survives browser restarts and is readable by any script on the origin.
+ * When `sessionStorage` rejects a write, or is unavailable, the session stays
+ * in this module and is therefore gone after a reload — the user is asked to
+ * log in again, which is the intended trade-off (previously the password was
+ * copied into `localStorage` instead).
+ */
+let memoryAuthSession: AuthSession | null = null;
+
+/** Bounds and character set of the opaque token issued by the Worker. */
+const ADMIN_TOKEN_MIN_LENGTH = 8;
+const ADMIN_TOKEN_MAX_LENGTH = 512;
+const ADMIN_TOKEN_ALLOWED = /^[A-Za-z0-9._~+/=-]+$/;
+
+/**
+ * Validate an administrator session token before it is used as a header value.
+ *
+ * The token is opaque to the client, so the check is a bound on size and a
+ * whitelist of characters — enough to reject `undefined`, an empty string and
+ * header-injection attempts (CR/LF), while staying format agnostic. The Worker
+ * remains the authority on whether the token is valid.
+ */
+export function sanitizeAdminToken(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const token = value.trim();
+  if (token.length < ADMIN_TOKEN_MIN_LENGTH || token.length > ADMIN_TOKEN_MAX_LENGTH) return undefined;
+  if (!ADMIN_TOKEN_ALLOWED.test(token)) return undefined;
+  return token;
+}
+
+/** Remove the plaintext legacy entry an older build may have written. */
+function removeLegacyAuthEntry(): void {
+  try {
+    getLocalStorage()?.removeItem(AUTH_STORAGE_KEY);
+  } catch {
+    // Storage can be unavailable or read-only; the entry is then simply left
+    // behind. New sessions are never written there, so it cannot be refreshed.
+  }
+}
+
+/** Parse one storage entry into a usable session, or null when it is unusable. */
+function readSessionFromStore(store: Storage | null): AuthSession | null {
+  if (!store) return null;
+  let raw: string | null = null;
+  try {
+    raw = store.getItem(AUTH_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+  if (!raw) return null;
+  try {
+    return sanitizeAuthSession(JSON.parse(raw));
   } catch {
     return null;
   }
@@ -95,50 +160,55 @@ export function sanitizeAuthSession(raw: unknown): AuthSession | null {
   if (typeof record.id === "string" && record.id) {
     session.id = record.id;
   }
+  // SEC-01: the administrator session token is only meaningful for an admin
+  // session. A token on a user session (or a malformed one) is dropped rather
+  // than persisted, so a hand-edited payload cannot smuggle a header value.
+  if (role === "admin") {
+    const adminToken = sanitizeAdminToken(record.adminToken);
+    if (adminToken) session.adminToken = adminToken;
+  }
   return session;
 }
 
 /**
- * Retrieve the current-tab auth session. Passwords are intentionally kept in
- * sessionStorage instead of persistent localStorage; legacy localStorage
- * entries are migrated and removed on first read.
+ * Retrieve the current-tab auth session.
+ *
+ * Order of precedence: the tab's `sessionStorage` entry (what a reload of this
+ * tab sees, when the browser allowed the write), then the module-level memory
+ * session, then a one-shot migration read of a legacy `localStorage` entry.
+ *
+ * The legacy entry is adopted into memory and deleted on read: it is never
+ * re-created (see `storeAuth`), so a later reload requires a fresh login.
  */
 export function getStoredAuth(): AuthSession | null {
-  try {
-    const sessionStore = getSessionStorage();
-    const localStore = getLocalStorage();
-    const sessionRaw = sessionStore?.getItem(AUTH_STORAGE_KEY) || null;
-    const legacyRaw = localStore?.getItem(AUTH_STORAGE_KEY) || null;
-    const raw = sessionRaw || legacyRaw;
-    if (!raw) return null;
-    const session = sanitizeAuthSession(JSON.parse(raw));
-    if (!session) return null;
-    if (!sessionRaw && legacyRaw) {
-      // Storage can be present but read-only (private browsing/quota policy).
-      // A failed migration must not discard an otherwise valid legacy session:
-      // the legacy entry is removed only after the sessionStorage write
-      // actually succeeded.
-      let migrated = false;
-      try {
-        if (sessionStore) {
-          sessionStore.setItem(AUTH_STORAGE_KEY, legacyRaw);
-          migrated = true;
-        }
-      } catch {
-        // Keep using the parsed legacy session for this render.
-      }
-      if (migrated) {
-        try {
-          localStore?.removeItem(AUTH_STORAGE_KEY);
-        } catch {
-          // Best-effort cleanup; clearAuth will retry later.
-        }
-      }
-    }
-    return session;
-  } catch {
-    return null;
+  const sessionStore = getSessionStorage();
+  const persisted = readSessionFromStore(sessionStore);
+  if (persisted) {
+    memoryAuthSession = persisted;
+    // A plaintext legacy copy is obsolete once the tab has its own entry.
+    removeLegacyAuthEntry();
+    return persisted;
   }
+
+  if (memoryAuthSession) return memoryAuthSession;
+
+  const legacyStore = getLocalStorage();
+  const legacy = readSessionFromStore(legacyStore);
+  if (!legacy) return null;
+
+  memoryAuthSession = legacy;
+  try {
+    sessionStore?.setItem(AUTH_STORAGE_KEY, JSON.stringify(legacy));
+  } catch {
+    // sessionStorage unavailable/read-only: this tab keeps the in-memory
+    // session only and will ask for a login after a reload.
+  }
+  try {
+    legacyStore?.removeItem(AUTH_STORAGE_KEY);
+  } catch {
+    // Best effort: the entry cannot be re-created, and clearAuth retries.
+  }
+  return legacy;
 }
 
 function notifyAuthChanged(): void {
@@ -157,70 +227,104 @@ function notifyAuthChanged(): void {
 }
 
 /**
- * Persist auth session for the current tab only.
+ * Store the auth session for the current tab.
+ *
+ * SEC-06: `sessionStorage` is used when it accepts the write; otherwise the
+ * session lives only in this module's memory and is discarded on reload. There
+ * is deliberately no `localStorage` fallback — the plaintext password must not
+ * survive the tab.
  */
 export function storeAuth(session: AuthSession): void {
-  try {
-    const serialized = JSON.stringify(session);
-    const sessionStore = getSessionStorage();
-    const localStore = getLocalStorage();
-    if (sessionStore) {
+  const sanitized = sanitizeAuthSession(session) ?? session;
+  memoryAuthSession = sanitized;
+
+  const sessionStore = getSessionStorage();
+  if (sessionStore) {
+    try {
+      sessionStore.setItem(AUTH_STORAGE_KEY, JSON.stringify(sanitized));
+    } catch (err) {
+      // Keep the login usable for this tab, but make sure an older tab-local
+      // entry cannot shadow the newer in-memory session on the next read.
+      console.warn(
+        "sessionStorage rejected the auth session; keeping it in memory only (a reload requires a new login):",
+        err,
+      );
       try {
-        sessionStore.setItem(AUTH_STORAGE_KEY, serialized);
-        try {
-          localStore?.removeItem(AUTH_STORAGE_KEY);
-        } catch {
-          // Do not fail a successful session write because legacy cleanup failed.
-        }
-      } catch (sessionError) {
-        // Some browsers expose sessionStorage but reject writes. Preserve the
-        // documented fallback behavior rather than losing a successful login.
-        try {
-          localStore?.setItem(AUTH_STORAGE_KEY, serialized);
-        } catch {
-          console.error("Failed to store auth in available browser storage:", sessionError);
-          return;
-        }
-      }
-    } else {
-      // Fallback for non-browser/older environments where sessionStorage is
-      // unavailable; the application still needs to remain usable there.
-      try {
-        localStore?.setItem(AUTH_STORAGE_KEY, serialized);
-      } catch (storageError) {
-        console.error("Failed to store auth:", storageError);
-        return;
+        sessionStore.removeItem(AUTH_STORAGE_KEY);
+      } catch {
+        // Storage is read-only: the in-memory session is all we have.
       }
     }
-    notifyAuthChanged();
-  } catch (err) {
-    console.error("Failed to store auth:", err);
   }
+
+  // A leftover plaintext entry from a build that still wrote one is removed,
+  // never refreshed.
+  removeLegacyAuthEntry();
+  notifyAuthChanged();
 }
 
 /**
- * Clear auth session from localStorage
+ * Clear auth session from memory and from the tab's storage (including a
+ * legacy `localStorage` entry).
  */
 export function clearAuth(): void {
+  memoryAuthSession = null;
   try {
     getSessionStorage()?.removeItem(AUTH_STORAGE_KEY);
-    getLocalStorage()?.removeItem(AUTH_STORAGE_KEY);
-    notifyAuthChanged();
   } catch {
     // Storage may be unavailable or read-only.
   }
+  try {
+    getLocalStorage()?.removeItem(AUTH_STORAGE_KEY);
+  } catch {
+    // Storage may be unavailable or read-only.
+  }
+  notifyAuthChanged();
 }
 
 /**
- * Returns HTTP headers for authenticated requests
+ * Drop the administrator session token while keeping the user session.
+ *
+ * The administrator session expires after eight hours. When the Worker
+ * rejects a privileged call with 403 the client must not keep presenting the
+ * dead token: the administrator surface has to ask for a fresh login, while
+ * the user's own session (and the access password it carries) stays usable.
+ */
+export function clearAdminSession(): void {
+  const current = memoryAuthSession ?? getStoredAuth();
+  if (!current || !current.adminToken) return;
+  const next: AuthSession = { ...current };
+  delete next.adminToken;
+  memoryAuthSession = next;
+  const sessionStore = getSessionStorage();
+  if (sessionStore) {
+    try {
+      sessionStore.setItem(AUTH_STORAGE_KEY, JSON.stringify(next));
+    } catch {
+      // The in-memory session is authoritative for this tab.
+    }
+  }
+  notifyAuthChanged();
+}
+
+/**
+ * Returns HTTP headers for authenticated requests.
+ *
+ * `x-admin-session` is the credential every `/api/admin/*` endpoint requires
+ * (SEC-01). `x-auth-password`/`x-admin-key` are still sent for backward
+ * compatibility with endpoints and deployments that have not migrated yet; the
+ * Worker ignores them for privileged paths.
  */
 export function getAuthHeaders(session?: AuthSession | null): Record<string, string> {
   const current = session || getStoredAuth();
   if (!current?.password) return {};
-  return {
-    "x-auth-password": current.password,
-    ...(current.role === "admin" ? { "x-admin-key": current.password } : {}),
-  };
+  const headers: Record<string, string> = { "x-auth-password": current.password };
+  if (current.role === "admin") {
+    headers["x-admin-key"] = current.password;
+    const adminToken = sanitizeAdminToken(current.adminToken);
+    if (adminToken) headers["x-admin-session"] = adminToken;
+  }
+  return headers;
 }
 
 /**
@@ -304,6 +408,36 @@ export function generateSecurePassword(length = 10): string {
   return result;
 }
 
+/** Turnstile test site key; used whenever the Worker cannot be reached. */
+const DEFAULT_TURNSTILE_SITE_KEY = "1x00000000000000000000AA";
+
+/**
+ * Validate the lockout block of `/api/auth/turnstile-config`.
+ *
+ * A malformed block must not be trusted: it drives the administrator form's
+ * disabled state (UI-06), so a garbage value would either lock the form
+ * forever or throw while rendering. Anything unexpected is treated as "no
+ * lockout reported" — the Worker still enforces the lock server-side.
+ */
+function sanitizeAdminLockout(
+  raw: unknown,
+): { locked: boolean; remainingSeconds: number; remainingAttempts: number } | undefined {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const record = raw as Record<string, unknown>;
+  if (typeof record.locked !== "boolean") return undefined;
+  if (typeof record.remainingSeconds !== "number" || !Number.isFinite(record.remainingSeconds)) {
+    return undefined;
+  }
+  if (typeof record.remainingAttempts !== "number" || !Number.isFinite(record.remainingAttempts)) {
+    return undefined;
+  }
+  return {
+    locked: record.locked,
+    remainingSeconds: record.remainingSeconds,
+    remainingAttempts: record.remainingAttempts,
+  };
+}
+
 /**
  * Retrieve Turnstile configuration and admin lockout status from the Worker API
  */
@@ -314,20 +448,19 @@ export async function getTurnstileConfig(): Promise<{
   try {
     const res = await fetch("/api/auth/turnstile-config");
     if (!res.ok) {
-      return { siteKey: "1x00000000000000000000AA" };
+      return { siteKey: DEFAULT_TURNSTILE_SITE_KEY };
     }
-    const data = (await res.json()) as {
-      ok?: boolean;
-      siteKey?: string;
-      lockout?: { locked: boolean; remainingSeconds: number; remainingAttempts: number };
-    };
-    return {
-      siteKey: data.siteKey || "1x00000000000000000000AA",
-      lockout: data.lockout,
-    };
+    // UI-38: a non-JSON body must not throw (the catch below would hide the
+    // configuration) and the payload is validated field by field.
+    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    const siteKey =
+      typeof data.siteKey === "string" && data.siteKey.trim()
+        ? data.siteKey
+        : DEFAULT_TURNSTILE_SITE_KEY;
+    return { siteKey, lockout: sanitizeAdminLockout(data.lockout) };
   } catch (e) {
     console.warn("Failed to fetch Turnstile config:", e);
-    return { siteKey: "1x00000000000000000000AA" };
+    return { siteKey: DEFAULT_TURNSTILE_SITE_KEY };
   }
 }
 
@@ -393,6 +526,18 @@ export async function adminLogin(
       return { ok: false, error: "管理者権限の認証応答が不正です" };
     }
 
+    // SEC-01: without the session token the admin surface cannot work — every
+    // `/api/admin/*` call would be rejected — so report it instead of
+    // rendering a console that fails on every action.
+    const adminToken = sanitizeAdminToken(data.adminToken);
+    if (!adminToken) {
+      return {
+        ok: false,
+        error:
+          "管理者セッションを取得できませんでした。通信状態を確認して、もう一度管理者ログインしてください",
+      };
+    }
+
     const session: AuthSession = {
       role: "admin",
       name: typeof data.name === "string" ? data.name : "管理者",
@@ -400,6 +545,7 @@ export async function adminLogin(
       maxStocks: null,
       maxIndices: null,
       id: typeof data.id === "string" ? data.id : "admin-master",
+      adminToken,
     };
 
     storeAuth(session);
@@ -445,4 +591,92 @@ export async function changeAdminSecretCode(
     const msg = err instanceof Error ? err.message : "通信エラーが発生しました";
     return { ok: false, error: msg };
   }
+}
+
+/**
+ * Extract a displayable message from an API error body.
+ *
+ * UI-38: an error response may be `{error}`, `{ok:false,error}` or a non-JSON
+ * gateway/500 page. The last case must never throw and must still tell the
+ * operator what to do next.
+ */
+export function readApiErrorMessage(payload: unknown, status: number, fallback: string): string {
+  if (payload && typeof payload === "object" && !Array.isArray(payload)) {
+    const message = (payload as Record<string, unknown>).error;
+    if (typeof message === "string" && message.trim()) return message;
+  }
+  const detail = status > 0 ? ` (HTTP ${status})` : "";
+  return `${fallback}${detail}。通信状態を確認して再試行してください。`;
+}
+
+/**
+ * Validate one row of `GET /api/admin/passwords` before it is typed.
+ *
+ * UI-16: the previous `Array.isArray(data) ? data : []` accepted any shape, so
+ * a malformed row reached the table and, from there, `PUT`/`DELETE
+ * /api/admin/passwords` with an `undefined` id. Every field the UI reads is
+ * checked; a row that does not match is dropped instead of rendered.
+ */
+function sanitizeUserPasswordItem(raw: unknown): UserPasswordItem | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const record = raw as Record<string, unknown>;
+
+  const id = typeof record.id === "string" ? record.id.trim() : "";
+  if (!id) return null;
+
+  if (typeof record.name !== "string") return null;
+  const name = record.name.trim();
+
+  const role = record.role === "admin" || record.role === "user" ? record.role : null;
+  if (!role) return null;
+
+  // `undefined` means "invalid" (drop the row), `null` means "no limit".
+  const readLimit = (value: unknown): number | null | undefined => {
+    if (value === null || value === undefined) return null;
+    if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return undefined;
+    return value;
+  };
+
+  const maxStocks = readLimit(record.max_stocks);
+  if (maxStocks === undefined) return null;
+  const maxIndices = readLimit(record.max_indices);
+  if (maxIndices === undefined) return null;
+
+  const isActive = record.is_active;
+  if (isActive !== 0 && isActive !== 1) return null;
+
+  const createdAt = record.created_at;
+  if (typeof createdAt !== "number" || !Number.isFinite(createdAt) || createdAt < 0) return null;
+
+  const item: UserPasswordItem = {
+    id,
+    name,
+    role,
+    max_stocks: maxStocks,
+    max_indices: maxIndices,
+    is_active: isActive,
+    created_at: createdAt,
+  };
+  const updatedAt = record.updated_at;
+  if (typeof updatedAt === "number" && Number.isFinite(updatedAt)) {
+    item.updated_at = updatedAt;
+  }
+  return item;
+}
+
+/**
+ * Sanitize the administrator password list.
+ *
+ * Returns `null` when the payload is not a list at all (the caller must then
+ * report a malformed response instead of rendering "no accounts issued"), and
+ * the valid rows — possibly none — otherwise.
+ */
+export function sanitizeUserPasswordList(raw: unknown): UserPasswordItem[] | null {
+  if (!Array.isArray(raw)) return null;
+  const items: UserPasswordItem[] = [];
+  for (const row of raw) {
+    const item = sanitizeUserPasswordItem(row);
+    if (item) items.push(item);
+  }
+  return items;
 }

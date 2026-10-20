@@ -106,15 +106,25 @@ describe("Comprehensive Goal Code Review Final Audit Pass", () => {
 
       const ics = exportCalendarToIcs(eventWithMultilines);
 
-      expect(ics).toContain("SUMMARY:日銀短観\\n第1四半期");
+      // The payload is folded per RFC 5545 §3.1 (75 octets per content line),
+      // so the assertions run on the unfolded form: unfolding removes the
+      // CRLF + single space that the fold inserted and restores the original
+      // property values.
+      const unfolded = ics.replace(/\r\n /g, "");
+
+      expect(unfolded).toContain("SUMMARY:日銀短観\\n第1四半期");
       // The importance is rendered as a prefix, and every line break of the
       // description is escaped as a literal "\n" (never a raw CR or LF).
-      expect(ics).toContain(
+      expect(unfolded).toContain(
         "DESCRIPTION:【重要度】HIGH\\n業況判断D.I.\\n大企業製造業: +15\\n先行き: +12",
       );
       // There must be no standalone CR character anywhere in the entire output
       const rawCrCount = (ics.match(/\r(?!\n)/g) || []).length;
       expect(rawCrCount).toBe(0);
+      // Every content line stays within the 75 octet limit of RFC 5545 §3.1.
+      for (const line of ics.split("\r\n")) {
+        expect(new TextEncoder().encode(line).length).toBeLessThanOrEqual(75);
+      }
     });
   });
 

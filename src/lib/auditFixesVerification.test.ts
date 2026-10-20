@@ -9,6 +9,8 @@ import {
   resetPasswordTableEnsured,
   hashPassword,
 } from "../../worker/internal";
+import { resolveSelectedIndex } from "../hooks/useIndices";
+import { DEFAULT_INDICES, type CustomIndex } from "../data/indices";
 
 describe("Audit Fixes Verification: Market-Aware Stock Price Freshness", () => {
   it("keeps Friday closing prices fresh throughout the entire weekend and Monday pre-open", () => {
@@ -471,22 +473,39 @@ describe("Audit Fixes Verification: Admin Password Update", () => {
 
 describe("Audit Fixes Verification: Index Selection Fallback", () => {
   it("falls back to DEFAULT_INDICES[0] when selected index is deleted or no longer exists", () => {
-    const defaultIndices = [
+    const defaultIndices: CustomIndex[] = [
       { id: "default-1", name: "Default 1", description: "", baseValue: 1000, basket: [] },
       { id: "default-2", name: "Default 2", description: "", baseValue: 1000, basket: [] },
     ];
-    const deletedPrev = { id: "deleted-idx", name: "Deleted", description: "", baseValue: 1000, basket: [] };
-
-    // The selection fallback logic implemented in useIndices:
-    const resolveFallback = (prev: typeof deletedPrev | null, list: typeof defaultIndices) => {
-      if (!prev) return list[0];
-      const found = list.find((d) => d.id === prev.id);
-      return found || list[0];
+    const deletedPrev: CustomIndex = {
+      id: "deleted-idx",
+      name: "Deleted",
+      description: "",
+      baseValue: 1000,
+      basket: [],
     };
 
-    expect(resolveFallback(deletedPrev, defaultIndices)).toBe(defaultIndices[0]);
+    // The production fallback (src/hooks/useIndices.ts) drops a selection that
+    // no longer exists and falls back to the head of the list.
+    expect(resolveSelectedIndex(deletedPrev, defaultIndices)).toBe(defaultIndices[0]);
 
     const existingPrev = defaultIndices[1];
-    expect(resolveFallback(existingPrev, defaultIndices)).toBe(defaultIndices[1]);
+    expect(resolveSelectedIndex(existingPrev, defaultIndices)).toBe(defaultIndices[1]);
+
+    // Nothing was selected yet -> the head of the list.
+    expect(resolveSelectedIndex(null, defaultIndices)).toBe(defaultIndices[0]);
+  });
+
+  it("falls back to the first built-in index when the selection disappeared", () => {
+    const deletedPrev: CustomIndex = {
+      id: "deleted-idx",
+      name: "Deleted",
+      description: "",
+      baseValue: 1000,
+      basket: [],
+    };
+
+    expect(resolveSelectedIndex(deletedPrev, DEFAULT_INDICES)).toBe(DEFAULT_INDICES[0]);
+    expect(resolveSelectedIndex(null, DEFAULT_INDICES)).toBe(DEFAULT_INDICES[0]);
   });
 });

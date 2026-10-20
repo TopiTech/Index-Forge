@@ -8,6 +8,7 @@ import {
   serializePortfolioToCsv,
 } from "./indexSerialization";
 import { exportCalendarToIcs, type CalendarEvent } from "./marketDataService";
+import { formatChartDisplayDate } from "../components/StockTechnicalChart";
 
 describe("Comprehensive Code Review Remediation Tests", () => {
   describe("1. CSV Deserialization Column Mapping & Collision Prevention", () => {
@@ -203,24 +204,24 @@ describe("Comprehensive Code Review Remediation Tests", () => {
 
   describe("3. Timezone-Resilient Date Parsing in Charting", () => {
     it("extracts month and day without timezone shift from ISO date string", () => {
-      const parseDateString = (dateStr: string): string => {
-        let displayDate = dateStr;
-        if (dateStr) {
-          const parts = dateStr.split(/[-/]/);
-          if (parts.length >= 3) {
-            const m = parseInt(parts[1], 10);
-            const d = parseInt(parts[2], 10);
-            if (!Number.isNaN(m) && !Number.isNaN(d)) {
-              displayDate = `${m}/${d}`;
-            }
-          }
-        }
-        return displayDate;
-      };
+      // Production helper (`src/components/StockTechnicalChart.tsx`): the chart
+      // renders the API series on its axis, so the assertions run against the
+      // very function the chart uses instead of a copy of it.
+      expect(formatChartDisplayDate("2026-10-14")).toBe("10/14");
+      expect(formatChartDisplayDate("2026-01-01")).toBe("1/1");
+      expect(formatChartDisplayDate("2026/12/31")).toBe("12/31");
+    });
 
-      expect(parseDateString("2026-10-14")).toBe("10/14");
-      expect(parseDateString("2026-01-01")).toBe("1/1");
-      expect(parseDateString("2026/12/31")).toBe("12/31");
+    it("keeps the calendar day of an ISO timestamp instead of shifting it over the UTC boundary", () => {
+      // A UTC timestamp must not become the previous day in a negative UTC
+      // offset: the month and the day are read from the string itself.
+      expect(formatChartDisplayDate("2026-10-14T00:00:00Z")).toBe("10/14");
+      expect(formatChartDisplayDate("2026-10-14T23:59:59Z")).toBe("10/14");
+    });
+
+    it("keeps the raw value when the series date cannot be parsed", () => {
+      expect(formatChartDisplayDate("")).toBe("");
+      expect(formatChartDisplayDate("2026-xx-yy")).toBe("2026-xx-yy");
     });
   });
 

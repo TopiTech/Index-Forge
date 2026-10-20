@@ -97,7 +97,10 @@ export function ThemeControls() {
           title={`テーマカラー選択 (現在: ${currentOption.label})`}
           aria-label={`テーマカラー選択 (現在: ${currentOption.label})`}
           aria-expanded={isOpen}
-          aria-haspopup="true"
+          // The popover holds a radiogroup, not a menu/listbox/tree/grid, so
+          // `aria-haspopup="true"` (which maps to "menu") was a lie about the
+          // content. aria-expanded + aria-controls describe it correctly.
+          aria-controls={isOpen ? "accent-picker-popover" : undefined}
           style={{
             padding: "5px 8px",
             display: "inline-flex",
@@ -138,6 +141,7 @@ export function ThemeControls() {
               exit={{ opacity: 0, y: -6, scale: 0.95 }}
               transition={{ duration: 0.15, ease: "easeOut" }}
               className="accent-picker-popover"
+              id="accent-picker-popover"
             >
               <div
                 className="mono tiny muted uppercase"

@@ -10,6 +10,7 @@ import {
 } from "../lib/ownership";
 import { getAuthHeaders } from "../lib/auth";
 import { sanitizeBasketForRequest, normalizeTicker } from "../lib/indexEngine";
+import { safeRandomId } from "../lib/randomId";
 
 const API_BASE = "/api";
 const INDICES_CACHE_KEY = "osi_indices_cache";
@@ -79,6 +80,23 @@ export function sanitizeIndexList(raw: unknown): CustomIndex[] | null {
     .map(sanitizeIndex)
     .filter((index): index is CustomIndex => index !== null);
   return indices.length > 0 ? indices : null;
+}
+
+/**
+ * Keep the current selection while it still exists, otherwise fall back to
+ * the first entry of the list.
+ *
+ * A deleted index must not stay selected (the dashboard would keep rendering
+ * an index that no longer exists), and a selection that never existed has to
+ * start at the head of the list.
+ */
+export function resolveSelectedIndex(
+  prev: CustomIndex | null,
+  list: CustomIndex[],
+): CustomIndex | null {
+  if (!prev) return list[0];
+  const found = list.find((d) => d.id === prev.id);
+  return found || list[0];
 }
 
 function getLocalIndicesCache(): CustomIndex[] | null {
@@ -221,18 +239,40 @@ export function useIndices() {
    * keeps running and then writes to state that no longer has a consumer.
    */
   const abortRef = useRef<AbortController | null>(null);
+  /**
+   * True while the consumer is mounted.
+   *
+   * The request generation alone cannot detect an unmount: the generation is
+   * only bumped by a newer request, so the aborted request of an unmounted
+   * component still looked "current" and its catch block published an error
+   * and a fallback list into state that nobody reads any more.
+   */
+  const mountedRef = useRef(true);
+  /**
+   * Mirror of the in-memory index list.
+   *
+   * The storage listener compares the list another tab wrote with the list
+   * this tab shows. Keeping the mirror in a ref lets the listener stay
+   * subscribed (it must not re-subscribe on every list change).
+   */
+  const indicesRef = useRef<CustomIndex[]>(indices);
+  useEffect(() => {
+    indicesRef.current = indices;
+  }, [indices]);
 
   const fetchIndices = useCallback(async () => {
     const requestId = ++requestIdRef.current;
-    const isCurrentRequest = () => requestId === requestIdRef.current;
+    const isCurrentRequest = () => requestId === requestIdRef.current && mountedRef.current;
     const cachedIndices = getLocalIndicesCache();
+    // The controller is created before the try block so the catch can tell an
+    // aborted request (unmount or timeout) from a real server failure.
+    const controller = new AbortController();
     try {
       if (!cachedIndices) {
         setLoading(true);
       }
       setError(null);
 
-      const controller = new AbortController();
       abortRef.current = controller;
       const timeout = window.setTimeout(() => controller.abort(), INDICES_REQUEST_TIMEOUT_MS);
       let res: Response;
@@ -283,11 +323,7 @@ export function useIndices() {
           }
         }
         setIndices(indices);
-        setSelectedIndex((prev) => {
-          if (!prev) return indices[0];
-          const found = indices.find((d) => d.id === prev.id);
-          return found || indices[0];
-        });
+        setSelectedIndex((prev) => resolveSelectedIndex(prev, indices));
         return indices;
       } else {
         // The server's empty list supersedes any prior local response. Keep
@@ -300,39 +336,33 @@ export function useIndices() {
           // Ignore storage failures; the in-memory fallback remains usable.
         }
         setIndices(DEFAULT_INDICES);
-        setSelectedIndex((prev) => {
-          if (!prev) return DEFAULT_INDICES[0];
-          const found = DEFAULT_INDICES.find((d) => d.id === prev.id);
-          return found || DEFAULT_INDICES[0];
-        });
+        setSelectedIndex((prev) => resolveSelectedIndex(prev, DEFAULT_INDICES));
         return DEFAULT_INDICES;
       }
     } catch (err) {
-      if (!isCurrentRequest()) {
+      if (controller.signal.aborted || !isCurrentRequest()) {
+        // The request was aborted (the consumer unmounted or the request
+        // timed out) or a newer request superseded it. An aborted request
+        // must not publish an error, a fallback list or a selection: the
+        // in-memory state stays as it is and the user can retry explicitly.
         return getLocalIndicesCache() ?? DEFAULT_INDICES;
       }
-      const message =
-        err instanceof DOMException && err.name === "AbortError"
-          ? "指数一覧の取得がタイムアウトしました"
-          : err instanceof Error
-            ? err.message
-            : "指数一覧の取得に失敗しました";
+      const message = err instanceof Error ? err.message : "指数一覧の取得に失敗しました";
       setError(message);
       console.warn("API server unavailable, using cached/default indices:", err);
       // Fallback to local cached or built-in default indices so UI renders without failure
       const cached = getLocalIndicesCache();
       if (!cached) {
         setIndices(DEFAULT_INDICES);
-        setSelectedIndex((prev) => {
-          if (!prev) return DEFAULT_INDICES[0];
-          const found = DEFAULT_INDICES.find((d) => d.id === prev.id);
-          return found || DEFAULT_INDICES[0];
-        });
+        setSelectedIndex((prev) => resolveSelectedIndex(prev, DEFAULT_INDICES));
         return DEFAULT_INDICES;
       }
       return cached;
     } finally {
       if (isCurrentRequest()) {
+        // The loading flag is released here (and not in the catch) so an
+        // aborted request cannot leave the screen in the skeleton state. It is
+        // not written at all once the consumer unmounted.
         setLoading(false);
       }
     }
@@ -341,6 +371,15 @@ export function useIndices() {
   useEffect(() => {
     fetchIndices();
   }, [fetchIndices]);
+
+  // Track the mounted state so a request that settles after the consumer
+  // unmounted cannot publish anything into state that nobody reads any more.
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   // Cancel the in-flight list request when the consumer unmounts, so it cannot
   // keep running and then write to state that no longer has a consumer.
@@ -353,6 +392,41 @@ export function useIndices() {
     };
   }, []);
 
+  // Keep this tab in sync with the other tabs that changed the shared index
+  // cache. Without this listener a tab keeps showing the pre-change list
+  // (and editing it would overwrite the other tab's change) until it is
+  // reloaded.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handleStorage = (event: StorageEvent) => {
+      // A `null` key means the whole storage was cleared.
+      if (
+        event.key !== null &&
+        event.key !== INDICES_CACHE_KEY &&
+        event.key !== INDICES_ETAG_KEY
+      ) {
+        return;
+      }
+      const cached = getLocalIndicesCache();
+      // The other tab may have written exactly the list this tab already
+      // shows. Re-fetching then would only write the same payload back and
+      // could start a cross-tab request loop, so nothing is done.
+      const changed =
+        !cached || JSON.stringify(cached) !== JSON.stringify(indicesRef.current);
+      if (!changed) return;
+      if (cached) {
+        setIndices(cached);
+        setSelectedIndex((prev) => resolveSelectedIndex(prev, cached));
+      }
+      // Re-validate with the server: the other tab may have written a newer
+      // list (or removed entries) that this tab has not seen yet. The request
+      // generation guard keeps a slower in-flight response from undoing it.
+      void fetchIndices();
+    };
+    window.addEventListener("storage", handleStorage);
+    return () => window.removeEventListener("storage", handleStorage);
+  }, [fetchIndices]);
+
   const selectIndex = useCallback((index: CustomIndex) => {
     setSelectedIndex(index);
   }, []);
@@ -364,7 +438,7 @@ export function useIndices() {
     ): Promise<{ ok: boolean; error?: string; ownerToken?: string; id?: string }> => {
       try {
         const storedToken = getIndexOwnerToken(newIndex.id);
-        const token = ownerToken || storedToken || crypto.randomUUID();
+        const token = ownerToken || storedToken || safeRandomId(24);
         const { headers, body } = buildSaveIndexRequest(newIndex, token, getAuthHeaders());
         const res = await fetch(`${API_BASE}/indices`, {
           method: "POST",

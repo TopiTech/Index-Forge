@@ -7,6 +7,7 @@ import {
   resetLastKnownTickerQuotes,
 } from "../../worker/internal";
 import { calculatePeriodReturns } from "../hooks/useSimulation";
+import { buildSimulationChartData } from "../components/SimulationPreview";
 import type { PricePoint } from "../types";
 
 const TEST_ADMIN_PASSWORD = "MasterAdminPassword123!";
@@ -401,41 +402,18 @@ describe("Code Review Current Round Fixes Verification", () => {
         { date: "2026-09-01", close: 31500 },
       ];
 
-      // Simulate chartData derivation logic
-      const customBase = customSeries[0].value ?? customSeries[0].close ?? 1000;
-      const customStartDate = customSeries[0].date;
-      let benchmarkBase = 0;
-      for (const b of benchmarkSeries) {
-        if (b.date <= customStartDate && b.close > 0) {
-          benchmarkBase = b.close;
-        } else if (b.date > customStartDate) {
-          break;
-        }
-      }
-      expect(benchmarkBase).toBe(30000);
+      // The production chart derivation (src/components/SimulationPreview.tsx):
+      // the benchmark baseline is the last benchmark close on or before the
+      // custom start date (30000), NOT the one a year earlier (20000).
+      const chartPoints = buildSimulationChartData(customSeries, benchmarkSeries, 1000);
 
-      const benchmarkMap = new Map(benchmarkSeries.map((b) => [b.date, b.close]));
-      let lastKnownBmVal = benchmarkBase;
-
-      const chartPoints = customSeries.map((point) => {
-        const customVal = point.value ?? point.close;
-        const customReturnPct = ((customVal - customBase) / customBase) * 100;
-        const rawBmVal = benchmarkMap.get(point.date);
-        if (rawBmVal !== undefined && rawBmVal > 0) {
-          lastKnownBmVal = rawBmVal;
-        }
-        const bmVal = rawBmVal ?? lastKnownBmVal;
-        const benchmarkReturnPct = ((bmVal - benchmarkBase) / benchmarkBase) * 100;
-        return {
-          date: point.date,
-          customReturnPct: Number(customReturnPct.toFixed(2)),
-          benchmarkReturnPct: Number(benchmarkReturnPct.toFixed(2)),
-        };
-      });
-
+      expect(chartPoints).toHaveLength(3);
       // Both must start at strictly 0.00% on the first custom date
       expect(chartPoints[0].customReturnPct).toBe(0);
       expect(chartPoints[0].benchmarkReturnPct).toBe(0);
+      // Middle point: custom is +5%, benchmark is (31000 - 30000) / 30000
+      expect(chartPoints[1].customReturnPct).toBe(5);
+      expect(chartPoints[1].benchmarkReturnPct).toBe(3.33);
       // End point: custom is +10%, benchmark is +5%
       expect(chartPoints[2].customReturnPct).toBe(10);
       expect(chartPoints[2].benchmarkReturnPct).toBe(5);

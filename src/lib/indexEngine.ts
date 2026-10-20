@@ -109,12 +109,39 @@ export function redistributeWeightsExact<T extends { weight: number }>(items: T[
 }
 
 
+export interface BasketWeightRepair {
+  ticker: string;
+  /** The weight the basket carried before the repair (null when unusable). */
+  from: number | null;
+  /** The positive weight assigned instead. */
+  to: number;
+}
+
 export interface BasketSanitizationResult {
   /** Items that satisfy the Worker's strict `/api/calculate` contract. */
   basket: BasketItem[];
   /** Original ticker labels that could not be repaired (invalid or duplicate). */
   dropped: string[];
+  /** Constituents whose weight was missing/non-positive and had to be rebuilt. */
+  repaired: BasketWeightRepair[];
 }
+
+export interface BasketSanitizationOptions {
+  /**
+   * Keep a constituent whose weight is missing or non-positive by assigning a
+   * positive weight instead of dropping it.
+   *
+   * The save path (`buildSaveIndexRequest`) must use this: dropping a legacy
+   * `weight: 0` row deleted the constituent from the index on the next save
+   * (DATA-09/DATA-17). The calculation path keeps the historical drop
+   * behavior so a single unusable row cannot silently change the displayed
+   * index.
+   */
+  repairMissingWeights?: boolean;
+}
+
+/** Smallest weight the Worker's `weight > 0` contract accepts. */
+const MIN_REQUEST_WEIGHT = 0.01;
 
 /**
  * Repairs a basket so it always satisfies the Worker contract
@@ -131,11 +158,19 @@ export interface BasketSanitizationResult {
  * A basket whose weights are *all* invalid (e.g. a single legacy zero-weight
  * row) is re-balanced instead of dropped, because an empty request would be
  * rejected as well and would leave the user with no calculation at all.
+ *
+ * `options.repairMissingWeights` additionally keeps a constituent whose weight
+ * is missing/non-positive by rebuilding a positive weight for it (DATA-17). The
+ * save path uses it so a legacy `weight: 0` row is not deleted on save; the
+ * calculation path keeps the historical drop behavior.
  */
-export function sanitizeBasketForRequest(items: readonly BasketItem[]): BasketSanitizationResult {
+export function sanitizeBasketForRequest(
+  items: readonly BasketItem[],
+  options: BasketSanitizationOptions = {},
+): BasketSanitizationResult {
   const dropped: string[] = [];
+  const repaired: (BasketItem & { originalWeight: number | null })[] = [];
   const seen = new Set<string>();
-  const repaired: BasketItem[] = [];
 
   for (const item of items) {
     const rawTicker = typeof item?.ticker === "string" ? item.ticker : "";
@@ -169,6 +204,7 @@ export function sanitizeBasketForRequest(items: readonly BasketItem[]): BasketSa
       name,
       theme,
       weight: normalizedWeight,
+      originalWeight: typeof weight === "number" && Number.isFinite(weight) ? weight : null,
     });
   }
 
@@ -178,16 +214,41 @@ export function sanitizeBasketForRequest(items: readonly BasketItem[]): BasketSa
     // index stays computable instead of being rejected or silently empty.
     return {
       basket: equalizeWeightsExact(
-        repaired.map((item) => ({ ...item, weight: 100 })),
+        repaired.map((item) => ({ ticker: item.ticker, name: item.name, theme: item.theme, weight: 100 })),
       ),
       dropped,
+      repaired: [],
     };
   }
 
-  for (const item of repaired) {
-    if (Number.isNaN(item.weight)) dropped.push(item.ticker);
+  if (options.repairMissingWeights !== true) {
+    for (const item of repaired) {
+      if (Number.isNaN(item.weight)) dropped.push(item.ticker);
+    }
+    return { basket: withWeight.map(toBasketItem), dropped, repaired: [] };
   }
-  return { basket: withWeight, dropped };
+
+  // DATA-17: keep every usable constituent. A legacy/imported `weight: 0` row
+  // is assigned the remaining share of the 100% budget (at least the minimum
+  // the Worker accepts) instead of being silently deleted on save.
+  const validWeightTotal = withWeight.reduce((sum, item) => sum + item.weight, 0);
+  const remainingBudget = Number((100 - validWeightTotal).toFixed(2));
+  const repairWeight =
+    remainingBudget >= MIN_REQUEST_WEIGHT ? Math.min(remainingBudget, 100) : MIN_REQUEST_WEIGHT;
+
+  const weightRepairs: BasketWeightRepair[] = [];
+  const basket = repaired.map((item) => {
+    if (!Number.isNaN(item.weight)) return toBasketItem(item);
+    weightRepairs.push({ ticker: item.ticker, from: item.originalWeight, to: repairWeight });
+    return { ticker: item.ticker, name: item.name, theme: item.theme, weight: repairWeight };
+  });
+
+  return { basket, dropped, repaired: weightRepairs };
+}
+
+/** Drop the internal bookkeeping field before the item leaves this module. */
+function toBasketItem(item: BasketItem & { originalWeight?: number | null }): BasketItem {
+  return { ticker: item.ticker, name: item.name, theme: item.theme, weight: item.weight };
 }
 
 export function calculateCustomIndex(

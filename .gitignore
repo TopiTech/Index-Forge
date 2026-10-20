@@ -7,6 +7,9 @@ dist/
 
 # Environment variables / Secrets
 .dev.vars
+# Wrangler writes per-environment secret files (.dev.vars.local,
+# .dev.vars.production, ...). None of them may be committed.
+.dev.vars.*
 .env
 .env.*
 
@@ -24,6 +27,8 @@ Thumbs.db
 
 # Test output artifacts
 vitest_results.json
+vitest-report.json
+vitest-report*.json
 
 # IDEs
 .vscode/
@@ -31,7 +36,6 @@ vitest_results.json
 
 # Local Wrangler Config
 wrangler.local.jsonc
-dev-commands.md
 
 #agents
 .agent/

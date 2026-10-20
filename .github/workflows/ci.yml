@@ -38,3 +38,36 @@ jobs:
 
       - name: Build Application
         run: npm run build
+
+      # INFRA-01: nothing above validates the Wrangler configuration or the
+      # Worker bundle -- `npm run build` only type-checks and builds the Vite
+      # client. A typo in wrangler.jsonc, a missing binding or a Worker import
+      # that cannot be bundled therefore only surfaced during the deploy of a
+      # merge to main. `--dry-run` runs the real config parse, binding
+      # resolution and esbuild bundle and stops before uploading.
+      #
+      # The bundle is written to $RUNNER_TEMP (outside the checkout) so the
+      # worktree stays clean; `dist/` is required as the assets directory and
+      # is produced by the Build step above.
+      - name: Validate Worker Bundle (wrangler dry run)
+        run: npx wrangler deploy --dry-run --config wrangler.jsonc --outdir "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/wrangler-dry-run"
+
+      # PERF-01 / PERF-02 gate. Vite writes one `modulepreload` link per chunk
+      # reachable from the entry, so `dist/index.html` is the authoritative list
+      # of what the first paint downloads. The ticker dataset and the chart
+      # library must only be fetched by the lazy route that renders them.
+      #
+      # The check is name-independent on purpose (chunk names are hashed and the
+      # splitting rules may change): it fails when the first-paint transfer
+      # exceeds its budget or when a single preloaded chunk is large enough to
+      # be one of those two payloads.
+      - name: Check first-paint bundle budget (PERF-01/PERF-02)
+        run: npm run check:first-paint
+
+      # The same budget is reported for the Worker bundle so a regression in the
+      # deployment artifact is visible in the PR log.
+      - name: Report Worker bundle size
+        run: |
+          set -eu
+          echo "Worker bundle (wrangler dry run) output:"
+          find "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/wrangler-dry-run" -type f -printf '%s %f\n' 2>/dev/null | sort -rn | head -5 || true

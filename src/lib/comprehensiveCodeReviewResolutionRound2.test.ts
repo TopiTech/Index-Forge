@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   HIGH_FREQUENCY_RATE_LIMIT_ENDPOINTS,
   checkRateLimit,
@@ -14,6 +14,14 @@ describe("Comprehensive Code Review Resolution Round 2", () => {
   beforeEach(() => {
     clearMemoryRateLimits();
     resetYahooCrumbCache();
+    vi.restoreAllMocks();
+  });
+
+  afterEach(() => {
+    // Every network double in this file is installed with `vi.stubGlobal`;
+    // the restore is guaranteed here, so a failing assertion can never leak a
+    // stubbed fetch into the next test.
+    vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
 
@@ -78,18 +86,17 @@ describe("Comprehensive Code Review Resolution Round 2", () => {
   describe("fetchLiveStockFundamentals Authenticity & Symbol Resolution", () => {
     it("flags isDemoData: true when Yahoo Finance quotes are unavailable or fail", async () => {
       // Mock fetch to simulate failure / network error
-      const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
-        return new Response("Not Found", { status: 404 });
-      });
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => {
+          return new Response("Not Found", { status: 404 });
+        }),
+      );
 
-      try {
-        const data = await fetchLiveStockFundamentals("UNKNOWN123");
-        expect(data.ticker).toBe("UNKNOWN123");
-        expect(data.isDemoData).toBe(true);
-        expect(typeof data.price).toBe("number");
-      } finally {
-        fetchSpy.mockRestore();
-      }
+      const data = await fetchLiveStockFundamentals("UNKNOWN123");
+      expect(data.ticker).toBe("UNKNOWN123");
+      expect(data.isDemoData).toBe(true);
+      expect(typeof data.price).toBe("number");
     });
 
     it("resolves and updates company name from priceObj shortName/longName for non-preset tickers", async () => {
@@ -113,38 +120,37 @@ describe("Comprehensive Code Review Resolution Round 2", () => {
         },
       };
 
-      const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (info: any) => {
-        const url = typeof info === "string" ? info : info.url;
-        if (url.includes("fc.yahoo.com")) {
-          return new Response("", {
-            status: 200,
-            headers: { "set-cookie": "A1=sample-cookie-val" },
-          });
-        }
-        if (url.includes("getcrumb")) {
-          return new Response("valid_crumb", { status: 200 });
-        }
-        if (url.includes("quoteSummary")) {
-          return new Response(JSON.stringify(mockQuoteSummary), {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (info: any) => {
+          const url = typeof info === "string" ? info : info.url;
+          if (url.includes("fc.yahoo.com")) {
+            return new Response("", {
+              status: 200,
+              headers: { "set-cookie": "A1=sample-cookie-val" },
+            });
+          }
+          if (url.includes("getcrumb")) {
+            return new Response("valid_crumb", { status: 200 });
+          }
+          if (url.includes("quoteSummary")) {
+            return new Response(JSON.stringify(mockQuoteSummary), {
+              status: 200,
+              headers: { "content-type": "application/json" },
+            });
+          }
+          return new Response(JSON.stringify({ chart: { result: [] } }), {
             status: 200,
             headers: { "content-type": "application/json" },
           });
-        }
-        return new Response(JSON.stringify({ chart: { result: [] } }), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        });
-      });
+        }),
+      );
 
-      try {
-        const data = await fetchLiveStockFundamentals("ORCL");
-        expect(data.ticker).toBe("ORCL");
-        expect(data.name).toBe("Oracle Corporation");
-        expect(data.price).toBe(165.5);
-        expect(data.isDemoData).toBeUndefined(); // Live data present, not demo
-      } finally {
-        fetchSpy.mockRestore();
-      }
+      const data = await fetchLiveStockFundamentals("ORCL");
+      expect(data.ticker).toBe("ORCL");
+      expect(data.name).toBe("Oracle Corporation");
+      expect(data.price).toBe(165.5);
+      expect(data.isDemoData).toBeUndefined(); // Live data present, not demo
     });
   });
 
@@ -210,18 +216,17 @@ describe("Comprehensive Code Review Resolution Round 2", () => {
     });
 
     it("fetchLiveMarketOverview attaches dataSource and dataAsOf", async () => {
-      const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
-        return new Response("Service Unavailable", { status: 503 });
-      });
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => {
+          return new Response("Service Unavailable", { status: 503 });
+        }),
+      );
 
-      try {
-        const overview = await fetchLiveMarketOverview();
-        expect(overview.dataSource).toBe("fallback");
-        expect(typeof overview.dataAsOf).toBe("string");
-        expect(Number.isNaN(Date.parse(overview.dataAsOf as string))).toBe(false);
-      } finally {
-        fetchSpy.mockRestore();
-      }
+      const overview = await fetchLiveMarketOverview();
+      expect(overview.dataSource).toBe("fallback");
+      expect(typeof overview.dataAsOf).toBe("string");
+      expect(Number.isNaN(Date.parse(overview.dataAsOf as string))).toBe(false);
     });
   });
 
@@ -229,7 +234,7 @@ describe("Comprehensive Code Review Resolution Round 2", () => {
     it("preserves multiple Set-Cookie headers using getSetCookie when available", async () => {
       let cookieReceivedByGetcrumb = "";
 
-      const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (info: any, init?: any) => {
+      const fetchSpy = vi.fn(async (info: any, init?: any) => {
         const url = typeof info === "string" ? info : info.url;
         if (url.includes("fc.yahoo.com")) {
           const headers = new Headers();
@@ -250,16 +255,13 @@ describe("Comprehensive Code Review Resolution Round 2", () => {
         }
         return new Response("Not found", { status: 404 });
       });
+      vi.stubGlobal("fetch", fetchSpy);
 
-      try {
-        const auth = await getYahooCrumb(true);
-        expect(auth).not.toBeNull();
-        expect(auth?.crumb).toBe("multi_cookie_crumb");
-        expect(cookieReceivedByGetcrumb).toContain("A1=val1");
-        expect(cookieReceivedByGetcrumb).toContain("A3=val3");
-      } finally {
-        fetchSpy.mockRestore();
-      }
+      const auth = await getYahooCrumb(true);
+      expect(auth).not.toBeNull();
+      expect(auth?.crumb).toBe("multi_cookie_crumb");
+      expect(cookieReceivedByGetcrumb).toContain("A1=val1");
+      expect(cookieReceivedByGetcrumb).toContain("A3=val3");
     });
   });
 });

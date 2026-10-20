@@ -1,8 +1,11 @@
 import { describe, it, expect, vi } from "vitest";
 import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
+import type { PricePoint } from "../types";
 import worker from "../../worker/index";
 import { timingSafeEqual } from "../../worker/internal";
+import { MAX_SYNC_TICKERS_PER_REQUEST } from "../../worker/internal-impl";
+import { SYNC_BATCH_SIZE } from "./priceSync";
 import { calculateRiskMetrics } from "./analytics";
 
 const workerSrc = readFileSync(resolve("worker/internal-impl.ts"), "utf-8");
@@ -51,9 +54,36 @@ describe("regression: worker API contract", () => {
     expect(calcUsesHelper).toBe(true);
   });
 
-  it("R4: /api/sync-prices rejects batches larger than 30 instead of silently truncating them", () => {
-    expect(workerSrc).toContain("rawTickers.length > 30");
-    expect(workerSrc).toContain("At most 30 tickers may be synced per request");
+  it("R4: /api/sync-prices rejects batches larger than 12 instead of silently truncating them", async () => {
+    // SEC-11/DATA-07: the per-request ticker cap was lowered from 30 to 12
+    // and the client batch size follows it (see R7).
+    expect(MAX_SYNC_TICKERS_PER_REQUEST).toBe(12);
+    expect(workerSrc).toContain("rawTickers.length > MAX_SYNC_TICKERS_PER_REQUEST");
+
+    const env = {
+      ASSETS: { fetch: vi.fn() },
+      DB: {
+        prepare: vi.fn().mockReturnValue({
+          bind: vi.fn().mockReturnValue({
+            all: vi.fn().mockResolvedValue({ results: [] }),
+            run: vi.fn().mockResolvedValue({ success: true, meta: { changes: 1 } }),
+          }),
+        }),
+        batch: vi.fn().mockResolvedValue([]),
+      },
+    };
+    const res = await worker.fetch(
+      new Request("http://localhost/api/sync-prices", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tickers: Array.from({ length: 13 }, (_, i) => `T${i}`) }),
+      }),
+      env as never,
+    );
+
+    expect(res.status).toBe(400);
+    const data = (await res.json()) as { error?: string };
+    expect(data.error).toContain("12");
   });
 
   it("R5: POST and DELETE /api/indices enforce rate limiting via checkRateLimit", () => {
@@ -74,20 +104,41 @@ describe("regression: worker API contract", () => {
     expect(workerSrc).toContain("body.ownerToken.length > 256");
   });
 
-  it("R7: useCalculation.ts uses BATCH_SIZE = 30 to match worker subrequest limit", () => {
+  it("R7: useCalculation.ts batches through the shared priceSync module (12 tickers per request)", () => {
     const hookSrc = readFileSync(resolve("src/hooks/useCalculation.ts"), "utf-8");
-    expect(hookSrc).toContain("const BATCH_SIZE = 30;");
+    const priceSyncSrc = readFileSync(resolve("src/lib/priceSync.ts"), "utf-8");
+
+    // DATA-25: the batch size, the auth headers and the warning texts are
+    // owned by src/lib/priceSync, so the dashboard and the builder preview
+    // cannot drift apart again. useCalculation must not keep a private copy.
+    expect(hookSrc).toContain('import { syncPricesInBatches } from "../lib/priceSync"');
+    expect(hookSrc).not.toContain("const BATCH_SIZE");
+    expect(priceSyncSrc).toContain("export const SYNC_BATCH_SIZE = 12;");
+    // The client batch size must stay in step with the Worker's request cap.
+    expect(SYNC_BATCH_SIZE).toBe(MAX_SYNC_TICKERS_PER_REQUEST);
   });
 
   it("R8: wrangler configuration includes single-page-application and run_worker_first config", () => {
-    const wranglerSrc = readFileSync(resolve("wrangler.jsonc"), "utf-8");
-    expect(wranglerSrc).toContain('"not_found_handling": "single-page-application"');
-    expect(wranglerSrc).toContain('"run_worker_first": true');
+    const trackedConfigPath = resolve("wrangler.jsonc");
+    // Precondition: the tracked configuration is the one that is always
+    // deployed, so it must exist before it can be inspected.
+    expect(existsSync(trackedConfigPath)).toBe(true);
 
-    if (existsSync(resolve("wrangler.local.jsonc"))) {
-      const wranglerLocalSrc = readFileSync(resolve("wrangler.local.jsonc"), "utf-8");
-      expect(wranglerLocalSrc).toContain('"not_found_handling": "single-page-application"');
-      expect(wranglerLocalSrc).toContain('"run_worker_first": true');
+    // `wrangler.local.jsonc` is a git-ignored developer override. The
+    // assertion used to live inside `if (existsSync(...))`, so it silently
+    // vanished on a clean checkout. The override is now folded into the set of
+    // configurations in force: the tracked file is *always* checked and the
+    // local override is checked in addition whenever it exists.
+    const localConfigPath = resolve("wrangler.local.jsonc");
+    const configsInForce = [
+      readFileSync(trackedConfigPath, "utf-8"),
+      ...(existsSync(localConfigPath) ? [readFileSync(localConfigPath, "utf-8")] : []),
+    ];
+
+    expect(configsInForce.length).toBeGreaterThanOrEqual(1);
+    for (const config of configsInForce) {
+      expect(config).toContain('"not_found_handling": "single-page-application"');
+      expect(config).toContain('"run_worker_first": true');
     }
   });
 
@@ -160,15 +211,43 @@ describe("regression: timingSafeEqual timing-safe behavior", () => {
 });
 
 describe("regression: annualReturn uses CAGR (compound annualization)", () => {
+  /**
+   * Build a strictly increasing series of real ISO dates.
+   *
+   * The previous fixture produced strings such as `2024-17-01` and
+   * `2024-01-256`. Those are not dates, so `Date.parse` returned NaN and
+   * `calculateRiskMetrics` silently skipped its date-sorting path - the very
+   * path these fixtures are supposed to exercise.
+   */
+  function buildIsoDatedSeries(length: number, valueAt: (index: number) => number): PricePoint[] {
+    const start = Date.UTC(2024, 0, 1);
+    const points: PricePoint[] = [];
+    for (let i = 0; i < length; i++) {
+      const date = new Date(start + i * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      const value = valueAt(i);
+      points.push({ date, value, close: value });
+    }
+    return points;
+  }
+
+  it("builds a fixture whose dates are parseable ISO days in ascending order", () => {
+    const points = buildIsoDatedSeries(500, (i) => 1000 + (1000 * i) / 499);
+
+    expect(points).toHaveLength(500);
+    for (const point of points) {
+      expect(point.date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      expect(Number.isNaN(Date.parse(point.date))).toBe(false);
+    }
+    // Ascending: the analytics sort must be a no-op on a well-formed fixture.
+    const parsed = points.map((p) => Date.parse(p.date));
+    expect(parsed).toEqual([...parsed].sort((a, b) => a - b));
+  });
+
   it("computes annualized return via CAGR, not linear scaling", () => {
     // Build a synthetic 500-day series (2 years of trading days) with 100% total return.
     // Linear scaling: 100% * (250/499) ≈ 50.1%  (WRONG)
     // CAGR: ((1 + 1.0) ^ (250/499) - 1) * 100 ≈ 41.42%  (CORRECT)
-    const points = Array.from({ length: 500 }, (_, i) => ({
-      date: `2024-${String(Math.floor(i / 30) + 1).padStart(2, "0")}-${String((i % 30) + 1).padStart(2, "0")}`,
-      value: 1000 + (1000 * i) / 499, // linearly from 1000 to 2000
-      close: 1000 + (1000 * i) / 499,
-    }));
+    const points = buildIsoDatedSeries(500, (i) => 1000 + (1000 * i) / 499);
 
     const metrics = calculateRiskMetrics(points, []);
 
@@ -182,11 +261,7 @@ describe("regression: annualReturn uses CAGR (compound annualization)", () => {
 
   it("handles negative total returns correctly with CAGR", () => {
     // 250-day series with -20% total return
-    const points = Array.from({ length: 251 }, (_, i) => ({
-      date: `2024-01-${String(i + 1).padStart(2, "0")}`,
-      value: 1000 * (1 - 0.2 * (i / 250)),
-      close: 1000 * (1 - 0.2 * (i / 250)),
-    }));
+    const points = buildIsoDatedSeries(251, (i) => 1000 * (1 - 0.2 * (i / 250)));
 
     const metrics = calculateRiskMetrics(points, []);
 

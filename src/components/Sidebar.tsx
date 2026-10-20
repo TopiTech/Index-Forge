@@ -220,9 +220,13 @@ export function Sidebar({
      * Both copies must carry a distinct landmark label, otherwise a mobile
      * viewport exposes two identically named "メインナビゲーション"
      * navigation landmarks and the user cannot tell which one is active.
+     *
+     * Each copy also needs its own id so the collapse toggle can point
+     * `aria-controls` at the panel it actually hides (the toggle used to be
+     * indistinguishable from the index-selector toggle in the dashboard).
      */
-    const renderNav = (ariaLabel: string) => (
-        <nav className="global-nav" aria-label={ariaLabel}>
+    const renderNav = (ariaLabel: string, navId: string) => (
+        <nav className="global-nav" aria-label={ariaLabel} id={navId}>
             {/* Desktop header with collapse/expand toggle */}
             {onToggleCollapse && (
                 <div className="global-sidebar-desktop-header">
@@ -233,9 +237,10 @@ export function Sidebar({
                         type="button"
                         className="sidebar-collapse-btn"
                         onClick={onToggleCollapse}
-                        title={isCollapsed ? "サイドバーを展開する" : "サイドバーを格納する"}
-                        aria-label={isCollapsed ? "サイドバーを展開" : "サイドバーを格納"}
+                        title={isCollapsed ? "ナビゲーションを展開する" : "ナビゲーションを格納する"}
+                        aria-label={isCollapsed ? "ナビゲーションを展開" : "ナビゲーションを格納"}
                         aria-expanded={!isCollapsed}
+                        aria-controls={navId}
                     >
                         {isCollapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
                     </button>
@@ -302,7 +307,7 @@ export function Sidebar({
                 className={`global-sidebar ${isCollapsed ? "is-collapsed" : ""}`}
                 aria-label="サイトナビゲーション"
             >
-                {renderNav("メインナビゲーション")}
+                {renderNav("メインナビゲーション", "global-nav-desktop")}
             </aside>
 
             {/* Mobile: drawer opened from the header toggle */}
@@ -332,7 +337,7 @@ export function Sidebar({
                             aria-label="ナビゲーションメニュー"
                             tabIndex={-1}
                         >
-                            {renderNav("モバイルナビゲーション")}
+                            {renderNav("モバイルナビゲーション", "global-nav-mobile")}
                         </motion.aside>
                     </>
                 )}

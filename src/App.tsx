@@ -1,6 +1,6 @@
 import { useState, useCallback, useMemo, useEffect, useRef, Suspense, lazy } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { ChevronRight, Menu, X } from "lucide-react";
+import { ChevronRight, Menu, RefreshCw, X } from "lucide-react";
 import { useIndices } from "./hooks/useIndices";
 import { isBenchmarkDataForSymbol, useBenchmark, AVAILABLE_BENCHMARKS } from "./hooks/useBenchmark";
 import { useCalculation } from "./hooks/useCalculation";
@@ -15,12 +15,19 @@ import { TradingViewTickerTape } from "./components/TradingViewTickerTape";
 import { StatsGrid } from "./components/StatsGrid";
 import { BenchmarkSelector } from "./components/BenchmarkSelector";
 import { IndexSelector } from "./components/IndexSelector";
-import { PerformanceChart } from "./components/PerformanceChart";
-import { ThemeHeatmap } from "./components/ThemeHeatmap";
 import { ThemeBreakdown } from "./components/ThemeBreakdown";
 import { RiskMetricsCard } from "./components/RiskMetricsCard";
 import { ConstituentsTable } from "./components/ConstituentsTable";
 import { IndexBuilderModal } from "./components/IndexBuilderModal";
+// recharts (419KB / 113KB gzip) is only needed by these two dashboard widgets.
+// Importing them statically put the whole charting library in the first paint,
+// so they load as their own chunks behind a region-level Suspense boundary.
+const PerformanceChart = lazy(() =>
+  import("./components/PerformanceChart").then((m) => ({ default: m.PerformanceChart })),
+);
+const ThemeHeatmap = lazy(() =>
+  import("./components/ThemeHeatmap").then((m) => ({ default: m.ThemeHeatmap })),
+);
 // Route-level pages are lazy-loaded so the initial bundle (dashboard) does
 // not pay for three.js (tutorial 3D scene), recharts-heavy admin tooling,
 // or rarely-visited static pages.
@@ -51,11 +58,16 @@ const CalendarPage = lazy(() =>
 const GlobalSearchModal = lazy(() =>
   import("./components/GlobalSearchModal").then((m) => ({ default: m.GlobalSearchModal })),
 );
+/**
+ * Shared (module-level) promise so repeated hovers/⌘K presses reuse one
+ * network request instead of kicking off a new dynamic import each time.
+ */
+let globalSearchChunkPromise: Promise<unknown> | null = null;
 export const preloadGlobalSearchModal = () => {
-  void import("./components/GlobalSearchModal");
+  globalSearchChunkPromise ??= import("./components/GlobalSearchModal");
+  return globalSearchChunkPromise;
 };
 
-import { ErrorFallback } from "./components/ErrorFallback";
 import { LoadingScreen } from "./components/LoadingScreen";
 import { buildChartData } from "./lib/chartData";
 import { filterByTimeframe } from "./lib/timeframe";
@@ -94,6 +106,13 @@ function isBenchmarkSymbol(s: string | undefined): s is BenchmarkSymbol {
 }
 
 const MOBILE_LAYOUT_QUERY = "(max-width: 1080px)";
+
+/**
+ * Collapsed state of the dashboard's index-selector column. Separate from
+ * `indexforge:sidebar:collapsed` (the navigation rail): they are two different
+ * panels toggled by two different buttons, so they need two keys.
+ */
+const INDEX_SIDEBAR_COLLAPSED_KEY = "indexforge:index-sidebar:collapsed";
 
 /** Shared page layout for all non-admin views (Sidebar + Header + TickerTape + Footer). */
 function PageLayout({
@@ -219,6 +238,132 @@ function getInitialMobileLayout() {
   return typeof window !== "undefined" && window.matchMedia(MOBILE_LAYOUT_QUERY).matches;
 }
 
+/**
+ * Placeholder for a lazily loaded dashboard widget (PerformanceChart /
+ * ThemeHeatmap). It only reserves the space the widget will occupy so the
+ * Suspense boundary does not collapse the layout mid-paint.
+ */
+function LazyWidgetPlaceholder({
+  label,
+  minHeight = 280,
+}: {
+  label: string;
+  minHeight?: number;
+}) {
+  return (
+    <div
+      className="card"
+      role="status"
+      aria-live="polite"
+      aria-label={label}
+      style={{
+        minHeight,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 10,
+      }}
+    >
+      <RefreshCw size={18} className="animate-spin muted" aria-hidden="true" />
+      <span className="muted tiny mono">{label}</span>
+    </div>
+  );
+}
+
+/**
+ * Placeholder for the index-dependent part of the dashboard.
+ *
+ * The app shell (navigation, header, ticker tape, footer) is rendered
+ * unconditionally, so the first paint keeps its chrome and only this region
+ * waits for `/api/indices`.
+ */
+function IndexRegionSkeleton() {
+  return (
+    <div
+      className="card"
+      role="status"
+      aria-live="polite"
+      aria-label="指数一覧を読み込み中"
+      style={{
+        minHeight: 320,
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 12,
+        textAlign: "center",
+      }}
+    >
+      <RefreshCw size={22} className="animate-spin muted" aria-hidden="true" />
+      <p className="muted tiny mono" style={{ margin: 0 }}>
+        指数一覧を読み込み中...
+      </p>
+    </div>
+  );
+}
+
+/**
+ * Inline failure state for the index region. `useIndices` falls back to the
+ * built-in indices and surfaces the failure as a toast, so this only triggers
+ * when there is nothing at all to render — and it keeps the shell intact
+ * instead of replacing the whole app.
+ */
+function IndexRegionError({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <div
+      className="card"
+      role="alert"
+      style={{
+        minHeight: 280,
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 12,
+        padding: 24,
+        textAlign: "center",
+        borderColor: "var(--neon-red)",
+      }}
+    >
+      <p style={{ margin: 0, color: "var(--neon-red)", fontWeight: 600 }}>指数一覧を取得できませんでした</p>
+      <p className="muted tiny" style={{ margin: 0 }}>
+        {message}
+      </p>
+      <button type="button" className="btn btn-default" onClick={onRetry}>
+        <RefreshCw size={14} style={{ marginRight: 6 }} />
+        再試行
+      </button>
+    </div>
+  );
+}
+
+/** Lightweight stand-in shown while the ⌘K palette chunk downloads. */
+function SearchModalLoadingShell({ onClose }: { onClose: () => void }) {
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div
+        className="modal-dialog"
+        role="status"
+        aria-live="polite"
+        aria-label="検索画面を読み込み中"
+        style={{
+          maxWidth: 460,
+          minHeight: 120,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 10,
+          padding: 24,
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <RefreshCw size={16} className="animate-spin muted" aria-hidden="true" />
+        <span className="muted tiny mono">検索画面を読み込み中...</span>
+      </div>
+    </div>
+  );
+}
+
 function getInitialView(): PageView {
   if (typeof window === "undefined") return "dashboard";
   if (shouldShowTutorialOnLaunch()) return "tutorial";
@@ -235,7 +380,33 @@ function AppContent({
   );
   const [isMobileLayout, setIsMobileLayout] = useState(getInitialMobileLayout);
   const [isSidebarOpen, setIsSidebarOpen] = useState(() => !getInitialMobileLayout());
-  const [isDesktopSidebarOpen, setIsDesktopSidebarOpen] = useState(true);
+  // The index-selector column of the dashboard has its own collapse control
+  // (distinct from the navigation rail). Like the nav rail it must survive a
+  // reload, so the state is read once from storage and written back in an
+  // effect (never inside a state updater, which must stay pure).
+  const [isDesktopSidebarOpen, setIsDesktopSidebarOpen] = useState<boolean>(() => {
+    if (typeof window === "undefined") return true;
+    try {
+      return window.localStorage.getItem(INDEX_SIDEBAR_COLLAPSED_KEY) !== "true";
+    } catch {
+      return true;
+    }
+  });
+
+  const toggleDesktopIndexSidebar = useCallback(() => {
+    setIsDesktopSidebarOpen((prev) => !prev);
+  }, []);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        INDEX_SIDEBAR_COLLAPSED_KEY,
+        String(!isDesktopSidebarOpen),
+      );
+    } catch {
+      // Storage unavailable: the column state simply does not persist.
+    }
+  }, [isDesktopSidebarOpen]);
   const [timeframe, setTimeframe] = useState<Timeframe>(() => {
     const initialTf = initialDashboardParamsRef.current.timeframe;
     return isValidTimeframe(initialTf) ? initialTf : "1M";
@@ -252,23 +423,50 @@ function AppContent({
     );
   });
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
+  // Whether the lazily imported palette module has finished downloading. While
+  // it has not, the modal has never been committed and a second ⌘K must not
+  // cancel the pending open (that looks like the shortcut doing nothing).
+  const searchChunkLoadedRef = useRef(false);
   const { isAdmin, isAuthenticated } = useAuth();
   const { success: toastSuccess, info: toastInfo, error: toastError, warning: toastWarning } =
     useToast();
+
+  const ensureSearchChunk = useCallback(() => {
+    if (searchChunkLoadedRef.current) return;
+    void preloadGlobalSearchModal()
+      .then(() => {
+        searchChunkLoadedRef.current = true;
+      })
+      .catch(() => {
+        // A failed preload must not freeze the toggle in its pending state;
+        // the lazy component retries the import itself on the next render.
+        searchChunkLoadedRef.current = true;
+      });
+  }, []);
+
+  const openSearchModal = useCallback(() => {
+    ensureSearchChunk();
+    setIsSearchModalOpen(true);
+  }, [ensureSearchChunk]);
+
+  const toggleSearchModal = useCallback(() => {
+    ensureSearchChunk();
+    // Pending open (chunk still loading, nothing rendered yet): keep it open.
+    if (isSearchModalOpen && !searchChunkLoadedRef.current) return;
+    setIsSearchModalOpen(!isSearchModalOpen);
+  }, [ensureSearchChunk, isSearchModalOpen]);
 
   // Global Cmd+K / Ctrl+K keyboard shortcut
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
-        preloadGlobalSearchModal();
-        setIsSearchModalOpen((prev) => !prev);
+        toggleSearchModal();
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
-
+  }, [toggleSearchModal]);
 
   useEffect(() => {
     const mediaQuery = window.matchMedia(MOBILE_LAYOUT_QUERY);
@@ -443,9 +641,14 @@ function AppContent({
           const match = indices?.find((idx) => idx.id === params.indexId);
           if (match) {
             selectIndex(match);
+            pendingIndexIdRef.current = null;
           } else {
             pendingIndexIdRef.current = params.indexId;
           }
+        } else {
+          // An explicit navigation without ?index= abandons any unresolved deep
+          // link; otherwise a stale id would keep the URL frozen forever.
+          pendingIndexIdRef.current = null;
         }
       }
 
@@ -467,14 +670,18 @@ function AppContent({
     [indices, selectIndex, setSelectedBenchmark],
   );
 
+  // Apply a pending `?index=` id as soon as the authoritative list contains it.
+  // Waiting for `!loadingIndices` keeps a provisional (built-in) list from
+  // resolving — and then clearing — a link to a custom index.
   useEffect(() => {
+    if (loadingIndices) return;
     if (!pendingIndexIdRef.current || !indices || indices.length === 0) return;
     const match = indices.find((idx) => idx.id === pendingIndexIdRef.current);
     if (match) {
       selectIndex(match);
       pendingIndexIdRef.current = null;
     }
-  }, [indices, selectIndex]);
+  }, [indices, loadingIndices, selectIndex]);
 
   const {
     customSeries,
@@ -500,20 +707,38 @@ function AppContent({
 
   const initialIndexHandledRef = useRef(false);
   useEffect(() => {
-    if (initialIndexHandledRef.current || !indices || indices.length === 0) return;
+    if (initialIndexHandledRef.current) return;
     const targetIndexId = initialDashboardParamsRef.current.indexId;
-    if (targetIndexId) {
-      const match = indices.find((idx) => idx.id === targetIndexId);
-      if (match) {
-        selectIndex(match);
-      }
+    if (!targetIndexId) {
+      initialIndexHandledRef.current = true;
+      return;
+    }
+    // Never resolve a `?index=` deep link against a provisional list. While
+    // `loadingIndices` is true `indices` still holds the built-in defaults
+    // (`DEFAULT_INDICES`), so matching against them either selects the wrong
+    // index or reports "not found" and lets the URL sync erase the id the user
+    // was linked to.
+    if (loadingIndices || !indices || indices.length === 0) return;
+    const match = indices.find((idx) => idx.id === targetIndexId);
+    if (match) {
+      selectIndex(match);
+      pendingIndexIdRef.current = null;
+    } else {
+      // The list is authoritative and does not contain the id yet (the index
+      // may be created later, or the list may still be replaced by a newer
+      // response). Keep it pending and let the effect above apply it.
+      pendingIndexIdRef.current = targetIndexId;
     }
     initialIndexHandledRef.current = true;
-  }, [indices, selectIndex]);
+  }, [indices, loadingIndices, selectIndex]);
 
   // Keep URL query parameters synchronized with dashboard state
   useEffect(() => {
     if (currentView !== "dashboard" || typeof window === "undefined") return;
+    // A deep link that has not been resolved yet must stay in the URL: syncing
+    // now would replace `?index=<unknown id>` with whatever fallback index is
+    // selected and destroy the link the user arrived with.
+    if (!initialIndexHandledRef.current || pendingIndexIdRef.current) return;
     const targetQuery = buildDashboardQuery(window.location.search, {
       indexId: selectedIndex?.id ?? null,
       benchmark: selectedBenchmark,
@@ -571,6 +796,8 @@ function AppContent({
 
   const handleSelectIndex = useCallback(
     (index: CustomIndex) => {
+      // An explicit pick supersedes any unresolved `?index=` deep link.
+      pendingIndexIdRef.current = null;
       setSelectedTheme(null);
       selectIndex(index);
       if (isMobileLayout) setIsSidebarOpen(false);
@@ -736,10 +963,7 @@ function AppContent({
   // Shared page layout props for Header (navigation lives in the Sidebar now)
   const pageLayoutHeaderProps = useMemo(
     () => ({
-      onOpenSearch: () => {
-        preloadGlobalSearchModal();
-        setIsSearchModalOpen(true);
-      },
+      onOpenSearch: openSearchModal,
       onSearchHover: preloadGlobalSearchModal,
       benchmarkUpdatedAt,
       calculationUpdatedAt,
@@ -749,6 +973,7 @@ function AppContent({
       typeLabel: "日足終値",
     }),
     [
+      openSearchModal,
       benchmarkUpdatedAt,
       calculationUpdatedAt,
       loadingBenchmark,
@@ -759,7 +984,10 @@ function AppContent({
   );
 
   const commonSearchModal = isSearchModalOpen ? (
-    <Suspense fallback={null}>
+    // The palette is a separate chunk. A null fallback made ⌘K look broken on
+    // a cold cache, so the shell below renders immediately and the pending
+    // open survives until the chunk has loaded.
+    <Suspense fallback={<SearchModalLoadingShell onClose={() => setIsSearchModalOpen(false)} />}>
       <GlobalSearchModal
         isOpen={isSearchModalOpen}
         onClose={() => setIsSearchModalOpen(false)}
@@ -990,24 +1218,41 @@ function AppContent({
     );
   }
 
+  // Props shared by every dashboard render path. The dashboard no longer
+  // returns a full-screen loading placeholder: the shell below (sidebar,
+  // header, ticker tape, footer) always renders and only the index-dependent
+  // region is swapped while /api/indices is in flight.
+  const dashboardLayoutProps: React.ComponentProps<typeof PageLayout> = {
+    headerProps: {
+      ...pageLayoutHeaderProps,
+      benchmarkStale: activeBenchmarkData?.stale === true,
+      typeLabel: "日足終値",
+    },
+    currentView,
+    navigateTo,
+    searchModal: commonSearchModal,
+    children: null,
+  };
+
   if (indicesError && indices.length === 0) {
-    return <ErrorFallback error={indicesError} onRetry={() => window.location.reload()} />;
+    return (
+      <PageLayout {...dashboardLayoutProps}>
+        <IndexRegionError message={indicesError} onRetry={() => void refreshIndices()} />
+      </PageLayout>
+    );
   }
 
   if (loadingIndices) {
-    return <LoadingScreen />;
+    return (
+      <PageLayout {...dashboardLayoutProps}>
+        <IndexRegionSkeleton />
+      </PageLayout>
+    );
   }
 
   return (
     <PageLayout
-      headerProps={{
-        ...pageLayoutHeaderProps,
-        benchmarkStale: activeBenchmarkData?.stale === true,
-        typeLabel: "日足終値",
-      }}
-      currentView={currentView}
-      navigateTo={navigateTo}
-      searchModal={commonSearchModal}
+      {...dashboardLayoutProps}
       overlays={
         <IndexBuilderModal
           isOpen={isBuilderOpen}
@@ -1136,14 +1381,18 @@ function AppContent({
                 <button
                   type="button"
                   className="btn btn-sm btn-default"
-                  onClick={() => setIsDesktopSidebarOpen((prev) => !prev)}
-                  title={isDesktopSidebarOpen ? "サイドバーを折りたたむ" : "サイドバーを展開する"}
+                  onClick={toggleDesktopIndexSidebar}
+                  title={
+                    isDesktopSidebarOpen
+                      ? "指数一覧の列を格納する"
+                      : "指数一覧の列を開く"
+                  }
                   aria-expanded={isDesktopSidebarOpen}
                   aria-controls="index-sidebar"
                   style={{ padding: "6px 10px", fontSize: 11 }}
                 >
                   <Menu size={13} />
-                  <span>{isDesktopSidebarOpen ? "サイドバー格納" : "指数一覧を開く"}</span>
+                  <span>{isDesktopSidebarOpen ? "指数一覧を格納" : "指数一覧を開く"}</span>
                 </button>
               )}
               <BenchmarkSelector
@@ -1164,35 +1413,41 @@ function AppContent({
               className="grid"
               style={{ gap: 20 }}
             >
-              {/* Main Performance Chart */}
-              <PerformanceChart
-                data={chartData}
-                loading={loadingCalc || loadingBenchmark}
-                syncing={syncing}
-                syncProgress={syncProgress}
-                syncWarnings={syncWarnings}
-                baseValue={selectedIndex?.baseValue}
-                benchmarkLabel={currentBenchmarkOption.shortLabel}
-                timeframe={timeframe}
-                isReloadSuppressed={isReloadSuppressed}
-                onTimeframeChange={setTimeframe}
-                error={unifiedError}
-                onRetry={handleRetry}
-                emptyTitle={
-                  selectedIndex?.basket.length === 0
-                    ? "構成銘柄がありません"
-                    : "表示できるデータがありません"
-                }
-                emptyDescription={
-                  selectedIndex?.basket.length === 0
-                    ? "別の指数を選択するか、独自指数を作成して構成銘柄を追加してください。"
-                    : "データがまだ取得できていません。再取得すると最新状態を確認できます。"
-                }
-                emptyActionLabel={
-                  selectedIndex?.basket.length === 0 ? "独自指数を作成" : "データを再取得"
-                }
-                onEmptyAction={selectedIndex?.basket.length === 0 ? handleOpenBuilder : handleRetry}
-              />
+              {/* Main Performance Chart (lazy: carries recharts) */}
+              <Suspense
+                fallback={<LazyWidgetPlaceholder label="パフォーマンスチャートを読み込み中..." minHeight={340} />}
+              >
+                <PerformanceChart
+                  data={chartData}
+                  loading={loadingCalc || loadingBenchmark}
+                  syncing={syncing}
+                  syncProgress={syncProgress}
+                  syncWarnings={syncWarnings}
+                  baseValue={selectedIndex?.baseValue}
+                  benchmarkLabel={currentBenchmarkOption.shortLabel}
+                  timeframe={timeframe}
+                  isReloadSuppressed={isReloadSuppressed}
+                  onTimeframeChange={setTimeframe}
+                  error={unifiedError}
+                  onRetry={handleRetry}
+                  emptyTitle={
+                    selectedIndex?.basket.length === 0
+                      ? "構成銘柄がありません"
+                      : "表示できるデータがありません"
+                  }
+                  emptyDescription={
+                    selectedIndex?.basket.length === 0
+                      ? "別の指数を選択するか、独自指数を作成して構成銘柄を追加してください。"
+                      : "データがまだ取得できていません。再取得すると最新状態を確認できます。"
+                  }
+                  emptyActionLabel={
+                    selectedIndex?.basket.length === 0 ? "独自指数を作成" : "データを再取得"
+                  }
+                  onEmptyAction={
+                    selectedIndex?.basket.length === 0 ? handleOpenBuilder : handleRetry
+                  }
+                />
+              </Suspense>
 
               {/* Quantitative Risk Metrics Card */}
               {activeBenchmarkData && (
@@ -1204,13 +1459,17 @@ function AppContent({
                 />
               )}
 
-              {/* Stock Heatmap (TreeMap style) */}
+              {/* Stock Heatmap (TreeMap style, lazy: carries recharts) */}
               {stockDetails.length > 0 && (
-                <ThemeHeatmap
-                  stockDetails={stockDetails}
-                  selectedTheme={selectedTheme}
-                  onSelectTheme={setSelectedTheme}
-                />
+                <Suspense
+                  fallback={<LazyWidgetPlaceholder label="ヒートマップを読み込み中..." />}
+                >
+                  <ThemeHeatmap
+                    stockDetails={stockDetails}
+                    selectedTheme={selectedTheme}
+                    onSelectTheme={setSelectedTheme}
+                  />
+                </Suspense>
               )}
 
               {/* Theme Breakdown Visualizer */}

@@ -1,17 +1,120 @@
-import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
+// @vitest-environment jsdom
+/**
+ * Regression tests for the global search palette.
+ *
+ * UI-05 changed the overlay root: overlays are portaled into
+ * `document.fullscreenElement ?? document.body` so a native-fullscreen page
+ * still shows its dialogs. The portal therefore cannot be proven by grepping
+ * the source any more — the interesting part is *where* the DOM node ends up,
+ * so the placement assertions below run against the rendered tree.
+ */
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { act, cleanup, render } from "@testing-library/react";
+import { createElement } from "react";
+import { GlobalSearchModal } from "./GlobalSearchModal";
+import { getOverlayRoot } from "./ModalBase";
 
-const searchModalSource = readFileSync(
-  new URL("./GlobalSearchModal.tsx", import.meta.url),
-  "utf8"
+// The jsdom environment externalizes the Node built-ins, so `fs`/`path` cannot
+// be imported here. The TypeScript sources are read through Vite's `?raw`
+// suffix; the stylesheet is read through `process.getBuiltinModule`, which
+// resolves the real `node:fs` without a static import.
+import searchModalSource from "./GlobalSearchModal.tsx?raw";
+import appSource from "../App.tsx?raw";
+
+const nodeFs = process.getBuiltinModule("node:fs") as {
+  readFileSync: (path: string, encoding: "utf8") => string;
+};
+const nodePath = process.getBuiltinModule("node:path") as {
+  join: (...parts: string[]) => string;
+};
+const cssSource = nodeFs.readFileSync(
+  nodePath.join(process.cwd(), "src/index.css"),
+  "utf8",
 );
-const appSource = readFileSync(new URL("../App.tsx", import.meta.url), "utf8");
-const cssSource = readFileSync(new URL("../index.css", import.meta.url), "utf8");
+
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
+
+// jsdom does not implement scrollIntoView, but the palette scrolls the active
+// result into view whenever the selection changes.
+if (typeof Element.prototype.scrollIntoView !== "function") {
+  Element.prototype.scrollIntoView = vi.fn();
+}
+
+function renderSearchModal() {
+  return render(
+    createElement(GlobalSearchModal, {
+      isOpen: true,
+      onClose: vi.fn(),
+      onNavigate: vi.fn(),
+    }),
+  );
+}
+
+/**
+ * Pretend the page is in native fullscreen.
+ *
+ * jsdom does not implement the Fullscreen API, so `document.fullscreenElement`
+ * is shadowed with an own property. The property is removed again by the
+ * returned restore function.
+ */
+function stubFullscreenElement(element: HTMLElement): () => void {
+  Object.defineProperty(document, "fullscreenElement", {
+    configurable: true,
+    get: () => element,
+  });
+  return () => {
+    delete (document as unknown as { fullscreenElement?: unknown }).fullscreenElement;
+  };
+}
 
 describe("GlobalSearchModal overlay and placement regression tests", () => {
-  it("renders GlobalSearchModal via createPortal into document.body", () => {
-    expect(searchModalSource).toContain('import { createPortal } from "react-dom";');
-    expect(searchModalSource).toContain("createPortal(modalContent, document.body)");
+  it("portals the modal outside the React tree into document.body without fullscreen", () => {
+    // Without a fullscreen element the overlay root is the document body.
+    expect(getOverlayRoot()).toBe(document.body);
+
+    const { container } = renderSearchModal();
+
+    const dialog = document.querySelector<HTMLElement>("[data-modal-dialog]");
+    expect(dialog).not.toBeNull();
+
+    // The dialog is rendered through a portal: it is a child of the overlay
+    // root, not of the React container the tree was rendered into.
+    expect(container.contains(dialog)).toBe(false);
+    expect(dialog!.closest(".modal-overlay")).not.toBeNull();
+    expect(document.body.contains(dialog)).toBe(true);
+    expect(dialog!.closest("body")).toBe(document.body);
+    expect(dialog!.parentElement?.parentElement).toBe(document.body);
+  });
+
+  it("re-targets the overlay to the fullscreen element when the page enters fullscreen", () => {
+    const fullscreenHost = document.createElement("div");
+    document.body.appendChild(fullscreenHost);
+    const restore = stubFullscreenElement(fullscreenHost);
+
+    try {
+      expect(getOverlayRoot()).toBe(fullscreenHost);
+
+      renderSearchModal();
+      expect(document.body.querySelector(".modal-overlay")).not.toBeNull();
+
+      // Entering fullscreen re-resolves the overlay root and the dialog moves
+      // into the fullscreen subtree, where the browser actually paints it.
+      act(() => {
+        document.dispatchEvent(new Event("fullscreenchange"));
+      });
+
+      const movedDialog = fullscreenHost.querySelector("[data-modal-dialog]");
+      expect(movedDialog).not.toBeNull();
+      expect(movedDialog!.closest(".modal-overlay")?.parentElement).toBe(fullscreenHost);
+      // The dialog is no longer a direct child of the document body.
+      expect(document.body.querySelector(":scope > .modal-overlay")).toBeNull();
+    } finally {
+      restore();
+      fullscreenHost.remove();
+    }
   });
 
   it("uses modal-overlay for fixed viewport positioning and modal-dialog for consistent styling", () => {

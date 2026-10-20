@@ -249,8 +249,15 @@ describe("Comprehensive Goal Code Review - Unit 3 Fixes", () => {
     expect(indices.length).toBe(1);
     const basket = indices[0].basket;
     expect(basket.length).toBe(3);
-    expect(basket.find((b) => b.ticker === "7203")?.weight).toBe(0);
-    expect(basket.find((b) => b.ticker === "6758")?.weight).toBe(0);
+    // DATA-09: a legacy NULL/0 weight is repaired to a positive value on read,
+    // because the write endpoints reject a non-positive weight. The repaired
+    // basket therefore stays saveable (and never emits NaN).
+    expect(basket.find((b) => b.ticker === "7203")?.weight).toBe(1);
+    expect(basket.find((b) => b.ticker === "6758")?.weight).toBe(1);
     expect(basket.find((b) => b.ticker === "AAPL")?.weight).toBe(15);
+    for (const item of basket) {
+      expect(Number.isFinite(item.weight)).toBe(true);
+      expect(item.weight).toBeGreaterThan(0);
+    }
   });
 });

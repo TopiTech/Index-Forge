@@ -227,16 +227,37 @@ describe("Comprehensive Code Review Audit Fulfillment", () => {
   });
 
   describe("3. UI Accessibility Contracts for Authentication Tabs & Turnstile", () => {
-    it("ensures AuthModal tabs implement WAI-ARIA tab navigation contracts", () => {
+    it("ensures AuthModal mode switch implements the toggle-group contract", () => {
       const authModalPath = path.resolve(process.cwd(), "src/components/AuthModal.tsx");
       const content = fs.readFileSync(authModalPath, "utf-8");
 
-      expect(content).toContain('id="auth-modal-tab-admin"');
-      expect(content).toContain('id="auth-modal-tab-user"');
-      expect(content).toContain('aria-controls="auth-modal-form"');
-      expect(content).toContain('tabIndex={authMode === "admin" ? 0 : -1}');
-      expect(content).toContain('tabIndex={authMode === "user" ? 0 : -1}');
-      expect(content).toContain("onKeyDown={handleTabKeyDown}");
+      // UI-13: both modes share ONE form, so there is no tabpanel for a tab
+      // to control. The switch is a named group of toggle buttons instead.
+      expect(content).toContain('role="group"');
+      expect(content).toContain('aria-label="認証モード切替"');
+      expect(content).toContain('id="auth-modal-mode-admin"');
+      expect(content).toContain('id="auth-modal-mode-user"');
+
+      // The selection state is exposed through aria-pressed.
+      expect(content).toContain('aria-pressed={authMode === "admin"}');
+      expect(content).toContain('aria-pressed={authMode === "user"}');
+
+      // Both buttons stay in the tab order; the arrow keys are a convenience.
+      expect(content).toContain("onKeyDown={handleModeKeyDown}");
+      expect(content).not.toContain('tabIndex={authMode === "admin" ? 0 : -1}');
+      expect(content).not.toContain('tabIndex={authMode === "user" ? 0 : -1}');
+
+      // The tab semantics are gone: a tab must not claim to control the form.
+      expect(content).not.toContain('role="tablist"');
+      expect(content).not.toContain('role="tab"');
+      expect(content).not.toContain('aria-controls="auth-modal-form"');
+
+      // The shared form the two modes submit.
+      expect(content).toContain('id="auth-modal-form"');
+
+      // The accessible names of the two mode buttons.
+      expect(content).toContain("管理者ログイン");
+      expect(content).toContain("一般ユーザー");
     });
 
     it("ensures PortfolioManagerPage tabs implement WAI-ARIA tab navigation contracts", () => {

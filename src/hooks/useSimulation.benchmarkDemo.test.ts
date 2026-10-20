@@ -1,9 +1,34 @@
-import { describe, expect, it } from "vitest";
-import {
-  generateFallbackBenchmarkSeries,
-  type SimulationResult,
-} from "./useSimulation";
-import type { PricePoint } from "../types";
+// @vitest-environment jsdom
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { cleanup, renderHook, waitFor } from "@testing-library/react";
+import { generateFallbackBenchmarkSeries, useSimulation } from "./useSimulation";
+import type { BasketItem, PricePoint } from "../types";
+
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
+
+const BASKET: BasketItem[] = [
+  { ticker: "7203", name: "Toyota", theme: "Auto", weight: 60 },
+  { ticker: "9984", name: "SoftBank", theme: "AI", weight: 40 },
+];
+
+/**
+ * Every request fails.
+ *
+ * The snapshot API then has no data for the selected benchmark, so the hook
+ * falls back to generateFallbackBenchmarkSeries and must disclose it with
+ * `usingDemoBenchmark`.
+ */
+function stubUnreachableApi(): void {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => {
+      throw new Error("Network offline");
+    }),
+  );
+}
 
 /**
  * Regression guard for the benchmark demo-data disclosure fix: when the
@@ -11,15 +36,10 @@ import type { PricePoint } from "../types";
  * back to generateFallbackBenchmarkSeries. The hook must expose
  * `usingDemoBenchmark` so the preview can disclose that the comparison line
  * and alpha are based on generated demo prices instead of real market data.
+ * The flag is part of the production `SimulationResult` contract, so reading
+ * it here fails to compile as soon as the field disappears from that type.
  */
 describe("useSimulation benchmark demo-data fallback contract", () => {
-  it("keeps usingDemoBenchmark in the public SimulationResult contract", () => {
-    // Compile-time + runtime sentinel: removing the disclosure flag from the
-    // public type contract must fail this test.
-    const resultShape: Partial<SimulationResult> = { usingDemoBenchmark: true };
-    expect(resultShape.usingDemoBenchmark).toBe(true);
-  });
-
   it("generates a demo series aligned to the requested dates", () => {
     const dates = ["2026-01-05", "2026-01-06", "2026-01-07", "2026-01-08"];
     const series: PricePoint[] = generateFallbackBenchmarkSeries("^N225", dates);
@@ -51,5 +71,22 @@ describe("useSimulation benchmark demo-data fallback contract", () => {
     expect(usdjpy[0].close).toBeGreaterThan(50);
     expect(usdjpy[0].close).toBeLessThan(500);
     expect(btc[0].close).toBeGreaterThan(10000);
+  });
+
+  it("discloses the generated benchmark line when the snapshot API is unavailable", async () => {
+    stubUnreachableApi();
+
+    const { result } = renderHook(() => useSimulation(BASKET, 1000));
+
+    await waitFor(() => expect(result.current.usingDemoData).toBe(true), { timeout: 5000 });
+    await waitFor(() => expect(result.current.usingDemoBenchmark).toBe(true), { timeout: 5000 });
+
+    // The comparison line is the generated demo series for the very same
+    // dates as the custom series - not a live benchmark quote.
+    const customDates = result.current.filteredCustomSeries.map((p) => p.date);
+    expect(customDates.length).toBeGreaterThan(1);
+    expect(result.current.filteredBenchmarkSeries).toEqual(
+      generateFallbackBenchmarkSeries("^N225", customDates),
+    );
   });
 });

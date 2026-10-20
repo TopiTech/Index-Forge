@@ -6,6 +6,11 @@ import {
   calculateConstituentPerformance,
   calculatePeriodReturns,
 } from "../hooks/useSimulation";
+import {
+  changeTone,
+  formatDrawdownPercent,
+  formatSignedPercent,
+} from "../components/changeTone";
 import type { BasketItem, StockSeries } from "../types";
 
 describe("Comprehensive Review Resolution & Regression Tests", () => {
@@ -138,19 +143,45 @@ describe("Comprehensive Review Resolution & Regression Tests", () => {
       expect(content).toContain("step={0.1}");
     });
 
-    it("ensures SimulationPreview uses strict positive (> 0) comparison for sign and color highlights", () => {
+    it("ensures SimulationPreview treats a zero change as neutral, not as a gain or a loss", () => {
       const preview = readFileSync(
         resolve(__dirname, "../components/SimulationPreview.tsx"),
         "utf8",
       );
 
-      // Ensure periodCustomReturnPct > 0 and alphaPct > 0 are used instead of >= 0
-      expect(preview).toContain('periodCustomReturnPct > 0 ? "+" : ""');
-      expect(preview).toContain('alphaPct > 0 ? "+" : ""');
-      expect(preview).toContain('metrics.annualReturn > 0 ? "+" : ""');
+      // UI-28: the sign and the colour of every signed figure are decided by
+      // the shared zero-safe tone helper instead of a `> 0` comparison that
+      // painted a flat 0% green.
+      expect(preview).toContain(
+        'import { changeTone, formatDrawdownPercent, formatSignedPercent } from "./changeTone";',
+      );
+      expect(preview).toContain("toneColor(periodCustomReturnPct)");
+      expect(preview).toContain("toneColor(alphaPct)");
+      expect(preview).toContain("toneColor(metrics.annualReturn)");
+      expect(preview).toContain("signedPctText(periodCustomReturnPct)");
+      expect(preview).toContain("signedPctText(alphaPct)");
+      expect(preview).toContain("formatSignedPercent(metrics.annualReturn, 1)");
 
-      // Ensure 0 values are not styled with neon green
-      expect(preview).toContain('periodCustomReturnPct > 0\n              ? "var(--neon-green)"');
+      // The drawdown magnitude is rendered by the shared formatter, so a flat
+      // period can no longer print "-0.0%".
+      expect(preview).toContain("formatDrawdownPercent(metrics.maxDrawdown)");
+
+      // A zero is neutral: no sign and no green/red highlight.
+      expect(changeTone(0)).toBe("neutral");
+      expect(changeTone(-0)).toBe("neutral");
+      expect(changeTone(0.001)).toBe("neutral");
+      expect(changeTone(0.01)).toBe("positive");
+      expect(changeTone(-0.01)).toBe("negative");
+
+      expect(formatSignedPercent(0)).toBe("0.00%");
+      expect(formatSignedPercent(-0)).toBe("0.00%");
+      expect(formatSignedPercent(0.01)).toBe("+0.01%");
+      expect(formatSignedPercent(-0.01)).toBe("-0.01%");
+
+      expect(formatDrawdownPercent(0)).toBe("0.0%");
+      expect(formatDrawdownPercent(-0)).toBe("0.0%");
+      expect(formatDrawdownPercent(0.04)).toBe("0.0%");
+      expect(formatDrawdownPercent(1.5)).toBe("-1.5%");
     });
 
     it("ensures PerformanceChart verifies finite numbers for SMA tooltip items", () => {

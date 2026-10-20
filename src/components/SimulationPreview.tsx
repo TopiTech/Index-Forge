@@ -17,9 +17,10 @@ import {
   Sparkles,
   Zap,
 } from "lucide-react";
-import type { Timeframe, BenchmarkSymbol } from "../types";
+import type { PricePoint, Timeframe, BenchmarkSymbol } from "../types";
 import { AVAILABLE_BENCHMARKS } from "../hooks/useBenchmark";
 import type { SimulationResult } from "../hooks/useSimulation";
+import { changeTone, formatDrawdownPercent, formatSignedPercent } from "./changeTone";
 
 interface SimulationPreviewProps {
   simulation: SimulationResult;
@@ -35,6 +36,100 @@ const TIMEFRAMES: { label: string; value: Timeframe }[] = [
   { label: "年初来 (YTD)", value: "YTD" },
   { label: "1年 (全期間)", value: "1Y" },
 ];
+
+/**
+ * Tone for a performance figure. Zero is neither a gain nor a loss, so it keeps
+ * the neutral text colour instead of turning green (UI-28).
+ */
+function toneColor(value: number): string {
+  const tone = changeTone(value);
+  return tone === "positive"
+    ? "var(--neon-green)"
+    : tone === "negative"
+      ? "var(--neon-red)"
+      : "var(--text-primary)";
+}
+
+/** Signed percentage text; a zero value is printed as `0` without a `+`. */
+function signedPctText(value: number): string {
+  if (changeTone(value) === "neutral") return "0";
+  return `${value > 0 ? "+" : ""}${value}%`;
+}
+
+/** One aligned point of the relative-performance chart. */
+export interface SimulationChartPoint {
+  date: string;
+  customValue: number;
+  customReturnPct: number;
+  benchmarkReturnPct: number | null;
+}
+
+/**
+ * Build the aligned chart data with relative percentage returns from the
+ * start of the period.
+ *
+ * Both series are rebased on their own start value, so the first point of the
+ * chart is 0% for the custom index *and* for the benchmark. The benchmark
+ * baseline is the last benchmark close on or before the custom start date, and
+ * a benchmark that is closed on that day carries its last known value
+ * forward.
+ */
+export function buildSimulationChartData(
+  filteredCustomSeries: PricePoint[],
+  filteredBenchmarkSeries: PricePoint[],
+  baseValue: number,
+): SimulationChartPoint[] {
+  if (filteredCustomSeries.length === 0) return [];
+
+  const customBase =
+    filteredCustomSeries[0].value ?? filteredCustomSeries[0].close ?? baseValue;
+
+  // Create a benchmark lookup map by date
+  const benchmarkMap = new Map(filteredBenchmarkSeries.map((b) => [b.date, b.close]));
+
+  // Find the benchmark baseline price corresponding to custom start date.
+  const customStartDate = filteredCustomSeries[0].date;
+  let benchmarkBase = 0;
+  for (const b of filteredBenchmarkSeries) {
+    if (b.date <= customStartDate && b.close > 0) {
+      benchmarkBase = b.close;
+    } else if (b.date > customStartDate) {
+      break;
+    }
+  }
+  if (benchmarkBase <= 0 && filteredBenchmarkSeries.length > 0) {
+    benchmarkBase = filteredBenchmarkSeries.find((b) => b.close > 0)?.close || 0;
+  }
+
+  let lastKnownBmVal = benchmarkBase;
+
+  return filteredCustomSeries.map((point) => {
+    const customVal = point.value ?? point.close;
+    const customReturnPct =
+      customBase > 0 ? ((customVal - customBase) / customBase) * 100 : 0;
+
+    const rawBmVal = benchmarkMap.get(point.date);
+    if (rawBmVal !== undefined && rawBmVal > 0) {
+      lastKnownBmVal = rawBmVal;
+    }
+    const bmVal = rawBmVal ?? (lastKnownBmVal > 0 ? lastKnownBmVal : undefined);
+    const benchmarkReturnPct =
+      bmVal !== undefined && benchmarkBase > 0
+        ? ((bmVal - benchmarkBase) / benchmarkBase) * 100
+        : null;
+
+    return {
+      date: point.date,
+      customValue: customVal,
+      customReturnPct:
+        Number.isFinite(customReturnPct) ? Number(customReturnPct.toFixed(2)) : 0,
+      benchmarkReturnPct:
+        benchmarkReturnPct !== null && Number.isFinite(benchmarkReturnPct)
+          ? Number(benchmarkReturnPct.toFixed(2))
+          : null,
+    };
+  });
+}
 
 export function SimulationPreview({
   simulation,
@@ -62,58 +157,11 @@ export function SimulationPreview({
   } = simulation;
 
   // Build aligned chart data with relative percentage returns from start of period
-  const chartData = useMemo(() => {
-    if (filteredCustomSeries.length === 0) return [];
-
-    const customBase =
-      filteredCustomSeries[0].value ?? filteredCustomSeries[0].close ?? baseValue;
-
-    // Create a benchmark lookup map by date
-    const benchmarkMap = new Map(filteredBenchmarkSeries.map((b) => [b.date, b.close]));
-
-    // Find the benchmark baseline price corresponding to custom start date.
-    const customStartDate = filteredCustomSeries[0].date;
-    let benchmarkBase = 0;
-    for (const b of filteredBenchmarkSeries) {
-      if (b.date <= customStartDate && b.close > 0) {
-        benchmarkBase = b.close;
-      } else if (b.date > customStartDate) {
-        break;
-      }
-    }
-    if (benchmarkBase <= 0 && filteredBenchmarkSeries.length > 0) {
-      benchmarkBase = filteredBenchmarkSeries.find((b) => b.close > 0)?.close || 0;
-    }
-
-    let lastKnownBmVal = benchmarkBase;
-
-    return filteredCustomSeries.map((point) => {
-      const customVal = point.value ?? point.close;
-      const customReturnPct =
-        customBase > 0 ? ((customVal - customBase) / customBase) * 100 : 0;
-
-      const rawBmVal = benchmarkMap.get(point.date);
-      if (rawBmVal !== undefined && rawBmVal > 0) {
-        lastKnownBmVal = rawBmVal;
-      }
-      const bmVal = rawBmVal ?? (lastKnownBmVal > 0 ? lastKnownBmVal : undefined);
-      const benchmarkReturnPct =
-        bmVal !== undefined && benchmarkBase > 0
-          ? ((bmVal - benchmarkBase) / benchmarkBase) * 100
-          : null;
-
-      return {
-        date: point.date,
-        customValue: customVal,
-        customReturnPct:
-          Number.isFinite(customReturnPct) ? Number(customReturnPct.toFixed(2)) : 0,
-        benchmarkReturnPct:
-          benchmarkReturnPct !== null && Number.isFinite(benchmarkReturnPct)
-            ? Number(benchmarkReturnPct.toFixed(2))
-            : null,
-      };
-    });
-  }, [filteredCustomSeries, filteredBenchmarkSeries, baseValue]);
+  const chartData = useMemo(
+    () =>
+      buildSimulationChartData(filteredCustomSeries, filteredBenchmarkSeries, baseValue),
+    [filteredCustomSeries, filteredBenchmarkSeries, baseValue],
+  );
 
   const currentBenchmarkLabel =
     AVAILABLE_BENCHMARKS.find((b) => b.symbol === selectedBenchmark)?.shortLabel || "ベンチマーク";
@@ -310,38 +358,20 @@ export function SimulationPreview({
       >
         <MiniStatCard
           label="期間リターン"
-          value={`${periodCustomReturnPct > 0 ? "+" : ""}${periodCustomReturnPct}%`}
-          valueColor={
-            periodCustomReturnPct > 0
-              ? "var(--neon-green)"
-              : periodCustomReturnPct < 0
-                ? "var(--neon-red)"
-                : "var(--text-primary)"
-          }
-          sub={`vs ${currentBenchmarkLabel} (${periodBenchmarkReturnPct > 0 ? "+" : ""}${periodBenchmarkReturnPct}%)`}
+          value={signedPctText(periodCustomReturnPct)}
+          valueColor={toneColor(periodCustomReturnPct)}
+          sub={`vs ${currentBenchmarkLabel} (${signedPctText(periodBenchmarkReturnPct)})`}
         />
         <MiniStatCard
           label="超過リターン (α)"
-          value={`${alphaPct > 0 ? "+" : ""}${alphaPct}%`}
-          valueColor={
-            alphaPct > 0
-              ? "var(--neon-green)"
-              : alphaPct < 0
-                ? "var(--neon-red)"
-                : "var(--text-primary)"
-          }
+          value={signedPctText(alphaPct)}
+          valueColor={toneColor(alphaPct)}
           sub={`vs ${currentBenchmarkLabel}${usingDemoBenchmark ? " (デモ比較)" : ""}`}
         />
         <MiniStatCard
           label="年率換算リターン"
-          value={`${metrics.annualReturn > 0 ? "+" : ""}${metrics.annualReturn.toFixed(1)}%`}
-          valueColor={
-            metrics.annualReturn > 0
-              ? "var(--neon-green)"
-              : metrics.annualReturn < 0
-                ? "var(--neon-red)"
-                : "var(--text-primary)"
-          }
+          value={formatSignedPercent(metrics.annualReturn, 1)}
+          valueColor={toneColor(metrics.annualReturn)}
           sub="CAGR 相当"
         />
         <MiniStatCard
@@ -364,8 +394,14 @@ export function SimulationPreview({
         />
         <MiniStatCard
           label="最大ドローダウン"
-          value={`-${metrics.maxDrawdown.toFixed(1)}%`}
-          valueColor="var(--neon-red)"
+          // `-${maxDrawdown.toFixed(1)}%` rendered "-0.0%" for a flat period;
+          // a zero drawdown is neutral, not a loss (UI-28).
+          value={formatDrawdownPercent(metrics.maxDrawdown)}
+          valueColor={
+            changeTone(metrics.maxDrawdown, 1) === "neutral"
+              ? "var(--text-primary)"
+              : "var(--neon-red)"
+          }
           sub="ピークからの最大下落"
         />
       </div>

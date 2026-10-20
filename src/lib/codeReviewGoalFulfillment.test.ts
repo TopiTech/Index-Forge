@@ -1,11 +1,28 @@
+// @vitest-environment jsdom
+/**
+ * Regression suite for the code-review goal fulfillment items.
+ *
+ * The calendar empty-state reset is asserted on the rendered DOM: the old
+ * contract only reset the event-type tab, so the importance / market / search
+ * filters survived the reset and the empty state reappeared immediately.
+ */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { readFileSync } from "fs";
-import { resolve } from "path";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { createElement } from "react";
 import {
   loadPortfolioPositions,
   savePortfolioPositions,
   addPortfolioPosition,
 } from "./portfolioStorage";
+import { CalendarPage } from "../components/CalendarPage";
+import { ToastProvider } from "../components/Toast";
+
+// The jsdom environment externalizes the Node built-ins, so the sources are
+// read through Vite's `?raw` suffix instead of `fs`/`path`.
+import portfolioTsx from "../components/PortfolioManagerPage.tsx?raw";
+import appTsx from "../App.tsx?raw";
+import calendarTsx from "../components/CalendarPage.tsx?raw";
+import searchModalTsx from "../components/GlobalSearchModal.tsx?raw";
 
 function stubLocalStorage(): Map<string, string> {
   const store = new Map<string, string>();
@@ -27,23 +44,12 @@ function stubLocalStorage(): Map<string, string> {
 }
 
 describe("Code Review Goal Fulfillment & Regression Verification", () => {
-  const rootDir = process.cwd();
-  const portfolioTsx = readFileSync(
-    resolve(rootDir, "src/components/PortfolioManagerPage.tsx"),
-    "utf-8",
-  );
-  const appTsx = readFileSync(resolve(rootDir, "src/App.tsx"), "utf-8");
-  const calendarTsx = readFileSync(resolve(rootDir, "src/components/CalendarPage.tsx"), "utf-8");
-  const searchModalTsx = readFileSync(
-    resolve(rootDir, "src/components/GlobalSearchModal.tsx"),
-    "utf-8",
-  );
-
   beforeEach(() => {
     stubLocalStorage();
   });
 
   afterEach(() => {
+    cleanup();
     vi.unstubAllGlobals();
   });
 
@@ -178,8 +184,64 @@ describe("Code Review Goal Fulfillment & Regression Verification", () => {
     });
 
     it("provides accessible reset filter button in CalendarPage empty state", () => {
-      expect(calendarTsx).toContain('onClick={() => setActiveFilter("ALL")}');
+      expect(calendarTsx).toContain("onClick={resetAllFilters}");
       expect(calendarTsx).toContain("すべてのイベントを表示");
+      // The reset helper must clear every filter, not only the event type.
+      expect(calendarTsx).toContain('setActiveFilter("ALL")');
+      expect(calendarTsx).toContain('setImportanceFilter("ALL")');
+      expect(calendarTsx).toContain('setMarketFilter("ALL")');
+      expect(calendarTsx).toContain('setSearchQuery("")');
+    });
+
+    it("clears all four filters when the empty-state reset button is pressed", () => {
+      // The calendar endpoint is unreachable in the test environment: the page
+      // falls back to its generated (reference) events, which is enough to
+      // exercise the filters.
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => {
+          throw new Error("network disabled in test");
+        }),
+      );
+
+      render(
+        createElement(
+          ToastProvider,
+          null,
+          createElement(CalendarPage, {
+            onNavigate: vi.fn(),
+            onOpenStockDetail: vi.fn(),
+          }),
+        ),
+      );
+
+      const searchInput = screen.getByLabelText("イベント・銘柄名検索") as HTMLInputElement;
+      const importanceSelect = screen.getByLabelText(
+        "重要度フィルター",
+      ) as HTMLSelectElement;
+      const marketSelect = screen.getByLabelText("市場・地域フィルター") as HTMLSelectElement;
+      const allTypesTab = screen.getByRole("button", { name: "全イベント" });
+
+      // Apply all four filters.
+      fireEvent.click(screen.getByRole("button", { name: "主要企業決算" }));
+      fireEvent.change(importanceSelect, { target: { value: "LOW" } });
+      fireEvent.change(marketSelect, { target: { value: "US" } });
+      fireEvent.change(searchInput, { target: { value: "存在しない銘柄ZZZZ" } });
+
+      expect(screen.getByText("該当するイベントが見つかりませんでした")).toBeTruthy();
+      expect(allTypesTab.getAttribute("aria-pressed")).toBe("false");
+
+      // The empty state offers the reset.
+      fireEvent.click(screen.getByRole("button", { name: "すべてのイベントを表示" }));
+
+      // Every filter is back to its default, not only the event type.
+      expect(searchInput.value).toBe("");
+      expect(importanceSelect.value).toBe("ALL");
+      expect(marketSelect.value).toBe("ALL");
+      expect(allTypesTab.getAttribute("aria-pressed")).toBe("true");
+
+      // ...and the events are visible again.
+      expect(screen.queryByText("該当するイベントが見つかりませんでした")).toBeNull();
     });
   });
 

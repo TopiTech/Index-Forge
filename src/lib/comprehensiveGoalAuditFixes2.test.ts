@@ -1,24 +1,30 @@
+// @vitest-environment jsdom
+/**
+ * Regression suite for the comprehensive goal audit fixes (accessibility &
+ * security).
+ *
+ * The accessibility requirements are split in two:
+ *
+ * - the source-contract assertions below read the real production sources, so
+ *   they fail as soon as the markup in `src/components/*.tsx` regresses;
+ * - the keyboard-activation contract is a *behavioural* one, so it is checked
+ *   against a rendered production component (`ThemeHeatmap`) instead of a
+ *   copy of the handler that used to live in this file.
+ */
 import { describe, it, expect, vi } from "vitest";
-import fs from "fs";
-import path from "path";
+import { createElement } from "react";
+import { createEvent, fireEvent, render, screen } from "@testing-library/react";
+import { ThemeHeatmap } from "../components/ThemeHeatmap";
+import type { StockDetail } from "../types";
+
+import portfolioTsx from "../components/PortfolioManagerPage.tsx?raw";
+import calendarTsx from "../components/CalendarPage.tsx?raw";
+import screenerTsx from "../components/ScreenerPage.tsx?raw";
+import stockDetailTsx from "../components/StockDetailPage.tsx?raw";
 
 describe("Comprehensive Goal Audit Fixes 2: Accessibility & Security Enhancements", () => {
-  const portfolioTsx = fs.readFileSync(
-    path.resolve(process.cwd(), "src/components/PortfolioManagerPage.tsx"),
-    "utf-8",
-  );
-  const calendarTsx = fs.readFileSync(
-    path.resolve(process.cwd(), "src/components/CalendarPage.tsx"),
-    "utf-8",
-  );
-  const screenerTsx = fs.readFileSync(
-    path.resolve(process.cwd(), "src/components/ScreenerPage.tsx"),
-    "utf-8",
-  );
-  const stockDetailTsx = fs.readFileSync(
-    path.resolve(process.cwd(), "src/components/StockDetailPage.tsx"),
-    "utf-8",
-  );
+  // The jsdom environment externalizes the Node built-ins, so the production
+  // sources are read through Vite's `?raw` suffix instead of `fs`/`path`.
 
   describe("PortfolioManagerPage Accessibility & Modal Standards", () => {
     it("imports and uses ModalBase for Add Position dialog", () => {
@@ -110,44 +116,75 @@ describe("Comprehensive Goal Audit Fixes 2: Accessibility & Security Enhancement
   });
 
   describe("Keyboard activation handler logic verification", () => {
-    function createKeyboardHandler(onAction: () => void) {
-      return (e: { key: string; preventDefault: () => void }) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          onAction();
-        }
-      };
+    /**
+     * The Enter/Space activation contract is production code: a keyboard
+     * activatable element (`role="button"`, `tabIndex={0}`) must run its action
+     * and cancel the default browser behaviour for both keys, and must ignore
+     * every other key. `ThemeHeatmap` implements that contract inline, so it
+     * is rendered for real here — the previous version of this block re-implemented
+     * the handler inside the test file, which could never fail when the
+     * production handler broke.
+     */
+    const HEATMAP_STOCK: StockDetail = {
+      ticker: "7203.T",
+      name: "トヨタ",
+      theme: "EV",
+      weight: 100,
+      currentPrice: 3000,
+      previousPrice: 2900,
+      change: 100,
+      changePct: 3.45,
+      contributionPt: 34.5,
+      contributionPct: 34.5,
+      sparkline: [2900, 2950, 3000],
+    };
+
+    function renderHeatmapTile(onSelectTheme: (theme: string | null) => void) {
+      render(
+        createElement(ThemeHeatmap, {
+          stockDetails: [HEATMAP_STOCK],
+          selectedTheme: null,
+          onSelectTheme,
+        }),
+      );
+      return screen.getByRole("button", { name: /トヨタ \(7203\.T\)/ });
     }
 
     it("triggers action and prevents default on Enter", () => {
-      const onAction = vi.fn();
-      const preventDefault = vi.fn();
-      const handler = createKeyboardHandler(onAction);
+      const onSelectTheme = vi.fn();
+      const tile = renderHeatmapTile(onSelectTheme);
 
-      handler({ key: "Enter", preventDefault });
-      expect(onAction).toHaveBeenCalledTimes(1);
-      expect(preventDefault).toHaveBeenCalledTimes(1);
+      const event = createEvent.keyDown(tile, { key: "Enter" });
+      fireEvent(tile, event);
+
+      expect(onSelectTheme).toHaveBeenCalledTimes(1);
+      expect(onSelectTheme).toHaveBeenCalledWith("EV");
+      expect(event.defaultPrevented).toBe(true);
     });
 
     it("triggers action and prevents default on Space", () => {
-      const onAction = vi.fn();
-      const preventDefault = vi.fn();
-      const handler = createKeyboardHandler(onAction);
+      const onSelectTheme = vi.fn();
+      const tile = renderHeatmapTile(onSelectTheme);
 
-      handler({ key: " ", preventDefault });
-      expect(onAction).toHaveBeenCalledTimes(1);
-      expect(preventDefault).toHaveBeenCalledTimes(1);
+      const event = createEvent.keyDown(tile, { key: " " });
+      fireEvent(tile, event);
+
+      expect(onSelectTheme).toHaveBeenCalledTimes(1);
+      expect(onSelectTheme).toHaveBeenCalledWith("EV");
+      expect(event.defaultPrevented).toBe(true);
     });
 
     it("ignores other keys like Tab or Escape", () => {
-      const onAction = vi.fn();
-      const preventDefault = vi.fn();
-      const handler = createKeyboardHandler(onAction);
+      const onSelectTheme = vi.fn();
+      const tile = renderHeatmapTile(onSelectTheme);
 
-      handler({ key: "Tab", preventDefault });
-      handler({ key: "Escape", preventDefault });
-      expect(onAction).not.toHaveBeenCalled();
-      expect(preventDefault).not.toHaveBeenCalled();
+      for (const key of ["Tab", "Escape"]) {
+        const event = createEvent.keyDown(tile, { key });
+        fireEvent(tile, event);
+        expect(event.defaultPrevented).toBe(false);
+      }
+
+      expect(onSelectTheme).not.toHaveBeenCalled();
     });
   });
 });

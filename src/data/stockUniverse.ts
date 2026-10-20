@@ -10,6 +10,10 @@
  */
 
 import { POPULAR_STOCKS } from "./popularStocksData";
+// PERF-01: the implementation lives in `src/lib/searchNormalize` so the eager
+// `marketDataService` graph no longer imports this 4,800-line universe module
+// just to normalize a query. Re-exported below for backward compatibility.
+import { normalizeSearchQuery } from "../lib/searchNormalize";
 
 export type StockMarket =
   | "PRIME"
@@ -4616,18 +4620,10 @@ export const ALL_UNIVERSE_STOCKS: UniverseStock[] = RAW_UNIVERSE.map((row) => {
 });
 
 /**
- * Normalizes user queries for Japanese financial search:
- * 1. Unicode NFKC (Half-width Katakana -> Full-width, Full-width alphanumeric -> Half-width, Ideographic space -> ASCII space)
- * 2. Hiragana -> Katakana (とよた -> トヨタ)
- * 3. Lowercase English
+ * Search-query normalizer. The implementation moved to `src/lib/searchNormalize`
+ * (PERF-01) and is re-exported here so existing imports and tests keep working.
  */
-export function normalizeSearchQuery(query: string): string {
-  if (!query) return "";
-  const nfkc = query.normalize("NFKC").trim();
-  return nfkc
-    .replace(/[ぁ-ゖ]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) + 0x60))
-    .toLowerCase();
-}
+export { normalizeSearchQuery };
 
 /**
  * Ultra-fast in-memory client-side stock search across 4,500+ instruments.

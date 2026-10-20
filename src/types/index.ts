@@ -79,6 +79,13 @@ export interface AuthSession {
   maxStocks: number | null;
   maxIndices?: number | null;
   id?: string;
+  /**
+   * Short-lived administrator session token issued by `/api/auth/admin-login`
+   * (SEC-01). Every `/api/admin/*` call presents it as `x-admin-session`; the
+   * password alone is not accepted in production. Absent for non-admin
+   * sessions and for legacy sessions written before the token existed.
+   */
+  adminToken?: string;
 }
 
 export interface UserPasswordItem {

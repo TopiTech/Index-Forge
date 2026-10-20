@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { motion } from "framer-motion";
 import {
   TrendingUp,
@@ -19,8 +19,18 @@ import {
   type MarketAssetQuote,
 } from "../lib/marketDataService";
 import { Skeleton, SkeletonStatGrid, SkeletonCard, SkeletonTable } from "./Skeleton";
+import { changeTone, formatSignedPercent } from "./changeTone";
 import type { PageView } from "../lib/navigation";
 import { useRegisterFreshness } from "../contexts/FreshnessContext";
+
+/**
+ * `/api/market/overview` marks an asset that fell back to its previous quote or
+ * to the static baseline with `stale: true` (DATA-03). The flag is additive, so
+ * it is read defensively here instead of assuming every payload carries it.
+ */
+function isStaleAsset(asset: MarketAssetQuote): boolean {
+  return (asset as MarketAssetQuote & { stale?: boolean }).stale === true;
+}
 
 interface MarketOverviewPageProps {
   onNavigate: (view: PageView, searchParams?: string) => void;
@@ -84,10 +94,20 @@ export function MarketOverviewPage({
   const [fetchedAt, setFetchedAt] = useState<number | null>(null);
   const [selectedAssetTab, setSelectedAssetTab] = useState<"ALL" | "INDEX" | "FX" | "COMMODITY" | "CRYPTO">("ALL");
 
+  // Assets the Worker could not refresh (previous quote / static baseline).
+  // Computed before the freshness registration so the header badge never
+  // claims LIVE for a payload that is only partially live.
+  const staleAssetCount = useMemo(() => {
+    if (!data) return 0;
+    return [...data.indices, ...data.forex, ...data.commodities, ...data.crypto].filter(
+      isStaleAsset,
+    ).length;
+  }, [data]);
+
   useRegisterFreshness("market", {
     loading,
     updatedAt: data?.dataAsOf || (data ? fetchedAt : null),
-    stale: data?.dataSource === "fallback",
+    stale: Boolean(data) && (data?.dataSource !== "live" || staleAssetCount > 0),
     typeLabel: "市況サマリー",
   });
 
@@ -177,6 +197,13 @@ export function MarketOverviewPage({
     ...data.crypto,
   ];
 
+  const dataSource: string | undefined = data.dataSource;
+  const isFallbackData = dataSource === "fallback";
+  // "mixed" (or a live payload that still carries stale assets) must never be
+  // presented as fully live: some of the cards are reference values.
+  const isMixedData = !isFallbackData && (dataSource === "mixed" || staleAssetCount > 0);
+  const isFullyLive = !isFallbackData && !isMixedData;
+
   const displayedAssets =
     selectedAssetTab === "ALL"
       ? allAssets
@@ -192,7 +219,7 @@ export function MarketOverviewPage({
       className="page-container market-overview-page"
     >
       {/* Explicit Fallback Notice Banner */}
-      {data.dataSource === "fallback" && (
+      {isFallbackData && (
         <div
           role="note"
           style={{
@@ -221,11 +248,37 @@ export function MarketOverviewPage({
             className="btn btn-xs btn-outline"
             onClick={() => void loadData(true)}
             disabled={loading}
+            aria-busy={loading}
             style={{ borderColor: "rgba(245, 158, 11, 0.4)", color: "var(--text-primary)" }}
           >
             <RefreshCw size={11} className={loading ? "spin" : ""} style={{ marginRight: 4 }} />
             <span>再取得</span>
           </button>
+        </div>
+      )}
+
+      {/* Partial (mixed) provenance notice: some cards are reference values */}
+      {isMixedData && (
+        <div
+          role="note"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "8px",
+            padding: "10px 16px",
+            marginBottom: "20px",
+            borderRadius: "8px",
+            background: "rgba(245, 158, 11, 0.08)",
+            border: "1px solid rgba(245, 158, 11, 0.3)",
+            fontSize: "0.85rem",
+            color: "var(--neon-amber, #f59e0b)",
+          }}
+        >
+          <AlertTriangle size={16} style={{ flexShrink: 0 }} />
+          <span>
+            一部の資産（{staleAssetCount}件）は実データを取得できなかったため、
+            <strong>前回値または基準値（参考値）</strong>を表示しています。
+          </span>
         </div>
       )}
 
@@ -243,7 +296,7 @@ export function MarketOverviewPage({
         <div>
           <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px", flexWrap: "wrap" }}>
             <span className="badge badge-accent mono tiny">MARKET INTELLIGENCE</span>
-            {data.dataSource === "fallback" ? (
+            {isFallbackData ? (
               <span
                 className="badge mono tiny"
                 title="実データの取得に失敗したため、静的ベースラインデータを表示しています"
@@ -255,7 +308,27 @@ export function MarketOverviewPage({
               >
                 参考値 (フォールバック)
               </span>
+            ) : isMixedData ? (
+              <span
+                className="badge mono tiny"
+                title={`${staleAssetCount}件の資産が前回値または基準値です`}
+                style={{
+                  background: "rgba(245, 158, 11, 0.12)",
+                  border: "1px solid rgba(245, 158, 11, 0.35)",
+                  color: "var(--neon-amber)",
+                }}
+              >
+                一部参考値 ({staleAssetCount})
+              </span>
             ) : (
+              <span
+                className="badge badge-success mono tiny"
+                title="全資産が実データで取得されています"
+              >
+                LIVE
+              </span>
+            )}
+            {isFullyLive && (
               <span className="tiny muted mono">GLOBAL & TSE REAL-TIME MONITOR</span>
             )}
             {data.dataAsOf && (
@@ -283,6 +356,8 @@ export function MarketOverviewPage({
             className="btn btn-sm btn-outline"
             onClick={() => void loadData(true)}
             title="最新データを再取得"
+            disabled={loading}
+            aria-busy={loading}
           >
             <RefreshCw size={13} className={loading ? "spin" : ""} />
             <span>更新</span>
@@ -428,7 +503,23 @@ export function MarketOverviewPage({
         }}
       >
         {displayedAssets.map((asset) => {
-          const isPositive = asset.changePercent >= 0;
+          // Zero (or a value that rounds to zero) is neutral: it must not
+          // inherit the "gain" colour/arrow (UI-28).
+          const assetIsStale = isStaleAsset(asset);
+          const changeDigits = asset.category === "FX" && Math.abs(asset.price) < 20 ? 4 : 2;
+          const tone = changeTone(asset.changePercent);
+          const isPositive = tone === "positive";
+          const isNegative = tone === "negative";
+          const toneColor =
+            tone === "positive"
+              ? "var(--color-positive)"
+              : tone === "negative"
+                ? "var(--color-negative)"
+                : "var(--text-muted)";
+          const changeText =
+            changeTone(asset.change, changeDigits) === "neutral"
+              ? (0).toFixed(changeDigits)
+              : asset.change.toFixed(changeDigits);
           return (
             <div
               key={asset.symbol}
@@ -480,6 +571,15 @@ export function MarketOverviewPage({
                     <span className="badge badge-default mono tiny" style={{ fontSize: "0.68rem" }}>
                       {asset.category}
                     </span>
+                    {assetIsStale && (
+                      <span
+                        className="badge badge-default mono tiny"
+                        style={{ fontSize: "0.62rem", padding: "1px 5px" }}
+                        title="実データを取得できなかったため、前回値または基準値（参考値）を表示しています"
+                      >
+                        参考値
+                      </span>
+                    )}
                   </div>
                 </div>
                 <h3 style={{ fontSize: "1.05rem", fontWeight: 600, margin: 0 }}>
@@ -505,19 +605,16 @@ export function MarketOverviewPage({
                       gap: "4px",
                       fontSize: "0.85rem",
                       fontWeight: 600,
-                      color: isPositive ? "var(--color-positive)" : "var(--color-negative)",
+                      color: toneColor,
                       marginTop: "2px",
                     }}
                     className="mono"
                   >
-                    {isPositive ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
+                    {isPositive && <TrendingUp size={14} />}
+                    {isNegative && <TrendingDown size={14} />}
                     <span>
                       {isPositive ? "+" : ""}
-                      {asset.category === "FX" && Math.abs(asset.price) < 20
-                        ? asset.change.toFixed(4)
-                        : asset.change.toFixed(2)}{" "}
-                      ({isPositive ? "+" : ""}
-                      {asset.changePercent.toFixed(2)}%)
+                      {changeText} ({formatSignedPercent(asset.changePercent)})
                     </span>
                   </div>
                 </div>
@@ -539,7 +636,7 @@ export function MarketOverviewPage({
                             style={{
                               flex: 1,
                               height: `${heightPercent}%`,
-                              background: isPositive ? "var(--color-positive)" : "var(--color-negative)",
+                              background: toneColor,
                               opacity: 0.35 + (idx / validData.length) * 0.65,
                               borderRadius: "2px",
                             }}
@@ -576,7 +673,10 @@ export function MarketOverviewPage({
 
           <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
             {data.sectors.map((sector) => {
-              const isPos = sector.changePercent >= 0;
+              // A flat sector (0.00%) is neutral: no colour, no sign, no bar.
+              const sectorTone = changeTone(sector.changePercent);
+              const isPos = sectorTone === "positive";
+              const isNeg = sectorTone === "negative";
               const barWidth = Math.min(100, Math.abs(sector.changePercent) * 25);
               return (
                 <div key={sector.name} className="market-sector-row" style={{ display: "flex", alignItems: "center", gap: "12px" }}>
@@ -596,10 +696,14 @@ export function MarketOverviewPage({
                     <div
                       style={{
                         position: "absolute",
-                        left: isPos ? "50%" : `calc(50% - ${barWidth / 2}%)`,
+                        left: isPos ? "50%" : isNeg ? `calc(50% - ${barWidth / 2}%)` : "50%",
                         width: `${barWidth / 2}%`,
                         height: "100%",
-                        background: isPos ? "var(--color-positive)" : "var(--color-negative)",
+                        background: isPos
+                          ? "var(--color-positive)"
+                          : isNeg
+                            ? "var(--color-negative)"
+                            : "var(--text-muted)",
                         borderRadius: "2px",
                       }}
                     />
@@ -609,11 +713,14 @@ export function MarketOverviewPage({
                     style={{
                       width: "55px",
                       textAlign: "right",
-                      color: isPos ? "var(--color-positive)" : "var(--color-negative)",
+                      color: isPos
+                        ? "var(--color-positive)"
+                        : isNeg
+                          ? "var(--color-negative)"
+                          : "var(--text-muted)",
                     }}
                   >
-                    {isPos ? "+" : ""}
-                    {sector.changePercent.toFixed(2)}%
+                    {formatSignedPercent(sector.changePercent)}
                   </span>
                 </div>
               );

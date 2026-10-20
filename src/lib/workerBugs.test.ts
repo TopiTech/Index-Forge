@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import worker from "../../worker/index";
+import { SYNC_DAILY_TICKER_BUDGET, resetSyncFailureState } from "../../worker/internal";
+
+const workerSrc = readFileSync(resolve(process.cwd(), "worker/internal-impl.ts"), "utf-8");
 
 type SyncLogRow = { ticker: string; last_synced_at: number };
 type RateLimitRow = { ip: string; endpoint: string; request_count: number; window_start: number };
@@ -14,6 +19,8 @@ interface StatefulEnv {
   _rateLimits: Map<string, RateLimitRow>;
   _stockPrices: Map<string, { ticker: string; date: string; price: number }>;
   _stockSeries: Map<string, { ticker: string; prices: string; updated_at: number }>;
+  /** Charged ticker budget per `ip::day` (SEC-11 daily quota). */
+  _syncQuota: Map<string, number>;
 }
 
 function createStatefulEnv(): StatefulEnv {
@@ -25,6 +32,7 @@ function createStatefulEnv(): StatefulEnv {
     _rateLimits: new Map(),
     _stockPrices: new Map(),
     _stockSeries: new Map(),
+    _syncQuota: new Map(),
     DB: undefined as unknown as StatefulEnv["DB"],
     batch: vi.fn(),
   } as StatefulEnv;
@@ -51,6 +59,19 @@ function createStatefulEnv(): StatefulEnv {
         env._rateLimits.set(k, { ip, endpoint, request_count: 1, window_start: now });
         return { results: [], changes: 1 };
       }
+    }
+    if (query.includes("INSERT INTO sync_quota")) {
+      // Params: [ip, day, tickers, budget]. The real statement only applies
+      // the update while the daily total stays within the budget, so an
+      // exhausted budget reports "no row changed".
+      const [ip, day, tickers, budget] = params as [string, string, number, number];
+      const k = `${ip}::${day}`;
+      const used = env._syncQuota.get(k) ?? 0;
+      if (used + tickers > budget) {
+        return { results: [], changes: 0 };
+      }
+      env._syncQuota.set(k, used + tickers);
+      return { results: [], changes: 1 };
     }
     if (query.includes("FROM sync_logs") && query.includes("SELECT")) {
       const tickers = params as string[];
@@ -132,12 +153,16 @@ describe("worker: failed Yahoo synchronization backoff", () => {
 
   beforeEach(() => {
     originalFetch = globalThis.fetch;
+    // The failure back-off lives in module scope, so a ticker that failed in
+    // one test would be skipped in the next one and hide the behaviour under
+    // test.
+    resetSyncFailureState();
   });
   afterEach(() => {
     globalThis.fetch = originalFetch;
   });
 
-  it("records a short failure backoff without reporting missing prices as cached", async () => {
+  it("records a short failure backoff in memory without reporting missing prices as cached", async () => {
     globalThis.fetch = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ chart: { error: { code: "Too Many Requests" } } }), {
         status: 429,
@@ -155,12 +180,16 @@ describe("worker: failed Yahoo synchronization backoff", () => {
     const res1 = await worker.fetch(req, env as any);
     const data1 = await res1.json();
     expect(data1.results[0].status).toBe("failed");
+    // A failed fetch must never be reported as "cached": the client would
+    // persist that status and suppress later retries despite having no
+    // fresh prices.
+    expect(data1.results[0].status).not.toBe("cached");
 
-    // A negative timestamp distinguishes a failed fetch from a successful
-    // synchronization. It prevents a retry storm without making the client
-    // believe its price data is fresh.
-    expect(env._syncLogs.has("7203")).toBe(true);
-    expect(env._syncLogs.get("7203")?.last_synced_at).toBeLessThan(0);
+    // SEC-11: the negative sync_logs marker is not written any more (an
+    // unauthenticated caller could turn every failed Yahoo fetch into a D1
+    // write). The retry window lives in the Worker's in-memory map, so the
+    // database must not record a failure for this ticker at all.
+    expect(env._syncLogs.has("7203")).toBe(false);
 
     const res2 = await worker.fetch(
       new Request("http://localhost/api/sync-prices", {
@@ -172,7 +201,9 @@ describe("worker: failed Yahoo synchronization backoff", () => {
     );
     const data2 = await res2.json();
     expect(data2.results[0].status).toBe("failed");
-    // Only the first call should have hit Yahoo.
+    expect(data2.results[0].status).not.toBe("cached");
+    // Only the first call should have hit Yahoo: the in-memory back-off
+    // suppresses the immediate retry.
     expect((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1);
   });
 
@@ -199,6 +230,104 @@ describe("worker: failed Yahoo synchronization backoff", () => {
       clock.mockRestore();
     }
   });
+
+  it("still honours a legacy negative sync_logs marker without reporting it as cached", async () => {
+    // SEC-11: the negative marker is no longer written, but an already
+    // provisioned database keeps its rows, so the Worker must still read
+    // them and treat the ticker as failed (never as cached).
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ chart: { result: [{ timestamp: [], indicators: { quote: [{ close: [] }] } }] } }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+
+    const env = createStatefulEnv();
+    const now = Math.floor(Date.now() / 1000);
+    env._syncLogs.set("7203", { ticker: "7203", last_synced_at: -now });
+
+    const res = await worker.fetch(
+      new Request("http://localhost/api/sync-prices", {
+        method: "POST",
+        headers: { "cf-connecting-ip": "15.15.15.15" },
+        body: JSON.stringify({ tickers: ["7203"] }),
+      }),
+      env as any,
+    );
+
+    const data = await res.json();
+    expect(res.status).toBe(200);
+    expect(data.results[0].status).toBe("failed");
+    expect(data.results[0].status).not.toBe("cached");
+    // The back-off is still active, so Yahoo must not be contacted again.
+    expect((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.length).toBe(0);
+  });
+
+  it("rejects a request that exceeds the per-IP daily ticker budget with 429", async () => {
+    // SEC-11: the request rate limiter only caps the number of requests, so
+    // the endpoint also charges a daily ticker budget per IP.
+    const env = createStatefulEnv();
+    const day = new Date().toISOString().slice(0, 10);
+    env._syncQuota.set(`13.13.13.13::${day}`, SYNC_DAILY_TICKER_BUDGET);
+
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ chart: { result: [{ timestamp: [], indicators: { quote: [{ close: [] }] } }] } }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+
+    const res = await worker.fetch(
+      new Request("http://localhost/api/sync-prices", {
+        method: "POST",
+        headers: { "cf-connecting-ip": "13.13.13.13" },
+        body: JSON.stringify({ tickers: ["7203"] }),
+      }),
+      env as any,
+    );
+
+    
+
+    expect(res.status).toBe(429);
+    const data = await res.json();
+    // The client is told about the exhausted budget in Japanese (DATA-14).
+    expect(data.error).toContain("本日の価格同期上限に達しました");
+    // The request is rejected before any Yahoo Finance call.
+    expect((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.length).toBe(0);
+  });
+
+  it("does not charge the daily budget for tickers that are already cached", async () => {
+    // The budget must cover the work that is actually performed: a request
+    // whose tickers are all fresh performs no external call and must not
+    // consume the daily allowance.
+    const env = createStatefulEnv();
+    const day = new Date().toISOString().slice(0, 10);
+    env._syncQuota.set(`14.14.14.14::${day}`, 10);
+    env._syncLogs.set("7203", { ticker: "7203", last_synced_at: Math.floor(Date.now() / 1000) });
+
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ chart: { result: [{ timestamp: [], indicators: { quote: [{ close: [] }] } }] } }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+
+    const res = await worker.fetch(
+      new Request("http://localhost/api/sync-prices", {
+        method: "POST",
+        headers: { "cf-connecting-ip": "14.14.14.14" },
+        body: JSON.stringify({ tickers: ["7203"] }),
+      }),
+      env as any,
+    );
+
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.results[0].status).toBe("cached");
+    // The allowance is untouched and Yahoo was never contacted.
+    expect(env._syncQuota.get(`14.14.14.14::${day}`)).toBe(10);
+    expect((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.length).toBe(0);
+  });
 });
 
 describe("worker: R2 fetch timeout on Yahoo Finance", () => {
@@ -213,6 +342,7 @@ describe("worker: R2 fetch timeout on Yahoo Finance", () => {
 
   it("passes an AbortSignal-bound timeout to fetch so hung requests are aborted", async () => {
     let observedSignal: AbortSignal | undefined;
+    const timeoutSpy = vi.spyOn(AbortSignal, "timeout");
     globalThis.fetch = vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
       observedSignal = init?.signal as AbortSignal | undefined;
       // Simulate the request responding cleanly (so the rest of the flow runs).
@@ -230,15 +360,38 @@ describe("worker: R2 fetch timeout on Yahoo Finance", () => {
     const req = new Request("http://localhost/api/sync-prices", {
       method: "POST",
       headers: { "cf-connecting-ip": "5.6.7.8" },
-      body: JSON.stringify({ tickers: ["7203"] }),
+      // A ticker that is not inside the in-memory failure back-off of the
+      // other suites in this file: a backed-off ticker never reaches Yahoo,
+      // so no fetch would be issued for it.
+      body: JSON.stringify({ tickers: ["6758"] }),
     });
-    const res = await worker.fetch(req, env as any);
-    expect(res.status).toBe(200);
 
-    // The worker must pass an AbortSignal so a hung Yahoo connection can be aborted
-    // instead of consuming the entire worker CPU/wall-clock budget.
-    expect(observedSignal).toBeDefined();
-    expect(typeof observedSignal!.aborted).toBe("boolean");
+    try {
+      const res = await worker.fetch(req, env as any);
+      expect(res.status).toBe(200);
+
+      // The worker must pass an AbortSignal so a hung Yahoo connection can be aborted
+      // instead of consuming the entire worker CPU/wall-clock budget.
+      expect(observedSignal).toBeDefined();
+      expect(observedSignal).toBeInstanceOf(AbortSignal);
+      expect(typeof observedSignal!.aborted).toBe("boolean");
+      // The signal must still be live: it aborts on the timeout, not upfront.
+      expect(observedSignal!.aborted).toBe(false);
+      // The timeout signal is created through AbortSignal.timeout(...) with a
+      // positive budget (the Worker uses 8s for the Yahoo chart request).
+      expect(timeoutSpy).toHaveBeenCalled();
+      expect(
+        timeoutSpy.mock.calls.some((call) => Number(call[0]) > 0),
+      ).toBe(true);
+      // The Yahoo chart fetcher is the place that wires the timeout.
+      const fetchYahooSrc = workerSrc.slice(
+        workerSrc.indexOf("export async function fetchYahooFinance"),
+        workerSrc.indexOf("export async function fetchYahooFinance") + 2000,
+      );
+      expect(fetchYahooSrc).toContain("signal: AbortSignal.timeout(");
+    } finally {
+      timeoutSpy.mockRestore();
+    }
   });
 });
 
@@ -399,9 +552,9 @@ describe("worker: R4 sync-prices replaces stale stock_prices", () => {
 });
 
 describe("worker: sync-prices request guardrails", () => {
-  it("rejects more than 30 tickers instead of silently dropping the excess", async () => {
+  it("rejects more than 12 tickers instead of silently dropping the excess", async () => {
     const env = createStatefulEnv();
-    const tickers = Array.from({ length: 31 }, (_, index) => `T${index}`);
+    const tickers = Array.from({ length: 13 }, (_, index) => `T${index}`);
     const res = await worker.fetch(
       new Request("http://localhost/api/sync-prices", {
         method: "POST",
@@ -413,7 +566,8 @@ describe("worker: sync-prices request guardrails", () => {
 
     expect(res.status).toBe(400);
     const data = await res.json();
-    expect(data.error).toContain("30");
+    // SEC-11/DATA-07: the per-request cap is 12 tickers.
+    expect(data.error).toContain("12");
   });
 
   it("requires authentication before a caller can bypass the market-aware cache", async () => {
@@ -432,3 +586,5 @@ describe("worker: sync-prices request guardrails", () => {
     expect(data.error).toContain("強制同期");
   });
 });
+
+

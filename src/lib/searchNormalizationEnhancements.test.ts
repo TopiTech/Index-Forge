@@ -1,6 +1,104 @@
-import { describe, it, expect } from "vitest";
+// @vitest-environment jsdom
+/**
+ * Search-normalization regressions for the screener and the calendar.
+ *
+ * The calendar's event filter is not a standalone helper: it lives inside
+ * `src/components/CalendarPage.tsx`. These tests therefore drive the real
+ * component (the events are served through the production
+ * `/api/market/calendar` request) and assert which events survive the filter.
+ * Re-implementing the filter inside this file would keep passing even when
+ * the component breaks.
+ */
+import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { createElement } from "react";
 import { runStockScreener } from "./marketDataService";
+import { CalendarPage } from "../components/CalendarPage";
+import { ToastProvider } from "../components/Toast";
 import { normalizeSearchQuery, getUniverseStockByTicker } from "../data/stockUniverse";
+import type { CalendarEvent } from "./marketDataService";
+
+const TOYOTA_EVENT_TITLE = "トヨタ自動車 (7203) 決算発表";
+const FOMC_EVENT_TITLE = "FOMC 政策金利発表";
+const SONY_EVENT_TITLE = "ソニーグループ (6758) 決算発表";
+
+/**
+ * The events the Worker would serve from `/api/market/calendar`.
+ */
+const CALENDAR_FIXTURE: CalendarEvent[] = [
+  {
+    id: "ev-1",
+    date: "04/25",
+    type: "EARNINGS",
+    title: TOYOTA_EVENT_TITLE,
+    ticker: "7203",
+    companyName: "トヨタ自動車",
+    importance: "HIGH",
+    description: "2026年3月期 通期決算発表",
+  },
+  {
+    id: "ev-2",
+    date: "05/01",
+    type: "MACRO",
+    title: FOMC_EVENT_TITLE,
+    importance: "HIGH",
+    description: "米国連邦公開市場委員会 (FOMC) 声明公表",
+  },
+  {
+    id: "ev-3",
+    date: "05/10",
+    type: "EARNINGS",
+    title: SONY_EVENT_TITLE,
+    ticker: "6758",
+    companyName: "ソニーグループ",
+    importance: "HIGH",
+    description: "2026年3月期 決算発表",
+  },
+];
+
+/** Minimal `Response`-like payload for the stubbed `/api/market/calendar` call. */
+function jsonResponse(payload: unknown) {
+  return {
+    ok: true,
+    status: 200,
+    headers: { get: () => "application/json" },
+    json: async () => payload,
+  };
+}
+
+async function renderCalendar() {
+  render(
+    createElement(
+      ToastProvider,
+      null,
+      createElement(CalendarPage, {
+        onNavigate: vi.fn(),
+        onOpenStockDetail: vi.fn(),
+      }),
+    ),
+  );
+  // The page starts with the generated fallback calendar; the assertion below
+  // waits until the fetched events replaced it.
+  await screen.findByText(TOYOTA_EVENT_TITLE);
+}
+
+function searchEvents(query: string) {
+  fireEvent.change(screen.getByLabelText("イベント・銘柄名検索"), {
+    target: { value: query },
+  });
+}
+
+beforeEach(() => {
+  window.sessionStorage.clear();
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => jsonResponse(CALENDAR_FIXTURE)),
+  );
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 describe("Search Normalization Enhancements", () => {
   describe("runStockScreener query normalization", () => {
@@ -51,122 +149,79 @@ describe("Search Normalization Enhancements", () => {
     });
   });
 
+  describe("search normalization primitives used by the calendar filter", () => {
+    it("normalizes full-width digits and Hiragana to the indexed form", () => {
+      expect(normalizeSearchQuery("７２０３")).toBe("7203");
+      expect(normalizeSearchQuery("とよた")).toBe("トヨタ");
+      expect(normalizeSearchQuery("ｆｏｍｃ")).toBe("fomc");
+    });
+
+    it("exposes the romanized aliases of a universe stock", () => {
+      const toyota = getUniverseStockByTicker("7203");
+      expect(toyota).toBeDefined();
+      expect(toyota?.normAliases || "").toContain("toyota");
+    });
+  });
+
   describe("CalendarPage event search filtering logic", () => {
-    const mockEvents = [
-      {
-        id: "ev-1",
-        date: "04/25",
-        type: "EARNINGS" as const,
-        title: "トヨタ自動車 (7203) 決算発表",
-        ticker: "7203",
-        companyName: "トヨタ自動車",
-        importance: "HIGH" as const,
-        description: "2026年3月期 通期決算発表",
-      },
-      {
-        id: "ev-2",
-        date: "05/01",
-        type: "MACRO" as const,
-        title: "FOMC 政策金利発表",
-        importance: "HIGH" as const,
-        description: "米国連邦公開市場委員会 (FOMC) 声明公表",
-      },
-      {
-        id: "ev-3",
-        date: "05/10",
-        type: "EARNINGS" as const,
-        title: "ソニーグループ (6758) 決算発表",
-        ticker: "6758",
-        companyName: "ソニーグループ",
-        importance: "HIGH" as const,
-        description: "2026年3月期 決算発表",
-      },
-    ];
+    it("matches calendar earnings events with full-width ticker (７２０３)", async () => {
+      await renderCalendar();
 
-    function filterEvents(query: string) {
-      const rawQ = query.trim().toLowerCase();
-      const normQ = normalizeSearchQuery(query);
-      const tokens = normQ ? normQ.split(/\s+/).filter(Boolean) : [];
+      searchEvents("７２０３");
 
-      return mockEvents.filter((e) => {
-        if (!rawQ) return true;
-        const uStock = e.ticker ? getUniverseStockByTicker(e.ticker) : undefined;
-        const titleNorm = normalizeSearchQuery(e.title);
-        const titleLower = e.title.toLowerCase();
-        const tickerUpper = e.ticker ? e.ticker.toUpperCase() : "";
-        const tickerLower = e.ticker ? e.ticker.toLowerCase() : "";
-        const compNorm = e.companyName ? normalizeSearchQuery(e.companyName) : "";
-        const compLower = e.companyName ? e.companyName.toLowerCase() : "";
-        const descNorm = e.description ? normalizeSearchQuery(e.description) : "";
-        const descLower = e.description ? e.description.toLowerCase() : "";
-        const aliasesNorm = uStock?.normAliases || "";
-        const aliasesRaw = uStock?.rawAliasesLower || (uStock?.aliases ? uStock.aliases.toLowerCase() : "");
-
-        const matchesToken = (tok: string): boolean => {
-          const tokUpper = tok.toUpperCase();
-          return (
-            (tickerUpper.length > 0 &&
-              (tickerUpper === tokUpper || tickerUpper.includes(tokUpper) || tickerLower.includes(tok))) ||
-            titleNorm.includes(tok) ||
-            titleLower.includes(tok) ||
-            compNorm.includes(tok) ||
-            compLower.includes(tok) ||
-            descNorm.includes(tok) ||
-            descLower.includes(tok) ||
-            aliasesNorm.includes(tok) ||
-            aliasesRaw.includes(tok)
-          );
-        };
-
-        if (tokens.length > 1) {
-          return tokens.every(matchesToken);
-        }
-
-        return (
-          (tickerUpper.length > 0 &&
-            (tickerUpper.includes(normQ.toUpperCase()) || tickerLower.includes(rawQ))) ||
-          titleNorm.includes(normQ) ||
-          titleLower.includes(rawQ) ||
-          compNorm.includes(normQ) ||
-          compLower.includes(rawQ) ||
-          descNorm.includes(normQ) ||
-          descLower.includes(rawQ) ||
-          aliasesNorm.includes(normQ) ||
-          aliasesRaw.includes(rawQ)
-        );
-      });
-    }
-
-    it("matches calendar earnings events with full-width ticker (７２０３)", () => {
-      const matched = filterEvents("７２０３");
-      expect(matched.some((e) => e.ticker === "7203")).toBe(true);
+      expect(screen.queryByText(TOYOTA_EVENT_TITLE)).not.toBeNull();
+      expect(screen.queryByText(FOMC_EVENT_TITLE)).toBeNull();
+      expect(screen.queryByText(SONY_EVENT_TITLE)).toBeNull();
     });
 
-    it("matches calendar earnings events with Hiragana (とよた)", () => {
-      const matched = filterEvents("とよた");
-      expect(matched.some((e) => e.ticker === "7203")).toBe(true);
+    it("matches calendar earnings events with Hiragana (とよた)", async () => {
+      await renderCalendar();
+
+      searchEvents("とよた");
+
+      expect(screen.queryByText(TOYOTA_EVENT_TITLE)).not.toBeNull();
+      expect(screen.queryByText(FOMC_EVENT_TITLE)).toBeNull();
+      expect(screen.queryByText(SONY_EVENT_TITLE)).toBeNull();
     });
 
-    it("matches calendar earnings events via aliases (toyota)", () => {
-      const matched = filterEvents("toyota");
-      expect(matched.some((e) => e.ticker === "7203")).toBe(true);
+    it("matches calendar earnings events via aliases (toyota)", async () => {
+      await renderCalendar();
+
+      searchEvents("toyota");
+
+      expect(screen.queryByText(TOYOTA_EVENT_TITLE)).not.toBeNull();
+      expect(screen.queryByText(FOMC_EVENT_TITLE)).toBeNull();
+      expect(screen.queryByText(SONY_EVENT_TITLE)).toBeNull();
     });
 
-    it("matches macro events with full-width letters (ｆｏｍｃ)", () => {
-      const matched = filterEvents("ｆｏｍｃ");
-      expect(matched.some((e) => e.title.includes("FOMC"))).toBe(true);
+    it("matches macro events with full-width letters (ｆｏｍｃ)", async () => {
+      await renderCalendar();
+
+      searchEvents("ｆｏｍｃ");
+
+      expect(screen.queryByText(FOMC_EVENT_TITLE)).not.toBeNull();
+      expect(screen.queryByText(TOYOTA_EVENT_TITLE)).toBeNull();
+      expect(screen.queryByText(SONY_EVENT_TITLE)).toBeNull();
     });
 
-    it("matches multi-token queries (FOMC 政策)", () => {
-      const matched = filterEvents("FOMC 政策");
-      expect(matched).toHaveLength(1);
-      expect(matched[0].id).toBe("ev-2");
+    it("matches multi-token queries (FOMC 政策)", async () => {
+      await renderCalendar();
+
+      searchEvents("FOMC 政策");
+
+      expect(screen.queryByText(FOMC_EVENT_TITLE)).not.toBeNull();
+      expect(screen.queryByText(TOYOTA_EVENT_TITLE)).toBeNull();
+      expect(screen.queryByText(SONY_EVENT_TITLE)).toBeNull();
     });
 
-    it("matches multi-token queries combining Hiragana and keywords (とよた 決算)", () => {
-      const matched = filterEvents("とよた 決算");
-      expect(matched).toHaveLength(1);
-      expect(matched[0].id).toBe("ev-1");
+    it("matches multi-token queries combining Hiragana and keywords (とよた 決算)", async () => {
+      await renderCalendar();
+
+      searchEvents("とよた 決算");
+
+      expect(screen.queryByText(TOYOTA_EVENT_TITLE)).not.toBeNull();
+      expect(screen.queryByText(FOMC_EVENT_TITLE)).toBeNull();
+      expect(screen.queryByText(SONY_EVENT_TITLE)).toBeNull();
     });
   });
 });

@@ -1,4 +1,15 @@
-import { describe, expect, it } from "vitest";
+// @vitest-environment jsdom
+/**
+ * Regression suite for the comprehensive code-review fixes.
+ *
+ * The sidebar `inert` state is asserted against the real `App` component.
+ * The previous version of this file re-implemented the `inert` expression
+ * inside the test body, so the assertions could never fail when the
+ * production markup changed.
+ */
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanup, render } from "@testing-library/react";
+import { createElement } from "react";
 import {
   clearMemoryCache,
   getMemoryCache,
@@ -18,6 +29,8 @@ import {
   type PortfolioPosition,
 } from "./portfolioStorage";
 import { toSafeDownloadFileName } from "./downloadFileName";
+import App from "../App";
+import { ToastProvider } from "../components/Toast";
 
 describe("comprehensiveCodeReviewFinalFixes", () => {
   describe("1. clearMemoryCache multi-map cleanup", () => {
@@ -191,19 +204,105 @@ describe("comprehensiveCodeReviewFinalFixes", () => {
   });
 
   describe("6. Sidebar inert state condition", () => {
-    it("evaluates inert true when closed in either desktop or mobile layout", () => {
-      const getInert = (isMobileLayout: boolean, isSidebarOpen: boolean, isDesktopSidebarOpen: boolean) => {
-        return (isMobileLayout ? !isSidebarOpen : !isDesktopSidebarOpen) ? true : undefined;
-      };
+    /**
+     * The `inert` attribute of the index sidebar is production markup
+     * (`src/App.tsx`), so it is asserted on the rendered component instead of
+     * on a copy of the expression:
+     *  - mobile layout: the drawer starts closed -> the panel is inert
+     *  - desktop layout: the column can be collapsed -> the panel is inert
+     *  - desktop layout, column expanded -> the panel stays interactive
+     */
 
-      // Desktop closed -> inert should be true
-      expect(getInert(false, false, false)).toBe(true);
-      // Desktop open -> inert should be undefined
-      expect(getInert(false, false, true)).toBeUndefined();
-      // Mobile closed -> inert should be true
-      expect(getInert(true, false, true)).toBe(true);
-      // Mobile open -> inert should be undefined
-      expect(getInert(true, true, true)).toBeUndefined();
+    /** jsdom implements neither `ResizeObserver` (recharts needs it) nor `matchMedia`. */
+    class ResizeObserverStub {
+      observe(): void {}
+      unobserve(): void {}
+      disconnect(): void {}
+    }
+
+    let mobileLayout = false;
+
+    function createMediaQueryList(matches: boolean): MediaQueryList {
+      return {
+        matches,
+        media: "",
+        onchange: null,
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      } as unknown as MediaQueryList;
+    }
+
+    beforeEach(() => {
+      mobileLayout = false;
+      vi.stubGlobal("ResizeObserver", ResizeObserverStub);
+      window.matchMedia = vi.fn(() =>
+        createMediaQueryList(mobileLayout),
+      ) as unknown as typeof window.matchMedia;
+      window.scrollTo = vi.fn() as unknown as typeof window.scrollTo;
+      // Only the index list is needed to render the dashboard shell; every
+      // other endpoint fails immediately.
+      vi.stubGlobal(
+        "fetch",
+        vi.fn((input: RequestInfo | URL) => {
+          const url = String(input);
+          if (url.includes("/api/indices")) {
+            return Promise.resolve({
+              ok: true,
+              status: 200,
+              json: async () => [],
+              headers: { get: () => null },
+            } as unknown as Response);
+          }
+          return Promise.reject(new Error("network disabled in test"));
+        }),
+      );
+      // The first-launch tutorial replaces the app; dismiss it so that the
+      // dashboard (and with it the index sidebar) is rendered.
+      window.localStorage.setItem("indexforge_tutorial_seen_v1", "true");
+      window.history.replaceState({}, "", "/");
+    });
+
+    afterEach(() => {
+      cleanup();
+      vi.unstubAllGlobals();
+      vi.restoreAllMocks();
+      window.localStorage.clear();
+    });
+
+    async function renderIndexSidebar(): Promise<HTMLElement> {
+      render(createElement(ToastProvider, null, createElement(App, {})));
+      await vi.waitFor(() => {
+        expect(document.getElementById("index-sidebar")).not.toBeNull();
+      });
+      const sidebar = document.getElementById("index-sidebar");
+      expect(sidebar).not.toBeNull();
+      return sidebar as HTMLElement;
+    }
+
+    it("keeps the index sidebar interactive while the desktop column is expanded", async () => {
+      const sidebar = await renderIndexSidebar();
+
+      expect(sidebar.hasAttribute("inert")).toBe(false);
+      expect(sidebar.getAttribute("aria-hidden")).toBe("false");
+    });
+
+    it("marks the index sidebar inert while the mobile drawer is closed", async () => {
+      mobileLayout = true;
+      const sidebar = await renderIndexSidebar();
+
+      expect(sidebar.hasAttribute("inert")).toBe(true);
+      expect(sidebar.getAttribute("aria-hidden")).toBe("true");
+    });
+
+    it("marks the index sidebar inert while the desktop column is collapsed", async () => {
+      window.localStorage.setItem("indexforge:index-sidebar:collapsed", "true");
+      const sidebar = await renderIndexSidebar();
+
+      expect(sidebar.hasAttribute("inert")).toBe(true);
+      expect(sidebar.getAttribute("aria-hidden")).toBe("true");
     });
   });
 });

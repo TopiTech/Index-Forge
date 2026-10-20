@@ -6,7 +6,9 @@ import {
   parseLocalSyncCache,
   SYNC_STORAGE_KEY,
 } from "../hooks/useCalculation";
-import { buildSyncBatches } from "../hooks/useSimulation";
+// The sync batching contract is owned by src/lib/priceSync (DATA-25) so the
+// dashboard and the builder preview cannot drift apart again.
+import { buildSyncBatches, SYNC_BATCH_SIZE } from "./priceSync";
 
 describe("Comprehensive Goal Audit Resolution & Regression Suite", () => {
   describe("1. Sync Cache Timestamp Normalization (Seconds vs Milliseconds)", () => {
@@ -93,15 +95,25 @@ describe("Comprehensive Goal Audit Resolution & Regression Suite", () => {
   });
 
   describe("2. Batching and Sync Worker Request Guardrails", () => {
-    it("splits ticker arrays into batches within worker limit (30 items)", () => {
+    it("splits ticker arrays into batches within worker limit (12 items)", () => {
+      // SEC-11/DATA-07: the Worker rejects a request with more than 12
+      // tickers (HTTP 400) instead of truncating it, so the client has to
+      // split the ticker list into requests the Worker accepts.
       const tickers = Array.from({ length: 65 }, (_, i) => `TICKER_${i}`);
       const batches = buildSyncBatches(tickers);
 
-      expect(batches).toHaveLength(3);
-      expect(batches[0]).toHaveLength(30);
-      expect(batches[1]).toHaveLength(30);
-      expect(batches[2]).toHaveLength(5);
+      expect(SYNC_BATCH_SIZE).toBe(12);
+      expect(batches).toHaveLength(6);
+      expect(batches[0]).toHaveLength(12);
+      expect(batches[1]).toHaveLength(12);
+      expect(batches[2]).toHaveLength(12);
+      expect(batches[3]).toHaveLength(12);
+      expect(batches[4]).toHaveLength(12);
+      expect(batches[5]).toHaveLength(5);
       expect(batches.flat()).toEqual(tickers);
+      for (const batch of batches) {
+        expect(batch.length).toBeLessThanOrEqual(12);
+      }
     });
   });
 

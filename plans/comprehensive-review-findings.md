@@ -1043,3 +1043,74 @@ Earlier regression tests for R1–R28 and R37–R48:
 | `src/lib/persistenceHardening.test.ts` | R20, R21, R23, R24, R37 |
 | `src/components/uiHardening.test.tsx` | R2, R11, R13, R44 (preflight write retry) |
 | `src/lib/infrastructureContracts.test.ts` | R14, R26, R27, R28 |
+
+---
+
+# Round 2 (2026-10-20) — 2回目の包括レビュー
+
+8 つの独立サブエージェントが全ファイルを完読して再レビューし、**`plans/round2-remediation-ledger.md`** を正本の修正課題台帳として作成しました（SEC-01〜13 / DATA-01〜30 / UI-01〜38 / INFRA-01〜12 / PERF-01〜02 / TEST-01〜10）。台帳の各項目に対する実装状況と証拠は同ファイルの「実施状況」表にあります。
+
+このラウンドで判定が変わり、[正本の本表](#summary)も更新される前に確定した主な変更:
+
+| 既存 ID | 旧判定 | 現判定 | 備考 |
+|---|---|---|---|
+| R51 | ACCEPTED RISK | ACCEPTED RISK（緩和記述を訂正） | 平文パスワードの `localStorage` フォールバックを廃止（メモリ内セッションのみ） |
+| R52 | OPEN | FIX | `owner_token_issued_at` による90日失効（サーバー＋クライアント） |
+| R53 | OPEN | FIX-PARTIAL | 15件の「ローカル再実装をテスト」を生産 export へ再ポイント、条件付きアサーションの前提化、ネットワーク依存の hermetic 化。残存は低リスク分（台帳 TEST-02 / TEST-09 / TEST-10） |
+| P1 / P2 | OPEN | FIX | 初期転送を gzip 406,641 B → 216,674 B（`scripts/check-first-paint.mjs` が CI で予算を強制） |
+
+## Round 2 で新たに確定した主要所見（台帳 ID）
+
+- **SEC-01 / Critical** — 管理者2要素認証（秘密の暗号＋Turnstile）は `/api/auth/admin-login` 内でしか検証されず、`x-auth-password` だけで全 `/api/admin/*` とシステム指数変更が可能だった。`admin_sessions` テーブルと `x-admin-session` ヘッダによるセッション認証へ移行。
+- **SEC-02 / High** — `/api/auth/verify` は管理者ロールを返し、ロックアウト対象外のパスワードオラクルになっていた。管理者行を評価せず、常に同一の 401 に変更。
+- **DATA-01〜DATA-06 / Medium** — ファンダメンタルの `null` 置換（PER等の捏造）、市場概況全体への「リアルタイム」表示、カレンダーのマクロ雛形の無印表示など、来歴（provenance）が応答単位でしか表現されていない問題群。
+- **UI-22 / High** — 別タブの更新を `storage` イベントで受け取った際、保有データが永続済みであるフラグが更新されず、次の追加で他タブの保有が削除されていた。フラグの同期と `key === null` の処理を追加。
+- **PERF-01 / High** — 4,805銘柄のデータセットが 1 つの純粋関数を理由に初期表示に載っていた。`normalizeSearchQuery` を独立モジュールへ分離し、遅延ルートに隔離。
+
+## Round 2 の最終検証
+
+| Check | Command | Result |
+|-------|---------|--------|
+| Static analysis | `npm run lint`（`--max-warnings=0`） | exit 0, 0 warnings |
+| Type check (browser) | `tsc -p tsconfig.app.json --noEmit` | clean |
+| Type check (Worker) | `tsc -p tsconfig.worker.json --noEmit` | clean |
+| Type check (tests) | `tsc -p tsconfig.test.json --noEmit` | clean |
+| Tests | `npm test` | 202 files / 1,909 tests passing (10.30 s) |
+| Build | `npm run build` | 3 type checks + `vite build` pass (4.18 s) |
+| First-paint budget | `npm run check:first-paint` | 775,092 B raw / 216,953 B gzip（予算内・entry 単体予算も導入） |
+| Worker bundle | `wrangler deploy --dry-run` | exit 0, 869.00 KiB / 142.62 KiB gzip, bindings `env.DB` / `env.ASSETS` |
+
+### Round 2 で追加した回帰テスト
+
+| Test file | Covers |
+|-----------|--------|
+| `src/lib/round2AuthClient.test.ts` | SEC-01 / SEC-06（adminToken 永続化とヘッダ送信、localStorage フォールバック禁止、logout 失効、管理者一覧サニタイズ） |
+| `src/lib/round2AdminSessionGate.test.ts` | SEC-01（本番モードでパスワード単独は 403、有効セッションは 200、未知トークンは拒否、フォールバックは test runtime 限定） |
+| `src/lib/round2OwnerTokenLegacy.test.ts` | SEC-08（発行日未記録の既存指数の所有者は更新できる／90日超で失効） |
+| `src/lib/round2IcsExport.test.ts` | SEC-09（UID サニタイズ、75オクテット折返し、往復一致） |
+| `src/lib/round2IndicesData.test.ts` | DATA-15（`seed.sql` との 175 件の完全一致、重み合計 100） |
+| `src/lib/round2ClientResilience.test.ts` | UI-02 / UI-18（ストレージ遮断時の無抛出、`randomUUID` 不在時の ID 発行、owner token 形式適合） |
+| `src/lib/schemaContract.test.ts` | INFRA-05（schema.sql を node:sqlite で適用し、テーブル・索引・制約・代表クエリを検証） |
+| `src/hooks/round2BenchmarkSessionCache.test.tsx` | R8（取り消された応答がセッションキャッシュに載らない） |
+| `src/components/round2PortfolioManagerStorage.test.tsx` | R12 / R18（認証遷移の1回適用、storage 同期、他タブの保有を壊さない） |
+| `src/hooks/round2UseSimulationRequestIdentity.test.tsx` | R33 / R46（同期警告の到達、supersede された応答の非反映、ローカル再計算での警告クリア） |
+| `src/lib/round2MacroCalendarDefaults.test.ts` | R35（`macro-jp-cpi` が共有既定値を参照すること） |
+
+## Round 2 後の独立監査（フェーズ4）
+
+修正完了後、**新規の独立監査エージェント**が台帳（全ID）と実際の差分を1対1で突合し、12件の所見を報告しました（うち Critical 1件 / High 1件）。全件を是正済みです。
+
+| 監査所見 | 重大度 | 是正 |
+|---|---|---|
+| 発行日未記録（NULL）の既存指数の所有者が全員ロックアウトされていた | Critical | NULL は「発行日不明＝祖父化」とし、migration とランタイムプロビジョナが発行日をバックフィル（`round2OwnerTokenLegacy.test.ts`） |
+| `portfolioStorage` のストレージ取得が例外を投げ、描画時にアプリ全体が落ちる | High | try 付き取得へ統一（`round2ClientResilience.test.ts`） |
+| `safeRandomId()` が未実装（`crypto.randomUUID()` 無条件使用） | Medium | `src/lib/randomId.ts` を実装・使用 |
+| `wrangler.jsonc` の `redact_query_string` が `false` | Medium | `true` へ |
+| 日次同期クォータが取得しない銘柄にも課金されていた | Medium | 実作业対象のみに課金、上限を 5,000 銘柄へ |
+| 本番モードの管理者ゲートの回帰テストが存在しなかった | Medium | `round2AdminSessionGate.test.ts` を追加 |
+| 管理者セッション失効後の復帰導線がない | Low | 403 でトークンを破棄し再ログインを促す |
+| `seed.sql` 一致テストが未作成 | Low | `round2IndicesData.test.ts` を作成 |
+| 初期転送ゲートが entry チャンクを検査しない | Low | entry 単体予算を追加 |
+| R53 のソース文字列テスト残存数が過小評価されていた | Low | 実測（202ファイル中80ファイル。認証系3ファイル・数値/データ整合系3ファイルは挙動テストへ変換）して台帳へ明記 |
+| CSV 取り込みに `reader.onerror` が無い | Low | `onerror` と全経路での入力リセットを実装 |
+| 管理セッション確認が毎要求 D1 書き込みを消費 | Low | in-memory リミッタへ移設しメッセージを分離 |

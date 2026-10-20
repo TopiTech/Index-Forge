@@ -7,7 +7,7 @@
 
 import type { BasketItem } from "../types";
 import type { CustomIndex } from "../data/indices";
-import type { PortfolioPosition } from "./portfolioStorage";
+import { createPortfolioPosition, type PortfolioPosition } from "./portfolioStorage";
 import { escapeCsvCell, parseCsv } from "./csv";
 import { normalizeTicker } from "./indexEngine";
 
@@ -447,15 +447,21 @@ export function deserializePortfolioFromCsv(
     const acquiredAt = dateIdx !== -1 && dateIdx < fields.length ? fields[dateIdx] : undefined;
     const notes = (notesIdx !== -1 && notesIdx < fields.length ? fields[notesIdx] : undefined)?.slice(0, 500);
 
-    positions.push({
-      id: `pos-${ticker}-${Date.now()}-${rowIdx}`,
-      ticker,
-      name,
-      shares,
-      averageCost,
-      acquiredAt: acquiredAt || undefined,
-      notes: notes || undefined,
-    });
+    // UI-37: position identity has exactly one owner. Going through the factory
+    // keeps imported rows and UI-added rows on the same id scheme; deriving an
+    // id here (`pos-${ticker}-${Date.now()}-${rowIdx}`) produced duplicates for
+    // two lots of the same ticker imported in the same millisecond, and the id
+    // scheme had to be maintained in two places.
+    positions.push(
+      createPortfolioPosition({
+        ticker,
+        name,
+        shares,
+        averageCost,
+        acquiredAt: acquiredAt || undefined,
+        notes: notes || undefined,
+      }),
+    );
   }
 
   if (positions.length === 0) {

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import worker from "../../worker/index";
 import type { AssetsBinding, D1Database } from "../../worker/internal";
 import {
@@ -29,6 +29,89 @@ import {
 } from "./marketDataService";
 import { calculatePortfolioSummary, type PortfolioPosition } from "./portfolioStorage";
 
+/**
+ * Deterministic Yahoo Finance test double.
+ *
+ * Every helper in this file used to talk to the real Yahoo Finance API, so
+ * the suite was neither hermetic nor reproducible: on a machine without egress
+ * it silently asserted the fallback path, and on a machine with egress it hit
+ * Yahoo (and could be rate-limited). All Yahoo URLs are now answered from a
+ * fixed table:
+ *
+ * - `/v7/finance/quote` returns a deterministic quote per requested symbol, so
+ *   the market overview and the screener universe get real numbers instead of
+ *   the static fallback.
+ * - `/v10/finance/quoteSummary`, `/v8/finance/chart` and `/v7/finance/spark`
+ *   return empty payloads, so the fundamentals helpers keep exercising their
+ *   documented anchor fallback.
+ */
+function stubYahooFinance(): ReturnType<typeof vi.fn> {
+  const fetchSpy = vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.startsWith("https://fc.yahoo.com")) {
+      return new Response("", {
+        status: 200,
+        headers: { "set-cookie": "A1=test-cookie; Path=/; Domain=.yahoo.com" },
+      });
+    }
+    if (url.includes("/v1/test/getcrumb")) {
+      return new Response("test-crumb", { status: 200 });
+    }
+    if (url.includes("/v7/finance/quote")) {
+      const symbols = (new URL(url).searchParams.get("symbols") || "")
+        .split(",")
+        .filter(Boolean);
+      return jsonResponse({
+        quoteResponse: {
+          result: symbols.map((symbol) => {
+            const seed = deterministicSeed(symbol);
+            const price = 1000 + (seed % 4000);
+            const change = (seed % 21 - 10) / 10;
+            return {
+              symbol,
+              regularMarketPrice: price,
+              regularMarketChange: change,
+              regularMarketChangePercent: change / 10,
+              regularMarketPreviousClose: price - change,
+            };
+          }),
+        },
+      });
+    }
+    if (url.includes("/v10/finance/quoteSummary/")) {
+      return jsonResponse({ quoteSummary: { result: [] } });
+    }
+    if (url.includes("/v8/finance/chart/")) {
+      return jsonResponse({ chart: { result: [] } });
+    }
+    if (url.includes("/v7/finance/spark")) {
+      return jsonResponse({ spark: { result: [] } });
+    }
+    if (url.includes("/v1/finance/search")) {
+      return jsonResponse({ news: [] });
+    }
+    return jsonResponse({});
+  });
+  vi.stubGlobal("fetch", fetchSpy);
+  return fetchSpy;
+}
+
+function jsonResponse(payload: unknown): Response {
+  return new Response(JSON.stringify(payload), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  });
+}
+
+/** Stable 31-based hash so the generated quotes never change between runs. */
+function deterministicSeed(symbol: string): number {
+  let hash = 0;
+  for (let i = 0; i < symbol.length; i++) {
+    hash = (hash * 31 + symbol.charCodeAt(i)) & 0xffff;
+  }
+  return hash;
+}
+
 function createMockEnv() {
   return {
     ASSETS: { fetch: async () => new Response("OK") } as unknown as AssetsBinding,
@@ -53,6 +136,12 @@ describe("Live Market and Stock Data Endpoints & Services", () => {
     resetLastKnownMarketOverview();
     resetLastKnownScreenerUniverse();
     resetYahooCrumbCache();
+    // Hermetic: no request in this file may reach the network.
+    stubYahooFinance();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   describe("GET /api/market/overview", () => {
@@ -98,17 +187,18 @@ describe("Live Market and Stock Data Endpoints & Services", () => {
         expect(typeof usdjpy.price).toBe("number");
         expect(usdjpy.price).toBeGreaterThan(100);
 
-        // ETag revalidation
+        // ETag revalidation. The precondition is asserted first, so a missing
+        // ETag fails the test instead of skipping the whole 304 block.
         const etag = res.headers.get("etag");
         expect(etag).toBeTruthy();
-        if (etag) {
-          const cachedReq = new Request("http://localhost/api/market/overview", {
-            method: "GET",
-            headers: { "if-none-match": etag },
-          });
-          const cachedRes = await worker.fetch(cachedReq, env as any);
-          expect(cachedRes.status).toBe(304);
-        }
+        expect(typeof etag).toBe("string");
+
+        const cachedReq = new Request("http://localhost/api/market/overview", {
+          method: "GET",
+          headers: { "if-none-match": etag! },
+        });
+        const cachedRes = await worker.fetch(cachedReq, env as any);
+        expect(cachedRes.status).toBe(304);
       } finally {
         setAllowMemoryCacheInTest(false);
       }
@@ -123,6 +213,14 @@ describe("Live Market and Stock Data Endpoints & Services", () => {
       expect(data.sectors.length).toBeGreaterThan(0);
       expect(data.marketBreadth.gainers).toBeGreaterThan(0);
       expect(data.marketBreadth.losers).toBeGreaterThan(0);
+    });
+
+    it("fetchLiveMarketOverview derives the breadth from the quoted sector samples", async () => {
+      const data = await fetchLiveMarketOverview();
+      expect(data.marketBreadth.unchanged).toBeGreaterThanOrEqual(0);
+      expect(data.marketBreadth.gainers + data.marketBreadth.losers).toBeGreaterThan(0);
+      // Every sector is derived from the sampled quotes, never from a constant.
+      expect(data.sectors.every((sector) => Number.isFinite(sector.changePercent))).toBe(true);
     });
   });
 
@@ -187,17 +285,18 @@ describe("Live Market and Stock Data Endpoints & Services", () => {
         expect(Array.isArray(data.historicalFinances)).toBe(true);
         expect(data.historicalFinances.length).toBe(4);
 
-        // ETag revalidation check
+        // ETag revalidation check. The precondition is asserted first, so the
+        // 304 block can no longer be skipped silently.
         const etag = res.headers.get("etag");
         expect(etag).toBeTruthy();
-        if (etag) {
-          const cachedReq = new Request("http://localhost/api/stock/fundamentals?ticker=7203", {
-            method: "GET",
-            headers: { "if-none-match": etag },
-          });
-          const cachedRes = await worker.fetch(cachedReq, env as any);
-          expect(cachedRes.status).toBe(304);
-        }
+        expect(typeof etag).toBe("string");
+
+        const cachedReq = new Request("http://localhost/api/stock/fundamentals?ticker=7203", {
+          method: "GET",
+          headers: { "if-none-match": etag! },
+        });
+        const cachedRes = await worker.fetch(cachedReq, env as any);
+        expect(cachedRes.status).toBe(304);
       } finally {
         setAllowMemoryCacheInTest(false);
       }
@@ -220,6 +319,7 @@ describe("Live Market and Stock Data Endpoints & Services", () => {
         expect(typeof data.price).toBe("number");
         expect(data.price).toBeGreaterThan(0);
         expect(Array.isArray(data.historicalFinances)).toBe(true);
+        expect(data.historicalFinances.length).toBeGreaterThan(0);
       } finally {
         setAllowMemoryCacheInTest(false);
       }
@@ -231,6 +331,22 @@ describe("Live Market and Stock Data Endpoints & Services", () => {
       expect(data.name).toContain("東京エレクトロン");
       expect(data.price).toBeGreaterThan(0);
       expect(data.marketCap).toBeGreaterThan(10000);
+    });
+
+    it("fetchLiveStockFundamentals serves the declared anchor when Yahoo has no valuation data", async () => {
+      // The stub answers the quote batch but never the quoteSummary, so the
+      // helper must fall back to the curated anchor instead of inventing
+      // numbers.
+      const anchor = getStockFundamentals("7203");
+      const data = await fetchLiveStockFundamentals("7203");
+
+      expect(data.ticker).toBe("7203");
+      expect(data.price).toBe(anchor.price);
+      expect(data.marketCap).toBe(anchor.marketCap);
+      expect(data.historicalFinances.length).toBe(anchor.historicalFinances.length);
+      expect(data.historicalFinances.map((h) => h.revenue)).toEqual(
+        anchor.historicalFinances.map((h) => h.revenue),
+      );
     });
   });
 
@@ -352,17 +468,18 @@ describe("Live Market and Stock Data Endpoints & Services", () => {
         expect(toyota.price).toBeGreaterThan(0);
         expect(toyota.marketCap).toBeGreaterThan(0);
 
-        // ETag revalidation check
+        // ETag revalidation check. The precondition is asserted first, so the
+        // 304 block can no longer be skipped silently.
         const etag = res.headers.get("etag");
         expect(etag).toBeTruthy();
-        if (etag) {
-          const cachedReq = new Request("http://localhost/api/stocks/screener", {
-            method: "GET",
-            headers: { "if-none-match": etag },
-          });
-          const cachedRes = await worker.fetch(cachedReq, env as any);
-          expect(cachedRes.status).toBe(304);
-        }
+        expect(typeof etag).toBe("string");
+
+        const cachedReq = new Request("http://localhost/api/stocks/screener", {
+          method: "GET",
+          headers: { "if-none-match": etag! },
+        });
+        const cachedRes = await worker.fetch(cachedReq, env as any);
+        expect(cachedRes.status).toBe(304);
       } finally {
         setAllowMemoryCacheInTest(false);
       }
@@ -377,6 +494,15 @@ describe("Live Market and Stock Data Endpoints & Services", () => {
         expect(item.name).toBeTruthy();
         expect(item.theme).toBeTruthy();
       }
+    });
+
+    it("fetchLiveScreenerUniverse serves the deterministic stubbed quotes", async () => {
+      const data = await fetchLiveScreenerUniverse();
+      const toyota = data.find((s) => s.ticker === "7203");
+      expect(toyota).toBeDefined();
+      expect(toyota!.price).toBeGreaterThan(0);
+      expect(toyota!.change).not.toBe(0);
+      expect(toyota!.previousClose).toBeGreaterThan(0);
     });
   });
 

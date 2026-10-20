@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { readFileSync } from "fs";
 import { resolve } from "path";
 
@@ -99,58 +99,156 @@ describe("Comprehensive Project Review & Fixes Verification", () => {
     });
   });
 
-  describe("8. Worker DELETE Endpoints Support ownerToken via SearchParams", () => {
-    it("authorizes DELETE /api/indices/stock with ownerToken in query params", async () => {
-      const { default: workerInstance } = await import("../../worker/index");
-      const { hashToken, hashPassword, clearAuthCache } = await import("../../worker/internal");
-      clearAuthCache();
-      const secretToken = "my-secret-token-123";
-      const hashed = await hashToken(secretToken);
-      const userPassword = "test-user-pass-123";
-      const userPasswordHash = await hashPassword(userPassword);
+  describe("8. Worker DELETE Endpoints Reject ownerToken Query Parameters", () => {
+    // SEC-03: an owner token is a bearer credential. Accepting it from the
+    // query string wrote the secret into every access/proxy log for the URL,
+    // so the token is only read from the `x-owner-token` header now.
+    const OWNER_TOKEN = "owner-token-for-delete-endpoints-0123456789";
+    const USER_PASSWORD = "test-user-pass-123";
+    const ISSUED_AT = Math.floor(Date.now() / 1000);
 
-      const req = new Request(`http://localhost/api/indices/stock?indexId=custom-idx&ticker=7203&ownerToken=${secretToken}`, {
-        method: "DELETE",
-        headers: {
-          "x-auth-password": userPassword,
-        },
-      });
-      const res = await workerInstance.fetch(req, {
-        ADMIN_PASSWORD: "admin-secret-pass",
-        DB: {
-          prepare: (query: string) => ({
-            bind: () => ({
-              all: async () => {
-                if (query.includes("FROM access_passwords")) {
-                  return { results: [{ id: "user-1", name: "User", password_hash: userPasswordHash, role: "user", is_active: 1 }] };
-                }
-                if (query.includes("FROM indices WHERE id = ?")) {
-                  return { results: [{ id: "custom-idx", owner_token_hash: hashed }] };
-                }
-                if (query.includes("FROM basket_items WHERE index_id = ?")) {
-                  return { results: [{ cnt: 3 }] };
-                }
-                return { results: [] };
+    /**
+     * D1 double for an owner-token protected custom index.
+     *
+     * `owner_token_issued_at` belongs to the ownership row: the Worker reads
+     * the hash and its issuance time together and refuses a token that is
+     * older than 90 days (SEC-08), so the fixture has to carry a valid issue
+     * time for the token to authorize the request.
+     */
+    async function createOwnerTokenEnv() {
+      const { hashToken, hashPassword } = await import("../../worker/internal");
+      return {
+        ownerTokenHash: await hashToken(OWNER_TOKEN),
+        userPasswordHash: await hashPassword(USER_PASSWORD),
+      };
+    }
+
+    function createOwnerTokenDb(fixtures: {
+      ownerTokenHash: string;
+      userPasswordHash: string;
+    }) {
+      // The Worker reads some rows with a bound statement and others with a
+      // plain `.all()` (the access_passwords lookups), so both share one
+      // handler.
+      const handleAll = async (query: string) => {
+        if (query.includes("FROM access_passwords")) {
+          return {
+            results: [
+              {
+                id: "user-1",
+                name: "User",
+                password_hash: fixtures.userPasswordHash,
+                role: "user",
+                is_active: 1,
               },
-              run: async () => {
-                if (query.includes("DELETE FROM basket_items")) {
-                  return { meta: { changes: 1 } };
-                }
-                return { meta: { changes: 1 } };
+            ],
+          };
+        }
+        if (query.includes("FROM indices WHERE id = ?")) {
+          return {
+            results: [
+              {
+                id: "custom-idx",
+                owner_token_hash: fixtures.ownerTokenHash,
+                owner_token_issued_at: ISSUED_AT,
               },
-              first: async () => null,
-            }),
-            all: async () => {
-              if (query.includes("FROM access_passwords")) {
-                return { results: [{ id: "user-1", name: "User", password_hash: userPasswordHash, role: "user", is_active: 1 }] };
-              }
-              return { results: [] };
-            },
+            ],
+          };
+        }
+        if (query.includes("FROM basket_items WHERE index_id = ?")) {
+          return { results: [{ cnt: 3 }] };
+        }
+        return { results: [] };
+      };
+
+      return {
+        prepare: (query: string) => ({
+          bind: () => ({
+            all: async () => handleAll(query),
             run: async () => ({ meta: { changes: 1 } }),
             first: async () => null,
           }),
-          batch: async () => [],
+          all: async () => handleAll(query),
+          run: async () => ({ meta: { changes: 1 } }),
+          first: async () => null,
+        }),
+        batch: async () => [{ meta: { changes: 1 } }, { meta: { changes: 1 } }],
+      };
+    }
+
+    it("rejects DELETE /api/indices/stock when the ownerToken is only in the query string", async () => {
+      const { default: workerInstance } = await import("../../worker/index");
+      const { clearAuthCache } = await import("../../worker/internal");
+      clearAuthCache();
+      const fixtures = await createOwnerTokenEnv();
+
+      const req = new Request(
+        `http://localhost/api/indices/stock?indexId=custom-idx&ticker=7203&ownerToken=${OWNER_TOKEN}`,
+        {
+          method: "DELETE",
+          headers: {
+            "x-auth-password": USER_PASSWORD,
+          },
         },
+      );
+      const res = await workerInstance.fetch(req, {
+        ASSETS: { fetch: vi.fn() },
+        ADMIN_PASSWORD: "admin-secret-pass",
+        DB: createOwnerTokenDb(fixtures),
+      } as any);
+      // The correct token in the URL must not authorize anything.
+      expect(res.status).toBe(403);
+      const data = await res.json();
+      expect(data.error).toContain("作成者トークンが必要です");
+      expect(res.headers.get("cache-control")).toBe("no-store");
+    });
+
+    it("rejects DELETE /api/indices when the ownerToken is only in the query string", async () => {
+      const { default: workerInstance } = await import("../../worker/index");
+      const { clearAuthCache } = await import("../../worker/internal");
+      clearAuthCache();
+      const fixtures = await createOwnerTokenEnv();
+
+      const req = new Request(
+        `http://localhost/api/indices?id=custom-idx&ownerToken=${OWNER_TOKEN}`,
+        {
+          method: "DELETE",
+          headers: {
+            "x-auth-password": USER_PASSWORD,
+          },
+        },
+      );
+      const res = await workerInstance.fetch(req, {
+        ASSETS: { fetch: vi.fn() },
+        ADMIN_PASSWORD: "admin-secret-pass",
+        DB: createOwnerTokenDb(fixtures),
+      } as any);
+      expect(res.status).toBe(403);
+      const data = await res.json();
+      expect(data.error).toContain("作成者トークンが必要です");
+      expect(res.headers.get("cache-control")).toBe("no-store");
+    });
+
+    it("authorizes DELETE /api/indices/stock with the x-owner-token header", async () => {
+      const { default: workerInstance } = await import("../../worker/index");
+      const { clearAuthCache } = await import("../../worker/internal");
+      clearAuthCache();
+      const fixtures = await createOwnerTokenEnv();
+
+      const req = new Request(
+        `http://localhost/api/indices/stock?indexId=custom-idx&ticker=7203`,
+        {
+          method: "DELETE",
+          headers: {
+            "x-auth-password": USER_PASSWORD,
+            "x-owner-token": OWNER_TOKEN,
+          },
+        },
+      );
+      const res = await workerInstance.fetch(req, {
+        ASSETS: { fetch: vi.fn() },
+        ADMIN_PASSWORD: "admin-secret-pass",
+        DB: createOwnerTokenDb(fixtures),
       } as any);
       expect(res.status).toBe(200);
       const data = await res.json();
@@ -158,38 +256,23 @@ describe("Comprehensive Project Review & Fixes Verification", () => {
       expect(res.headers.get("cache-control")).toBe("no-store");
     });
 
-    it("authorizes DELETE /api/indices with ownerToken in query params", async () => {
+    it("authorizes DELETE /api/indices with the x-owner-token header", async () => {
       const { default: workerInstance } = await import("../../worker/index");
-      const { hashToken, clearAuthCache } = await import("../../worker/internal");
+      const { clearAuthCache } = await import("../../worker/internal");
       clearAuthCache();
-      const secretToken = "my-secret-token-123";
-      const hashed = await hashToken(secretToken);
-      const req = new Request(`http://localhost/api/indices?id=custom-idx&ownerToken=${secretToken}`, {
+      const fixtures = await createOwnerTokenEnv();
+
+      const req = new Request(`http://localhost/api/indices?id=custom-idx`, {
         method: "DELETE",
         headers: {
-          "x-auth-password": "user-pass",
+          "x-auth-password": USER_PASSWORD,
+          "x-owner-token": OWNER_TOKEN,
         },
       });
       const res = await workerInstance.fetch(req, {
+        ASSETS: { fetch: vi.fn() },
         ADMIN_PASSWORD: "admin-secret-pass",
-        DB: {
-          prepare: (query: string) => ({
-            bind: () => ({
-              all: async () => {
-                if (query.includes("FROM indices WHERE id = ?")) {
-                  return { results: [{ id: "custom-idx", owner_token_hash: hashed }] };
-                }
-                return { results: [] };
-              },
-              run: async () => ({ meta: { changes: 1 } }),
-              first: async () => null,
-            }),
-            all: async () => ({ results: [] }),
-            run: async () => ({ meta: { changes: 1 } }),
-            first: async () => null,
-          }),
-          batch: async () => [{ meta: { changes: 1 } }, { meta: { changes: 1 } }],
-        },
+        DB: createOwnerTokenDb(fixtures),
       } as any);
       expect(res.status).toBe(200);
       const data = await res.json();
@@ -197,52 +280,26 @@ describe("Comprehensive Project Review & Fixes Verification", () => {
       expect(res.headers.get("cache-control")).toBe("no-store");
     });
 
-    it("rejects DELETE /api/indices/stock when ownerToken in query params is mismatched", async () => {
+    it("rejects DELETE /api/indices/stock when the header ownerToken is mismatched", async () => {
       const { default: workerInstance } = await import("../../worker/index");
-      const { hashToken, hashPassword, clearAuthCache } = await import("../../worker/internal");
+      const { clearAuthCache } = await import("../../worker/internal");
       clearAuthCache();
-      const secretToken = "correct-secret-token";
-      const hashed = await hashToken(secretToken);
-      const userPassword = "test-user-pass-123";
-      const userPasswordHash = await hashPassword(userPassword);
+      const fixtures = await createOwnerTokenEnv();
 
-      const req = new Request(`http://localhost/api/indices/stock?indexId=custom-idx&ticker=7203&ownerToken=wrong-token`, {
-        method: "DELETE",
-        headers: {
-          "x-auth-password": userPassword,
+      const req = new Request(
+        `http://localhost/api/indices/stock?indexId=custom-idx&ticker=7203`,
+        {
+          method: "DELETE",
+          headers: {
+            "x-auth-password": USER_PASSWORD,
+            "x-owner-token": "wrong-token",
+          },
         },
-      });
+      );
       const res = await workerInstance.fetch(req, {
+        ASSETS: { fetch: vi.fn() },
         ADMIN_PASSWORD: "admin-secret-pass",
-        DB: {
-          prepare: (query: string) => ({
-            bind: () => ({
-              all: async () => {
-                if (query.includes("FROM access_passwords")) {
-                  return { results: [{ id: "user-1", name: "User", password_hash: userPasswordHash, role: "user", is_active: 1 }] };
-                }
-                if (query.includes("FROM indices WHERE id = ?")) {
-                  return { results: [{ id: "custom-idx", owner_token_hash: hashed }] };
-                }
-                return { results: [] };
-              },
-              run: async () => {
-                if (query.includes("rate_limits")) return { meta: { changes: 1 } };
-                return { meta: { changes: 0 } };
-              },
-              first: async () => null,
-            }),
-            all: async () => {
-              if (query.includes("FROM access_passwords")) {
-                return { results: [{ id: "user-1", name: "User", password_hash: userPasswordHash, role: "user", is_active: 1 }] };
-              }
-              return { results: [] };
-            },
-            run: async () => ({ meta: { changes: 1 } }),
-            first: async () => null,
-          }),
-          batch: async () => [],
-        },
+        DB: createOwnerTokenDb(fixtures),
       } as any);
       expect(res.status).toBe(403);
       const data = await res.json();
@@ -250,41 +307,23 @@ describe("Comprehensive Project Review & Fixes Verification", () => {
       expect(res.headers.get("cache-control")).toBe("no-store");
     });
 
-    it("rejects DELETE /api/indices when ownerToken in query params is mismatched", async () => {
+    it("rejects DELETE /api/indices when the header ownerToken is mismatched", async () => {
       const { default: workerInstance } = await import("../../worker/index");
-      const { hashToken, clearAuthCache } = await import("../../worker/internal");
+      const { clearAuthCache } = await import("../../worker/internal");
       clearAuthCache();
-      const secretToken = "correct-secret-token";
-      const hashed = await hashToken(secretToken);
-      const req = new Request(`http://localhost/api/indices?id=custom-idx&ownerToken=wrong-token`, {
+      const fixtures = await createOwnerTokenEnv();
+
+      const req = new Request(`http://localhost/api/indices?id=custom-idx`, {
         method: "DELETE",
         headers: {
-          "x-auth-password": "user-pass",
+          "x-auth-password": USER_PASSWORD,
+          "x-owner-token": "wrong-token",
         },
       });
       const res = await workerInstance.fetch(req, {
+        ASSETS: { fetch: vi.fn() },
         ADMIN_PASSWORD: "admin-secret-pass",
-        DB: {
-          prepare: (query: string) => ({
-            bind: () => ({
-              all: async () => {
-                if (query.includes("FROM indices WHERE id = ?")) {
-                  return { results: [{ id: "custom-idx", owner_token_hash: hashed }] };
-                }
-                return { results: [] };
-              },
-              run: async () => {
-                if (query.includes("rate_limits")) return { meta: { changes: 1 } };
-                return { meta: { changes: 0 } };
-              },
-              first: async () => null,
-            }),
-            all: async () => ({ results: [] }),
-            run: async () => ({ meta: { changes: 1 } }),
-            first: async () => null,
-          }),
-          batch: async () => [],
-        },
+        DB: createOwnerTokenDb(fixtures),
       } as any);
       expect(res.status).toBe(403);
       const data = await res.json();
