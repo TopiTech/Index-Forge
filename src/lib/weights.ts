@@ -64,7 +64,8 @@ export function allocateIntegerWeights(
 
 /** Even split of `total` across `count` entries (sum is exactly `total`). */
 export function allocateEvenWeights(count: number, total: number = 100): number[] {
-    return allocateIntegerWeights(new Array(Math.max(0, count)).fill(1), total);
+    const safeCount = typeof count === "number" && Number.isFinite(count) && count > 0 ? Math.floor(count) : 0;
+    return allocateIntegerWeights(new Array(safeCount).fill(1), total);
 }
 
 /**
@@ -86,7 +87,11 @@ export function normalizeMarketCapToOkuYen(
         currencyOrMarket === "US" ||
         currencyOrMarket === "$" ||
         currencyOrMarket === "USA";
-    return isUs ? (marketCap * usdJpyRate) / 100 : marketCap;
+    const safeRate =
+        typeof usdJpyRate === "number" && Number.isFinite(usdJpyRate) && usdJpyRate > 0
+            ? usdJpyRate
+            : 155.0;
+    return isUs ? (marketCap * safeRate) / 100 : marketCap;
 }
 
 /**

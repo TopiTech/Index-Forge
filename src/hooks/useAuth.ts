@@ -166,7 +166,7 @@ export function useAuth() {
     // local copy. Best effort: a failed request leaves an expiring session row
     // behind, which is why the local state is cleared synchronously either way
     // (and this must not make logout async).
-    const current = sessionRef.current;
+    const current = sessionRef.current ?? getStoredAuth();
     if (current) {
       const headers = getAuthHeaders(current);
       if (Object.keys(headers).length > 0) {
@@ -180,7 +180,7 @@ export function useAuth() {
   }, []);
 
   const isAuthenticated = Boolean(session);
-  const isAdmin = session?.role === "admin";
+  const isAdmin = session?.role === "admin" && Boolean(session?.adminToken);
   const isUser = session?.role === "user";
   const maxStocks = session?.maxStocks ?? null;
   const maxIndices = session?.maxIndices ?? null;

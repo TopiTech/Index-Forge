@@ -460,13 +460,14 @@ function AppContent({
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        if (currentView === "admin" || currentView === "tutorial") return;
         e.preventDefault();
         toggleSearchModal();
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [toggleSearchModal]);
+  }, [toggleSearchModal, currentView]);
 
   useEffect(() => {
     const mediaQuery = window.matchMedia(MOBILE_LAYOUT_QUERY);

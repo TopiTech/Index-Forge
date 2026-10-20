@@ -16,13 +16,14 @@ import {
 import { calculateRiskMetrics } from "../lib/analytics";
 import { filterByTimeframe } from "../lib/timeframe";
 import { isPriceCacheFresh } from "../lib/marketCache";
-import { mergeSyncCache, readSyncCache } from "../lib/syncCache";
+import { mergeSyncCache, readSyncCache, removeFromSyncCache } from "../lib/syncCache";
 import { getAuthHeaders } from "../lib/auth";
 // The "sync prices → calculate" contract (batch size, auth headers, warning
 // texts, abort policy) is owned by src/lib/priceSync so the builder preview
 // and the dashboard cannot drift apart again.
 import { syncPricesInBatches } from "../lib/priceSync";
 import { useBenchmark, isBenchmarkDataForSymbol } from "./useBenchmark";
+import { getMissingPriceDataTickers } from "./useCalculation";
 
 export interface ConstituentPerformance {
   ticker: string;
@@ -287,7 +288,7 @@ export function useSimulation(
           const { synced, warnings } = await syncPricesInBatches({
             tickers: tickersToSync,
             signal: controller.signal,
-            force: false,
+            force: Boolean(force),
             // Guests send no auth header at all.
             authHeaders: getAuthHeaders(),
             isSuperseded,
@@ -313,10 +314,16 @@ export function useSimulation(
 
         if (controller.signal.aborted || isSuperseded()) return;
 
+        const bypassServerCalculationCache = Boolean(force || tickersToSync.length > 0);
+
         // 2. Fetch calculated index and stockUniverse from /api/calculate
         const calcRes = await fetch(`${API_BASE}/calculate`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            ...(bypassServerCalculationCache ? { "Cache-Control": "no-cache" } : {}),
+            ...getAuthHeaders(),
+          },
           body: JSON.stringify({
             basket: requestBasket.map(({ ticker, name, theme, weight }) => ({
               ticker,
@@ -340,6 +347,21 @@ export function useSimulation(
           if (controller.signal.aborted || isSuperseded()) return;
           universe = Array.isArray(data.stockUniverse) ? data.stockUniverse : [];
           series = Array.isArray(data.series) ? data.series : [];
+
+          if (requestBasket.length > 0 && universe.length > 0) {
+            const missingTickers = getMissingPriceDataTickers(requestBasket, universe);
+            if (missingTickers.length > 0) {
+              removeFromSyncCache(missingTickers);
+              setSyncWarnings((prev) =>
+                Array.from(
+                  new Set([
+                    ...prev,
+                    `一部銘柄の価格データが取得できませんでした: ${missingTickers.join(", ")}`,
+                  ]),
+                ),
+              );
+            }
+          }
         } else {
           // 非2xx応答でもプレビューは動かしつつ、理由を捨てない。バリデーション
           // エラー(400)やレート制限(429)を黙ってデモ表示に置き換えていたため、

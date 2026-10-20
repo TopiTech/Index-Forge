@@ -4,6 +4,7 @@
  * US/global tickers (e.g. AAPL) and index/forex symbols (^N225, USDJPY=X) remain as-is.
  */
 export function toYahooSymbol(ticker: string): string {
+  if (typeof ticker !== "string" || !ticker.trim()) return "";
   let trimmed = ticker
     .trim()
     .replace(/[！-～]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0xfee0))

@@ -64,6 +64,7 @@ CREATE TABLE IF NOT EXISTS sync_quota (
     tickers INTEGER NOT NULL,
     PRIMARY KEY (ip, day)
 );
+CREATE INDEX IF NOT EXISTS idx_sync_quota_day ON sync_quota(day);
 
 -- Migration: the expired-window purge of rate_limits filters on window_start,
 -- which the (ip, endpoint) primary key does not cover. Without this index the

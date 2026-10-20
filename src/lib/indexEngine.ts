@@ -228,13 +228,17 @@ export function sanitizeBasketForRequest(
     return { basket: withWeight.map(toBasketItem), dropped, repaired: [] };
   }
 
-  // DATA-17: keep every usable constituent. A legacy/imported `weight: 0` row
-  // is assigned the remaining share of the 100% budget (at least the minimum
+  // DATA-17: keep every usable constituent. Legacy/imported `weight: 0` rows
+  // are assigned an equal share of the remaining 100% budget (at least the minimum
   // the Worker accepts) instead of being silently deleted on save.
+  const missingItems = repaired.filter((item) => Number.isNaN(item.weight));
+  const missingCount = missingItems.length;
   const validWeightTotal = withWeight.reduce((sum, item) => sum + item.weight, 0);
   const remainingBudget = Number((100 - validWeightTotal).toFixed(2));
+  const perItemBudget =
+    missingCount > 0 ? Number((remainingBudget / missingCount).toFixed(2)) : remainingBudget;
   const repairWeight =
-    remainingBudget >= MIN_REQUEST_WEIGHT ? Math.min(remainingBudget, 100) : MIN_REQUEST_WEIGHT;
+    perItemBudget >= MIN_REQUEST_WEIGHT ? Math.min(perItemBudget, 100) : MIN_REQUEST_WEIGHT;
 
   const weightRepairs: BasketWeightRepair[] = [];
   const basket = repaired.map((item) => {

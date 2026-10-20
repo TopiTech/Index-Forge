@@ -150,14 +150,18 @@ export function generateDeterministicHistory(
     return (seed >>> 0) / 4294967296;
   };
 
-  const rawPrices: number[] = new Array(totalDays);
+  const safeTotalDays =
+    typeof totalDays === "number" && Number.isFinite(totalDays)
+      ? Math.max(3, Math.floor(totalDays))
+      : 75;
+  const rawPrices: number[] = new Array(safeTotalDays);
   // Anchor end values
-  rawPrices[totalDays - 1] = currentPrice;
-  rawPrices[totalDays - 2] = prevClose;
+  rawPrices[safeTotalDays - 1] = currentPrice;
+  rawPrices[safeTotalDays - 2] = prevClose;
 
   // Walk backward from prevClose towards a baseline bounded by yearLow/yearHigh
   let walk = prevClose;
-  for (let i = totalDays - 3; i >= 0; i--) {
+  for (let i = safeTotalDays - 3; i >= 0; i--) {
     const delta = (seededRandom() - 0.49) * (currentPrice * 0.022);
     walk -= delta;
     if (walk > yearHigh) walk = yearHigh - seededRandom() * (currentPrice * 0.02);
@@ -168,19 +172,19 @@ export function generateDeterministicHistory(
   // If sparkline is present (5 recent points), smoothly interpolate into the last 5 days
   if (Array.isArray(stock.sparkline) && stock.sparkline.length >= 3) {
     const sp = stock.sparkline;
-    for (let j = 0; j < Math.min(sp.length, totalDays); j++) {
-      const idx = totalDays - sp.length + j;
+    for (let j = 0; j < Math.min(sp.length, safeTotalDays); j++) {
+      const idx = safeTotalDays - sp.length + j;
       if (idx >= 0 && Number.isFinite(sp[j]) && sp[j] > 0) {
         rawPrices[idx] = sp[j];
       }
     }
-    rawPrices[totalDays - 1] = currentPrice;
+    rawPrices[safeTotalDays - 1] = currentPrice;
   }
 
   // Build calendar business dates
   const businessDates: Date[] = [];
   const cur = new Date(now);
-  while (businessDates.length < totalDays) {
+  while (businessDates.length < safeTotalDays) {
     const day = cur.getDay();
     if (day !== 0 && day !== 6) {
       businessDates.unshift(new Date(cur));
@@ -190,7 +194,7 @@ export function generateDeterministicHistory(
 
   const baseVolume = stock.volume > 0 ? stock.volume : 500000;
 
-  for (let i = 0; i < totalDays; i++) {
+  for (let i = 0; i < safeTotalDays; i++) {
     const d = businessDates[i] || new Date();
     const year = d.getFullYear();
     const month = String(d.getMonth() + 1).padStart(2, "0");
@@ -198,7 +202,7 @@ export function generateDeterministicHistory(
     const dateStr = `${year}-${month}-${dayStr}`;
     const displayDate = `${d.getMonth() + 1}/${d.getDate()}`;
     const close = Math.round(rawPrices[i] * 100) / 100;
-    const isLast = i === totalDays - 1;
+    const isLast = i === safeTotalDays - 1;
     const high = isLast ? Math.max(dayHigh, close) : close * (1 + seededRandom() * 0.012);
     const low = isLast ? Math.min(dayLow, close) : close * (1 - seededRandom() * 0.012);
     const open = i > 0 ? rawPrices[i - 1] : close * (1 - (seededRandom() - 0.5) * 0.01);

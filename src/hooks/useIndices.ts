@@ -9,7 +9,11 @@ import {
   isIndexOwner,
 } from "../lib/ownership";
 import { getAuthHeaders } from "../lib/auth";
-import { sanitizeBasketForRequest, normalizeTicker } from "../lib/indexEngine";
+import {
+  sanitizeBasketForRequest,
+  normalizeTicker,
+  type BasketSanitizationOptions,
+} from "../lib/indexEngine";
 import { safeRandomId } from "../lib/randomId";
 
 const API_BASE = "/api";
@@ -170,12 +174,13 @@ export function buildSaveIndexRequest(
   newIndex: CustomIndex,
   ownerToken: string,
   authHeaders: Record<string, string> = {},
+  options?: BasketSanitizationOptions,
 ): { headers: Record<string, string>; body: string } {
   // Worker 契約 (POST /api/indices) は weight 0< w <=100・ティッカー文字種・
   // 重複なし・name/theme 100 字以内を要求する。インポート由来の壊れた値の
   // ままだと 400 になり「保存できない」理由が分からないままデータが失われる
   // ため、リクエスト境界で補正する (計算系と同じ sanitizeBasketForRequest)。
-  const { basket: requestBasket } = sanitizeBasketForRequest(newIndex.basket);
+  const { basket: requestBasket } = sanitizeBasketForRequest(newIndex.basket, options);
   const baseValue =
     typeof newIndex.baseValue === "number" &&
     Number.isFinite(newIndex.baseValue) &&

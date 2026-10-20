@@ -15,7 +15,7 @@
  * 3. Lowercase English
  */
 export function normalizeSearchQuery(query: string): string {
-  if (!query) return "";
+  if (typeof query !== "string" || !query) return "";
   const nfkc = query.normalize("NFKC").trim();
   return nfkc
     .replace(/[ぁ-ゖ]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) + 0x60))

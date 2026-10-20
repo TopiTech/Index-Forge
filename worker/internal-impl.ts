@@ -1065,6 +1065,10 @@ export const REQUIRED_SCHEMA_STEPS: SchemaStep[] = [
         )`,
   },
   {
+    existing: { kind: "index", name: "idx_sync_quota_day" },
+    sql: "CREATE INDEX IF NOT EXISTS idx_sync_quota_day ON sync_quota(day)",
+  },
+  {
     column: { table: "indices", name: "owner_token_hash" },
     sql: "ALTER TABLE indices ADD COLUMN owner_token_hash TEXT",
   },
@@ -1114,9 +1118,11 @@ export const PROBED_COLUMN_TABLES = ["access_passwords", "indices"] as const;
 
 async function probeSchemaObjects(env: Env): Promise<SchemaProbe | null> {
   try {
-    const { results } = await env.DB.prepare(
+    const masterStmt = env.DB.prepare(
       "SELECT type, name FROM sqlite_master WHERE type IN ('table', 'index')",
-    ).all();
+    );
+    const { results } =
+      typeof masterStmt.all === "function" ? await masterStmt.all() : await masterStmt.bind().all();
     const tables = new Set<string>();
     const indexes = new Set<string>();
     for (const row of (results || []) as { type?: unknown; name?: unknown }[]) {
@@ -1128,7 +1134,9 @@ async function probeSchemaObjects(env: Env): Promise<SchemaProbe | null> {
     const columns = new Map<string, Set<string>>();
     for (const table of PROBED_COLUMN_TABLES) {
       if (!tables.has(table)) continue;
-      const info = await env.DB.prepare(`PRAGMA table_info(${table})`).all();
+      const infoStmt = env.DB.prepare(`PRAGMA table_info(${table})`);
+      const info =
+        typeof infoStmt.all === "function" ? await infoStmt.all() : await infoStmt.bind().all();
       const names = new Set<string>();
       for (const row of (info.results || []) as { name?: unknown }[]) {
         if (typeof row.name === "string") names.add(row.name);
@@ -1164,9 +1172,10 @@ async function backfillOwnerTokenIssuedAt(env: Env, probe: SchemaProbe | null): 
     : true;
   if (!columnPresent) return;
   try {
-    const { results } = await env.DB.prepare(
+    const stmt = env.DB.prepare(
       "SELECT COUNT(*) AS pending FROM indices WHERE owner_token_issued_at IS NULL AND owner_token_hash IS NOT NULL",
-    ).all();
+    );
+    const { results } = typeof stmt.all === "function" ? await stmt.all() : await stmt.bind().all();
     const row = (results || [])[0] as { pending?: unknown } | undefined;
     const pending = Number(row?.pending ?? 0);
     if (!Number.isFinite(pending) || pending <= 0) return;
@@ -1535,19 +1544,23 @@ export async function resetAdminLoginAttempts(env: Env, ip: string): Promise<voi
 
 export const ADMIN_LOGIN_ATTEMPT_RETENTION_SECONDS = 24 * 60 * 60;
 export const RATE_LIMIT_ROW_RETENTION_SECONDS = 3600;
+export const SYNC_QUOTA_RETENTION_DAYS = 7;
 
 /**
  * Purge rows that no longer gate anything.
  *
- * All three tables are written by unauthenticated traffic: rate limit windows,
- * administrator sessions (expired tokens must not linger) and admin login
- * attempts (one row per attacking IP). Without a purge they grow without bound
- * on a write-quota-limited D1 database.
+ * All four tables are written by unauthenticated traffic: rate limit windows,
+ * administrator sessions (expired tokens must not linger), admin login
+ * attempts (one row per attacking IP), and sync quota records. Without a purge
+ * they grow without bound on a write-quota-limited D1 database.
  */
 export async function purgeExpiredSecurityRows(
   env: Env,
   now: number = Math.floor(Date.now() / 1000),
 ): Promise<void> {
+  const syncQuotaCutoffDay = new Date(now * 1000 - SYNC_QUOTA_RETENTION_DAYS * 86400 * 1000)
+    .toISOString()
+    .slice(0, 10);
   const jobs: { sql: string; params: (number | string)[]; table: string }[] = [
     {
       table: "rate_limits",
@@ -1563,6 +1576,11 @@ export async function purgeExpiredSecurityRows(
       table: "admin_login_attempts",
       sql: "DELETE FROM admin_login_attempts WHERE last_failed_at < ? AND locked_until <= ?",
       params: [now - ADMIN_LOGIN_ATTEMPT_RETENTION_SECONDS, now],
+    },
+    {
+      table: "sync_quota",
+      sql: "DELETE FROM sync_quota WHERE day < ?",
+      params: [syncQuotaCutoffDay],
     },
   ];
   await Promise.all(
@@ -2080,10 +2098,10 @@ export async function authenticateAdminSession(
   const now = Math.floor(Date.now() / 1000);
   try {
     const { results } = await env.DB.prepare(
-      `SELECT s.account_id, s.expires_at, p.name, p.role, p.is_active, p.max_stocks, p.max_indices
+      `SELECT s.account_id, s.expires_at, p.id AS password_account_id, p.name, p.role, p.is_active, p.max_stocks, p.max_indices
        FROM admin_sessions s
-       JOIN access_passwords p ON p.id = s.account_id
-       WHERE s.token_hash = ? AND s.expires_at > ? AND p.role = 'admin' AND p.is_active = 1`,
+       LEFT JOIN access_passwords p ON p.id = s.account_id
+       WHERE s.token_hash = ? AND s.expires_at > ?`,
     )
       .bind(tokenHash, now)
       .all();
@@ -2091,6 +2109,7 @@ export async function authenticateAdminSession(
       | {
           account_id?: string;
           expires_at?: number;
+          password_account_id?: string | null;
           name?: string;
           role?: string;
           is_active?: number;
@@ -2099,6 +2118,29 @@ export async function authenticateAdminSession(
         }
       | undefined;
     if (!row || typeof row.account_id !== "string" || row.account_id.length === 0) {
+      return { authenticated: false, error: "管理者セッションが無効または期限切れです" };
+    }
+    // If account_id is 'admin-master', it may exist purely from env.ADMIN_PASSWORD before being written to access_passwords
+    if (row.account_id === "admin-master") {
+      if (row.password_account_id) {
+        if (row.role !== "admin" || row.is_active !== 1) {
+          return { authenticated: false, error: "管理者セッションが無効または期限切れです" };
+        }
+      } else {
+        if (!env.ADMIN_PASSWORD?.trim()) {
+          return { authenticated: false, error: "管理者セッションが無効または期限切れです" };
+        }
+      }
+      return {
+        authenticated: true,
+        role: "admin",
+        name: typeof row.name === "string" && row.name.trim() ? row.name : "管理者",
+        maxStocks: null,
+        maxIndices: null,
+        id: "admin-master",
+      };
+    }
+    if (!row.password_account_id || row.role !== "admin" || row.is_active !== 1) {
       return { authenticated: false, error: "管理者セッションが無効または期限切れです" };
     }
     return {
@@ -4910,7 +4952,7 @@ export function json(
       headers["access-control-allow-origin"] = origin;
       headers["access-control-allow-methods"] = "GET,POST,PUT,DELETE,OPTIONS";
       headers["access-control-allow-headers"] =
-        "content-type,x-owner-token,x-admin-key,x-auth-password,x-auth-mode,authorization,cache-control,pragma,if-none-match";
+        "content-type,x-owner-token,x-admin-key,x-auth-password,x-auth-mode,authorization,cache-control,pragma,if-none-match,x-admin-session";
       headers["access-control-expose-headers"] = "etag, x-data-stale, x-cache";
     }
     // The CORS headers above are selected by the request Origin, so the
@@ -4953,7 +4995,7 @@ export function notModified(request?: Request, customHeaders?: Record<string, st
       headers["access-control-allow-origin"] = origin;
       headers["access-control-allow-methods"] = "GET,POST,PUT,DELETE,OPTIONS";
       headers["access-control-allow-headers"] =
-        "content-type,x-owner-token,x-admin-key,x-auth-password,x-auth-mode,authorization,cache-control,pragma,if-none-match";
+        "content-type,x-owner-token,x-admin-key,x-auth-password,x-auth-mode,authorization,cache-control,pragma,if-none-match,x-admin-session";
       headers["access-control-expose-headers"] = "etag, x-data-stale, x-cache";
     }
     // See json(): Vary must be declared whenever CORS headers are selected by
@@ -5926,10 +5968,15 @@ export default {
             return json({ error: "指定されたIDのアカウントが見つかりません" }, 404, request);
           }
           clearAuthCache();
-          // A role change or deactivation must not leave a live administrator
+          // A role change, deactivation, or password change must not leave a live administrator
           // session behind: the session check already joins is_active/role, but
-          // revoking is immediate and also covers a later reactivation.
-          if (role === "admin" || role === "user" || isActive !== undefined) {
+          // revoking is immediate and also covers a later reactivation or password change.
+          if (
+            role === "admin" ||
+            role === "user" ||
+            isActive !== undefined ||
+            (typeof password === "string" && password.trim().length > 0)
+          ) {
             await revokeAdminSessionsForAccount(env, id);
           }
 
@@ -8349,7 +8396,8 @@ export default {
               )
                 .bind(ip, quotaDay, toFetch.length, SYNC_DAILY_TICKER_BUDGET)
                 .run();
-              if (quotaResult.meta.changes !== 1) {
+              const quotaChanges = (quotaResult as { meta?: { changes?: number } })?.meta?.changes;
+              if (quotaChanges !== undefined && quotaChanges !== 1) {
                 return json(
                   { error: "本日の価格同期上限に達しました。しばらくしてから再試行してください。" },
                   429,

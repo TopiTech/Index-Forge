@@ -975,8 +975,8 @@ export function AdminDashboard({
     tabs[nextIndex]?.click();
   };
 
-  // If not authenticated as Admin, show login screen
-  if (!isAdmin) {
+  // If not authenticated as Admin or admin session token is missing/expired, show login screen
+  if (!isAdmin || !session?.adminToken) {
     return (
       <div className="app" style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
         <header className="top-header">

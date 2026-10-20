@@ -130,6 +130,7 @@ export function useBenchmark(initialSymbol: BenchmarkSymbol = "^N225", enabled =
     return cached && Date.now() - cached.timestamp < BENCHMARK_CACHE_TTL ? cached.timestamp : null;
   });
   const [loading, setLoading] = useState<boolean>(() => {
+    if (!enabled) return false;
     const cached = benchmarkSessionCache.get(initialSymbol);
     return !(cached && Date.now() - cached.timestamp < BENCHMARK_CACHE_TTL);
   });

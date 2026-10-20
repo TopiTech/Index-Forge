@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useId } from "react";
 import { Sun, Moon, Palette, ChevronDown } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useTheme, ACCENT_OPTIONS } from "../lib/theme";
@@ -6,6 +6,7 @@ import { useTheme, ACCENT_OPTIONS } from "../lib/theme";
 export function ThemeControls() {
   const { theme, accent, toggleTheme, setAccent } = useTheme();
   const [isOpen, setIsOpen] = useState(false);
+  const popoverId = useId();
   const containerRef = useRef<HTMLDivElement>(null);
   const radioRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const toggleRef = useRef<HTMLButtonElement>(null);
@@ -100,7 +101,7 @@ export function ThemeControls() {
           // The popover holds a radiogroup, not a menu/listbox/tree/grid, so
           // `aria-haspopup="true"` (which maps to "menu") was a lie about the
           // content. aria-expanded + aria-controls describe it correctly.
-          aria-controls={isOpen ? "accent-picker-popover" : undefined}
+          aria-controls={isOpen ? popoverId : undefined}
           style={{
             padding: "5px 8px",
             display: "inline-flex",
@@ -141,7 +142,7 @@ export function ThemeControls() {
               exit={{ opacity: 0, y: -6, scale: 0.95 }}
               transition={{ duration: 0.15, ease: "easeOut" }}
               className="accent-picker-popover"
-              id="accent-picker-popover"
+              id={popoverId}
             >
               <div
                 className="mono tiny muted uppercase"

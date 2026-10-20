@@ -1762,9 +1762,14 @@ export async function fetchMarketOverview(forceRefresh = false): Promise<MarketO
   const isCooldown = now < overviewEndpointMissingUntil;
   if (isBrowser && (!overviewEndpointConfirmedMissing || !isCooldown || forceRefresh)) {
     try {
+      const timeoutSignal =
+        typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function"
+          ? AbortSignal.timeout(8000)
+          : undefined;
       const res = await fetch("/api/market/overview", {
         headers: { accept: "application/json" },
         cache: forceRefresh ? "no-cache" : "default",
+        signal: timeoutSignal,
       });
       if (res.status === 404) {
         overviewEndpointConfirmedMissing = true;

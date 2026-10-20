@@ -47,6 +47,7 @@ export function FreshnessProvider({ children }: { children: React.ReactNode }) {
   const registerFreshness = useCallback((view: PageView, freshness: TabFreshness) => {
     setFreshnessMap((prev) => {
       const existing = prev[view];
+      const resolvedTypeLabel = freshness.typeLabel || VIEW_DEFAULT_TYPE_LABELS[view] || "市場データ";
       if (
         existing &&
         existing.updatedAt === freshness.updatedAt &&
@@ -54,7 +55,7 @@ export function FreshnessProvider({ children }: { children: React.ReactNode }) {
         existing.syncing === freshness.syncing &&
         existing.stale === freshness.stale &&
         existing.hasSyncWarning === freshness.hasSyncWarning &&
-        existing.typeLabel === freshness.typeLabel &&
+        existing.typeLabel === resolvedTypeLabel &&
         existing.customStatusText === freshness.customStatusText &&
         existing.benchmarkUpdatedAt === freshness.benchmarkUpdatedAt &&
         existing.calculationUpdatedAt === freshness.calculationUpdatedAt
@@ -66,7 +67,7 @@ export function FreshnessProvider({ children }: { children: React.ReactNode }) {
         [view]: {
           ...existing,
           ...freshness,
-          typeLabel: freshness.typeLabel || VIEW_DEFAULT_TYPE_LABELS[view] || "市場データ",
+          typeLabel: resolvedTypeLabel,
         },
       };
     });

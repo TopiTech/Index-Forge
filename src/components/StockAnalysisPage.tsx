@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { motion } from "framer-motion";
+import { useOverlayRoot } from "./ModalBase";
 import {
   TrendingUp,
   TrendingDown,
@@ -87,6 +88,7 @@ export function StockAnalysisPage({
   onAddToWatchlist,
   onAddToPortfolio,
 }: StockAnalysisPageProps) {
+  const overlayRoot = useOverlayRoot();
   const [stocks, setStocks] = useState<StockQuoteFundamentals[]>(() => {
     // Initial sync populate from cache to prevent blank screens
     return POPULAR_STOCKS.map((p) => getCachedStockFundamentals(p.ticker));
@@ -549,7 +551,7 @@ export function StockAnalysisPage({
             {isSearchDropdownOpen &&
               searchQuery.trim().length > 0 &&
               searchDropdownRect &&
-              typeof document !== "undefined" &&
+              overlayRoot &&
               createPortal(
                 <div
                   ref={searchDropdownRef}
@@ -627,7 +629,7 @@ export function StockAnalysisPage({
                     </div>
                   )}
                 </div>,
-                document.body,
+                overlayRoot,
               )}
           </form>
 

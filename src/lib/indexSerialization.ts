@@ -262,8 +262,8 @@ export function parseNumericValue(val: unknown): number {
   const cleaned = val
     .replace(/[０-９]/g, (s) => String.fromCharCode(s.charCodeAt(0) - 0xfee0))
     .replace(/[．。]/g, ".")
-    .replace(/[－ー―]/g, "-")
-    .replace(/[￥¥$＄€£￡\s]/g, "")
+    .replace(/[－ー―\u2212\u2013\u2014]/g, "-")
+    .replace(/[￥¥$＄€£￡%％\s]/g, "")
     .replace(/[,，、]/g, "")
     .trim();
   return parseFloat(cleaned);
@@ -294,8 +294,9 @@ export function deserializeBasketFromCsv(csvStr: string): SerializationResult<Ba
     else if (h.includes("名称") || h.includes("銘柄名") || h.includes("name")) nameIdx = i;
     else if (h.includes("テーマ") || h.includes("業種") || h.includes("theme") || h.includes("sector")) themeIdx = i;
     else if (h.includes("比率") || h.includes("ウェイト") || h.includes("weight") ||
+             h.includes("ウエイト") || h.includes("構成比") || h.includes("構成") ||
              h.includes("percent") || h.includes("allocation") || h.includes("share") ||
-             h.includes("配分") || h.includes("%")) weightIdx = i;
+             h.includes("配分") || h.includes("%") || h.includes("％")) weightIdx = i;
   }
 
   const hasMatchedHeader =
@@ -402,7 +403,7 @@ export function deserializePortfolioFromCsv(
 
   for (let i = 0; i < headerLine.length; i++) {
     const h = headerLine[i].toLowerCase();
-    if (h.includes("コード") || h.includes("ticker") || h.includes("symbol")) tickerIdx = i;
+    if (h.includes("コード") || h.includes("ticker") || h.includes("code") || h.includes("symbol")) tickerIdx = i;
     else if (h.includes("銘柄名") || h.includes("名称") || h.includes("name")) nameIdx = i;
     else if (h.includes("株数") || h.includes("数量") || h.includes("shares") || h.includes("quantity")) sharesIdx = i;
     else if (h.includes("単価") || h.includes("コスト") || h.includes("cost") || h.includes("price")) costIdx = i;

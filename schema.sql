@@ -115,3 +115,5 @@ CREATE TABLE IF NOT EXISTS sync_quota (
     PRIMARY KEY (ip, day)
 );
 
+CREATE INDEX IF NOT EXISTS idx_sync_quota_day ON sync_quota(day);
+
