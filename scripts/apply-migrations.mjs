@@ -10,6 +10,7 @@
  */
 
 import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -262,11 +263,34 @@ export function probeDatabase(targetFlag, configPath = "wrangler.local.jsonc", d
   return { tables, indexes, columns };
 }
 
-function execWrangler(targetFlag, configPath, dbName, sql) {
+function getWranglerRunner() {
+  const repoRoot = resolve(fileURLToPath(import.meta.url), "../..");
+  const localWranglerBin = resolve(repoRoot, "node_modules/wrangler/bin/wrangler.js");
+  if (existsSync(localWranglerBin)) {
+    return {
+      cmd: process.execPath,
+      baseArgs: [localWranglerBin],
+      options: { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] },
+    };
+  }
+
+  // Fallback to npx
   const isWindows = process.platform === "win32";
-  const cmd = isWindows ? "npx.cmd" : "npx";
+  return {
+    cmd: isWindows ? "npx.cmd" : "npx",
+    baseArgs: ["wrangler"],
+    options: {
+      encoding: "utf8",
+      stdio: ["pipe", "pipe", "pipe"],
+      shell: isWindows,
+    },
+  };
+}
+
+function execWrangler(targetFlag, configPath, dbName, sql) {
+  const runner = getWranglerRunner();
   const args = [
-    "wrangler",
+    ...runner.baseArgs,
     "d1",
     "execute",
     dbName,
@@ -279,7 +303,7 @@ function execWrangler(targetFlag, configPath, dbName, sql) {
   ];
 
   try {
-    return execFileSync(cmd, args, { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] });
+    return execFileSync(runner.cmd, args, runner.options);
   } catch (err) {
     const stderr = err.stderr ? String(err.stderr) : "";
     const stdout = err.stdout ? String(err.stdout) : "";
