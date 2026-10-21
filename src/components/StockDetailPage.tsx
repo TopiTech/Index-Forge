@@ -34,6 +34,7 @@ import { StockTechnicalChart } from "./StockTechnicalChart";
 import { getTradingViewWebUrl } from "../lib/tradingView";
 import type { PageView } from "../lib/navigation";
 import { useRegisterFreshness } from "../contexts/FreshnessContext";
+import { formatMarketLabel, formatDynamicSector, formatDynamicIndustry } from "../lib/marketFormatter";
 
 export function getRoeEvaluation(roe: number | null | undefined, isMacro: boolean): string {
   if (isMacro || roe === null || roe === undefined || !Number.isFinite(roe)) return "指数・マクロ指標対象外";
@@ -52,6 +53,8 @@ export function getMarketCapEvaluation(cap: number | null | undefined, market: s
   }
   if (market === "GROWTH") return "東証グロース市場";
   if (market === "STANDARD") return "東証スタンダード市場";
+  if (market === "ETF") return "東証上場ETF";
+  if (market === "REIT") return "東証不動産投信 (REIT)";
   if (cap && cap >= 100000) return "超大型優良株 (時価総額10兆円超)";
   if (cap && cap >= 10000) return "大型優良株 (時価総額1兆円超)";
   if (cap && cap >= 1000) return "中型株 (時価総額1,000億円超)";
@@ -396,8 +399,11 @@ export function StockDetailPage({
               ) : (
                 <span className="badge badge-accent mono tiny">LIVE</span>
               )}
-              <span className="badge badge-default mono tiny">{stock.market}</span>
-              <span className="badge badge-default mono tiny">{stock.sector}</span>
+              <span className="badge badge-default mono tiny">{formatMarketLabel(stock.market)}</span>
+              <span className="badge badge-default mono tiny">{formatDynamicSector(stock.sector)}</span>
+              {stock.industry && (
+                <span className="badge badge-outline mono tiny">{formatDynamicIndustry(stock.industry)}</span>
+              )}
               <span className="tiny muted mono">THEME: {stock.theme}</span>
             </div>
             <h1 style={{ fontSize: "1.9rem", fontWeight: 700, margin: 0, letterSpacing: "-0.02em" }}>

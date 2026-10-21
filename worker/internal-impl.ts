@@ -20,6 +20,7 @@ import {
   getNextScheduledMeetings,
   MACRO_METRICS_DEFAULTS,
 } from "../src/data/macroSchedule";
+import { getUniverseStockByTicker } from "../src/data/stockUniverse";
 import {
   getStockFundamentals,
   type MarketOverviewData,
@@ -3391,6 +3392,14 @@ export async function fetchLiveMarketOverview(
 interface YahooQuoteSummaryResponse {
   quoteSummary?: {
     result?: Array<{
+      assetProfile?: {
+        sector?: string;
+        industry?: string;
+        longBusinessSummary?: string;
+        website?: string;
+        city?: string;
+        country?: string;
+      };
       price?: {
         shortName?: string;
         longName?: string;
@@ -3507,10 +3516,13 @@ export async function fetchLiveStockFundamentals(ticker: string, env?: Env): Pro
           ? "指数・ETF"
           : baseline.theme;
   const isUS = baselineAsset ? baselineAsset.currency === "USD" : !/^\d/.test(normTicker);
+  const uStock = getUniverseStockByTicker(normTicker);
   const priceDecimals = isFx
     ? (normTicker.includes("JPY") || baselineAsset?.currency === "JPY" ? 2 : 4)
     : (isUS ? 2 : 1);
-  const market: StockQuoteFundamentals["market"] = baselineAsset ? (isUS ? "US" : "PRIME") : baseline.market;
+  const market: StockQuoteFundamentals["market"] = baselineAsset
+    ? (isUS ? "US" : "PRIME")
+    : (uStock?.market ?? baseline.market);
   const yahooSymbol = baselineAsset ? baselineAsset.querySymbol : toYahooSymbol(normTicker);
 
   let currentPrice = baselineAsset ? baselineAsset.baselinePrice : baseline.price;
@@ -3535,6 +3547,7 @@ export async function fetchLiveStockFundamentals(ticker: string, env?: Env): Pro
   let sparkline: number[] = baseline.sparkline && baseline.sparkline.length > 0 ? baseline.sparkline : [];
   let technicalSignal: StockQuoteFundamentals["technicalSignal"] = baseline.technicalSignal;
   let sector = baseline.sector;
+  let industry: string | undefined = baseline.industry;
   let historicalFinances: StockQuoteFundamentals["historicalFinances"] = isMacroAsset
     ? []
     : baseline.historicalFinances;
@@ -3551,7 +3564,7 @@ export async function fetchLiveStockFundamentals(ticker: string, env?: Env): Pro
     const [summaryRes, chartRes] = await Promise.all([
       auth
         ? fetch(
-            `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(yahooSymbol)}?modules=financialData,defaultKeyStatistics,summaryDetail,earnings,price,incomeStatementHistory,balanceSheetHistory,cashflowStatementHistory,calendarEvents&crumb=${encodeURIComponent(auth.crumb)}`,
+            `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(yahooSymbol)}?modules=assetProfile,financialData,defaultKeyStatistics,summaryDetail,earnings,price,incomeStatementHistory,balanceSheetHistory,cashflowStatementHistory,calendarEvents&crumb=${encodeURIComponent(auth.crumb)}`,
             {
               signal: AbortSignal.timeout(6000),
               headers: {
@@ -3590,7 +3603,7 @@ export async function fetchLiveStockFundamentals(ticker: string, env?: Env): Pro
       for (const host of ["query1.finance.yahoo.com", "query2.finance.yahoo.com"]) {
         try {
           const altRes = await fetch(
-            `https://${host}/v10/finance/quoteSummary/${encodeURIComponent(yahooSymbol)}?modules=financialData,defaultKeyStatistics,summaryDetail,earnings,price,incomeStatementHistory,balanceSheetHistory,cashflowStatementHistory,calendarEvents`,
+            `https://${host}/v10/finance/quoteSummary/${encodeURIComponent(yahooSymbol)}?modules=assetProfile,financialData,defaultKeyStatistics,summaryDetail,earnings,price,incomeStatementHistory,balanceSheetHistory,cashflowStatementHistory,calendarEvents`,
             {
               signal: AbortSignal.timeout(4500),
               headers: {
@@ -3823,7 +3836,15 @@ export async function fetchLiveStockFundamentals(ticker: string, env?: Env): Pro
       else technicalSignal = "SELL";
     }
 
-    if (!isMacroAsset && priceObj.sector) sector = priceObj.sector;
+    const assetProfile = result.assetProfile || {};
+    if (!isMacroAsset) {
+      if (assetProfile.sector && assetProfile.sector.trim().length > 0) {
+        sector = assetProfile.sector.trim();
+      }
+      if (assetProfile.industry && assetProfile.industry.trim().length > 0) {
+        industry = assetProfile.industry.trim();
+      }
+    }
 
     // Financial statement extraction from dynamic external sources
     if (!isMacroAsset) {
@@ -4077,6 +4098,7 @@ export async function fetchLiveStockFundamentals(ticker: string, env?: Env): Pro
     name,
     theme,
     sector,
+    industry,
     market,
     price: Number(currentPrice.toFixed(priceDecimals)),
     change: Number(change.toFixed(priceDecimals)),
@@ -4159,7 +4181,8 @@ export async function fetchLiveScreenerUniverse(
     const sym = toYahooSymbol(preset.ticker);
     const q = quotesMap.get(sym);
     const isUS = !/^\d/.test(preset.ticker);
-    const market: StockQuoteFundamentals["market"] = isUS ? "US" : "PRIME";
+    const uStock = getUniverseStockByTicker(preset.ticker);
+    const market: StockQuoteFundamentals["market"] = isUS ? "US" : (uStock?.market ?? "PRIME");
     const prev = prevMap.get(preset.ticker);
 
     let price: number;
@@ -4447,11 +4470,8 @@ function generateUpcomingMacroEvents(refDate = new Date()): CalendarEvent[] {
   const events: CalendarEvent[] = [];
   const refTime = refDate.getTime() - 24 * 60 * 60 * 1000; // 過去24時間以内は当日分として保持
 
-  // Macros are template events derived from the published central-bank
-  // calendar, never fetched observations: flag them as fallback at the source so
-  // no later branch can drop the label (previously the label was applied only
-  // when the *earnings* fetch returned nothing, so a single live earnings event
-  // silently promoted every template macro to "live").
+  // Central bank policy meetings (BOJ, FOMC) follow official published schedules.
+  const officialScheduleMacro = (): Pick<CalendarEvent, "source"> => ({ source: "official" });
   const fallbackMacro = (): Pick<CalendarEvent, "source"> => ({ source: "fallback" });
 
   // 1. 日銀会合 (直近2回)
@@ -4800,10 +4820,11 @@ export async function fetchLiveMarketCalendarAsync(
     ]),
   );
 
+  let liveFomcRate: number | null = null;
   try {
     const auth = await getYahooCrumb();
     if (auth) {
-      const symbols = tickersToQuery.map(toYahooSymbol);
+      const symbols = Array.from(new Set([...tickersToQuery.map(toYahooSymbol), "^IRX", "^TNX"]));
       const qUrl = `https://query2.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(symbols.join(","))}&crumb=${encodeURIComponent(auth.crumb)}`;
       const qRes = await fetch(qUrl, {
         signal: AbortSignal.timeout(5000),
@@ -4822,6 +4843,7 @@ export async function fetchLiveMarketCalendarAsync(
               longName?: string;
               displayName?: string;
               marketCap?: number;
+              regularMarketPrice?: number;
               earningsTimestamp?: number;
               earningsTimestampStart?: number;
               earningsTimestampEnd?: number;
@@ -4834,6 +4856,25 @@ export async function fetchLiveMarketCalendarAsync(
         const dStr = (d: number) => String(d).padStart(2, "0");
         const refTime = refDate.getTime() - 7 * 24 * 60 * 60 * 1000; // 直近7日以内〜未来
         const maxTime = refDate.getTime() + 90 * 24 * 60 * 60 * 1000; // 向こう90日以内
+
+        for (const q of results) {
+          if (q.symbol === "^IRX" && typeof q.regularMarketPrice === "number" && q.regularMarketPrice > 0) {
+            liveFomcRate = q.regularMarketPrice;
+          }
+        }
+
+        // マクロ実勢金利が得られた場合、FOMCイベントをLIVE実データとして更新
+        if (typeof liveFomcRate === "number") {
+          for (const me of macroEvents) {
+            if (me.id.startsWith("macro-fomc")) {
+              const lower = (Math.floor(liveFomcRate * 4) / 4).toFixed(2);
+              const upper = (Number(lower) + 0.25).toFixed(2);
+              me.previous = `${lower}% - ${upper}% (現行誘導目標)`;
+              me.forecast = "市場予想集計中";
+              me.source = undefined; // LIVE実データ扱い
+            }
+          }
+        }
 
         for (const q of results) {
           const rawSymbol = q.symbol || "";
@@ -4889,7 +4930,14 @@ export async function fetchLiveMarketCalendarAsync(
   let finalEarnings: CalendarEvent[] = [];
   const finalMacros = macroEvents;
 
-  if (liveEarnings.length > 0) {
+  if (liveEarnings.length > 0 || liveFomcRate !== null) {
+    for (const me of finalMacros) {
+      if (me.id.startsWith("macro-boj") || me.id.startsWith("macro-fomc")) {
+        if (me.source === "fallback") {
+          me.source = "official";
+        }
+      }
+    }
     // 取得できた実データがあれば該当銘柄を実データに置換し、新規実データ銘柄を追加 (日本企業イベントの脱落を防止)
     const liveMap = new Map<string, CalendarEvent>();
     for (const le of liveEarnings) {
@@ -4914,7 +4962,7 @@ export async function fetchLiveMarketCalendarAsync(
 
   const combined = sortCalendarEvents([...finalMacros, ...finalEarnings], refDate);
 
-  const hasLive = liveEarnings.length > 0;
+  const hasLive = liveEarnings.length > 0 || finalMacros.some((m) => m.source !== "fallback");
   if (hasLive || !lastKnownCalendarEvents) {
     lastKnownCalendarEvents = combined;
   }

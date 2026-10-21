@@ -13,8 +13,9 @@ import {
   Trash2,
 } from "lucide-react";
 import { POPULAR_STOCKS, type PopularStock } from "../data/popularStocks";
-import { searchStockUniverse, ALL_UNIVERSE_STOCKS, normalizeSearchQuery, type StockMarket } from "../data/stockUniverse";
+import { searchStockUniverse, ALL_UNIVERSE_STOCKS, normalizeSearchQuery, getUniverseStockByTicker, type StockMarket } from "../data/stockUniverse";
 import { DEFAULT_MARKET_OVERVIEW, isMacroAsset } from "../lib/marketDataService";
+import { formatMarketLabel } from "../lib/marketFormatter";
 import { useModalFocus } from "../hooks/useModalFocus";
 import { useOverlayRoot } from "./ModalBase";
 import { isInteractiveKeyTarget } from "../lib/keyboardTarget";
@@ -244,12 +245,14 @@ export function GlobalSearchModal({
           .slice(0, 14)
           .map((stock) => {
             const isUS = !/^\d/.test(stock.ticker);
+            const uStock = getUniverseStockByTicker(stock.ticker);
+            const resolvedMarket = (isUS ? "US" : (uStock?.market ?? "PRIME")) as StockMarket;
             return {
               type: "stock" as const,
               id: stock.ticker,
               title: stock.name,
-              subtitle: `${stock.ticker} · ${isUS ? "米国株" : "東証プライム"} · ${stock.theme}`,
-              market: (isUS ? "US" : "PRIME") as StockMarket,
+              subtitle: `${stock.ticker} · ${formatMarketLabel(resolvedMarket)} · ${stock.theme}`,
+              market: resolvedMarket,
               isRecent: false,
               raw: stock,
             };
@@ -393,7 +396,7 @@ export function GlobalSearchModal({
               id: upperQuery,
               title: `銘柄 ${upperQuery}`,
               subtitle: `${upperQuery} · 個別銘柄の分析・詳細を表示`,
-              market: (/^\d/.test(upperQuery) ? "PRIME" : "US") as StockMarket,
+              market: (getUniverseStockByTicker(upperQuery)?.market ?? (/^\d/.test(upperQuery) ? "PRIME" : "US")) as StockMarket,
               raw: {
                 ticker: upperQuery,
                 name: `銘柄 ${upperQuery}`,

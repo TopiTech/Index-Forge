@@ -33,6 +33,7 @@ import { toSafeDownloadFileName } from "../lib/downloadFileName";
 import type { PageView } from "../lib/navigation";
 import { useToast } from "./Toast";
 import { useRegisterFreshness } from "../contexts/FreshnessContext";
+import { formatMarketLabel } from "../lib/marketFormatter";
 
 interface ScreenerPageProps {
   onNavigate: (view: PageView, searchParams?: string) => void;
@@ -149,7 +150,7 @@ export function ScreenerPage({
   onOpenStockDetail,
   onBatchCreateCustomIndex,
 }: ScreenerPageProps) {
-  const [market, setMarket] = useState<"ALL" | "PRIME" | "US">("ALL");
+  const [market, setMarket] = useState<"ALL" | "PRIME" | "STANDARD" | "GROWTH" | "US">("ALL");
   const [minDividend, setMinDividend] = useState<number | undefined>(undefined);
   const [maxPbr, setMaxPbr] = useState<number | undefined>(undefined);
   const [maxPer, setMaxPer] = useState<number | undefined>(undefined);
@@ -290,7 +291,7 @@ export function ScreenerPage({
     if (market !== "ALL") {
       list.push({
         id: "market",
-        label: `市場: ${market === "PRIME" ? "東証プライム" : "米国市場 (US)"}`,
+        label: `市場: ${formatMarketLabel(market)}`,
         onRemove: () => {
           setMarket("ALL");
           setActivePreset(null);
@@ -693,12 +694,14 @@ export function ScreenerPage({
             style={{ width: "100%", padding: "6px 10px", fontSize: "0.85rem" }}
             value={market}
             onChange={(e) => {
-              setMarket(e.target.value as "ALL" | "PRIME" | "US");
+              setMarket(e.target.value as "ALL" | "PRIME" | "STANDARD" | "GROWTH" | "US");
               setActivePreset(null);
             }}
           >
             <option value="ALL">全市場 (日本 & 米国)</option>
             <option value="PRIME">東証プライム</option>
+            <option value="STANDARD">東証スタンダード</option>
+            <option value="GROWTH">東証グロース</option>
             <option value="US">米国市場 (US)</option>
           </select>
         </div>
@@ -1278,7 +1281,7 @@ export function ScreenerPage({
                             </span>
                           )}
                         </div>
-                        <span className="tiny muted mono">{stock.theme} · {stock.market === "US" ? "米国市場" : "東証プライム"}</span>
+                        <span className="tiny muted mono">{stock.theme} · {formatMarketLabel(stock.market)}</span>
                       </div>
                     </div>
                     <div className="screener-mobile-sparkline">

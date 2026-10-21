@@ -34,6 +34,7 @@ import { getRecentSearches } from "./GlobalSearchModal";
 import { changeTone, formatSignedPercent } from "./changeTone";
 import type { PageView } from "../lib/navigation";
 import { useRegisterFreshness } from "../contexts/FreshnessContext";
+import { formatMarketLabel, formatDynamicSector } from "../lib/marketFormatter";
 
 export interface StockAnalysisPageProps {
   onNavigate: (view: PageView, searchParams?: string) => void;
@@ -901,15 +902,7 @@ export function StockAnalysisPage({
                 <div className="stock-card-top">
                   <div className="stock-card-badges">
                     <span className="stock-card-ticker">{stock.ticker}</span>
-                    <span className="stock-card-market">
-                      {stock.market === "US"
-                        ? "米国株"
-                        : stock.market === "GROWTH"
-                        ? "東証グロース"
-                        : stock.market === "STANDARD"
-                        ? "東証スタンダード"
-                        : "東証プライム"}
-                    </span>
+                    <span className="stock-card-market">{formatMarketLabel(stock.market)}</span>
                     {stock.theme && <span className="stock-card-theme">{stock.theme}</span>}
                     {stock.marketCap > 0 && (
                       <span className="stock-card-cap" title="時価総額">

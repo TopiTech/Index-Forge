@@ -854,6 +854,19 @@ export function CalendarPage({
                           </span>
                         )}
                         {evt.ticker && <span className="badge badge-accent mono tiny">{evt.ticker}</span>}
+                        {evt.source === "official" && (
+                          <span
+                            className="badge mono tiny"
+                            title="中央銀行公表の公定日程スケジュールです"
+                            style={{
+                              background: "rgba(59, 130, 246, 0.12)",
+                              border: "1px solid rgba(59, 130, 246, 0.35)",
+                              color: "var(--neon-cyan, #06b6d4)",
+                            }}
+                          >
+                            公定日程
+                          </span>
+                        )}
                         {evt.source === "fallback" && (
                           <span
                             className="badge mono tiny"
@@ -1177,6 +1190,9 @@ export function CalendarPage({
                     {selectedEvent.market === "US" ? "米国市場" : "国内東証"}
                   </span>
                 )}
+                {selectedEvent.source === "official" && (
+                  <span className="badge badge-accent mono tiny">公定日程</span>
+                )}
                 {selectedEvent.source === "fallback" && (
                   <span className="badge badge-warning mono tiny">参考値 (推計)</span>
                 )}
@@ -1392,6 +1408,9 @@ export function CalendarPage({
                       {evt.time && <span className="tiny muted mono">{evt.time}</span>}
                       {evt.ticker && (
                         <span className="badge badge-accent mono tiny">{evt.ticker}</span>
+                      )}
+                      {evt.source === "official" && (
+                        <span className="badge badge-accent mono tiny">公定日程</span>
                       )}
                       {evt.source === "fallback" && (
                         <span className="badge badge-warning mono tiny">参考値</span>

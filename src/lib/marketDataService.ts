@@ -14,6 +14,7 @@ import {
   getNextScheduledMeetings,
   MACRO_METRICS_DEFAULTS,
 } from "../data/macroSchedule";
+import { getUniverseStockByTicker, type StockMarket } from "../data/stockUniverse";
 import { normalizeSearchQuery } from "./searchNormalize";
 import { escapeCsvCell } from "./csv";
 
@@ -78,7 +79,8 @@ export interface StockQuoteFundamentals {
   name: string;
   theme: string;
   sector: string;
-  market: "PRIME" | "STANDARD" | "GROWTH" | "US";
+  industry?: string;
+  market: StockMarket | "PRIME" | "STANDARD" | "GROWTH" | "US";
   price: number;
   change: number;
   changePercent: number;
@@ -1495,11 +1497,12 @@ export function getStockFundamentals(ticker: string): StockQuoteFundamentals {
     overviewAsset?.category === "BOND",
   );
 
+  const uStock = getUniverseStockByTicker(normTicker);
   const name = matchedPreset
     ? matchedPreset.name
     : overviewAsset
       ? overviewAsset.name
-      : `銘柄 ${normTicker}`;
+      : uStock?.name || `銘柄 ${normTicker}`;
   const theme = matchedPreset
     ? matchedPreset.theme
     : overviewAsset
@@ -1518,7 +1521,7 @@ export function getStockFundamentals(ticker: string): StockQuoteFundamentals {
           ? "為替"
           : isCrypto
             ? "暗号資産"
-            : "株式";
+            : uStock?.sector || "株式";
   const isUS = !/^\d/.test(normTicker);
 
   const anchor = KNOWN_STOCK_ANCHORS[normTicker];
@@ -1567,7 +1570,7 @@ export function getStockFundamentals(ticker: string): StockQuoteFundamentals {
         ? "FX"
         : isCrypto
           ? "CRYPTO"
-          : (anchor?.sector ?? (isUS ? "Information Tech" : "電気機器・精密"));
+          : (anchor?.sector ?? uStock?.sector ?? (isUS ? "Technology" : "その他"));
 
   // 財務諸表ハイライト: モック合成 (marketCap * 0.72 等) は捏造せず、アンカー実データのみを採用
   const finalFinances = overviewAsset
@@ -1588,7 +1591,7 @@ export function getStockFundamentals(ticker: string): StockQuoteFundamentals {
     name,
     theme,
     sector,
-    market: anchor?.market ?? (isUS ? "US" : "PRIME"),
+    market: (anchor?.market ?? uStock?.market ?? (isUS ? "US" : "PRIME")) as StockMarket,
     price: basePrice,
     change,
     changePercent: changePct,
