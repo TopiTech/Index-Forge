@@ -95,4 +95,20 @@ describe("TradingViewChartModal resource cleanup", () => {
     expect(resizeListener).not.toHaveBeenCalled();
     window.removeEventListener("resize", resizeListener);
   });
+
+  it("mounts safely and falls back to default responsive dimensions when localStorage throws SecurityError", () => {
+    Object.defineProperty(globalThis, "localStorage", {
+      configurable: true,
+      get() {
+        throw new DOMException("Access to Storage is denied for this document", "SecurityError");
+      },
+    });
+
+    expect(() => {
+      const { unmount } = render(
+        <TradingViewChartModal symbol={SYMBOL} onClose={() => {}} />,
+      );
+      unmount();
+    }).not.toThrow();
+  });
 });

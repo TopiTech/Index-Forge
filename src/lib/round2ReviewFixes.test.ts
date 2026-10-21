@@ -88,7 +88,7 @@ describe("インポート境界とWorker契約の整合性 (再発防止)", () =
       }),
     );
     expect(bad.ok).toBe(true);
-    expect(bad.data?.id).toMatch(/^custom-\d+$/);
+    expect(bad.data?.id).toMatch(/^custom-\d+(-[a-f0-9]+)?$/);
 
     const good = deserializeIndexFromJson(
       JSON.stringify({

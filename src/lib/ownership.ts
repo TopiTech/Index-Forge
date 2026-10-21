@@ -37,6 +37,15 @@ function getEmptyStore(): OwnerStore {
   return Object.create(null);
 }
 
+function getSafeStorage(): Storage | null {
+  try {
+    const storage = (globalThis as { localStorage?: Storage }).localStorage;
+    return storage && typeof storage.getItem === "function" ? storage : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Read the store and convert it to the current shape.
  *
@@ -46,9 +55,11 @@ function getEmptyStore(): OwnerStore {
  */
 function readStore(now: number): { store: OwnerStore; changed: boolean } {
   const store = getEmptyStore();
+  const storage = getSafeStorage();
+  if (!storage) return { store, changed: false };
   let raw: string | null = null;
   try {
-    raw = localStorage.getItem(STORAGE_KEY);
+    raw = storage.getItem(STORAGE_KEY);
   } catch {
     return { store, changed: false };
   }
@@ -119,8 +130,10 @@ function parseEntry(
 }
 
 function setStore(store: OwnerStore): void {
+  const storage = getSafeStorage();
+  if (!storage) return;
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
+    storage.setItem(STORAGE_KEY, JSON.stringify(store));
   } catch {
     // ignore quota/storage errors
   }

@@ -10,6 +10,7 @@ import type { CustomIndex } from "../data/indices";
 import { createPortfolioPosition, type PortfolioPosition } from "./portfolioStorage";
 import { escapeCsvCell, parseCsv } from "./csv";
 import { normalizeTicker } from "./indexEngine";
+import { safeRandomId } from "./randomId";
 
 export type SerializationResult<T> =
   | { ok: true; data: T; error?: string }
@@ -209,7 +210,7 @@ export function deserializeIndexFromJson(jsonStr: string): SerializationResult<C
     const id =
       rawId.length > 0 && rawId.length <= 100 && /^[A-Za-z0-9._-]+$/.test(rawId)
         ? rawId
-        : `custom-${Date.now()}`;
+        : `custom-${Date.now()}-${safeRandomId(6)}`;
 
     // sortOrder は任意項目。有限数値のときだけ復元し、Worker 契約
     // (0..9999 の整数、超過・負値は 400) に収まるよう補正する。補正しないと

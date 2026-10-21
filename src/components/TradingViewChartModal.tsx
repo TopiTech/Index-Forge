@@ -42,6 +42,15 @@ interface CardDimensions {
   height: number;
 }
 
+function getSafeStorage(): Storage | null {
+  try {
+    const storage = (globalThis as { localStorage?: Storage }).localStorage;
+    return storage && typeof storage.getItem === "function" ? storage : null;
+  } catch {
+    return null;
+  }
+}
+
 export function getSavedDimensions(): CardDimensions {
   if (typeof window === "undefined") return DEFAULT_SIZE;
   const isMobile = window.innerWidth <= 640;
@@ -53,7 +62,8 @@ export function getSavedDimensions(): CardDimensions {
     : Math.min(360, Math.floor(window.innerHeight * 0.88));
 
   try {
-    const saved = localStorage.getItem(STORAGE_KEY_SIZE);
+    const storage = getSafeStorage();
+    const saved = storage?.getItem(STORAGE_KEY_SIZE);
     if (saved) {
       const parsed = JSON.parse(saved);
       if (
@@ -180,7 +190,7 @@ export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModal
   // Save dimensions whenever they change (debounce to localStorage)
   const saveDimensions = useCallback((dims: CardDimensions) => {
     try {
-      localStorage.setItem(STORAGE_KEY_SIZE, JSON.stringify(dims));
+      getSafeStorage()?.setItem(STORAGE_KEY_SIZE, JSON.stringify(dims));
     } catch {
       // Ignore
     }

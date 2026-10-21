@@ -44,6 +44,23 @@ describe("indexSerialization", () => {
     expect(deserializeIndexFromJson(JSON.stringify({ name: "テスト", basket: [] })).ok).toBe(false);
   });
 
+  it("generates unique, collision-resistant fallback IDs when imported id is invalid or missing", () => {
+    const rawPayload = {
+      name: "Fallback ID Index",
+      baseValue: 1000,
+      basket: [{ ticker: "7203", name: "トヨタ自動車", theme: "自動車", weight: 100 }],
+    };
+    const res1 = deserializeIndexFromJson(JSON.stringify(rawPayload));
+    const res2 = deserializeIndexFromJson(JSON.stringify(rawPayload));
+
+    expect(res1.ok).toBe(true);
+    expect(res2.ok).toBe(true);
+    expect(res1.data?.id).toMatch(/^custom-\d+-[a-f0-9]+$/);
+    expect(res2.data?.id).toMatch(/^custom-\d+-[a-f0-9]+$/);
+    expect(res1.data?.id).not.toBe(res2.data?.id);
+    expect(res1.data!.id.length).toBeLessThanOrEqual(100);
+  });
+
   it("serializes and deserializes basket CSV", () => {
     const csv = serializeBasketToCsv(sampleIndex.basket);
     expect(csv).toContain("8035");

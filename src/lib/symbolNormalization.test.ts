@@ -1,6 +1,5 @@
 import { describe, it, expect } from "vitest";
 import { toYahooSymbol as toYahooSymbolLib } from "./yahooSymbol";
-import { toYahooSymbol as toYahooSymbolLegacy } from "./yahooSymbolLegacy";
 import { toYahooSymbol as toYahooSymbolWorker } from "../../worker/internal";
 
 describe("toYahooSymbol", () => {
@@ -42,14 +41,12 @@ describe("toYahooSymbol", () => {
     expect(toYahooSymbolLib("  ７２０３  ")).toBe("7203.T");
   });
 
-  it("maintains full parity across yahooSymbol, legacy yahuuSymbol re-export, and worker implementation", () => {
+  it("maintains full parity across client yahooSymbol and worker implementation", () => {
     const testCases = ["7203", "9984.T", "AAPL", "BRK.A", "^N225", "USDJPY=X", "  6758  "];
     for (const testCase of testCases) {
       const libVal = toYahooSymbolLib(testCase);
-      const legacyVal = toYahooSymbolLegacy(testCase);
       const workerVal = toYahooSymbolWorker(testCase);
       expect(libVal).toBe(workerVal);
-      expect(legacyVal).toBe(workerVal);
     }
   });
 });

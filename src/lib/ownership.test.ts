@@ -78,4 +78,18 @@ describe("ownership store robustness", () => {
     expect(getIndexOwnerToken("idx-1")).toBeNull();
     expect(isIndexOwner("idx-1")).toBe(false);
   });
+
+  it("survives when accessing the localStorage getter itself throws SecurityError", () => {
+    Object.defineProperty(globalThis, "localStorage", {
+      configurable: true,
+      get() {
+        throw new DOMException("Access to Storage is denied for this document", "SecurityError");
+      },
+    });
+    expect(() => saveIndexOwnerToken("idx-1", "token-a")).not.toThrow();
+    expect(() => getIndexOwnerToken("idx-1")).not.toThrow();
+    expect(getIndexOwnerToken("idx-1")).toBeNull();
+    expect(isIndexOwner("idx-1")).toBe(false);
+    expect(() => removeIndexOwnerToken("idx-1")).not.toThrow();
+  });
 });

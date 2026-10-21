@@ -159,7 +159,7 @@ export function useTheme() {
     (newTheme: ThemeMode) => {
       setThemeState(newTheme);
       try {
-        localStorage.setItem(THEME_STORAGE_KEY, newTheme);
+        getLocalStorage()?.setItem(THEME_STORAGE_KEY, newTheme);
       } catch {
         // Storage may be unavailable or read-only.
       }
@@ -178,7 +178,7 @@ export function useTheme() {
     (newAccent: AccentColor) => {
       setAccentState(newAccent);
       try {
-        localStorage.setItem(ACCENT_STORAGE_KEY, newAccent);
+        getLocalStorage()?.setItem(ACCENT_STORAGE_KEY, newAccent);
       } catch {
         // Storage may be unavailable or read-only.
       }
