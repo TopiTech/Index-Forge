@@ -43,9 +43,10 @@ describe("worker entry module export contract", () => {
 });
 
 describe("worker implementation module", () => {
-  it("holds the fetch handler and the shared helpers", () => {
+  it("holds the fetch and scheduled handlers and the shared helpers", () => {
     expect(implSource).toMatch(/export\s+default\s*\{/);
     expect(implSource).toMatch(/async\s+fetch\s*\(/);
+    expect(implSource).toMatch(/async\s+scheduled\s*\(/);
   });
 
   it("is not referenced as the wrangler entry point", () => {

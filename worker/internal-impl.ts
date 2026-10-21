@@ -59,6 +59,12 @@ export interface WorkerExecutionContext {
   passThroughOnException?(): void;
 }
 
+export interface WorkerScheduledController {
+  readonly scheduledTime: number;
+  readonly cron: string;
+  noRetry?(): void;
+}
+
 export interface Env {
   ASSETS: AssetsBinding;
   DB: D1Database;
@@ -8927,6 +8933,23 @@ export default {
     } catch (unhandledErr) {
       console.error("Unhandled Worker error:", unhandledErr);
       return json({ error: "Internal server error" }, 500, request);
+    }
+  },
+
+  async scheduled(
+    controller: WorkerScheduledController,
+    env: Env,
+    ctx?: WorkerExecutionContext,
+  ): Promise<void> {
+    const now = Math.floor((controller?.scheduledTime || Date.now()) / 1000);
+    const purgeTask = purgeExpiredSecurityRows(env, now).catch((err) => {
+      console.error("Scheduled purgeExpiredSecurityRows failed:", err);
+    });
+
+    if (ctx && typeof ctx.waitUntil === "function") {
+      ctx.waitUntil(purgeTask);
+    } else {
+      await purgeTask;
     }
   },
 };

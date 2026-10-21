@@ -50,10 +50,10 @@
   - Apply `schema.sql` to the local D1 database using `wrangler.local.jsonc`.
 
 - `npm run db:migrate:columns`
-  - Apply `schema.migration.sql` (adds `owner_token_hash` / `created_at` / `sort_order` / `creator_id` to `indices` and `max_indices` to `access_passwords`) to the remote D1 database.
+  - Idempotently apply column migrations (`owner_token_hash` / `created_at` / `sort_order` / `creator_id` to `indices` and `max_indices` to `access_passwords`) to the remote D1 database via `scripts/apply-migrations.mjs` (inspects existing schema so it never fails even if columns already exist).
 
 - `npm run db:migrate:columns:local`
-  - Apply `schema.migration.sql` to the local D1 database.
+  - Idempotently apply column migrations to the local D1 database via `scripts/apply-migrations.mjs`.
 
 - `npm run db:seed`
   - Seed the remote D1 database with `seed.sql`.

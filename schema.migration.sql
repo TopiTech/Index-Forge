@@ -1,14 +1,12 @@
 -- Migration: bring legacy databases up to the canonical schema.sql revision.
 --
 -- RUN ORDER AND SAFETY:
---   1. Fresh deployments: run schema.sql ONLY. It already contains every
---      column below. Do NOT run this file afterwards (SQLite has no
---      IF NOT EXISTS for ALTER TABLE ADD COLUMN, so re-adding an existing
---      column aborts the whole D1 batch -- the file is intentionally once-only).
---   2. Legacy databases (created before owner_token_hash/created_at/creator_id
---      /max_indices existed): run this file EXACTLY ONCE, BEFORE any fresh
---      schema.sql re-application. Verify missing columns first with:
---        SELECT sql FROM sqlite_master WHERE name IN ('indices','access_passwords');
+--   1. Recommended: use `npm run db:migrate:columns` (or `db:migrate:columns:local`),
+--      which executes scripts/apply-migrations.mjs to probe table_info and apply
+--      only missing columns/tables/indexes idempotently without duplicate column errors.
+--   2. Direct raw SQL execution:
+--      - Fresh deployments: run schema.sql ONLY. It already contains every column below.
+--      - Legacy databases: run this file EXACTLY ONCE, BEFORE any fresh schema.sql re-application.
 --   3. The plaintext-password scrub at the bottom is OPT-IN (uncomment only
 --      when that legacy column exists). Application code never reads or
 --      writes plain_password, so scrubbing is hygiene, not functional, and it

@@ -14,7 +14,7 @@
  * transfer exceeds the budget, or when a single preloaded chunk is so large
  * that it can only be the dataset or the chart library.
  */
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { gzipSync } from "node:zlib";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -41,7 +41,13 @@ const MAX_PRELOADED_CHUNK_RAW = 200_000;
 const MAX_ENTRY_CHUNK_RAW = 520_000;
 const MAX_ENTRY_CHUNK_GZIP = 160_000;
 
-const html = readFileSync(join(distDir, "index.html"), "utf8");
+const distHtmlPath = join(distDir, "index.html");
+if (!existsSync(distHtmlPath)) {
+  console.error("check-first-paint: dist/index.html not found. Please run 'npm run build' first.");
+  process.exit(1);
+}
+
+const html = readFileSync(distHtmlPath, "utf8");
 
 const entryMatch = html.match(/<script[^>]+type="module"[^>]+src="\/assets\/([^"]+)"/);
 if (!entryMatch) {
