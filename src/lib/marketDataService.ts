@@ -14,9 +14,20 @@ import {
   getNextScheduledMeetings,
   MACRO_METRICS_DEFAULTS,
 } from "../data/macroSchedule";
-import { getUniverseStockByTicker, type StockMarket } from "../data/stockUniverse";
+import type { StockMarket, UniverseStock } from "../data/stockUniverse";
 import { normalizeSearchQuery } from "./searchNormalize";
 import { escapeCsvCell } from "./csv";
+
+export type UniverseStockLookup = (ticker: string) => UniverseStock | undefined;
+let universeLookupFn: UniverseStockLookup | null = null;
+
+export function registerUniverseLookup(fn: UniverseStockLookup): void {
+  universeLookupFn = fn;
+}
+
+export function getRegisteredUniverseStock(ticker: string): UniverseStock | undefined {
+  return universeLookupFn ? universeLookupFn(ticker) : undefined;
+}
 
 export interface MarketAssetQuote {
   symbol: string;
@@ -1497,7 +1508,7 @@ export function getStockFundamentals(ticker: string): StockQuoteFundamentals {
     overviewAsset?.category === "BOND",
   );
 
-  const uStock = getUniverseStockByTicker(normTicker);
+  const uStock = universeLookupFn ? universeLookupFn(normTicker) : undefined;
   const name = matchedPreset
     ? matchedPreset.name
     : overviewAsset
@@ -2090,6 +2101,17 @@ export async function fetchStockFundamentals(
     const failure = stockFundamentalsFailureCache.get(normTicker);
     if (failure && Date.now() - failure.failedAt < STOCK_FUNDAMENTALS_FAILURE_COOLDOWN_MS) {
       return failure.fallback;
+    }
+  }
+
+  if (!universeLookupFn) {
+    try {
+      const mod = await import("../data/stockUniverse");
+      if (mod.getUniverseStockByTicker && !universeLookupFn) {
+        registerUniverseLookup(mod.getUniverseStockByTicker);
+      }
+    } catch {
+      // Non-fatal if dynamic import fails
     }
   }
 

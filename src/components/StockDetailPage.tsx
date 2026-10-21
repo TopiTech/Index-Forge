@@ -97,7 +97,7 @@ interface StockDetailPageProps {
   onNavigate: (view: PageView, searchParams?: string) => void;
   onAddToIndex?: (ticker: string, name: string, theme: string) => void;
   onAddToWatchlist?: (ticker: string) => void;
-  onAddToPortfolio?: (ticker: string, currentPrice: number) => void;
+  onAddToPortfolio?: (ticker: string, currentPrice: number, stockName?: string) => void;
 }
 
 export function StockDetailPage({
@@ -357,7 +357,7 @@ export function StockDetailPage({
               type="button"
               className="btn btn-sm btn-outline"
               onClick={() => {
-                onAddToPortfolio(stock.ticker, stock.price);
+                onAddToPortfolio(stock.ticker, stock.price, stock.name);
               }}
             >
               <Briefcase size={14} />

@@ -8,7 +8,7 @@ import { useAuth } from "./hooks/useAuth";
 import { useToast } from "./components/Toast";
 import { addWatchlistTicker, addPortfolioPosition, todayJstDateString } from "./lib/portfolioStorage";
 import { reportAddStockResult } from "./lib/addStockFeedback";
-import { getStockFundamentals } from "./lib/marketDataService";
+import { POPULAR_STOCKS } from "./data/popularStocksData";
 import { Header } from "./components/Header";
 import { Sidebar } from "./components/Sidebar";
 import { TradingViewTickerTape } from "./components/TradingViewTickerTape";
@@ -864,39 +864,40 @@ function AppContent({
   );
 
   const handleAddToPortfolio = useCallback(
-    (ticker: string, currentPrice: number) => {
+    (ticker: string, currentPrice: number, stockName?: string) => {
       if (!isAuthenticated) {
         toastInfo("ポートフォリオ登録にはログインが必要です");
         navigateTo("portfolio");
         return;
       }
-      const fund = getStockFundamentals(ticker);
+      const displayName =
+        stockName ||
+        POPULAR_STOCKS.find((s) => s.ticker.toUpperCase() === ticker.toUpperCase())?.name ||
+        ticker;
       const safePrice =
         Number.isFinite(currentPrice) && currentPrice > 0
           ? currentPrice
-          : Number.isFinite(fund.price) && fund.price > 0
-            ? fund.price
-            : null;
+          : null;
       if (safePrice === null) {
         // A fabricated cost basis silently corrupts portfolio P/L, so refuse
         // the add instead of guessing a price.
         toastError(
-          `「${fund.name || ticker}」の現在価格を取得できないため、ポートフォリオに追加できませんでした`,
+          `「${displayName}」の現在価格を取得できないため、ポートフォリオに追加できませんでした`,
         );
         return;
       }
       const ok = addPortfolioPosition({
         ticker,
-        name: fund.name || ticker,
+        name: displayName,
         shares: 100,
         averageCost: safePrice,
         acquiredAt: todayJstDateString(),
       });
       if (ok) {
-        toastSuccess(`「${fund.name || ticker}」をポートフォリオに追加しました`);
+        toastSuccess(`「${displayName}」をポートフォリオに追加しました`);
         navigateTo("portfolio");
       } else {
-        toastInfo(`「${fund.name || ticker}」のポートフォリオ登録に失敗しました`);
+        toastInfo(`「${displayName}」のポートフォリオ登録に失敗しました`);
       }
     },
     [isAuthenticated, navigateTo, toastInfo, toastSuccess, toastError],

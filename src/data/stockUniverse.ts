@@ -4799,3 +4799,7 @@ export function getUniverseStockByTicker(ticker: string): UniverseStock | undefi
     .toUpperCase();
   return TICKER_MAP.get(rawClean);
 }
+
+import { registerUniverseLookup } from "../lib/marketDataService";
+registerUniverseLookup(getUniverseStockByTicker);
+

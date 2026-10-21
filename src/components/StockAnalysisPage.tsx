@@ -41,7 +41,7 @@ export interface StockAnalysisPageProps {
   onOpenStockDetail: (ticker: string) => void;
   onAddToIndex?: (ticker: string, name: string, theme: string) => void;
   onAddToWatchlist?: (ticker: string) => void;
-  onAddToPortfolio?: (ticker: string, currentPrice: number) => void;
+  onAddToPortfolio?: (ticker: string, currentPrice: number, stockName?: string) => void;
 }
 
 type ThemeCategory =
@@ -931,7 +931,7 @@ export function StockAnalysisPage({
                         className="stock-card-action-btn"
                         onClick={(e) => {
                           e.stopPropagation();
-                          onAddToPortfolio(stock.ticker, stock.price);
+                          onAddToPortfolio(stock.ticker, stock.price, stock.name);
                         }}
                         title="ポートフォリオに追加"
                         aria-label={`${stock.name}をポートフォリオに追加`}
