@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { fetchLiveMarketCalendarAsync, fetchLiveMarketCalendar } from "../../worker/internal";
+import { fetchLiveMarketCalendarAsync } from "../../worker/internal";
 
 describe("Macro Calendar Live Accuracy and Official Schedules", () => {
   beforeEach(() => {

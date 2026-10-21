@@ -4470,8 +4470,6 @@ function generateUpcomingMacroEvents(refDate = new Date()): CalendarEvent[] {
   const events: CalendarEvent[] = [];
   const refTime = refDate.getTime() - 24 * 60 * 60 * 1000; // 過去24時間以内は当日分として保持
 
-  // Central bank policy meetings (BOJ, FOMC) follow official published schedules.
-  const officialScheduleMacro = (): Pick<CalendarEvent, "source"> => ({ source: "official" });
   const fallbackMacro = (): Pick<CalendarEvent, "source"> => ({ source: "fallback" });
 
   // 1. 日銀会合 (直近2回)

@@ -34,7 +34,7 @@ import { getRecentSearches } from "./GlobalSearchModal";
 import { changeTone, formatSignedPercent } from "./changeTone";
 import type { PageView } from "../lib/navigation";
 import { useRegisterFreshness } from "../contexts/FreshnessContext";
-import { formatMarketLabel, formatDynamicSector } from "../lib/marketFormatter";
+import { formatMarketLabel } from "../lib/marketFormatter";
 
 export interface StockAnalysisPageProps {
   onNavigate: (view: PageView, searchParams?: string) => void;
