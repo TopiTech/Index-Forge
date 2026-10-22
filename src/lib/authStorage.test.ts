@@ -146,3 +146,45 @@ describe("storeAuth / clearAuth", () => {
     });
   });
 });
+
+describe("storeAuth は検証を失敗したセッションを保持しない (C-01)", () => {
+  it("sanitizeAuthSession が拒否するセッションはメモリにもストレージにも残らない", () => {
+    const session = createStorage();
+    const local = createStorage();
+    vi.stubGlobal("sessionStorage", session.storage);
+    vi.stubGlobal("localStorage", local.storage);
+
+    // 役割が不正 / パスワード欠落 / 非オブジェクト: いずれも保存以前の契約違反。
+    storeAuth({ role: "root", password: "x" } as unknown as AuthSession);
+    storeAuth({ role: "admin" } as unknown as AuthSession);
+    storeAuth(["admin"] as unknown as AuthSession);
+
+    expect(session.data.has(AUTH_KEY)).toBe(false);
+    // メモリセッションも作られない: 以前は sanitize 失敗時に生値が入り、
+    // 再読み込みなしでも権限昇格した役割で扱われていた。
+    expect(getStoredAuth()).toBeNull();
+  });
+
+  it("検証に失敗した書き込みは、既存の有効なセッションを追い出さない", () => {
+    const session = createStorage();
+    const local = createStorage();
+    vi.stubGlobal("sessionStorage", session.storage);
+    vi.stubGlobal("localStorage", local.storage);
+
+    storeAuth(SESSION);
+    storeAuth({ role: "user", password: "" } as unknown as AuthSession);
+
+    expect(getStoredAuth()?.password).toBe(SESSION.password);
+    expect(session.data.get(AUTH_KEY)).toBe(JSON.stringify(SESSION));
+  });
+
+  it("sessionStorage が無い環境でも不正セッションはメモリに保持されない", () => {
+    const local = createStorage();
+    vi.stubGlobal("sessionStorage", undefined);
+    vi.stubGlobal("localStorage", local.storage);
+
+    storeAuth({ role: "root", password: "x" } as unknown as AuthSession);
+
+    expect(getStoredAuth()).toBeNull();
+  });
+});

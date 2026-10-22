@@ -44,6 +44,8 @@ export {
   isLocalOrTestHost,
   verifyTurnstileToken,
   verifyAdminSecretCode,
+  verifyAdminSecretCodeDetailed,
+  AUTH_SERVICE_UNAVAILABLE_MESSAGE,
   checkAdminLoginLockout,
   recordAdminLoginFailure,
   resetAdminLoginAttempts,
@@ -143,6 +145,7 @@ export {
 } from "./internal-impl";
 
 export type {
+  AdminSecretCodeCheckResult,
   AssetsBinding,
   AuthResult,
   Env,

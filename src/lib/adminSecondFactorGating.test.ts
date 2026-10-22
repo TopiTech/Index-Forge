@@ -347,7 +347,8 @@ describe("admin-login wiring", () => {
     // `isLocalHostname` / `isLocalOrTestHost` (first describe block).
     const source = readFileSync(resolve(process.cwd(), "worker/internal-impl.ts"), "utf8");
 
-    const secretCodeCall = source.indexOf("verifyAdminSecretCode(\n            env,");
+    // W-01: 呼び出し境界は分類情報を持つ verifyAdminSecretCodeDetailed を使う。
+    const secretCodeCall = source.indexOf("verifyAdminSecretCodeDetailed(\n            env,");
     expect(secretCodeCall).toBeGreaterThan(0);
     expect(source.slice(secretCodeCall, secretCodeCall + 220)).toContain(
       "isLocalOrTestHost(url.hostname)",

@@ -235,7 +235,12 @@ function notifyAuthChanged(): void {
  * survive the tab.
  */
 export function storeAuth(session: AuthSession): void {
-  const sanitized = sanitizeAuthSession(session) ?? session;
+  const sanitized = sanitizeAuthSession(session);
+  if (!sanitized) {
+    // C-01: a session that fails its own shape contract must never become
+    // authoritative — the old `?? session` fallback bypassed the validation.
+    return;
+  }
   memoryAuthSession = sanitized;
 
   const sessionStore = getSessionStorage();

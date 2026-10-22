@@ -220,12 +220,14 @@ describe("fundamentals 取得失敗のキャッシュ分離 (再発防止)", () 
 
 describe("/api/indices 一覧の決定的な並び順 (再発防止)", () => {
   it("orders by a unique tiebreaker (sort_order, name, id, ticker) in both query paths", () => {
+    // 各パスは1回のクエリに1つずつ (W-03 で削除した LIMIT/OFFSET ページング
+    // 用の重複コピーはもう存在しない)。
     const sortPath = workerSrc.match(
       /ORDER BY\s+COALESCE\(i\.sort_order, 99\),\s+i\.name,\s+i\.id,\s+b\.ticker/g,
     );
-    expect(sortPath?.length).toBe(2);
+    expect(sortPath?.length).toBe(1);
     const fallbackPath = workerSrc.match(/ORDER BY\s+i\.name,\s+i\.id,\s+b\.ticker/g);
-    expect(fallbackPath?.length).toBe(2);
+    expect(fallbackPath?.length).toBe(1);
 
     // ページ境界 (LIMIT/OFFSET) で行の欠落・重複を招く旧パターンは残っていない
     expect(workerSrc).not.toMatch(/ORDER BY\s+COALESCE\(i\.sort_order, 99\),\s+i\.name,\s+b\.ticker/);

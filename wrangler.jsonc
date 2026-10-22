@@ -4,6 +4,11 @@
 	"main": "worker/index.ts",
 	"compatibility_date": "2024-04-03",
 	"workers_dev": true,
+	// The `scheduled` handler (security-row purge) never fires without a cron
+	// trigger (W-02). One daily run is enough: the shortest retention is 1h.
+	"triggers": {
+		"crons": ["23 2 * * *"]
+	},
 	"assets": {
 		"directory": "./dist",
 		"binding": "ASSETS",

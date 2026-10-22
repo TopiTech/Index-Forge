@@ -91,6 +91,12 @@ export interface AuthResult {
    * hid a D1 outage from both the user and the operator.
    */
   rateLimited?: boolean;
+  /**
+   * True when the credential store could not be read (D1 failure): the password
+   * was neither accepted nor rejected, so request boundaries must answer 503
+   * instead of "wrong password" (401) and must not spend lockout budget (W-01).
+   */
+  unavailable?: boolean;
 }
 
 export interface YahooChartResponse {
@@ -778,6 +784,14 @@ export const PASSWORD_HASH_PREFIX = "pbkdf2-sha256";
 export const PASSWORD_HASH_ITERATIONS = 100_000;
 export const AUTH_RATE_LIMIT_MAX = 10;
 
+/** Shared 429 message for a refused password attempt (distinct from `RATE_LIMIT_ERROR_MESSAGE`, the entry-limiter message). */
+export const AUTH_RATE_LIMIT_ERROR_MESSAGE =
+  "認証試行回数が上限に達しました。しばらくしてから再試行してください";
+
+/** Shared message for "the credential store could not be read" (503) responses. */
+export const AUTH_SERVICE_UNAVAILABLE_MESSAGE =
+  "認証サービスが一時的に利用できません。しばらくしてから再試行してください";
+
 // Owner tokens authorize mutations of one index without an account; the token
 // itself is the only secret, so a guessable value is equivalent to no ownership
 // check at all. Newly issued/chosen tokens must therefore be long and random.
@@ -1351,18 +1365,24 @@ export async function verifyTurnstileToken(
   }
 }
 
+export interface AdminSecretCodeCheckResult {
+  valid: boolean;
+  /** True when the D1 lookup failed and the code could not be checked at all (W-01). */
+  unavailable?: boolean;
+}
+
 /**
  * Verify secret code for admin login. Checks D1 admin-master hash first,
  * then falls back to env.ADMIN_SECRET_CODE (and, only in local/test contexts,
  * to the built-in development code).
  */
-export async function verifyAdminSecretCode(
+export async function verifyAdminSecretCodeDetailed(
   env: Env,
   inputCode: string,
   allowDevDefault: boolean = isTestRuntime(),
-): Promise<boolean> {
+): Promise<AdminSecretCodeCheckResult> {
   const trimmed = typeof inputCode === "string" ? inputCode.normalize("NFC").trim() : "";
-  if (!trimmed) return false;
+  if (!trimmed) return { valid: false };
 
   await ensurePasswordTable(env);
 
@@ -1372,7 +1392,7 @@ export async function verifyAdminSecretCode(
     ).all();
     const row = results?.[0] as { secret_code_hash?: string | null } | undefined;
     if (row && typeof row.secret_code_hash === "string" && row.secret_code_hash.length > 0) {
-      return await verifyPasswordHash(trimmed, row.secret_code_hash);
+      return { valid: await verifyPasswordHash(trimmed, row.secret_code_hash) };
     }
   } catch (err) {
     // A lookup failure must never fall back to a public default: the hash may
@@ -1380,7 +1400,7 @@ export async function verifyAdminSecretCode(
     // development code would bypass the customized second factor.
     if (!isMissingColumnError(err, "secret_code_hash") && !isMissingTableError(err, "access_passwords")) {
       console.error("Failed to query secret_code_hash from D1:", err);
-      return false;
+      return { valid: false, unavailable: true };
     }
   }
 
@@ -1389,16 +1409,24 @@ export async function verifyAdminSecretCode(
   if (envSecret) {
     const inputHash = await hashToken(trimmed);
     const configuredHash = await hashToken(envSecret.normalize("NFC"));
-    if (timingSafeEqual(inputHash, configuredHash)) return true;
-    return false;
+    return { valid: timingSafeEqual(inputHash, configuredHash) };
   }
 
   // No secret configured at all: the committed development default is only
   // acceptable where the deployment cannot be a public one.
-  if (!allowDevDefault) return false;
+  if (!allowDevDefault) return { valid: false };
   const inputHash = await hashToken(trimmed);
   const defaultHash = await hashToken(DEFAULT_DEV_ADMIN_SECRET_CODE.normalize("NFC"));
-  return timingSafeEqual(inputHash, defaultHash);
+  return { valid: timingSafeEqual(inputHash, defaultHash) };
+}
+
+/** Boolean compatibility shim: collapses "unavailable" into `false`. Request boundaries use `verifyAdminSecretCodeDetailed` (W-01). */
+export async function verifyAdminSecretCode(
+  env: Env,
+  inputCode: string,
+  allowDevDefault: boolean = isTestRuntime(),
+): Promise<boolean> {
+  return (await verifyAdminSecretCodeDetailed(env, inputCode, allowDevDefault)).valid;
 }
 
 /**
@@ -1834,7 +1862,7 @@ export async function authenticatePassword(
   if (!(await checkRateLimit(env, ip, rateLimitEndpoint, limitMax, true, ctx))) {
     return {
       authenticated: false,
-      error: "認証試行回数が上限に達しました。しばらくしてから再試行してください",
+      error: AUTH_RATE_LIMIT_ERROR_MESSAGE,
       rateLimited: true,
     };
   }
@@ -2004,7 +2032,14 @@ export async function authenticatePassword(
       };
     }
   } catch (err) {
+    // Neither accepted nor rejected: an unreadable credential store is a 503,
+    // never "wrong password" (W-01).
     console.error("Auth DB error:", err);
+    return {
+      authenticated: false,
+      error: AUTH_SERVICE_UNAVAILABLE_MESSAGE,
+      unavailable: true,
+    };
   }
 
   // A single generic message for every failure when admin results are not
@@ -2318,6 +2353,29 @@ export function adminAuthFailureResponse(auth: AuthResult, request: Request): Re
     return json({ error: auth.error || RATE_LIMIT_ERROR_MESSAGE }, 429, request);
   }
   return json({ error: "管理者権限が必要です" }, 403, request);
+}
+
+/**
+ * Refusal response for a password-authenticated mutation (W-01 / W-04).
+ *
+ * A refused limiter is a 429 and an unreadable credential store is a 503 —
+ * neither may be reported as a wrong or missing password (401). `authorized`
+ * absorbs each route's own rule; when it is false the route's own 401 message
+ * is returned. Null means the attempt is allowed.
+ */
+function passwordAuthFailureResponse(
+  auth: AuthResult,
+  request: Request,
+  unauthorizedMessage: string,
+  authorized: boolean = auth.authenticated,
+): Response | null {
+  if (auth.rateLimited) {
+    return json({ error: auth.error || RATE_LIMIT_ERROR_MESSAGE }, 429, request);
+  }
+  if (auth.unavailable) {
+    return json({ error: auth.error || AUTH_SERVICE_UNAVAILABLE_MESSAGE }, 503, request);
+  }
+  return authorized ? null : json({ error: unauthorizedMessage }, 401, request);
 }
 
 // In-memory cache for warm worker isolates to minimize D1 reads
@@ -5444,12 +5502,21 @@ export default {
           }
 
           // 2. 秘密の暗号検証
-          const isSecretValid = await verifyAdminSecretCode(
+          const secretCodeCheck = await verifyAdminSecretCodeDetailed(
             env,
             secretCode,
             isLocalOrTestHost(url.hostname),
           );
-          if (!isSecretValid) {
+          if (secretCodeCheck.unavailable) {
+            // Infrastructure failure, not a guess: it must not spend lockout
+            // budget and must not be reported as a wrong secret code (W-01).
+            return json(
+              { ok: false, error: AUTH_SERVICE_UNAVAILABLE_MESSAGE },
+              503,
+              request,
+            );
+          }
+          if (!secretCodeCheck.valid) {
             const fail = await recordAdminLoginFailure(env, ip);
             if (fail.unavailable) {
               return json(
@@ -5495,6 +5562,14 @@ export default {
             return json(
               { ok: false, error: auth.error || RATE_LIMIT_ERROR_MESSAGE },
               429,
+              request,
+            );
+          }
+          if (auth.unavailable) {
+            // W-01: an outage must not spend lockout budget.
+            return json(
+              { ok: false, error: auth.error || AUTH_SERVICE_UNAVAILABLE_MESSAGE },
+              503,
               request,
             );
           }
@@ -5597,6 +5672,14 @@ export default {
             return json(
               { ok: false, error: auth.error || RATE_LIMIT_ERROR_MESSAGE },
               429,
+              request,
+            );
+          }
+          if (auth.unavailable) {
+            // W-01: 503, never "wrong password".
+            return json(
+              { ok: false, error: auth.error || AUTH_SERVICE_UNAVAILABLE_MESSAGE },
+              503,
               request,
             );
           }
@@ -6112,9 +6195,13 @@ export default {
             typeof parsed.body.currentPassword === "string" ? parsed.body.currentPassword.trim() : "";
           if (currentPassword) {
             const currentAuth = await authenticatePassword(request, env, currentPassword, "auth-api", ctx);
-            if (!currentAuth.authenticated || currentAuth.id !== "admin-master") {
-              return json({ error: "現在の管理者パスワードが正しくありません" }, 401, request);
-            }
+            const authFailure = passwordAuthFailureResponse(
+              currentAuth,
+              request,
+              "現在の管理者パスワードが正しくありません",
+              currentAuth.authenticated && currentAuth.id === "admin-master",
+            );
+            if (authFailure) return authFailure;
           }
           await ensurePasswordTable(env);
           const collision = await findPasswordCollision(env, newPassword, "admin-master");
@@ -6172,12 +6259,15 @@ export default {
           if (!currentSecretCode) {
             return json({ error: "現在の秘密の暗号を入力してください" }, 400, request);
           }
-          const isCurrentValid = await verifyAdminSecretCode(
+          const currentSecretCheck = await verifyAdminSecretCodeDetailed(
             env,
             currentSecretCode,
             isLocalOrTestHost(url.hostname),
           );
-          if (!isCurrentValid) {
+          if (currentSecretCheck.unavailable) {
+            return json({ error: AUTH_SERVICE_UNAVAILABLE_MESSAGE }, 503, request);
+          }
+          if (!currentSecretCheck.valid) {
             return json({ error: "現在の秘密の暗号が正しくありません" }, 401, request);
           }
           await ensurePasswordTable(env);
@@ -6364,9 +6454,12 @@ export default {
             "auth-api",
             ctx,
           );
-          if (!auth.authenticated) {
-            return json({ error: "この操作にはパスワード認証が必要です" }, 401, request);
-          }
+          const authFailure = passwordAuthFailureResponse(
+            auth,
+            request,
+            "この操作にはパスワード認証が必要です",
+          );
+          if (authFailure) return authFailure;
 
           // Administrator capabilities require the admin session, not just the
           // master password: a password-only admin must not be able to mutate a
@@ -6673,9 +6766,12 @@ export default {
           }
 
           const auth = await authenticatePassword(request, env, null, "auth-api", ctx);
-          if (!auth.authenticated) {
-            return json({ error: "この操作にはパスワード認証が必要です" }, 401, request);
-          }
+          const authFailure = passwordAuthFailureResponse(
+            auth,
+            request,
+            "この操作にはパスワード認証が必要です",
+          );
+          if (authFailure) return authFailure;
 
           const adminAuth = await authenticateAdmin(request, env, ctx);
           if (adminAuth.rateLimited) {
@@ -7478,33 +7574,10 @@ export default {
           `,
             ).all();
             results = (dbRes.results || []) as D1Row[];
-            // D1 has a hard ceiling of 1,000 rows returned per query. If the initial
-            // result hit the ceiling, fetch subsequent pages to prevent silent constituent truncation.
-            let offset = results.length;
-            while (results.length > 0 && offset % 1000 === 0) {
-              const pageRes = await env.DB.prepare(
-                `
-              SELECT
-                i.id, i.name, i.description, i.base_value, COALESCE(i.sort_order, 99) AS sort_order,
-                b.ticker, b.name as stock_name, COALESCE(b.weight, 0) AS weight, b.theme
-              FROM indices i
-              LEFT JOIN basket_items b ON i.id = b.index_id
-              ORDER BY
-                COALESCE(i.sort_order, 99),
-                i.name,
-                i.id,
-                b.ticker
-              LIMIT 1000 OFFSET ?
-            `,
-              )
-                .bind(offset)
-                .all();
-              const pageRows = (pageRes.results || []) as D1Row[];
-              if (pageRows.length === 0) break;
-              results.push(...pageRows);
-              offset += pageRows.length;
-              if (pageRows.length < 1000) break;
-            }
+            // Single query returns the whole set: D1 has no 1,000-row result
+            // cap (checked against the official limits docs and a 2,500-row
+            // probe), so no LIMIT/OFFSET paging is needed — and OFFSET paging
+            // could drop/duplicate rows under concurrent writes.
           } catch (lookupErr: unknown) {
             if (!isMissingColumnError(lookupErr, "sort_order")) throw lookupErr;
             const dbRes = await env.DB.prepare(
@@ -7521,30 +7594,7 @@ export default {
           `,
             ).all();
             results = (dbRes.results || []) as D1Row[];
-            let offset = results.length;
-            while (results.length > 0 && offset % 1000 === 0) {
-              const pageRes = await env.DB.prepare(
-                `
-              SELECT
-                i.id, i.name, i.description, i.base_value, 99 AS sort_order,
-                b.ticker, b.name as stock_name, COALESCE(b.weight, 0) AS weight, b.theme
-              FROM indices i
-              LEFT JOIN basket_items b ON i.id = b.index_id
-              ORDER BY
-                i.name,
-                i.id,
-                b.ticker
-              LIMIT 1000 OFFSET ?
-            `,
-              )
-                .bind(offset)
-                .all();
-              const pageRows = (pageRes.results || []) as D1Row[];
-              if (pageRows.length === 0) break;
-              results.push(...pageRows);
-              offset += pageRows.length;
-              if (pageRows.length < 1000) break;
-            }
+            // Single-query read (no 1,000-row cap exists; see above).
           }
 
           const indicesMap = new Map<
@@ -7834,8 +7884,13 @@ export default {
           // boundary on the API as well: otherwise callers can create new
           // indices directly and bypass per-user stock/index quotas. Existing
           // owner-token protected indices remain editable for compatibility.
-          if (!isExisting && !auth.authenticated) {
-            return json({ error: "指数の新規作成にはパスワード認証が必要です" }, 401, request);
+          if (!isExisting) {
+            const authFailure = passwordAuthFailureResponse(
+              auth,
+              request,
+              "指数の新規作成にはパスワード認証が必要です",
+            );
+            if (authFailure) return authFailure;
           }
 
           // Prevent quota bypass on modifying existing indices:
@@ -8363,9 +8418,12 @@ export default {
           if (force) {
             const bodyPassword = typeof body.password === "string" ? body.password : null;
             const auth = await authenticatePassword(request, env, bodyPassword, "auth-api", ctx);
-            if (!auth.authenticated) {
-              return json({ error: "強制同期にはパスワード認証が必要です" }, 401, request);
-            }
+            const authFailure = passwordAuthFailureResponse(
+              auth,
+              request,
+              "強制同期にはパスワード認証が必要です",
+            );
+            if (authFailure) return authFailure;
           }
           await ensurePasswordTable(env);
 

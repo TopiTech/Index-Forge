@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import handler, { WorkerScheduledController, WorkerExecutionContext, Env } from "../../worker/internal-impl";
 
@@ -100,5 +102,32 @@ describe("worker scheduled handler", () => {
 
     // Must not throw
     await expect(handler.scheduled(controller, env)).resolves.not.toThrow();
+  });
+
+  it("wires the scheduled handler to a cron trigger so the purge actually fires (W-02)", () => {
+    // A `scheduled` handler without `triggers.crons` in wrangler.jsonc never
+    // fires: the expired security rows were then only purged by the
+    // probabilistic per-request cleanup. The config is the artifact Cloudflare
+    // consumes, so it is parsed structurally (not pattern-matched) and paired
+    // with the handler it must invoke.
+    const raw = readFileSync(resolve(process.cwd(), "wrangler.jsonc"), "utf8");
+    // wrangler.jsonc is JSONC and its comments are full-line; a trailing
+    // comment would fail this parse loudly instead of passing silently.
+    const config = JSON.parse(raw.replace(/^\s*\/\/.*$/gm, "")) as {
+      triggers?: { crons?: unknown };
+    };
+
+    const crons = config.triggers?.crons;
+    expect(Array.isArray(crons)).toBe(true);
+    const entries = crons as unknown[];
+    expect(entries.length).toBeGreaterThan(0);
+    for (const entry of entries) {
+      expect(typeof entry).toBe("string");
+      // Standard five-field cron: minute hour day-of-month month day-of-week.
+      expect((entry as string).trim().split(/\s+/)).toHaveLength(5);
+    }
+
+    // The trigger is only meaningful together with the handler it dispatches.
+    expect(typeof handler.scheduled).toBe("function");
   });
 });

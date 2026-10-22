@@ -173,29 +173,23 @@ describe("Comprehensive Goal Audit & Remediation Suite (Round 3)", () => {
     });
   });
 
-  describe("3. D1 Database: 1,000-Row Pagination for GET /api/indices (PRF-02)", () => {
-    it("automatically fetches subsequent pages when initial query matches 1,000 rows", async () => {
-      // Build 1,000 rows for page 1 and 200 rows for page 2
-      const page1Rows = Array.from({ length: 1000 }, (_, i) => ({
-        id: `idx-${Math.floor(i / 100)}`,
-        name: `Index ${Math.floor(i / 100)}`,
+  describe("3. D1 Database: single-query read for GET /api/indices (PRF-02)", () => {
+    it("returns every constituent from one query with no LIMIT/OFFSET paging", async () => {
+      // Exactly 2,000 rows — a multiple of the old 1,000-row "page" size, the
+      // boundary at which the removed pagination fired an extra full query.
+      // That paging rested on a false premise (D1 does not cap SELECT results
+      // at 1,000 rows: checked against the official D1 limits documentation
+      // and a 2,500-row probe through the wrangler binding), and OFFSET
+      // paging could drop or duplicate rows under concurrent writes. One
+      // query must now return the whole result set.
+      const rows = Array.from({ length: 2000 }, (_, i) => ({
+        id: "idx-big",
+        name: "Big Index",
         description: "Test Desc",
         base_value: 1000,
         sort_order: 1,
         ticker: `TICKER${i}`,
         stock_name: `Stock ${i}`,
-        weight: 1,
-        theme: "Tech",
-      }));
-
-      const page2Rows = Array.from({ length: 200 }, (_, i) => ({
-        id: `idx-10`,
-        name: `Index 10`,
-        description: "Test Desc",
-        base_value: 1000,
-        sort_order: 1,
-        ticker: `EXTRA${i}`,
-        stock_name: `Extra Stock ${i}`,
         weight: 1,
         theme: "Tech",
       }));
@@ -208,18 +202,10 @@ describe("Comprehensive Goal Audit & Remediation Suite (Round 3)", () => {
           prepare: vi.fn().mockImplementation((query: string) => {
             queriesExecuted.push(query);
             return {
-              bind: vi.fn().mockImplementation((...params: any[]) => ({
-                all: vi.fn().mockImplementation(async () => {
-                  const offset = params[0];
-                  if (offset === 1000) {
-                    return { results: page2Rows };
-                  }
-                  return { results: [] };
-                }),
+              bind: vi.fn().mockImplementation(() => ({
+                all: vi.fn().mockImplementation(async () => ({ results: rows })),
               })),
-              all: vi.fn().mockImplementation(async () => {
-                return { results: page1Rows };
-              }),
+              all: vi.fn().mockImplementation(async () => ({ results: rows })),
             };
           }),
         },
@@ -235,13 +221,14 @@ describe("Comprehensive Goal Audit & Remediation Suite (Round 3)", () => {
       const data = await res.json();
       expect(Array.isArray(data)).toBe(true);
 
-      // Verify that paginated query was executed
-      const hasLimitOffsetQuery = queriesExecuted.some((q) => q.includes("LIMIT 1000 OFFSET ?"));
-      expect(hasLimitOffsetQuery).toBe(true);
+      // The constituents read runs exactly once and never pages.
+      const constituentQueries = queriesExecuted.filter((q) => q.includes("FROM indices"));
+      expect(constituentQueries).toHaveLength(1);
+      expect(queriesExecuted.some((q) => q.includes("OFFSET"))).toBe(false);
 
-      // Total constituents across all indices should be 1200
+      // Every row surfaced: nothing truncated at the old 1,000-row boundary.
       const totalConstituents = data.reduce((sum: number, idx: any) => sum + idx.basket.length, 0);
-      expect(totalConstituents).toBe(1200);
+      expect(totalConstituents).toBe(2000);
     });
   });
 
