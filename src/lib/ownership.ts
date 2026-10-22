@@ -118,14 +118,19 @@ function parseEntry(
   const record = value as Record<string, unknown>;
   const token = typeof record.token === "string" ? record.token : "";
   if (!token) return null;
-  const issuedAt =
+  let issuedAt =
     typeof record.issuedAt === "number" && Number.isFinite(record.issuedAt) && record.issuedAt > 0
       ? record.issuedAt
       : now;
+  if (issuedAt > 0 && issuedAt < 1e11) {
+    issuedAt = issuedAt * 1000;
+  }
   return {
     entry: { token, issuedAt },
-    // A missing/invalid issuedAt is repaired on the next write.
-    migrated: !(typeof record.issuedAt === "number" && Number.isFinite(record.issuedAt)),
+    // A missing/invalid or unmigrated seconds-based issuedAt is repaired on the next write.
+    migrated:
+      !(typeof record.issuedAt === "number" && Number.isFinite(record.issuedAt)) ||
+      (typeof record.issuedAt === "number" && record.issuedAt < 1e11),
   };
 }
 
@@ -154,10 +159,13 @@ export function saveIndexOwnerToken(indexId: string, token: string, issuedAt?: n
   if (!indexId || !token) return;
   const now = Date.now();
   const store = getStore(now);
+  let resolvedIssuedAt = now;
+  if (typeof issuedAt === "number" && Number.isFinite(issuedAt) && issuedAt > 0) {
+    resolvedIssuedAt = issuedAt < 1e11 ? issuedAt * 1000 : issuedAt;
+  }
   store[indexId] = {
     token,
-    issuedAt:
-      typeof issuedAt === "number" && Number.isFinite(issuedAt) && issuedAt > 0 ? issuedAt : now,
+    issuedAt: resolvedIssuedAt,
   };
   setStore(store);
 }

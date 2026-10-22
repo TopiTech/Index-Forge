@@ -564,6 +564,12 @@ export function AdminDashboard({
       setSecretCodeError(res.error || "秘密の暗号の更新に失敗しました");
     } else {
       setSecretCodeSuccess("秘密の暗号を正常に更新しました");
+      if (session && typeof res.adminToken === "string") {
+        storeAuth({
+          ...session,
+          adminToken: res.adminToken,
+        });
+      }
       setCurrentSecretCodeInput("");
       setNewSecretCodeInput("");
       setConfirmSecretCodeInput("");
@@ -944,7 +950,11 @@ export function AdminDashboard({
       setConfirmAdminPassword("");
       setCurrentAdminPassword("");
       if (session) {
-        storeAuth({ ...session, password: updatedPassword });
+        storeAuth({
+          ...session,
+          password: updatedPassword,
+          ...(typeof data.adminToken === "string" ? { adminToken: data.adminToken } : {}),
+        });
       }
     } catch (err) {
       setAdminPwdMessage({ type: "error", text: err instanceof Error ? err.message : "更新に失敗しました" });

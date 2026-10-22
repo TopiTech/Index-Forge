@@ -1121,6 +1121,10 @@ export const REQUIRED_SCHEMA_STEPS: SchemaStep[] = [
     existing: { kind: "index", name: "idx_admin_sessions_expires_at" },
     sql: "CREATE INDEX IF NOT EXISTS idx_admin_sessions_expires_at ON admin_sessions(expires_at)",
   },
+  {
+    existing: { kind: "index", name: "idx_admin_login_attempts_purge" },
+    sql: "CREATE INDEX IF NOT EXISTS idx_admin_login_attempts_purge ON admin_login_attempts(last_failed_at, locked_until)",
+  },
 ];
 
 /** Distinguishes "another request already created it" from a real DDL failure. */
@@ -2466,6 +2470,9 @@ export function getMemoryCacheEntry<T>(key: string): MemoryCacheLookup<T> | null
     cacheMisses++;
     return null;
   }
+  // LRU refresh: move the accessed entry to the end of the insertion order
+  targetMap.delete(key);
+  targetMap.set(key, entry);
   cacheHits++;
   return {
     data: entry.data as T,
@@ -5894,11 +5901,18 @@ export default {
           const parsed = await parseJsonBody(request);
           if (!parsed.ok) return parsed.response;
           const { id, name, password, maxStocks, maxIndices, isActive, role } = parsed.body;
+          const activeInput =
+            isActive !== undefined ? isActive : (parsed.body as Record<string, unknown>).is_active;
           if (!id || typeof id !== "string") {
             return json({ error: "Invalid password id" }, 400, request);
           }
           if (id === "admin-master") {
-            if (role === "user" || isActive === false) {
+            const isAttemptingDeactivation =
+              activeInput === false ||
+              activeInput === 0 ||
+              activeInput === "0" ||
+              activeInput === "false";
+            if (role === "user" || isAttemptingDeactivation) {
               return json(
                 { error: "マスター管理者アカウントのロール変更および無効化はできません" },
                 403,
@@ -6040,15 +6054,15 @@ export default {
             updates.push("role = ?");
             params.push(role);
           }
-          if (isActive !== undefined) {
+          if (activeInput !== undefined) {
             const active =
-              typeof isActive === "boolean"
-                ? isActive
-                : typeof isActive === "number"
-                  ? isActive !== 0
-                  : typeof isActive === "string"
-                    ? isActive.trim().toLowerCase() !== "false" && isActive.trim() !== "0" && isActive.trim() !== ""
-                    : Boolean(isActive);
+              typeof activeInput === "boolean"
+                ? activeInput
+                : typeof activeInput === "number"
+                  ? activeInput !== 0
+                  : typeof activeInput === "string"
+                    ? activeInput.trim().toLowerCase() !== "false" && activeInput.trim() !== "0" && activeInput.trim() !== ""
+                    : Boolean(activeInput);
             updates.push("is_active = ?");
             params.push(active ? 1 : 0);
           }
@@ -6226,8 +6240,20 @@ export default {
           // all so a stolen/leaked session cannot survive a master password
           // change.
           await revokeAllAdminSessions(env);
+          const ip = getClientIp(request);
+          const newAdminToken = await createAdminSession(env, auth.id || "admin-master", ip);
+          const newExpiresAtMs = Date.now() + ADMIN_SESSION_TTL_SECONDS * 1000;
 
-          return json({ ok: true, message: "管理者パスワードを更新しました" }, 200, request);
+          return json(
+            {
+              ok: true,
+              adminToken: newAdminToken,
+              adminTokenExpiresAt: newExpiresAtMs,
+              message: "管理者パスワードを更新しました",
+            },
+            200,
+            request,
+          );
         } catch (err) {
           console.error("Failed to update admin password:", err);
           return json({ error: "Internal server error" }, 500, request);
@@ -6302,8 +6328,20 @@ export default {
           // The second factor changed: previously issued sessions proved the
           // old one, so they must not keep authorizing administrative calls.
           await revokeAllAdminSessions(env);
+          const ip = getClientIp(request);
+          const newAdminToken = await createAdminSession(env, auth.id || "admin-master", ip);
+          const newExpiresAtMs = Date.now() + ADMIN_SESSION_TTL_SECONDS * 1000;
 
-          return json({ ok: true, message: "秘密の暗号を更新しました" }, 200, request);
+          return json(
+            {
+              ok: true,
+              adminToken: newAdminToken,
+              adminTokenExpiresAt: newExpiresAtMs,
+              message: "秘密の暗号を更新しました",
+            },
+            200,
+            request,
+          );
         } catch (err) {
           console.error("Failed to update admin secret code:", err);
           return json({ error: "Internal server error" }, 500, request);
@@ -7847,6 +7885,15 @@ export default {
             });
           }
 
+          const totalWeight = validatedBasket.reduce((sum, item) => sum + item.weight, 0);
+          if (!Number.isFinite(totalWeight) || totalWeight <= 0 || totalWeight > 10000) {
+            return json(
+              { error: "Invalid basket: total weight must be > 0 and <= 10000" },
+              400,
+              request,
+            );
+          }
+
           // Stock limit check for non-admin users
           if (auth.authenticated && auth.role === "user" && auth.maxStocks && auth.maxStocks > 0) {
             if (basket.length > auth.maxStocks) {
@@ -8526,12 +8573,29 @@ export default {
             ? new Map<string, string>()
             : await loadStockSeriesByTicker(env, toFetch);
 
-          // Fetch in parallel batches (concurrency = 5)
+          // Fetch in parallel batches (concurrency = 5) and collect statements
+          type SyncFetchItem =
+            | {
+                ticker: string;
+                status: "cached" | "synced";
+                count: number;
+                lastSynced: number;
+                statements: D1PreparedStatement[];
+                isWrite: boolean;
+                series: PricePoint[];
+              }
+            | {
+                ticker: string;
+                status: "failed";
+              };
+
           const CONCURRENCY = 5;
+          const fetchedItems: SyncFetchItem[] = [];
+
           for (let i = 0; i < toFetch.length; i += CONCURRENCY) {
             const batch = toFetch.slice(i, i + CONCURRENCY);
             const batchResults = await Promise.allSettled(
-              batch.map(async (ticker) => {
+              batch.map(async (ticker): Promise<SyncFetchItem> => {
                 const symbol = toYahooSymbol(ticker);
                 const series = await fetchYahooFinance(symbol);
                 if (series.length > 0) {
@@ -8574,84 +8638,125 @@ export default {
                     } catch (logErr: unknown) {
                       if (!isMissingTableError(logErr, "sync_logs")) throw logErr;
                     }
-                    return { ticker, status: "cached", count: series.length, lastSynced: now };
+                    return {
+                      ticker,
+                      status: "cached",
+                      count: series.length,
+                      lastSynced: now,
+                      statements: [],
+                      isWrite: false,
+                      series,
+                    };
                   }
 
                   // High-efficiency single-row storage in stock_series:
-                  // Stores the full series JSON in 1 row (1 write) instead of 500 writes.
-                  // Keep the canonical write independent from optional legacy cleanup and
-                  // sync logging. A missing legacy table must not roll back a successful
-                  // stock_series write and leave /api/calculate on an older series.
                   const seriesJson = JSON.stringify(series);
                   const seriesWrite = env.DB.prepare(
                     "INSERT OR REPLACE INTO stock_series (ticker, prices, updated_at) VALUES (?, ?, ?)",
                   ).bind(ticker, seriesJson, now);
-                  let wroteSeries = false;
-                  let canonicalBatchSucceeded = false;
+                  const cleanupPrices = env.DB.prepare(
+                    "DELETE FROM stock_prices WHERE ticker = ?",
+                  ).bind(ticker);
+                  const updateLog = env.DB.prepare(
+                    "INSERT OR REPLACE INTO sync_logs (ticker, last_synced_at) VALUES (?, ?)",
+                  ).bind(ticker, now);
+
+                  return {
+                    ticker,
+                    status: "synced",
+                    count: series.length,
+                    lastSynced: now,
+                    statements: [seriesWrite, cleanupPrices, updateLog],
+                    isWrite: true,
+                    series,
+                  };
+                }
+                // Record a short-lived back-off.
+                recordSyncFailure(ticker, now);
+                return { ticker, status: "failed" };
+              }),
+            );
+
+            for (const [idx, r] of batchResults.entries()) {
+              if (r.status === "fulfilled") {
+                fetchedItems.push(r.value);
+              } else {
+                recordSyncFailure(batch[idx], now);
+                fetchedItems.push({ ticker: batch[idx], status: "failed" });
+              }
+            }
+          }
+
+          // Atomic execution: consolidate all collected D1 write statements into a single batch
+          // to eliminate SQLite/D1 concurrent write contention.
+          const writeStatements: D1PreparedStatement[] = [];
+          for (const item of fetchedItems) {
+            if (item.status === "synced") {
+              writeStatements.push(...item.statements);
+            }
+          }
+
+          if (writeStatements.length > 0) {
+            let batchSucceeded = false;
+            if (typeof env.DB.batch === "function") {
+              try {
+                await env.DB.batch(writeStatements);
+                batchSucceeded = true;
+                clearMemoryCache("calc:");
+              } catch (batchErr: unknown) {
+                const missingOptionalTable =
+                  isMissingTableError(batchErr, "stock_series") ||
+                  isMissingTableError(batchErr, "stock_prices") ||
+                  isMissingTableError(batchErr, "sync_logs");
+                if (!missingOptionalTable) throw batchErr;
+              }
+            }
+
+            if (!batchSucceeded) {
+              // Fallback for unmigrated or mock environments without batch
+              for (const item of fetchedItems) {
+                if (item.status !== "synced") continue;
+
+                const seriesJson = JSON.stringify(item.series);
+                let wroteSeries = false;
+                try {
+                  await env.DB.prepare(
+                    "INSERT OR REPLACE INTO stock_series (ticker, prices, updated_at) VALUES (?, ?, ?)",
+                  )
+                    .bind(item.ticker, seriesJson, now)
+                    .run();
+                  wroteSeries = true;
+                } catch (seriesErr: unknown) {
+                  if (!isMissingTableError(seriesErr, "stock_series")) throw seriesErr;
+                }
+
+                if (wroteSeries) {
                   try {
-                    // Keep the normal path atomic and quota-efficient. If an
-                    // optional/legacy table is missing, the fallback below
-                    // retries the canonical write independently so D1's batch
-                    // rollback cannot leave calculation data stale.
-                    await env.DB.batch([
-                      seriesWrite,
-                      env.DB.prepare("DELETE FROM stock_prices WHERE ticker = ?").bind(ticker),
-                      env.DB.prepare(
-                        "INSERT OR REPLACE INTO sync_logs (ticker, last_synced_at) VALUES (?, ?)",
-                      ).bind(ticker, now),
-                    ]);
-                    wroteSeries = true;
-                    canonicalBatchSucceeded = true;
-                  } catch (batchErr: unknown) {
-                    const missingOptionalTable =
-                      isMissingTableError(batchErr, "stock_series") ||
-                      isMissingTableError(batchErr, "stock_prices") ||
-                      isMissingTableError(batchErr, "sync_logs");
-                    if (!missingOptionalTable) throw batchErr;
-                    try {
-                      await env.DB.prepare(
-                        "INSERT OR REPLACE INTO stock_series (ticker, prices, updated_at) VALUES (?, ?, ?)",
-                      )
-                        .bind(ticker, seriesJson, now)
-                        .run();
-                      wroteSeries = true;
-                    } catch (seriesErr: unknown) {
-                      if (!isMissingTableError(seriesErr, "stock_series")) throw seriesErr;
-                    }
+                    await env.DB.prepare("DELETE FROM stock_prices WHERE ticker = ?")
+                      .bind(item.ticker)
+                      .run();
+                  } catch (cleanupErr: unknown) {
+                    if (!isMissingTableError(cleanupErr, "stock_prices")) throw cleanupErr;
                   }
-
-                  if (wroteSeries) {
-                    if (!canonicalBatchSucceeded) {
-                      try {
-                        await env.DB.prepare("DELETE FROM stock_prices WHERE ticker = ?")
-                          .bind(ticker)
-                          .run();
-                      } catch (cleanupErr: unknown) {
-                        if (!isMissingTableError(cleanupErr, "stock_prices")) throw cleanupErr;
-                      }
-                      try {
-                        await env.DB.prepare(
-                          "INSERT OR REPLACE INTO sync_logs (ticker, last_synced_at) VALUES (?, ?)",
-                        )
-                          .bind(ticker, now)
-                          .run();
-                      } catch (logErr: unknown) {
-                        if (!isMissingTableError(logErr, "sync_logs")) throw logErr;
-                      }
-                    }
-                    clearMemoryCache("calc:");
-                    return { ticker, status: "synced", count: series.length, lastSynced: now };
+                  try {
+                    await env.DB.prepare(
+                      "INSERT OR REPLACE INTO sync_logs (ticker, last_synced_at) VALUES (?, ?)",
+                    )
+                      .bind(item.ticker, now)
+                      .run();
+                  } catch (logErr: unknown) {
+                    if (!isMissingTableError(logErr, "sync_logs")) throw logErr;
                   }
-
+                } else {
                   // Fallback for an unmigrated database: use legacy chunked stock_prices.
                   const CHUNK_SIZE = 25;
                   const insertStatements: D1PreparedStatement[] = [];
-                  for (let c = 0; c < series.length; c += CHUNK_SIZE) {
-                    const slice = series.slice(c, c + CHUNK_SIZE);
+                  for (let c = 0; c < item.series.length; c += CHUNK_SIZE) {
+                    const slice = item.series.slice(c, c + CHUNK_SIZE);
                     const placeholders = slice.map(() => "(?, ?, ?)").join(", ");
                     const params: (string | number)[] = [];
                     for (const p of slice) {
-                      params.push(ticker, p.date, p.close);
+                      params.push(item.ticker, p.date, p.close);
                     }
                     insertStatements.push(
                       env.DB.prepare(
@@ -8661,43 +8766,38 @@ export default {
                   }
                   try {
                     await env.DB.batch([
-                      env.DB.prepare("DELETE FROM stock_prices WHERE ticker = ?").bind(ticker),
+                      env.DB.prepare("DELETE FROM stock_prices WHERE ticker = ?").bind(item.ticker),
                       ...insertStatements,
                       env.DB.prepare(
                         "INSERT OR REPLACE INTO sync_logs (ticker, last_synced_at) VALUES (?, ?)",
-                      ).bind(ticker, now),
+                      ).bind(item.ticker, now),
                     ]);
                   } catch (fallbackErr: unknown) {
                     if (isMissingTableError(fallbackErr, "sync_logs")) {
                       await env.DB.batch([
-                        env.DB.prepare("DELETE FROM stock_prices WHERE ticker = ?").bind(ticker),
+                        env.DB.prepare("DELETE FROM stock_prices WHERE ticker = ?").bind(item.ticker),
                         ...insertStatements,
                       ]);
                     } else {
                       throw fallbackErr;
                     }
                   }
-                  clearMemoryCache("calc:");
-                  return { ticker, status: "synced", count: series.length, lastSynced: now };
                 }
-                // Record a short-lived back-off. The negative sync_logs marker
-                // is no longer written: an unauthenticated caller could turn
-                // every failed Yahoo fetch into a D1 write. The retry window
-                // lives in memory until the isolate is recycled.
-                recordSyncFailure(ticker, now);
-                return { ticker, status: "failed" };
-              }),
-            );
-
-            for (const [idx, r] of batchResults.entries()) {
-              if (r.status === "fulfilled") {
-                results.push(r.value);
-              } else {
-                // A rejected fetch is a failure too: apply the same back-off so
-                // the ticker is not retried immediately.
-                recordSyncFailure(batch[idx], now);
-                results.push({ ticker: batch[idx], status: "failed" });
               }
+              clearMemoryCache("calc:");
+            }
+          }
+
+          for (const item of fetchedItems) {
+            if (item.status === "failed") {
+              results.push({ ticker: item.ticker, status: "failed" });
+            } else {
+              results.push({
+                ticker: item.ticker,
+                status: item.status,
+                count: item.count,
+                lastSynced: item.lastSynced,
+              });
             }
           }
 

@@ -92,6 +92,7 @@ CREATE TABLE IF NOT EXISTS admin_login_attempts (
     last_failed_at INTEGER NOT NULL,
     locked_until INTEGER NOT NULL DEFAULT 0
 );
+CREATE INDEX IF NOT EXISTS idx_admin_login_attempts_purge ON admin_login_attempts(last_failed_at, locked_until);
 
 -- Short-lived administrator sessions. Only the SHA-256 of the bearer token is
 -- stored, so a database leak does not yield usable admin credentials.

@@ -84,7 +84,7 @@ export function SearchInput({
       <input
         type="text"
         className="input-search"
-        style={value ? { paddingRight: 32 } : undefined}
+        style={value ? { paddingRight: 44 } : undefined}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={(e) => {
@@ -105,14 +105,16 @@ export function SearchInput({
           title="検索キーワードを消去"
           style={{
             position: "absolute",
-            right: 8,
+            right: 0,
             top: "50%",
             transform: "translateY(-50%)",
             background: "transparent",
             border: "none",
             color: "var(--text-muted)",
             cursor: "pointer",
-            padding: 4,
+            padding: 0,
+            minWidth: 44,
+            minHeight: 44,
             display: "flex",
             alignItems: "center",
             justifyContent: "center",

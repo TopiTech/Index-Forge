@@ -5,6 +5,8 @@ import { searchPopularStocks, PRESET_STOCKS } from "../data/popularStocks";
 import { toFiniteNumberOr } from "../lib/downloadFileName";
 import { ModalBase } from "./ModalBase";
 
+const MAX_SEARCH_RESULTS = 80;
+
 interface AddStockModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -210,7 +212,7 @@ export function AddStockModal({
             <span>プリセット銘柄から選択:</span>
           </div>
           <div className="row flex-wrap" style={{ gap: 6, maxHeight: 110, overflowY: "auto" }}>
-            {PRESET_STOCKS.map((p) => (
+            {PRESET_STOCKS.slice(0, MAX_SEARCH_RESULTS).map((p) => (
               <button
                 key={p.ticker}
                 type="button"
@@ -233,6 +235,11 @@ export function AddStockModal({
                 <span>{p.name}</span>
               </button>
             ))}
+            {PRESET_STOCKS.length > MAX_SEARCH_RESULTS && (
+              <span className="tiny muted" style={{ alignSelf: "center", padding: "4px 8px", fontSize: 11 }}>
+                他 {PRESET_STOCKS.length - MAX_SEARCH_RESULTS} 件... 検索条件を絞り込んでください
+              </span>
+            )}
           </div>
         </div>
 

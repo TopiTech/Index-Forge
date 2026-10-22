@@ -2292,7 +2292,7 @@ export function runStockScreener(
     const valB = b[sortBy];
 
     if (typeof valA === "string" && typeof valB === "string") {
-      const cmp = valA.localeCompare(valB, "ja");
+      const cmp = valA.localeCompare(valB, "ja", { numeric: true });
       if (cmp !== 0) return sortOrder === "asc" ? cmp : -cmp;
       return a.ticker.localeCompare(b.ticker);
     }

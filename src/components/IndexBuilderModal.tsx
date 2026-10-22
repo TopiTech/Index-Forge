@@ -1,8 +1,10 @@
 import React, { Suspense, lazy, useCallback, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { motion } from "framer-motion";
 import { RefreshCw, X, Sliders } from "lucide-react";
 import type { CustomIndex } from "../data/indices";
 import { useModalFocus } from "../hooks/useModalFocus";
+import { useOverlayRoot } from "./ModalBase";
 
 // The builder body pulls in recharts (via SimulationPreview), which must not
 // be part of the first paint. The dialog shell below is tiny, so it stays
@@ -29,6 +31,7 @@ export function IndexBuilderModal({
 }: IndexBuilderModalProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const isBackdropMouseDownRef = useRef(false);
+  const overlayRoot = useOverlayRoot();
   // Lifted from the builder body: the basket lives in the form, so a dismissal
   // while the save request is in flight loses everything the user configured.
   const [isSaving, setIsSaving] = useState(false);
@@ -53,7 +56,7 @@ export function IndexBuilderModal({
     isBackdropMouseDownRef.current = false;
   };
 
-  return (
+  const modalContent = (
     <div
       className="modal-overlay"
       onMouseDown={handleBackdropMouseDown}
@@ -168,4 +171,6 @@ export function IndexBuilderModal({
       </motion.div>
     </div>
   );
+
+  return overlayRoot ? createPortal(modalContent, overlayRoot) : modalContent;
 }

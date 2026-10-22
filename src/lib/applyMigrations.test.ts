@@ -3,10 +3,12 @@ import {
   computePendingMigrations,
   parseWranglerJson,
   REQUIRED_MIGRATION_STEPS,
+  runMigration,
   type MigrationStep,
   type ColumnMigrationStep,
   type IndexMigrationStep,
   type TableMigrationStep,
+  type DropIndexMigrationStep,
 } from "../../scripts/apply-migrations.mjs";
 
 describe("apply-migrations script", () => {
@@ -62,6 +64,7 @@ describe("apply-migrations script", () => {
           "idx_indices_creator_id",
           "idx_admin_sessions_account_id",
           "idx_admin_sessions_expires_at",
+          "idx_admin_login_attempts_purge",
         ]),
         columns: new Map([
           [
@@ -107,6 +110,7 @@ describe("apply-migrations script", () => {
           "idx_indices_creator_id",
           "idx_admin_sessions_account_id",
           "idx_admin_sessions_expires_at",
+          "idx_admin_login_attempts_purge",
         ]),
         columns: new Map([
           ["access_passwords", new Set(["id", "password_hash"])], // missing max_indices, secret_code_hash
@@ -186,6 +190,28 @@ describe("apply-migrations script", () => {
           (s: MigrationStep): s is IndexMigrationStep => s.type === "index",
         ).length,
       );
+    });
+
+    it("detects unnecessary indexes that should be dropped", () => {
+      const probe = {
+        tables: new Set<string>(),
+        indexes: new Set(["idx_basket_items_index_id", "idx_access_passwords_hash"]),
+        columns: new Map<string, Set<string>>(),
+      };
+
+      const pending = computePendingMigrations(probe);
+      const dropSteps = pending.filter(
+        (s: MigrationStep): s is DropIndexMigrationStep => s.type === "drop_index",
+      );
+      expect(dropSteps).toHaveLength(2);
+      expect(dropSteps.map((s) => s.name)).toContain("idx_basket_items_index_id");
+      expect(dropSteps.map((s) => s.name)).toContain("idx_access_passwords_hash");
+    });
+  });
+
+  describe("runMigration export contract", () => {
+    it("exports runMigration as a function matching declaration", () => {
+      expect(typeof runMigration).toBe("function");
     });
   });
 });

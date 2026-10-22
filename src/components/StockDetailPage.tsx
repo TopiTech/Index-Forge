@@ -356,7 +356,10 @@ export function StockDetailPage({
             <button
               type="button"
               className="btn btn-sm btn-outline"
+              disabled={isMacro}
+              title={isMacro ? "マクロ資産・指数・為替はポートフォリオ登録対象外です" : undefined}
               onClick={() => {
+                if (isMacro) return;
                 onAddToPortfolio(stock.ticker, stock.price, stock.name);
               }}
             >

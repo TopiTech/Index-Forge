@@ -1,4 +1,5 @@
 import { useState, useCallback, useMemo, useEffect, useRef, Suspense, lazy } from "react";
+import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { ChevronRight, Menu, RefreshCw, X } from "lucide-react";
 import { useIndices } from "./hooks/useIndices";
@@ -9,7 +10,7 @@ import { useToast } from "./components/Toast";
 import { addWatchlistTicker, addPortfolioPosition, todayJstDateString } from "./lib/portfolioStorage";
 import { reportAddStockResult } from "./lib/addStockFeedback";
 import { POPULAR_STOCKS } from "./data/popularStocksData";
-import { Header } from "./components/Header";
+import { Header, type HeaderProps } from "./components/Header";
 import { Sidebar } from "./components/Sidebar";
 import { TradingViewTickerTape } from "./components/TradingViewTickerTape";
 import { StatsGrid } from "./components/StatsGrid";
@@ -19,6 +20,7 @@ import { ThemeBreakdown } from "./components/ThemeBreakdown";
 import { RiskMetricsCard } from "./components/RiskMetricsCard";
 import { ConstituentsTable } from "./components/ConstituentsTable";
 import { IndexBuilderModal } from "./components/IndexBuilderModal";
+import { useOverlayRoot } from "./components/ModalBase";
 // recharts (419KB / 113KB gzip) is only needed by these two dashboard widgets.
 // Importing them statically put the whole charting library in the first paint,
 // so they load as their own chunks behind a region-level Suspense boundary.
@@ -423,6 +425,8 @@ function AppContent({
     );
   });
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const overlayRoot = useOverlayRoot();
   // Whether the lazily imported palette module has finished downloading. While
   // it has not, the modal has never been committed and a second ⌘K must not
   // cancel the pending open (that looks like the shortcut doing nothing).
@@ -827,6 +831,10 @@ function AppContent({
   // a successful add and must not claim it was.
   const handleAddStockToIndex = useCallback(
     (ticker: string, name: string, theme: string) => {
+      if (!isAuthenticated) {
+        setIsAuthModalOpen(true);
+        return;
+      }
       if (selectedIndex && canEditSelectedIndex) {
         // 挿入は非同期で失敗し得る(レート制限・クォータ・サーバ障害など)。
         // 結果を確認せずに成功トーストを出すと、実際は指数に入っていない銘柄を
@@ -842,6 +850,8 @@ function AppContent({
       }
     },
     [
+      isAuthenticated,
+      setIsAuthModalOpen,
       selectedIndex,
       canEditSelectedIndex,
       addStockToIndex,
@@ -963,7 +973,7 @@ function AppContent({
   }, [chartData]);
 
   // Shared page layout props for Header (navigation lives in the Sidebar now)
-  const pageLayoutHeaderProps = useMemo(
+  const pageLayoutHeaderProps = useMemo<HeaderProps>(
     () => ({
       onOpenSearch: openSearchModal,
       onSearchHover: preloadGlobalSearchModal,
@@ -973,6 +983,9 @@ function AppContent({
       syncing,
       hasSyncWarning: syncWarnings.length > 0,
       typeLabel: "日足終値",
+      isAuthModalOpen,
+      onOpenAuthModal: () => setIsAuthModalOpen(true),
+      onCloseAuthModal: () => setIsAuthModalOpen(false),
     }),
     [
       openSearchModal,
@@ -982,6 +995,7 @@ function AppContent({
       loadingCalc,
       syncing,
       syncWarnings.length,
+      isAuthModalOpen,
     ],
   );
 
@@ -1288,65 +1302,83 @@ function AppContent({
       <div
         className={`layout ${!isMobileLayout && !isDesktopSidebarOpen ? "sidebar-collapsed" : ""}`}
       >
-        <AnimatePresence>
-          {isMobileLayout && isSidebarOpen && (
-            <motion.button
-              type="button"
-              className="sidebar-backdrop"
-              aria-label="指数メニューを閉じる"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.2 }}
-              onClick={() => setIsSidebarOpen(false)}
-            />
-          )}
-        </AnimatePresence>
+        {(() => {
+          const drawerBackdrop = (
+            <AnimatePresence>
+              {isMobileLayout && isSidebarOpen && (
+                <motion.button
+                  type="button"
+                  className="sidebar-backdrop"
+                  aria-label="指数メニューを閉じる"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.2 }}
+                  onClick={() => setIsSidebarOpen(false)}
+                />
+              )}
+            </AnimatePresence>
+          );
 
-        <aside
-          id="index-sidebar"
-          ref={sidebarRef}
-          className={`index-sidebar ${isSidebarOpen ? "is-open" : ""}`}
-          aria-label="指数セレクター"
-          aria-hidden={isMobileLayout ? !isSidebarOpen : !isDesktopSidebarOpen}
-          role={isMobileLayout ? "dialog" : undefined}
-          aria-modal={isMobileLayout ? isSidebarOpen : undefined}
-          inert={(isMobileLayout ? !isSidebarOpen : !isDesktopSidebarOpen) ? true : undefined}
-          tabIndex={isMobileLayout ? -1 : undefined}
-        >
-          <div className="sidebar-drawer-header">
-            <div className="row" style={{ gap: 8 }}>
-              <Menu size={16} style={{ color: "var(--accent-text)" }} />
-              <span className="mono tiny uppercase">指数メニュー</span>
-            </div>
-            <button
-              type="button"
-              className="sidebar-close-button"
-              onClick={() => setIsSidebarOpen(false)}
-              aria-label="指数メニューを閉じる"
+          const sidebarAside = (
+            <aside
+              id="index-sidebar"
+              ref={sidebarRef}
+              className={`index-sidebar ${isSidebarOpen ? "is-open" : ""}`}
+              aria-label="指数セレクター"
+              aria-hidden={isMobileLayout ? !isSidebarOpen : !isDesktopSidebarOpen}
+              role={isMobileLayout ? "dialog" : undefined}
+              aria-modal={isMobileLayout ? isSidebarOpen : undefined}
+              inert={(isMobileLayout ? !isSidebarOpen : !isDesktopSidebarOpen) ? true : undefined}
+              tabIndex={isMobileLayout ? -1 : undefined}
             >
-              <X size={18} />
-            </button>
-          </div>
+              <div className="sidebar-drawer-header">
+                <div className="row" style={{ gap: 8 }}>
+                  <Menu size={16} style={{ color: "var(--accent-text)" }} />
+                  <span className="mono tiny uppercase">指数メニュー</span>
+                </div>
+                <button
+                  type="button"
+                  className="sidebar-close-button"
+                  onClick={() => setIsSidebarOpen(false)}
+                  aria-label="指数メニューを閉じる"
+                >
+                  <X size={18} />
+                </button>
+              </div>
 
-          <AnimatePresence mode="wait">
-            <motion.div
-              key="sidebar"
-              initial={{ opacity: 0, x: -10 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ duration: 0.25 }}
-            >
-              <IndexSelector
-                indices={indices}
-                selectedIndex={selectedIndex}
-                onSelect={handleSelectIndex}
-                onCreateIndex={handleOpenBuilder}
-                onDeleteIndex={deleteCustomIndex}
-                isOwner={isOwner}
-              />
-            </motion.div>
-          </AnimatePresence>
-        </aside>
+              <AnimatePresence mode="wait">
+                <motion.div
+                  key="sidebar"
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ duration: 0.25 }}
+                >
+                  <IndexSelector
+                    indices={indices}
+                    selectedIndex={selectedIndex}
+                    onSelect={handleSelectIndex}
+                    onCreateIndex={handleOpenBuilder}
+                    onDeleteIndex={deleteCustomIndex}
+                    isOwner={isOwner}
+                  />
+                </motion.div>
+              </AnimatePresence>
+            </aside>
+          );
+
+          if (isMobileLayout) {
+            const mobileContent = (
+              <>
+                {drawerBackdrop}
+                {sidebarAside}
+              </>
+            );
+            return overlayRoot ? createPortal(mobileContent, overlayRoot) : mobileContent;
+          }
+
+          return sidebarAside;
+        })()}
 
         <div className="dashboard-main grid" style={{ gap: 20 }}>
           {/* StatsGrid lives inside <main>: as a sibling it was page content

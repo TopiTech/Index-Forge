@@ -42,7 +42,7 @@ export function ThemeHeatmap({ stockDetails, selectedTheme, onSelectTheme }: The
       const weightA = a[1].reduce((sum, s) => sum + s.weight, 0);
       const weightB = b[1].reduce((sum, s) => sum + s.weight, 0);
       if (weightB !== weightA) return weightB - weightA;
-      return a[0].localeCompare(b[0], "ja");
+      return a[0].localeCompare(b[0], "ja", { numeric: true });
     });
   }, [filteredStocks]);
 
@@ -109,6 +109,8 @@ export function ThemeHeatmap({ stockDetails, selectedTheme, onSelectTheme }: The
     const isDown = stock.changePct < 0;
     const tileArea = layout.width * layout.height;
     const sizeClass = tileArea >= 0.06 ? "is-large" : tileArea >= 0.018 ? "is-medium" : "is-small";
+    const isWeightVisible = stock.weight >= 3 && layout.width >= 0.055;
+    const isChangeVisible = layout.height >= 0.045;
 
     return (
       <div
@@ -148,7 +150,9 @@ export function ThemeHeatmap({ stockDetails, selectedTheme, onSelectTheme }: The
       >
         <div className="row space-between heatmap-tile-header" style={{ gap: 2 }}>
           <span className="heatmap-tile-code">{stock.ticker}</span>
-          <span className="heatmap-tile-weight">{stock.weight.toFixed(1)}%</span>
+          {isWeightVisible && (
+            <span className="heatmap-tile-weight">{stock.weight.toFixed(1)}%</span>
+          )}
         </div>
 
         {!compact && !isManyStocks && <div className="heatmap-tile-name">{stock.name}</div>}
@@ -159,22 +163,24 @@ export function ThemeHeatmap({ stockDetails, selectedTheme, onSelectTheme }: The
               {formatStockPrice(stock.currentPrice, stock.ticker)}
             </span>
           )}
-          <span
-            className="heatmap-tile-change"
-            style={{
-              color: isUp
-                ? "var(--neon-green)"
-                : isDown
-                  ? "var(--neon-red)"
-                  : "var(--text-secondary)",
-              marginLeft: compact || isManyStocks ? "auto" : undefined,
-            }}
-          >
-            {isUp && <TrendingUp size={10} />}
-            {isDown && <TrendingDown size={10} />}
-            {stock.changePct >= 0 ? "+" : ""}
-            {stock.changePct.toFixed(1)}%
-          </span>
+          {isChangeVisible && (
+            <span
+              className="heatmap-tile-change"
+              style={{
+                color: isUp
+                  ? "var(--neon-green)"
+                  : isDown
+                    ? "var(--neon-red)"
+                    : "var(--text-secondary)",
+                marginLeft: compact || isManyStocks ? "auto" : undefined,
+              }}
+            >
+              {isUp && <TrendingUp size={10} />}
+              {isDown && <TrendingDown size={10} />}
+              {stock.changePct >= 0 ? "+" : ""}
+              {stock.changePct.toFixed(1)}%
+            </span>
+          )}
         </div>
       </div>
     );

@@ -409,6 +409,13 @@ export function GlobalSearchModal({
     return [...matchedMacro, ...customStockResult, ...matchedStocks, ...matchedIndices];
   }, [query, activeCategory, availableIndices, recentSearches]);
 
+  const MAX_SEARCH_RESULTS = 80;
+  const displayedResults = useMemo(
+    () => filteredResults.slice(0, MAX_SEARCH_RESULTS),
+    [filteredResults],
+  );
+  const remainingCount = Math.max(0, filteredResults.length - MAX_SEARCH_RESULTS);
+
   const handleSelect = useCallback(
     (item: (typeof filteredResults)[number]) => {
       // Recording history is best-effort: a blocked or full storage must never
@@ -439,6 +446,7 @@ export function GlobalSearchModal({
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!isOpen || e.isComposing || e.keyCode === 229) return;
       if (filteredResults.length === 0) return;
+      if (displayedResults.length === 0) return;
 
       // Keep Enter/arrow behavior only for the search input. Without this
       // guard, Enter while focus sat on a row action button (監視 / 指数に追加)
@@ -449,28 +457,28 @@ export function GlobalSearchModal({
 
       if (e.key === "ArrowDown") {
         e.preventDefault();
-        setSelectedIndex((prev) => (prev < filteredResults.length - 1 ? prev + 1 : 0));
+        setSelectedIndex((prev) => (prev < displayedResults.length - 1 ? prev + 1 : 0));
       } else if (e.key === "ArrowUp") {
         e.preventDefault();
-        setSelectedIndex((prev) => (prev > 0 ? prev - 1 : filteredResults.length - 1));
-      } else if (e.key === "Enter" && filteredResults[selectedIndex]) {
+        setSelectedIndex((prev) => (prev > 0 ? prev - 1 : displayedResults.length - 1));
+      } else if (e.key === "Enter" && displayedResults[selectedIndex]) {
         e.preventDefault();
-        handleSelect(filteredResults[selectedIndex]);
+        handleSelect(displayedResults[selectedIndex]);
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, filteredResults, selectedIndex, handleSelect]);
+  }, [isOpen, displayedResults, filteredResults.length, selectedIndex, handleSelect]);
 
   // Ensure active keyboard selection stays visible in scrollable container
   useEffect(() => {
-    if (!isOpen || filteredResults.length === 0) return;
+    if (!isOpen || displayedResults.length === 0) return;
     const targetEl = listRef.current?.querySelector<HTMLElement>(
       `[data-result-index="${selectedIndex}"]`,
     );
     targetEl?.scrollIntoView({ block: "nearest" });
-  }, [selectedIndex, isOpen, filteredResults.length]);
+  }, [selectedIndex, isOpen, displayedResults.length]);
 
   if (!isOpen) return null;
 
@@ -512,10 +520,10 @@ export function GlobalSearchModal({
             type="text"
             role="combobox"
             aria-autocomplete="list"
-            aria-expanded={isOpen && filteredResults.length > 0}
+            aria-expanded={isOpen && displayedResults.length > 0}
             aria-controls="global-search-results"
             aria-activedescendant={
-              filteredResults.length > 0 ? `global-search-item-${selectedIndex}` : undefined
+              displayedResults.length > 0 ? `global-search-item-${selectedIndex}` : undefined
             }
             className="global-search-input"
             placeholder="銘柄名、コード (例: 7203, NVDA)、テーマ、指数を検索..."
@@ -580,7 +588,9 @@ export function GlobalSearchModal({
             )}
             <span style={{ fontSize: "10px", color: "var(--text-muted)" }}>
               {query.trim()
-                ? `${filteredResults.length}件表示`
+                ? remainingCount > 0
+                  ? `${displayedResults.length}件表示 (他${remainingCount}件)`
+                  : `${filteredResults.length}件表示`
                 : "ローカル即時検索 (0負荷)"}
             </span>
           </div>
@@ -595,14 +605,14 @@ export function GlobalSearchModal({
           aria-live="polite"
           className="global-search-list"
         >
-          {filteredResults.length === 0 ? (
+          {displayedResults.length === 0 ? (
             <div style={{ padding: "32px 20px", textAlign: "center", color: "var(--text-muted)" }}>
               <p>一致する銘柄または指数が見つかりませんでした。</p>
               <span className="tiny muted">コードまたは企業名を変えてお試しください。</span>
             </div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-              {filteredResults.map((item, idx) => {
+              {displayedResults.map((item, idx) => {
                 const isSelected = idx === selectedIndex;
                 const isRecent = Boolean((item as { isRecent?: boolean }).isRecent);
                 return (
@@ -744,6 +754,21 @@ export function GlobalSearchModal({
                   </div>
                 );
               })}
+              {remainingCount > 0 && (
+                <div
+                  style={{
+                    padding: "12px",
+                    textAlign: "center",
+                    fontSize: "12px",
+                    color: "var(--text-secondary)",
+                    background: "var(--surface-inset, rgba(0, 0, 0, 0.05))",
+                    borderRadius: "6px",
+                    marginTop: "4px",
+                  }}
+                >
+                  他 {remainingCount} 件... 検索条件を絞り込んでください
+                </div>
+              )}
             </div>
           )}
         </div>

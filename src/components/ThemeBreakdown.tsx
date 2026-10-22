@@ -82,6 +82,10 @@ export function ThemeBreakdown({
               width: `${t.weight}%`,
               backgroundColor: t.color,
               opacity: selectedTheme && selectedTheme !== t.theme ? 0.3 : 1,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              minWidth: t.weight > 0 ? 2 : 0,
             }}
             title={`${t.theme}: ${t.weight.toFixed(1)}% (${t.count}銘柄)`}
           />
@@ -108,8 +112,8 @@ export function ThemeBreakdown({
               }}
             >
               <span className="theme-dot" style={{ backgroundColor: t.color }} />
-              <span style={{ fontWeight: isSelected ? 600 : 400 }}>{t.theme}</span>
-              <span className="mono tiny" style={{ color: "var(--text-secondary)" }}>
+              <span style={{ fontWeight: isSelected ? 600 : 400, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 140 }}>{t.theme}</span>
+              <span className="mono tiny" style={{ color: "var(--text-secondary)", flexShrink: 0 }}>
                 {t.weight.toFixed(1)}%
               </span>
               <Tag variant="muted" className="tiny" style={{ padding: "0 4px", fontSize: 10 }}>

@@ -18,10 +18,17 @@ export interface ColumnMigrationStep {
   sql: string;
 }
 
+export interface DropIndexMigrationStep {
+  type: "drop_index";
+  name: string;
+  sql: string;
+}
+
 export type MigrationStep =
   | TableMigrationStep
   | IndexMigrationStep
-  | ColumnMigrationStep;
+  | ColumnMigrationStep
+  | DropIndexMigrationStep;
 
 export interface DatabaseProbeResult {
   tables: Set<string>;

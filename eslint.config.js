@@ -6,7 +6,16 @@ import tseslint from "typescript-eslint";
 
 export default tseslint.config(
   {
-    ignores: ["dist/**", ".wrangler/**", "node_modules/**", "worker-configuration.d.ts"],
+    ignores: [
+      "dist/**",
+      ".wrangler/**",
+      "node_modules/**",
+      "worker-configuration.d.ts",
+      "freebuff-sites-build/**",
+      ".freebuff/**",
+      ".agent/**",
+      ".codewhale/**",
+    ],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,

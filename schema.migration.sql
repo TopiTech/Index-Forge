@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS admin_login_attempts (
     last_failed_at INTEGER NOT NULL,
     locked_until INTEGER NOT NULL DEFAULT 0
 );
+CREATE INDEX IF NOT EXISTS idx_admin_login_attempts_purge ON admin_login_attempts(last_failed_at, locked_until);
 -- Note: the Worker automatically provisions secret_code_hash at runtime via ensurePasswordTable(),
 -- but if applying migrations manually to a pre-existing database lacking the column, uncomment:
 -- ALTER TABLE access_passwords ADD COLUMN secret_code_hash TEXT;

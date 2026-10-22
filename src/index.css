@@ -1126,6 +1126,25 @@ h3 {
   color: var(--text-muted);
 }
 
+.input-search-clear-btn {
+  min-width: 44px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  touch-action: manipulation;
+}
+
+.input-search-clear-btn::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  min-width: 44px;
+  min-height: 44px;
+}
+
 /* Badges */
 .badge {
   display: inline-flex;
@@ -2997,6 +3016,10 @@ body::before,
   font-family: var(--mono-font);
   font-size: 10px;
   color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
 }
 
 .heatmap-tile-name {

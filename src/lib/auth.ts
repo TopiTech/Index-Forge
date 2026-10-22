@@ -568,7 +568,7 @@ export async function changeAdminSecretCode(
   currentSecretCode: string,
   newSecretCode: string,
   headers?: Record<string, string>,
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<{ ok: boolean; error?: string; adminToken?: string }> {
   try {
     const authHeaders = headers || getAuthHeaders();
     const res = await fetch("/api/admin/admin-secret-code", {
@@ -591,7 +591,10 @@ export async function changeAdminSecretCode(
       };
     }
 
-    return { ok: true };
+    return {
+      ok: true,
+      adminToken: typeof data.adminToken === "string" ? data.adminToken : undefined,
+    };
   } catch (err) {
     const msg = err instanceof Error ? err.message : "通信エラーが発生しました";
     return { ok: false, error: msg };

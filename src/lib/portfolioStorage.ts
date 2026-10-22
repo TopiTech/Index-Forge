@@ -3,7 +3,7 @@
  * 実保有株式の損益計算、アセットアロケーション、およびオリジナル指数化連携
  */
 
-import { getStockFundamentals } from "./marketDataService";
+import { getStockFundamentals, isMacroAsset } from "./marketDataService";
 import { getStockCurrency } from "./currency";
 import { allocateIntegerWeights } from "./weights";
 import { DEFAULT_USD_JPY_RATE } from "../data/marketConstants";
@@ -678,7 +678,7 @@ export function convertPortfolioToCustomIndexBasket(
   >();
   for (const pos of summary.positions) {
     const normTicker = (pos.ticker || "").trim().toUpperCase();
-    if (!normTicker) continue;
+    if (!normTicker || isMacroAsset(normTicker)) continue;
     const posMv = pos.marketValueJpy ?? pos.marketValue;
     const validMv = typeof posMv === "number" && Number.isFinite(posMv) && posMv > 0 ? posMv : 0;
     const existing = grouped.get(normTicker);

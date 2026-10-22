@@ -80,15 +80,31 @@ describe("memory cache total byte budget", () => {
     setMemoryCache("general:one", nearCapPayload(), 300);
     setMemoryCache("general:two", nearCapPayload(), 300);
     expect(getMemoryCache("general:one")).not.toBeNull();
+    expect(getMemoryCache("general:two")).not.toBeNull();
 
     setMemoryCache("general:three", nearCapPayload(), 300);
 
     // Two near-cap entries already fill the budget, so admitting a third
-    // must evict the oldest one instead of growing past the cap.
+    // must evict the least recently used one instead of growing past the cap.
     expect(getMemoryCache("general:one")).toBeNull();
     expect(getMemoryCache("general:two")).not.toBeNull();
     expect(getMemoryCache("general:three")).not.toBeNull();
     expect(getMemoryCacheStats().bytes).toBeLessThanOrEqual(MAX_GENERAL_CACHE_BYTES);
+  });
+
+  it("updates access order on getMemoryCache so hot entries are preserved (LRU)", () => {
+    setMemoryCache("general:first", nearCapPayload(), 300);
+    setMemoryCache("general:second", nearCapPayload(), 300);
+
+    // Access the first entry so it becomes more recently used than the second
+    expect(getMemoryCache("general:first")).not.toBeNull();
+
+    // Adding a third entry should evict "general:second" (least recently used) instead of "general:first"
+    setMemoryCache("general:third", nearCapPayload(), 300);
+
+    expect(getMemoryCache("general:first")).not.toBeNull();
+    expect(getMemoryCache("general:second")).toBeNull();
+    expect(getMemoryCache("general:third")).not.toBeNull();
   });
 
   it("applies a separate byte budget to the calculation cache", () => {

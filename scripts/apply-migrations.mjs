@@ -177,6 +177,21 @@ export const REQUIRED_MIGRATION_STEPS = [
     name: "idx_admin_sessions_expires_at",
     sql: "CREATE INDEX IF NOT EXISTS idx_admin_sessions_expires_at ON admin_sessions(expires_at)",
   },
+  {
+    type: "index",
+    name: "idx_admin_login_attempts_purge",
+    sql: "CREATE INDEX IF NOT EXISTS idx_admin_login_attempts_purge ON admin_login_attempts(last_failed_at, locked_until)",
+  },
+  {
+    type: "drop_index",
+    name: "idx_basket_items_index_id",
+    sql: "DROP INDEX IF EXISTS idx_basket_items_index_id",
+  },
+  {
+    type: "drop_index",
+    name: "idx_access_passwords_hash",
+    sql: "DROP INDEX IF EXISTS idx_access_passwords_hash",
+  },
 ];
 
 export const OWNER_TOKEN_BACKFILL_SQL =
@@ -196,6 +211,10 @@ export function computePendingMigrations(probe, steps = REQUIRED_MIGRATION_STEPS
       }
     } else if (step.type === "index") {
       if (!indexes.has(step.name)) {
+        pending.push(step);
+      }
+    } else if (step.type === "drop_index") {
+      if (indexes.has(step.name)) {
         pending.push(step);
       }
     } else if (step.type === "column") {
@@ -330,14 +349,16 @@ export function runMigration(targetFlag = "--local", configPath = "wrangler.loca
       const desc =
         step.type === "column"
           ? `Column ${step.table}.${step.name}`
-          : `${step.type.toUpperCase()} ${step.name}`;
+          : step.type === "drop_index"
+            ? `DROP INDEX ${step.name}`
+            : `${step.type.toUpperCase()} ${step.name}`;
       process.stdout.write(`   Applying ${desc}... `);
       try {
         execWrangler(targetFlag, configPath, dbName, step.sql);
         console.log("OK");
       } catch (err) {
-        if (/already exists|duplicate column/i.test(err.message)) {
-          console.log("ALREADY EXISTS (skipped)");
+        if (/already exists|duplicate column|no such index/i.test(err.message)) {
+          console.log("ALREADY APPLIED / SKIPPED");
         } else {
           console.log("FAILED");
           throw err;
@@ -363,6 +384,8 @@ export function runMigration(targetFlag = "--local", configPath = "wrangler.loca
       // Best effort backfill
     }
   }
+
+  return { appliedCount: pending.length, steps: pending };
 }
 
 // CLI entry point

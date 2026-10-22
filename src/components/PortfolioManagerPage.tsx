@@ -456,6 +456,24 @@ export function PortfolioManagerPage({
   }, [isAuthenticated, loadLiveQuotes]);
 
   const summary = calculatePortfolioSummary(positions, liveQuotes, usdJpyRate);
+  const [tableSortField, setTableSortField] = useState<"name" | "marketValue" | "unrealizedProfitPercent" | null>(null);
+  const [tableSortAsc, setTableSortAsc] = useState<boolean>(true);
+
+  const sortedPositions = useMemo(() => {
+    const list = [...summary.positions];
+    if (tableSortField === "name") {
+      list.sort((a, b) => {
+        const cmp = a.name.localeCompare(b.name, "ja", { numeric: true });
+        return tableSortAsc ? cmp : -cmp;
+      });
+    } else if (tableSortField === "marketValue") {
+      list.sort((a, b) => (tableSortAsc ? a.marketValue - b.marketValue : b.marketValue - a.marketValue));
+    } else if (tableSortField === "unrealizedProfitPercent") {
+      list.sort((a, b) => (tableSortAsc ? a.unrealizedProfitPercent - b.unrealizedProfitPercent : b.unrealizedProfitPercent - a.unrealizedProfitPercent));
+    }
+    return list;
+  }, [summary.positions, tableSortField, tableSortAsc]);
+
   const isTotalProfitPositive = summary.totalProfit >= 0;
   const isDailyProfitPositive = summary.dailyTotalChange >= 0;
 
@@ -612,7 +630,7 @@ export function PortfolioManagerPage({
         ...item,
         percent: Number(((item.valueJpy / total) * 100).toFixed(1)),
       }))
-      .sort((a, b) => b.valueJpy - a.valueJpy);
+      .sort((a, b) => (b.valueJpy !== a.valueJpy ? b.valueJpy - a.valueJpy : a.name.localeCompare(b.name, "ja", { numeric: true })));
   }, [summary.positions, summary.totalMarketValue]);
 
   const diversification = useMemo(() => {
@@ -1580,7 +1598,23 @@ export function PortfolioManagerPage({
               <table className="constituents-table" style={{ width: "100%" }}>
                 <thead>
                   <tr>
-                    <th style={{ textAlign: "left" }} className="table-sticky-col">銘柄</th>
+                    <th
+                      style={{ textAlign: "left", cursor: "pointer", userSelect: "none" }}
+                      className="table-sticky-col sortable-col-header"
+                      onClick={() => {
+                        if (tableSortField === "name") {
+                          setTableSortAsc((prev) => !prev);
+                        } else {
+                          setTableSortField("name");
+                          setTableSortAsc(true);
+                        }
+                      }}
+                      title="銘柄名でソート"
+                      role="columnheader"
+                      aria-sort={tableSortField === "name" ? (tableSortAsc ? "ascending" : "descending") : "none"}
+                    >
+                      銘柄 {tableSortField === "name" ? (tableSortAsc ? "▲" : "▼") : ""}
+                    </th>
                     <th style={{ textAlign: "right" }} className="tabular-nums">保有株数</th>
                     <th style={{ textAlign: "right" }} className="tabular-nums">取得単価</th>
                     <th style={{ textAlign: "right" }} className="tabular-nums">現在値</th>
@@ -1592,7 +1626,7 @@ export function PortfolioManagerPage({
                   </tr>
                 </thead>
                 <tbody>
-                  {summary.positions.map((p) => {
+                  {sortedPositions.map((p) => {
                     const isProfit = p.unrealizedProfit >= 0;
                     const curr = getStockCurrency(p.ticker);
                     return (
@@ -1704,7 +1738,7 @@ export function PortfolioManagerPage({
                 readers can announce/navigate the holdings as a collection
                 (`aria-label` is prohibited on a role-less generic element). */}
             <div className="portfolio-mobile-list" role="list" aria-label="保有銘柄一覧カードリスト">
-              {summary.positions.map((p) => {
+              {sortedPositions.map((p) => {
                 const isProfit = p.unrealizedProfit >= 0;
                 const curr = getStockCurrency(p.ticker);
                 return (

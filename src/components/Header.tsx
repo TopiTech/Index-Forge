@@ -16,7 +16,7 @@ import { ThemeControls } from "./ThemeControls";
 import { DataFreshness } from "./DataFreshness";
 import { AuthModal } from "./AuthModal";
 
-interface HeaderProps {
+export interface HeaderProps {
   onNavigateToHome?: () => void;
   onOpenSearch?: () => void;
   onSearchHover?: () => void;
@@ -33,6 +33,9 @@ interface HeaderProps {
   typeLabel?: string;
   updatedAt?: number | string | null;
   customStatusText?: string;
+  isAuthModalOpen?: boolean;
+  onOpenAuthModal?: () => void;
+  onCloseAuthModal?: () => void;
 }
 
 /**
@@ -55,10 +58,16 @@ export function Header({
   hasSyncWarning = false,
   typeLabel,
   customStatusText,
+  isAuthModalOpen: isAuthModalOpenProp,
+  onOpenAuthModal,
+  onCloseAuthModal,
 }: HeaderProps) {
   const { session, isAuthenticated, isAdmin, isUser, maxStocks, maxIndices, logout } = useAuth();
   const { info } = useToast();
-  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [internalAuthModalOpen, setInternalAuthModalOpen] = useState(false);
+  const isAuthModalOpen = isAuthModalOpenProp !== undefined ? isAuthModalOpenProp : internalAuthModalOpen;
+  const openAuthModal = onOpenAuthModal ?? (() => setInternalAuthModalOpen(true));
+  const closeAuthModal = onCloseAuthModal ?? (() => setInternalAuthModalOpen(false));
 
   const limitsText =
     isUser && (maxStocks || maxIndices)
@@ -189,7 +198,7 @@ export function Header({
                   <button
                     type="button"
                     className="btn btn-sm btn-outline header-login-btn"
-                    onClick={() => setIsAuthModalOpen(true)}
+                    onClick={openAuthModal}
                     title="パスワード認証でログイン"
                     aria-label="パスワード認証でログイン"
                   >
@@ -219,7 +228,7 @@ export function Header({
 
       <AuthModal
         isOpen={isAuthModalOpen}
-        onClose={() => setIsAuthModalOpen(false)}
+        onClose={closeAuthModal}
         onSuccess={() => {
           info("ログインしました");
         }}

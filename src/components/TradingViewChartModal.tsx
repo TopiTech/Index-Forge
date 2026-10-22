@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
+import { createPortal } from "react-dom";
 import {
   X,
   ExternalLink,
@@ -14,6 +15,7 @@ import {
 import { useTheme } from "../lib/theme";
 import { useModalFocus } from "../hooks/useModalFocus";
 import { getTradingViewWebUrl } from "../lib/tradingView";
+import { useOverlayRoot } from "./ModalBase";
 
 export interface PopupSymbolInfo {
   proName: string;
@@ -102,6 +104,7 @@ export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModal
   const [isLoading, setIsLoading] = useState(true);
   const [scriptError, setScriptError] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
+  const overlayRoot = useOverlayRoot();
 
   const preMaximizedSizeRef = useRef<CardDimensions>(getSavedDimensions());
   const isBackdropMouseDownRef = useRef(false);
@@ -558,7 +561,7 @@ export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModal
 
   const tradingViewSymbolUrl = getTradingViewWebUrl(symbol.proName);
 
-  return (
+  const modalContent = (
     <div
       className="tv-chart-popover-backdrop"
       onMouseDown={handleBackdropMouseDown}
@@ -832,4 +835,6 @@ export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModal
       </div>
     </div>
   );
+
+  return overlayRoot ? createPortal(modalContent, overlayRoot) : modalContent;
 }

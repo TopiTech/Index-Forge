@@ -43,11 +43,11 @@ describe("TradingViewChartModal resource cleanup", () => {
   });
 
   it("cancels the post-load resize notification when closed before it fires", () => {
-    const { container, unmount } = render(
+    const { baseElement, unmount } = render(
       <TradingViewChartModal symbol={SYMBOL} onClose={() => {}} />,
     );
 
-    const script = container.querySelector("script");
+    const script = baseElement.querySelector("script");
     expect(script).not.toBeNull();
 
     act(() => {

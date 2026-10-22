@@ -247,9 +247,9 @@ export function ConstituentsTable({
       } else if (sortField === "ticker") {
         cmp = a.ticker.localeCompare(b.ticker);
       } else if (sortField === "name") {
-        cmp = a.name.localeCompare(b.name, "ja");
+        cmp = a.name.localeCompare(b.name, "ja", { numeric: true });
       } else if (sortField === "theme") {
-        cmp = (a.theme || "").localeCompare(b.theme || "", "ja");
+        cmp = (a.theme || "").localeCompare(b.theme || "", "ja", { numeric: true });
       } else if (sortField === "currentPrice") {
         cmp = a.currentPrice - b.currentPrice;
       } else if (sortField === "changePct") {

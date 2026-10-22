@@ -462,7 +462,14 @@ export function useIndices() {
         // schema write) never falsely labels the index as "My index".
         const finalToken = resolvePersistedOwnerToken(data, storedToken);
         if (finalToken && savedId) {
-          saveIndexOwnerToken(savedId, finalToken);
+          const rawIssuedAt = data?.ownerTokenIssuedAt;
+          const issuedAtMs =
+            typeof rawIssuedAt === "number" && Number.isFinite(rawIssuedAt) && rawIssuedAt > 0
+              ? rawIssuedAt < 1e11
+                ? rawIssuedAt * 1000
+                : rawIssuedAt
+              : undefined;
+          saveIndexOwnerToken(savedId, finalToken, issuedAtMs);
         }
         try {
           localStorage.removeItem(INDICES_ETAG_KEY);
