@@ -2307,6 +2307,18 @@ export function runStockScreener(
 
     const numA = valA as number;
     const numB = valB as number;
+
+    // For valuation ratios (PER and PBR), non-positive values (deficit / negative equity)
+    // are not meaningful valuation multiples and must sort to the end in ascending mode,
+    // ensuring that low, positive multiples (the true value stocks) appear at the top.
+    if ((sortBy === "per" || sortBy === "pbr") && sortOrder === "asc") {
+      const isPosA = numA > 0;
+      const isPosB = numB > 0;
+      if (!isPosA && !isPosB) return a.ticker.localeCompare(b.ticker);
+      if (!isPosA) return 1;
+      if (!isPosB) return -1;
+    }
+
     if (numA === numB) return a.ticker.localeCompare(b.ticker);
     return sortOrder === "asc" ? (numA > numB ? 1 : -1) : numA < numB ? 1 : -1;
   });

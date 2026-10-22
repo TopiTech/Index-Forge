@@ -294,6 +294,9 @@ export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModal
     if (typeof window === "undefined") return;
     const handleWindowResize = () => {
       if (isMaximized) {
+        const maxW = Math.floor(window.innerWidth * 0.96);
+        const maxH = Math.floor(window.innerHeight * 0.94);
+        setDimensions({ width: maxW, height: maxH });
         notifyTradingViewResize();
         return;
       }

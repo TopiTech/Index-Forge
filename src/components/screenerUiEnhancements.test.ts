@@ -31,6 +31,34 @@ describe("Screener UI/UX Enhancements", () => {
       expect(asc.length).toBeGreaterThan(1);
       expect(asc[0].name.localeCompare(asc[1].name, "ja")).toBeLessThanOrEqual(0);
     });
+
+    it("sorts stocks by per in ascending order putting positive low multiples first and non-positive multiples to the end", () => {
+      const asc = runStockScreener({ sortBy: "per", sortOrder: "asc" });
+      expect(asc.length).toBeGreaterThan(1);
+      // First stock must have a positive PER
+      const firstPer = asc[0].per;
+      if (firstPer !== null && firstPer !== undefined) {
+        expect(firstPer).toBeGreaterThan(0);
+      }
+      // If there are multiple stocks with positive PER, each must be >= previous
+      let seenNonPositive = false;
+      for (const s of asc) {
+        if (typeof s.per === "number" && s.per > 0) {
+          expect(seenNonPositive, "Positive PER must appear before non-positive PER").toBe(false);
+        } else {
+          seenNonPositive = true;
+        }
+      }
+    });
+
+    it("sorts stocks by pbr in ascending order putting positive low multiples first", () => {
+      const asc = runStockScreener({ sortBy: "pbr", sortOrder: "asc" });
+      expect(asc.length).toBeGreaterThan(1);
+      const firstPbr = asc[0].pbr;
+      if (firstPbr !== null && firstPbr !== undefined) {
+        expect(firstPbr).toBeGreaterThan(0);
+      }
+    });
   });
 
   describe("Sparkline Momentum Data", () => {

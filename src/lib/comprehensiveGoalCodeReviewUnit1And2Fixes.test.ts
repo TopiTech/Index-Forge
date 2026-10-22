@@ -22,6 +22,7 @@ import previewSrc from "../components/SimulationPreview.tsx?raw";
 import perfSrc from "../components/PerformanceChart.tsx?raw";
 import techSrc from "../components/StockTechnicalChart.tsx?raw";
 import sceneSrc from "../components/Tutorial3DScene.ts?raw";
+import canvasSrc from "../components/Tutorial3DCanvas.tsx?raw";
 import modalSrc from "../components/ModalBase.tsx?raw";
 import hookSrc from "../hooks/useIndices.ts?raw";
 import builderSrc from "../components/IndexBuilderContent.tsx?raw";
@@ -120,6 +121,12 @@ describe("Comprehensive Goal Code Review - Unit 1 & 2 Fixes", () => {
   describe("4. WebGL Context Loss in Tutorial3DScene", () => {
     it("calls forceContextLoss in destroy to prevent WebGL context exhaustion across navigations", () => {
       expect(sceneSrc).toContain("forceContextLoss");
+    });
+
+    it("handles webglcontextlost with preventDefault and webglcontextrestored in Tutorial3DCanvas", () => {
+      expect(canvasSrc).toContain("webglcontextlost");
+      expect(canvasSrc).toContain("webglcontextrestored");
+      expect(canvasSrc).toContain("e.preventDefault()");
     });
   });
 

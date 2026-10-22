@@ -97,8 +97,8 @@ export function buildScreenerCsvRows(results: ScreenerCsvRow[]): string[][] {
     escapeCsvCell(typeof s.price === "number" && Number.isFinite(s.price) ? s.price : ""),
     escapeCsvCell(typeof s.changePercent === "number" && Number.isFinite(s.changePercent) ? s.changePercent.toFixed(2) : ""),
     escapeCsvCell(typeof s.dividendYield === "number" && Number.isFinite(s.dividendYield) ? s.dividendYield.toFixed(2) : ""),
-    escapeCsvCell(typeof s.per === "number" && Number.isFinite(s.per) ? s.per.toFixed(1) : ""),
-    escapeCsvCell(typeof s.pbr === "number" && Number.isFinite(s.pbr) ? s.pbr.toFixed(2) : ""),
+    escapeCsvCell(typeof s.per === "number" && Number.isFinite(s.per) && s.per > 0 ? s.per.toFixed(1) : ""),
+    escapeCsvCell(typeof s.pbr === "number" && Number.isFinite(s.pbr) && s.pbr > 0 ? s.pbr.toFixed(2) : ""),
     escapeCsvCell(typeof s.roe === "number" && Number.isFinite(s.roe) ? s.roe.toFixed(1) : ""),
     escapeCsvCell(s.technicalSignal),
   ]);
@@ -1172,14 +1172,18 @@ export function ScreenerPage({
                         style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}
                         className="mono"
                       >
-                        {typeof stock.per === "number" ? `${stock.per.toFixed(1)}倍` : "--"}
+                        {typeof stock.per === "number" && Number.isFinite(stock.per) && stock.per > 0
+                          ? `${stock.per.toFixed(1)}倍`
+                          : "--"}
                       </td>
 
                       <td
                         style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}
                         className="mono"
                       >
-                        {typeof stock.pbr === "number" ? `${stock.pbr.toFixed(2)}倍` : "--"}
+                        {typeof stock.pbr === "number" && Number.isFinite(stock.pbr) && stock.pbr > 0
+                          ? `${stock.pbr.toFixed(2)}倍`
+                          : "--"}
                       </td>
 
                       <td
@@ -1327,7 +1331,13 @@ export function ScreenerPage({
                     <div className="screener-mobile-stat">
                       <span className="screener-mobile-stat-label">PER / PBR</span>
                       <span className="screener-mobile-stat-val mono tabular-nums">
-                        {typeof stock.per === "number" ? `${stock.per.toFixed(1)}倍` : "--"} / {typeof stock.pbr === "number" ? `${stock.pbr.toFixed(2)}倍` : "--"}
+                        {typeof stock.per === "number" && Number.isFinite(stock.per) && stock.per > 0
+                          ? `${stock.per.toFixed(1)}倍`
+                          : "--"}{" "}
+                        /{" "}
+                        {typeof stock.pbr === "number" && Number.isFinite(stock.pbr) && stock.pbr > 0
+                          ? `${stock.pbr.toFixed(2)}倍`
+                          : "--"}
                       </span>
                     </div>
                   </div>

@@ -26,6 +26,7 @@ export const Tutorial3DCanvas = forwardRef<Tutorial3DCanvasHandle, Tutorial3DCan
     const sceneRef = useRef<Tutorial3DScene | null>(null);
 
     const [hasWebGL, setHasWebGL] = useState<boolean>(true);
+    const [isContextLost, setIsContextLost] = useState<boolean>(false);
 
     // Pointer drag tracking
     const isDraggingRef = useRef(false);
@@ -81,6 +82,41 @@ export const Tutorial3DCanvas = forwardRef<Tutorial3DCanvasHandle, Tutorial3DCan
         return;
       }
 
+      // WebGL context loss handling (allows browser to restore context on GPU wake)
+      const handleContextLost = (e: Event) => {
+        e.preventDefault();
+        setIsContextLost(true);
+        if (sceneInstance) {
+          sceneInstance.destroy();
+          sceneInstance = null;
+          sceneRef.current = null;
+        }
+      };
+
+      const handleContextRestored = () => {
+        setIsContextLost(false);
+        try {
+          const r = container.getBoundingClientRect();
+          const w = Math.max(300, r.width);
+          const h = Math.max(260, r.height);
+          sceneInstance = new Tutorial3DScene({
+            canvas,
+            width: w,
+            height: h,
+            initialStep: currentStep,
+            isReducedMotion,
+          });
+          sceneInstance.isAutoRotatePaused = isAutoRotatePaused;
+          sceneRef.current = sceneInstance;
+        } catch (err) {
+          console.warn("Failed to recreate Three.js WebGL scene after context restore:", err);
+          setHasWebGL(false);
+        }
+      };
+
+      canvas.addEventListener("webglcontextlost", handleContextLost, false);
+      canvas.addEventListener("webglcontextrestored", handleContextRestored, false);
+
       // Resize observer
       const resizeObserver = new ResizeObserver((entries) => {
         for (const entry of entries) {
@@ -93,6 +129,8 @@ export const Tutorial3DCanvas = forwardRef<Tutorial3DCanvasHandle, Tutorial3DCan
       resizeObserver.observe(container);
 
       return () => {
+        canvas.removeEventListener("webglcontextlost", handleContextLost);
+        canvas.removeEventListener("webglcontextrestored", handleContextRestored);
         resizeObserver.disconnect();
         if (sceneInstance) {
           sceneInstance.destroy();
@@ -238,11 +276,26 @@ export const Tutorial3DCanvas = forwardRef<Tutorial3DCanvasHandle, Tutorial3DCan
         aria-label={`IndexForge チュートリアルビジュアル。矢印キーで視点回転、+/-またはCtrl+スクロールでズーム可能。${sceneDescription || ""}`}
       >
         {hasWebGL ? (
-          <canvas
-            ref={canvasRef}
-            className="tutorial-3d-canvas"
-            aria-hidden="true"
-          />
+          <>
+            <canvas
+              ref={canvasRef}
+              className="tutorial-3d-canvas"
+              style={isContextLost ? { display: "none" } : undefined}
+              aria-hidden="true"
+            />
+            {isContextLost && (
+              <div className="tutorial-3d-fallback" role="img" aria-label="グラフィックス一時停止">
+                <div className="fallback-glow-orb" />
+                <div className="fallback-grid" />
+                <div className="fallback-content">
+                  <span className="badge badge-subtle mono tiny">GPU RECONNECTING</span>
+                  <p className="muted tiny" style={{ marginTop: 8 }}>
+                    グラフィックスコンテキストの復帰を待機しています...
+                  </p>
+                </div>
+              </div>
+            )}
+          </>
         ) : (
           <div className="tutorial-3d-fallback" role="img" aria-label="グラフィックス代替プレビュー">
             <div className="fallback-glow-orb" />

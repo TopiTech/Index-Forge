@@ -111,4 +111,35 @@ describe("TradingViewChartModal resource cleanup", () => {
       unmount();
     }).not.toThrow();
   });
+
+  it("updates dimensions and classes dynamically on window resize when maximized", () => {
+    Object.defineProperty(window, "innerWidth", { writable: true, configurable: true, value: 1200 });
+    Object.defineProperty(window, "innerHeight", { writable: true, configurable: true, value: 800 });
+
+    const { getByLabelText, getByRole, unmount } = render(
+      <TradingViewChartModal symbol={SYMBOL} onClose={() => {}} />,
+    );
+
+    // Click maximize
+    fireEvent.click(getByLabelText("画面に合わせて最大化"));
+    const dialog = getByRole("dialog");
+    expect(dialog.classList.contains("is-maximized")).toBe(true);
+
+    // Simulate resizing window to 1600x1000
+    act(() => {
+      window.innerWidth = 1600;
+      window.innerHeight = 1000;
+      window.dispatchEvent(new Event("resize"));
+    });
+
+    expect(dialog.classList.contains("is-maximized")).toBe(true);
+
+    // Un-maximize should restore bounded size within new viewport limits
+    fireEvent.click(getByLabelText("元のサイズに戻す"));
+    expect(dialog.classList.contains("is-maximized")).toBe(false);
+    expect(dialog.style.width).toBeTruthy();
+    expect(dialog.style.height).toBeTruthy();
+
+    unmount();
+  });
 });
