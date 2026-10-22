@@ -543,7 +543,7 @@ export function PortfolioManagerPage({
     const a = document.createElement("a");
     a.href = url;
     a.download = toSafeDownloadFileName(
-      `indexforge_portfolio_${new Date().toISOString().split("T")[0]}.csv`,
+      `indexforge_portfolio_${todayJstDateString()}.csv`,
       "portfolio.csv",
     );
     document.body.appendChild(a);

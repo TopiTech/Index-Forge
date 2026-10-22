@@ -26,6 +26,7 @@ import { useToast } from "./Toast";
 import { toYahooSymbol } from "../lib/yahooSymbol";
 import { escapeCsvCell } from "../lib/csv";
 import { toSafeDownloadFileName } from "../lib/downloadFileName";
+import { todayJstDateString } from "../lib/portfolioStorage";
 import { formatStockPrice } from "../lib/currency";
 
 // PERF-01: the add-stock dialog searches the 4,500+ ticker universe, so it
@@ -301,13 +302,13 @@ export function ConstituentsTable({
       escapeCsvCell(item.ticker),
       escapeCsvCell(item.name),
       escapeCsvCell(item.theme),
-      escapeCsvCell(item.weight.toFixed(2)),
-      escapeCsvCell(item.currentPrice),
-      escapeCsvCell(item.changePct.toFixed(2)),
-      escapeCsvCell(item.contributionPt.toFixed(2)),
+      escapeCsvCell(typeof item.weight === "number" && Number.isFinite(item.weight) ? item.weight.toFixed(2) : ""),
+      escapeCsvCell(typeof item.currentPrice === "number" && Number.isFinite(item.currentPrice) ? item.currentPrice : ""),
+      escapeCsvCell(typeof item.changePct === "number" && Number.isFinite(item.changePct) ? item.changePct.toFixed(2) : ""),
+      escapeCsvCell(typeof item.contributionPt === "number" && Number.isFinite(item.contributionPt) ? item.contributionPt.toFixed(2) : ""),
     ]);
 
-    const csvContent = "\uFEFF" + [headers.join(","), ...rows.map((e) => e.join(","))].join("\n");
+    const csvContent = "\uFEFF" + [headers.join(","), ...rows.map((e) => e.join(","))].join("\r\n");
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
@@ -315,7 +316,7 @@ export function ConstituentsTable({
     const safeFileName = toSafeDownloadFileName(indexName, "custom_index");
     link.setAttribute(
       "download",
-      `${safeFileName}_constituents_${new Date().toISOString().slice(0, 10)}.csv`,
+      `${safeFileName}_constituents_${todayJstDateString()}.csv`,
     );
     document.body.appendChild(link);
     link.click();

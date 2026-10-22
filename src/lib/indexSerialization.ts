@@ -178,7 +178,7 @@ export function deserializeIndexFromJson(jsonStr: string): SerializationResult<C
       if (
         !ticker ||
         ticker.length > 20 ||
-        !/^[A-Za-z0-9.-]+$/.test(ticker) ||
+        !/^[A-Za-z0-9.^=_-]+$/.test(ticker) ||
         seenTickers.has(ticker)
       ) {
         continue;
@@ -325,7 +325,7 @@ export function deserializeBasketFromCsv(csvStr: string): SerializationResult<Ba
     // Worker 契約に合わせて正規化 (全角→ASCII・大文字・文字種検証)。そのまま
     // 送ると1行の不正でリクエスト全体が400になり、保存もプレビューも止まる。
     const ticker = normalizeTicker(fields[tickerIdx] ?? "");
-    if (!ticker || ticker.length > 20 || !/^[A-Za-z0-9.-]+$/.test(ticker) || seen.has(ticker)) {
+    if (!ticker || ticker.length > 20 || !/^[A-Za-z0-9.^=_-]+$/.test(ticker) || seen.has(ticker)) {
       continue;
     }
     seen.add(ticker);
@@ -437,7 +437,7 @@ export function deserializePortfolioFromCsv(
     const fields = rows[rowIdx];
     if (fields.length <= tickerIdx) continue;
     const ticker = normalizeTicker(fields[tickerIdx] ?? "");
-    if (!ticker || ticker.length > 20 || !/^[A-Za-z0-9.-]+$/.test(ticker)) continue;
+    if (!ticker || ticker.length > 20 || !/^[A-Za-z0-9.^=_-]+$/.test(ticker)) continue;
 
     const name = ((nameIdx !== -1 && nameIdx < fields.length ? fields[nameIdx] : "") || ticker).slice(0, 100);
     const rawShares = sharesIdx !== -1 && sharesIdx < fields.length ? parseNumericValue(fields[sharesIdx]) : NaN;

@@ -175,7 +175,7 @@ export function sanitizeBasketForRequest(
   for (const item of items) {
     const rawTicker = typeof item?.ticker === "string" ? item.ticker : "";
     const ticker = normalizeTicker(rawTicker);
-    if (!ticker || ticker.length > 20 || !/^[A-Za-z0-9.-]+$/.test(ticker)) {
+    if (!ticker || ticker.length > 20 || !/^[A-Za-z0-9.^=_-]+$/.test(ticker)) {
       dropped.push(rawTicker.trim() || "(ティッカーなし)");
       continue;
     }

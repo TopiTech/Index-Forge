@@ -23,7 +23,7 @@ function normalizeAnalyticsSeries(
   const canParseAllDates = normalized.every((point) => !Number.isNaN(Date.parse(point.date)));
   return canParseAllDates
     ? normalized.sort((a, b) => Date.parse(a.date) - Date.parse(b.date))
-    : normalized;
+    : normalized.sort((a, b) => a.date.localeCompare(b.date));
 }
 
 /**

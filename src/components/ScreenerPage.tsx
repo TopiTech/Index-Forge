@@ -30,6 +30,7 @@ import { allocateEvenWeights } from "../lib/weights";
 import { changeTone, formatSignedPercent } from "./changeTone";
 import { escapeCsvCell } from "../lib/csv";
 import { toSafeDownloadFileName } from "../lib/downloadFileName";
+import { todayJstDateString } from "../lib/portfolioStorage";
 import type { PageView } from "../lib/navigation";
 import { useToast } from "./Toast";
 import { useRegisterFreshness } from "../contexts/FreshnessContext";
@@ -95,10 +96,10 @@ export function buildScreenerCsvRows(results: ScreenerCsvRow[]): string[][] {
     escapeCsvCell(s.theme),
     escapeCsvCell(typeof s.price === "number" && Number.isFinite(s.price) ? s.price : ""),
     escapeCsvCell(typeof s.changePercent === "number" && Number.isFinite(s.changePercent) ? s.changePercent.toFixed(2) : ""),
-    escapeCsvCell(typeof s.dividendYield === "number" ? s.dividendYield.toFixed(2) : ""),
-    escapeCsvCell(typeof s.per === "number" ? s.per.toFixed(1) : ""),
-    escapeCsvCell(typeof s.pbr === "number" ? s.pbr.toFixed(2) : ""),
-    escapeCsvCell(typeof s.roe === "number" ? s.roe.toFixed(1) : ""),
+    escapeCsvCell(typeof s.dividendYield === "number" && Number.isFinite(s.dividendYield) ? s.dividendYield.toFixed(2) : ""),
+    escapeCsvCell(typeof s.per === "number" && Number.isFinite(s.per) ? s.per.toFixed(1) : ""),
+    escapeCsvCell(typeof s.pbr === "number" && Number.isFinite(s.pbr) ? s.pbr.toFixed(2) : ""),
+    escapeCsvCell(typeof s.roe === "number" && Number.isFinite(s.roe) ? s.roe.toFixed(1) : ""),
     escapeCsvCell(s.technicalSignal),
   ]);
 }
@@ -414,7 +415,7 @@ export function ScreenerPage({
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    const dateStr = new Date().toISOString().split("T")[0];
+    const dateStr = todayJstDateString();
     a.href = url;
     a.download = toSafeDownloadFileName(`IndexForge_Screener_${dateStr}.csv`);
     document.body.appendChild(a);

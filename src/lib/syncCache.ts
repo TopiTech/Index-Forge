@@ -40,7 +40,7 @@ export function parseLocalSyncCache(raw: string | null): Record<string, number> 
     for (const [ticker, timestamp] of Object.entries(parsed)) {
       const normalizedTicker = ticker.trim().toUpperCase();
       if (
-        /^[A-Z0-9.-]+$/.test(normalizedTicker) &&
+        /^[A-Z0-9.^=_-]+$/.test(normalizedTicker) &&
         normalizedTicker.length <= 20 &&
         typeof timestamp === "number" &&
         Number.isFinite(timestamp) &&

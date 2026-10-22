@@ -2471,30 +2471,26 @@ export function setMemoryCache(key: string, data: unknown, ttlSeconds: number): 
   if (bytes > MAX_MEMORY_CACHE_ENTRY_BYTES || bytes > maxTotalBytes) return;
 
   const now = Date.now();
+  // Delete first: overwriting an existing key must not corrupt byte tracking
+  // during eviction and refreshes LRU insertion order when re-inserted below.
+  targetMap.delete(key);
+
   let totalBytes = 0;
   for (const [existingKey, existing] of targetMap) {
     if (existing.expiresAt <= now) {
       targetMap.delete(existingKey);
       continue;
     }
-    if (existingKey === key) continue; // replaced by this write
     totalBytes += existing.bytes || 0;
   }
 
   // Evict oldest entries until both budgets (count and bytes) are satisfied.
-  while (
-    targetMap.size - (targetMap.has(key) ? 1 : 0) >= maxEntries ||
-    totalBytes + bytes > maxTotalBytes
-  ) {
+  while (targetMap.size >= maxEntries || totalBytes + bytes > maxTotalBytes) {
     const oldestKey = targetMap.keys().next().value;
     if (oldestKey === undefined) break;
     const oldest = targetMap.get(oldestKey);
     targetMap.delete(oldestKey);
     totalBytes -= oldest?.bytes || 0;
-  }
-
-  if (targetMap.has(key)) {
-    targetMap.delete(key);
   }
 
   targetMap.set(key, {

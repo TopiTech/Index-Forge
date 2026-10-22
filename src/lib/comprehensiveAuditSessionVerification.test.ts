@@ -147,7 +147,7 @@ describe("Comprehensive Audit Session Verification", () => {
         /typeof stock\.dividendYield === "number"\s*\?\s*`\$\{stock\.dividendYield\.toFixed\(2\)\}%`\s*:\s*"--"/,
       );
       expect(screenerCode).toMatch(
-        /typeof s\.dividendYield === "number"\s*\?\s*s\.dividendYield\.toFixed\(2\)\s*:\s*""/,
+        /typeof s\.dividendYield === "number"(?:\s*&&\s*Number\.isFinite\(s\.dividendYield\))?\s*\?\s*s\.dividendYield\.toFixed\(2\)\s*:\s*""/,
       );
     });
 

@@ -247,7 +247,11 @@ export function probeDatabase(targetFlag, configPath = "wrangler.local.jsonc", d
   }
 
   const columns = new Map();
-  const tablesToCheck = ["access_passwords", "indices"];
+  const tablesToCheck = Array.from(
+    new Set(
+      REQUIRED_MIGRATION_STEPS.filter((s) => s.type === "column" && s.table).map((s) => s.table),
+    ),
+  );
   for (const table of tablesToCheck) {
     if (!tables.has(table)) continue;
     const infoCmd = `PRAGMA table_info(${table})`;
@@ -343,9 +347,15 @@ export function runMigration(targetFlag = "--local", configPath = "wrangler.loca
     console.log("✅ All pending migrations applied successfully.\n");
   }
 
-  // Backfill owner_token_issued_at if table and column are present
+  // Backfill owner_token_issued_at if table and column are present (or were just applied)
   const indicesCols = probe.columns.get("indices");
-  if (probe.tables.has("indices") && indicesCols && indicesCols.has("owner_token_hash")) {
+  const hasIndicesTable =
+    probe.tables.has("indices") || pending.some((s) => s.type === "table" && s.name === "indices");
+  const hasOwnerTokenHash =
+    (indicesCols && indicesCols.has("owner_token_hash")) ||
+    pending.some((s) => s.type === "column" && s.table === "indices" && s.name === "owner_token_hash");
+
+  if (hasIndicesTable && hasOwnerTokenHash) {
     try {
       execWrangler(targetFlag, configPath, dbName, OWNER_TOKEN_BACKFILL_SQL);
       console.log("   Backfilled owner_token_issued_at timestamp for grandfathered rows.");
