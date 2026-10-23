@@ -152,6 +152,7 @@ export type {
   IndexOwnershipLookup,
   MemoryCacheLookup,
   PasswordCollisionCheckResult,
+  SchemaStep,
   TickerMappingItem,
   TickerPriceQuote,
   WorkerExecutionContext,

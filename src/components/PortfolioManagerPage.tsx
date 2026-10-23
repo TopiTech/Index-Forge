@@ -51,6 +51,7 @@ import {
   calculateDiversificationScore,
 } from "../lib/indexSerialization";
 import { toSafeDownloadFileName } from "../lib/downloadFileName";
+import { normalizeTicker } from "../lib/indexEngine";
 import {
   getStockFundamentals,
   fetchStockFundamentals,
@@ -479,7 +480,7 @@ export function PortfolioManagerPage({
 
   const handleAddPosition = (e: React.FormEvent) => {
     e.preventDefault();
-    const ticker = newTicker.trim().toUpperCase();
+    const ticker = normalizeTicker(newTicker);
     const shares = parseFloat(newShares);
     const avgCost = parseFloat(newAverageCost);
 
@@ -487,8 +488,8 @@ export function PortfolioManagerPage({
       setAddError("銘柄コードを入力してください");
       return;
     }
-    if (!/^[A-Za-z0-9.-]{1,20}$/.test(ticker)) {
-      setAddError("銘柄コードは英数字、ハイフン、ピリオド（最大20文字）で入力してください (例: 7203, AAPL)");
+    if (!/^[A-Za-z0-9.^=_-]{1,20}$/.test(ticker)) {
+      setAddError("銘柄コードは英数字、記号（. - _ ^ =、最大20文字）で入力してください (例: 7203, AAPL, ^N225, USDJPY=X)");
       return;
     }
     if (isNaN(shares) || shares <= 0) {

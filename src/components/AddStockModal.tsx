@@ -2,6 +2,7 @@ import React, { useRef, useState, useMemo, useEffect } from "react";
 import { Plus, AlertCircle, Sparkles } from "lucide-react";
 import type { BasketItem } from "../types";
 import { searchPopularStocks, PRESET_STOCKS } from "../data/popularStocks";
+import { normalizeTicker } from "../lib/indexEngine";
 import { toFiniteNumberOr } from "../lib/downloadFileName";
 import { ModalBase } from "./ModalBase";
 
@@ -68,18 +69,15 @@ export function AddStockModal({
       return;
     }
 
-    const cleanTicker = ticker
-      .trim()
-      .replace(/[！-～]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0xfee0))
-      .toUpperCase();
+    const cleanTicker = normalizeTicker(ticker);
     const cleanName = name.trim();
     if (!cleanTicker || !cleanName) {
       setError("銘柄コードと銘柄名は必須です");
       return;
     }
 
-    if (!/^[A-Za-z0-9.-]+$/.test(cleanTicker) || cleanTicker.length > 20) {
-      setError("銘柄コードは英数字、ハイフン、ピリオド（最大20文字）で入力してください (例: 7203, AAPL)");
+    if (!/^[A-Za-z0-9.^=_-]+$/.test(cleanTicker) || cleanTicker.length > 20) {
+      setError("銘柄コードは英数字、記号（. - _ ^ =、最大20文字）で入力してください (例: 7203, AAPL, ^N225, USDJPY=X)");
       return;
     }
 

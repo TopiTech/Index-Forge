@@ -746,8 +746,8 @@ export function AdminDashboard({
     e.preventDefault();
     if (!addTicker.trim() || !addName.trim()) return;
     const cleanTicker = normalizeTicker(addTicker);
-    if (!/^[A-Za-z0-9.-]+$/.test(cleanTicker) || cleanTicker.length > 20) {
-      setIndexEditMessage({ type: "error", text: "有効な銘柄コードを入力してください（英数字・ドット・ハイフンのみ、20文字以内）" });
+    if (!/^[A-Za-z0-9.^=_-]+$/.test(cleanTicker) || cleanTicker.length > 20) {
+      setIndexEditMessage({ type: "error", text: "有効な銘柄コードを入力してください（英数字・記号 . - _ ^ =、20文字以内）" });
       return;
     }
     if (editBasket.some((b) => normalizeTicker(b.ticker) === cleanTicker)) {

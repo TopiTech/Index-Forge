@@ -146,7 +146,7 @@ const MIN_REQUEST_WEIGHT = 0.01;
 /**
  * Repairs a basket so it always satisfies the Worker contract
  * (`POST /api/calculate` rejects the whole request on a single bad entry:
- * ticker `^[A-Za-z0-9.-]{1,20}$`, 1-100 char name, theme ≤ 100 chars,
+ * ticker `^[A-Za-z0-9.^=_-]{1,20}$`, 1-100 char name, theme ≤ 100 chars,
  * `0 < weight <= 100`).
  *
  * The client can receive baskets the Worker itself would refuse to write:

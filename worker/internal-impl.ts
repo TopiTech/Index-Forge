@@ -6541,7 +6541,7 @@ export default {
           }
           const weight = rawWeight;
 
-          if (!ticker || !/^[A-Za-z0-9.-]+$/.test(ticker) || ticker.length > 20) {
+          if (!ticker || !/^[A-Za-z0-9.^=_-]+$/.test(ticker) || ticker.length > 20) {
             return json({ error: "無効な銘柄コードです" }, 400, request);
           }
           if (!name || name.length > 100) {
@@ -6786,7 +6786,7 @@ export default {
             !rawTicker ||
             rawTicker.trim().length === 0 ||
             rawTicker.trim().length > 20 ||
-            !/^[A-Za-z0-9.-]+$/.test(rawTicker.trim())
+            !/^[A-Za-z0-9.^=_-]+$/.test(rawTicker.trim())
           ) {
             return json(
               { error: "Valid indexId and ticker parameters are required" },
@@ -7842,7 +7842,7 @@ export default {
               typeof r.ticker !== "string" ||
               r.ticker.trim().length === 0 ||
               r.ticker.trim().length > 20 ||
-              !/^[A-Za-z0-9.-]+$/.test(r.ticker.trim())
+              !/^[A-Za-z0-9.^=_-]+$/.test(r.ticker.trim())
             ) {
               return json({ error: "Invalid basket item: ticker" }, 400, request);
             }
@@ -8859,7 +8859,7 @@ export default {
               typeof r.ticker !== "string" ||
               r.ticker.trim().length === 0 ||
               r.ticker.trim().length > 20 ||
-              !/^[A-Za-z0-9.-]+$/.test(r.ticker.trim())
+              !/^[A-Za-z0-9.^=_-]+$/.test(r.ticker.trim())
             ) {
               return json({ error: "Invalid basket item: ticker" }, 400, request);
             }

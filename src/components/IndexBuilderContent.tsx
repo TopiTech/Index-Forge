@@ -309,9 +309,9 @@ export function IndexBuilderContent({
       return;
     }
     const cleanTicker = normalizeTicker(customTicker);
-    if (!/^[A-Za-z0-9.-]+$/.test(cleanTicker) || cleanTicker.length > 20) {
+    if (!/^[A-Za-z0-9.^=_-]+$/.test(cleanTicker) || cleanTicker.length > 20) {
       setError(
-        "銘柄コードは半角英数字、ハイフン、ピリオド（最大20文字）のみ使用可能です (例: 7203, AAPL)",
+        "銘柄コードは半角英数字、記号（. - _ ^ =、最大20文字）のみ使用可能です (例: 7203, AAPL, ^N225, USDJPY=X)",
       );
       return;
     }
