@@ -1678,12 +1678,20 @@ function sanitizeQuotes(raw: unknown): MarketAssetQuote[] {
  * page. The endpoint can return partial or non-JSON responses, and the page
  * dereferences `marketBreadth`, `sectors` and `news` unconditionally, so any
  * missing section would otherwise throw during render.
- * Returns `null` when `indices` is absent or empty (the required section).
+ *
+ * Returns `null` when the payload carries no usable index quote. `indices` is
+ * the required section, and the check runs on the *sanitized* rows: a payload
+ * whose every index row fails validation is as unusable as one without the
+ * section, and returning it let the page badge a LIVE payload over an empty
+ * grid while every card had been dropped.
  */
 export function normalizeMarketOverview(raw: unknown): MarketOverviewData | null {
   if (!raw || typeof raw !== "object") return null;
   const record = raw as Record<string, unknown>;
-  if (!Array.isArray(record.indices) || record.indices.length === 0) return null;
+  if (!Array.isArray(record.indices)) return null;
+
+  const indices = sanitizeQuotes(record.indices);
+  if (indices.length === 0) return null;
 
   const breadth = record.marketBreadth as Record<string, unknown> | undefined;
   const fallback = DEFAULT_MARKET_OVERVIEW;
@@ -1696,7 +1704,7 @@ export function normalizeMarketOverview(raw: unknown): MarketOverviewData | null
   return {
     ...(dataSource ? { dataSource } : {}),
     ...(dataAsOf ? { dataAsOf } : {}),
-    indices: sanitizeQuotes(record.indices),
+    indices,
     forex: sanitizeQuotes(record.forex),
     commodities: sanitizeQuotes(record.commodities),
     crypto: sanitizeQuotes(record.crypto),

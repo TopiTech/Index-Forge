@@ -28,6 +28,14 @@ export const Tutorial3DCanvas = forwardRef<Tutorial3DCanvasHandle, Tutorial3DCan
     const [hasWebGL, setHasWebGL] = useState<boolean>(true);
     const [isContextLost, setIsContextLost] = useState<boolean>(false);
 
+    // The scene lifecycle effect runs once, but a restored context needs the
+    // *current* step and motion flags: reading the mount-time props rebuilt the
+    // scene at a stale step whenever the user had advanced the tutorial first.
+    const latestPropsRef = useRef({ currentStep, isReducedMotion, isAutoRotatePaused });
+    useEffect(() => {
+      latestPropsRef.current = { currentStep, isReducedMotion, isAutoRotatePaused };
+    });
+
     // Pointer drag tracking
     const isDraggingRef = useRef(false);
     const lastPointerPosRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
@@ -52,14 +60,17 @@ export const Tutorial3DCanvas = forwardRef<Tutorial3DCanvasHandle, Tutorial3DCan
 
     // Initialize Three.js Scene
     useEffect(() => {
-      if (!isWebGLAvailable()) {
-        setHasWebGL(false);
-        return;
-      }
-
       const canvas = canvasRef.current;
       const container = containerRef.current;
       if (!canvas || !container) return;
+
+      // Probe the canvas the renderer will actually use: the capability that
+      // matters is this surface's WebGL2 context, and the context created here
+      // is reused by the scene instead of leaking a second one.
+      if (!isWebGLAvailable(canvas)) {
+        setHasWebGL(false);
+        return;
+      }
 
       const rect = container.getBoundingClientRect();
       const initialWidth = Math.max(300, rect.width);
@@ -99,14 +110,15 @@ export const Tutorial3DCanvas = forwardRef<Tutorial3DCanvasHandle, Tutorial3DCan
           const r = container.getBoundingClientRect();
           const w = Math.max(300, r.width);
           const h = Math.max(260, r.height);
+          const latest = latestPropsRef.current;
           sceneInstance = new Tutorial3DScene({
             canvas,
             width: w,
             height: h,
-            initialStep: currentStep,
-            isReducedMotion,
+            initialStep: latest.currentStep,
+            isReducedMotion: latest.isReducedMotion,
           });
-          sceneInstance.isAutoRotatePaused = isAutoRotatePaused;
+          sceneInstance.isAutoRotatePaused = latest.isAutoRotatePaused;
           sceneRef.current = sceneInstance;
         } catch (err) {
           console.warn("Failed to recreate Three.js WebGL scene after context restore:", err);

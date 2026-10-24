@@ -3,7 +3,6 @@ import { describe, it, expect } from "vitest";
 import { runStockScreener, type StockQuoteFundamentals } from "./marketDataService";
 import { buildScreenerCsvRows } from "../components/ScreenerPage";
 import { createStockQuote } from "../test-helpers/quote";
-import canvasSrc from "../components/Tutorial3DCanvas.tsx?raw";
 import modalSrc from "../components/TradingViewChartModal.tsx?raw";
 
 describe("Comprehensive Goal Code Review - Exhaustive System Verification", () => {
@@ -97,20 +96,9 @@ describe("Comprehensive Goal Code Review - Exhaustive System Verification", () =
     });
   });
 
-  describe("Unit 2: Tutorial3DCanvas WebGL Context Loss Lifecycle", () => {
-    it("binds webglcontextlost and calls preventDefault to enable WebGL context recovery", () => {
-      expect(canvasSrc).toContain("webglcontextlost");
-      expect(canvasSrc).toContain("e.preventDefault()");
-      expect(canvasSrc).toContain("webglcontextrestored");
-      expect(canvasSrc).toContain("removeEventListener(\"webglcontextlost\"");
-      expect(canvasSrc).toContain("removeEventListener(\"webglcontextrestored\"");
-    });
-
-    it("preserves canvas ref in DOM during context lost state to allow browser restoration dispatch", () => {
-      expect(canvasSrc).toContain("isContextLost ? { display: \"none\" } : undefined");
-      expect(canvasSrc).toContain("GPU RECONNECTING");
-    });
-  });
+  // The WebGL context-loss lifecycle used to be asserted here against the
+  // component source; it is now driven through the component itself in
+  // `src/components/Tutorial3DCanvas.test.tsx`.
 
   describe("Unit 3: TradingViewChartModal Window Resize & Maximize Dimension Clamping", () => {
     it("handles window resize when maximized by calculating clamped viewport bounds", () => {

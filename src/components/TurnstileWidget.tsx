@@ -43,9 +43,27 @@ function loadTurnstileScript(): Promise<boolean> {
 
   turnstileLoadPromise = new Promise<boolean>((resolve) => {
     let resolved = false;
+    let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+
+    const onLoadTurnstile = () => {
+      finish(Boolean(window.turnstile));
+    };
+
     const finish = (success: boolean) => {
       if (resolved) return;
       resolved = true;
+      // The 8s watchdog has done its job once the load settles; leaving it
+      // armed keeps a timer alive per load attempt for no benefit.
+      if (timeoutHandle !== null) {
+        clearTimeout(timeoutHandle);
+        timeoutHandle = null;
+      }
+      // The global is an entry point for a script that has already reported
+      // back. Keeping it retains this closure forever and lets a stale copy
+      // answer a later retry, so it is removed together with the timer.
+      if (window.onloadTurnstileCallback === onLoadTurnstile) {
+        delete window.onloadTurnstileCallback;
+      }
       if (!success) {
         turnstileLoadPromise = null;
         const failedScript = document.querySelector('script[src*="challenges.cloudflare.com/turnstile"]');
@@ -54,9 +72,7 @@ function loadTurnstileScript(): Promise<boolean> {
       resolve(success);
     };
 
-    window.onloadTurnstileCallback = () => {
-      finish(Boolean(window.turnstile));
-    };
+    window.onloadTurnstileCallback = onLoadTurnstile;
 
     const existingScript = document.querySelector<HTMLScriptElement>('script[src*="challenges.cloudflare.com/turnstile"]');
     if (existingScript) {
@@ -74,7 +90,7 @@ function loadTurnstileScript(): Promise<boolean> {
       document.head.appendChild(script);
     }
 
-    setTimeout(() => {
+    timeoutHandle = setTimeout(() => {
       if (!resolved) {
         finish(Boolean(window.turnstile));
       }

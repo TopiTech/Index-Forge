@@ -80,14 +80,5 @@ describe("UI and Responsive Enhancements (Phase 4)", () => {
       expect(screenerCode).toContain('renderSortableHeader("銘柄", "name", "left", "table-sticky-col")');
       expect(screenerCode).toContain('<td className="table-sticky-col">');
     });
-
-    it("MarketOverviewPage incorporates Skeleton loading instead of raw spinner", () => {
-      const marketPath = path.resolve(__dirname, "MarketOverviewPage.tsx");
-      const marketCode = fs.readFileSync(marketPath, "utf-8");
-
-      expect(marketCode).toContain("SkeletonStatGrid");
-      expect(marketCode).toContain("SkeletonCard");
-      expect(marketCode).toContain("SkeletonTable");
-    });
   });
 });

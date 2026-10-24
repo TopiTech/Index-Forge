@@ -126,6 +126,18 @@ describe("MarketDataService", () => {
       expect(normalizeMarketOverview({ indices: "broken" })).toBeNull();
     });
 
+    it("rejects a payload whose index rows all fail validation", () => {
+      // The required section is only usable once its rows survive sanitization:
+      // accepting the payload made the page render a LIVE badge over an empty
+      // card grid instead of falling back to the disclosed baseline.
+      expect(
+        normalizeMarketOverview({
+          dataSource: "live",
+          indices: [{ symbol: "^N225", name: "日経平均" }, { symbol: "^GSPC" }, null, "junk"],
+        }),
+      ).toBeNull();
+    });
+
     it("fills missing sections so the page never dereferences undefined", () => {
       const normalized = normalizeMarketOverview({
         indices: [{ symbol: "^N225", name: "日経平均", price: 40000, changePercent: 1.2 }],

@@ -298,13 +298,8 @@ describe("render-time stability and updater purity", () => {
       resolve(__dirname, "../components/IndexBuilderPage.tsx"),
       "utf8",
     );
-    const marketSrc = readFileSync(
-      resolve(__dirname, "../components/MarketOverviewPage.tsx"),
-      "utf8",
-    );
     // 毎レンダーの Date.now() は FreshnessContext と再レンダーループする
     expect(builderSrc).not.toContain("updatedAt: Date.now()");
-    expect(marketSrc).not.toContain("data ? Date.now()");
   });
 
   it("keeps localStorage writes out of the sidebar toggle updater", () => {

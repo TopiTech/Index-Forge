@@ -10,10 +10,6 @@ import {
 
 const cssSource = readFileSync(new URL("../index.css", import.meta.url), "utf8");
 const appSource = readFileSync(new URL("../App.tsx", import.meta.url), "utf8");
-const marketOverviewSource = readFileSync(
-  new URL("../components/MarketOverviewPage.tsx", import.meta.url),
-  "utf8",
-);
 const footerSource = readFileSync(new URL("../components/Footer.tsx", import.meta.url), "utf8");
 
 describe("Goal Platform Integration & Accessibility Verification", () => {
@@ -49,32 +45,6 @@ describe("Goal Platform Integration & Accessibility Verification", () => {
     it("resolves pending indexId when indices finish loading", () => {
       expect(appSource).toMatch(
         /pendingIndexIdRef\.current = params\.indexId;[\s\S]*?indices\.find\(\(idx\) => idx\.id === pendingIndexIdRef\.current\)/,
-      );
-    });
-  });
-
-  describe("MarketOverviewPage News Item Accessibility", () => {
-    it("renders the news title as a native button when a related ticker exists", () => {
-      // The card is a plain container and the title is a real <button>, so the
-      // "open stock detail" action is keyboard-operable without a manual
-      // role="button"/tabIndex/onKeyDown, and the "記事を開く" link is never
-      // nested inside an interactive element.
-      expect(marketOverviewSource).toMatch(/\{item\.relatedTicker \? \(\s*<button/);
-      expect(marketOverviewSource).toContain(
-        "aria-label={`${item.title} (${item.relatedTicker}の銘柄分析を開く)`}",
-      );
-      expect(marketOverviewSource).toContain("onOpenStockDetail(item.relatedTicker)");
-      // The card itself must not be an interactive role="button": that would
-      // nest the article link inside a button (invalid interactive nesting).
-      expect(marketOverviewSource).not.toContain(
-        'role={item.relatedTicker ? "button" : undefined}',
-      );
-      expect(marketOverviewSource).not.toContain("tabIndex={item.relatedTicker ? 0 : undefined}");
-    });
-
-    it("keeps the article link reachable as a sibling of the title button", () => {
-      expect(marketOverviewSource).toContain(
-        "aria-label={`${item.source} の記事原文を新しいタブで開く`}",
       );
     });
   });

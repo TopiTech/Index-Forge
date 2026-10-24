@@ -25,11 +25,13 @@ import { useRegisterFreshness } from "../contexts/FreshnessContext";
 
 /**
  * `/api/market/overview` marks an asset that fell back to its previous quote or
- * to the static baseline with `stale: true` (DATA-03). The flag is additive, so
- * it is read defensively here instead of assuming every payload carries it.
+ * to the static baseline with `stale: true` (DATA-03). The flag is part of
+ * `MarketAssetQuote` (`marketDataService.ts`), so reading it needs no cast: the
+ * structural assertion that used to sit here only hid a field the type already
+ * describes.
  */
 function isStaleAsset(asset: MarketAssetQuote): boolean {
-  return (asset as MarketAssetQuote & { stale?: boolean }).stale === true;
+  return asset.stale === true;
 }
 
 interface MarketOverviewPageProps {
@@ -197,7 +199,10 @@ export function MarketOverviewPage({
     ...data.crypto,
   ];
 
-  const dataSource: string | undefined = data.dataSource;
+  // Keep the contract's union (`"fallback" | "live" | "mixed"`): widening it to
+  // `string` here let a misspelt provenance value compare as neither, which the
+  // page then rendered as fully live.
+  const dataSource = data.dataSource;
   const isFallbackData = dataSource === "fallback";
   // "mixed" (or a live payload that still carries stale assets) must never be
   // presented as fully live: some of the cards are reference values.

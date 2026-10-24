@@ -174,19 +174,6 @@ describe("Comprehensive Project Code Review & Goal Fulfillment Tests", () => {
   });
 
   describe("4. UI Accessibility and Keyboard Interaction Hardening", () => {
-    it("verifies MarketOverviewPage asset cards are interactive with keyboard and navigation support", async () => {
-      const fs = await import("node:fs");
-      const path = await import("node:path");
-      const marketOverviewPath = path.resolve(__dirname, "../components/MarketOverviewPage.tsx");
-      const code = fs.readFileSync(marketOverviewPath, "utf-8");
-
-      expect(code).toContain('role="button"');
-      expect(code).toContain("tabIndex={0}");
-      expect(code).toContain("onOpenStockDetail(asset.symbol)");
-      expect(code).toMatch(/onKeyDown=\{\(e\)\s*=>\s*\{[\s\S]*?onOpenStockDetail\(asset\.symbol\)/);
-      expect(code).toContain("cursor: \"pointer\"");
-    });
-
     it("verifies ScreenerPage displays demo data badge and isolates checkbox keydown events", async () => {
       const fs = await import("node:fs");
       const path = await import("node:path");

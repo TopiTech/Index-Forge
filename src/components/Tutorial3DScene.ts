@@ -1,18 +1,61 @@
 import * as THREE from "three";
 
 /**
- * Helper to check WebGL availability before instantiating renderer.
+ * Context attributes the tutorial renderer runs with.
+ *
+ * They are passed to `getContext` because the context is created here and then
+ * handed to three (see the constructor), so this is the single place the
+ * renderer's capabilities are decided.
  */
-export function isWebGLAvailable(): boolean {
-  try {
-    const canvas = document.createElement("canvas");
-    return !!(
-      window.WebGLRenderingContext &&
-      (canvas.getContext("webgl") || canvas.getContext("experimental-webgl"))
-    );
-  } catch {
-    return false;
+const WEBGL_CONTEXT_ATTRIBUTES: WebGLContextAttributes = {
+  alpha: true,
+  antialias: true,
+  powerPreference: "high-performance",
+};
+
+/**
+ * The scene could not be built because the canvas has no WebGL2 context.
+ *
+ * A dedicated error lets the canvas tell "this environment has no WebGL" apart
+ * from a programming mistake, without a `console.error` from three first.
+ */
+export class WebGLUnavailableError extends Error {
+  constructor(message = "WebGL2 context is not available") {
+    super(message);
+    this.name = "WebGLUnavailableError";
   }
+}
+
+/**
+ * Create (or reuse) the WebGL2 context of `canvas`.
+ *
+ * three's `WebGLRenderer` is WebGL2-only. Probing WebGL1 (`webgl` /
+ * `experimental-webgl`) therefore answered a different question than the one
+ * that decides whether the renderer can be constructed: an environment that
+ * only offers WebGL1 passed the old guard and then threw inside
+ * `new THREE.WebGLRenderer`, which logs its own `console.error` before the
+ * exception reaches the caller's fallback. `getContext` can also throw (some
+ * privacy modes raise a `SecurityError`), so the probe swallows that and
+ * reports "unavailable" instead.
+ */
+export function getWebGL2Context(canvas: HTMLCanvasElement): WebGL2RenderingContext | null {
+  try {
+    return canvas.getContext("webgl2", WEBGL_CONTEXT_ATTRIBUTES);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Whether the tutorial scene can run on this canvas.
+ *
+ * The canvas is required on purpose: the probe has to validate the surface the
+ * renderer will use, and the context it creates is the one the renderer reuses.
+ * Probing a throwaway canvas answered a different question (and leaked the
+ * context it created).
+ */
+export function isWebGLAvailable(canvas: HTMLCanvasElement): boolean {
+  return getWebGL2Context(canvas) !== null;
 }
 
 export interface Tutorial3DSceneOptions {
@@ -85,13 +128,12 @@ export class Tutorial3DScene {
     this.camera = new THREE.PerspectiveCamera(45, aspect, 0.1, 100);
     this.updateCameraPosition(true);
 
-    // 3. Renderer setup
-    this.renderer = new THREE.WebGLRenderer({
-      canvas: this.canvas,
-      antialias: true,
-      alpha: true,
-      powerPreference: "high-performance",
-    });
+    // 3. Renderer setup. The context is created here (never by three) so an
+    // environment without WebGL2 fails with `WebGLUnavailableError` before
+    // three logs its own error; three then renders into that same context.
+    const context = getWebGL2Context(this.canvas);
+    if (!context) throw new WebGLUnavailableError();
+    this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, context });
     this.renderer.setSize(options.width, options.height);
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
 

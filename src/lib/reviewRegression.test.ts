@@ -45,13 +45,11 @@ describe("review regressions: dashboard styles", () => {
 
   it("does not start market data work while the dashboard is not active", () => {
     const app = readFileSync(resolve("src/App.tsx"), "utf8");
-    const benchmarkHook = readFileSync(resolve("src/hooks/useBenchmark.ts"), "utf8");
-    const calculationHook = readFileSync(resolve("src/hooks/useCalculation.ts"), "utf8");
 
     expect(app).toContain('useBenchmark("^N225", currentView === "dashboard")');
     expect(app).toContain("useCalculation(selectedIndex, currentView === \"dashboard\")");
-    expect(benchmarkHook).toContain("if (!enabled)");
-    expect(calculationHook).toContain("if (!enabled)");
+    // The hooks themselves are covered behaviourally in
+    // src/hooks/hookEnablement.test.tsx: disabled hooks issue no request.
   });
 
   it("removes a closed mobile drawer from keyboard focus and does not invent owner tokens", () => {

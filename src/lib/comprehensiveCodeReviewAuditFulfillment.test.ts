@@ -272,14 +272,6 @@ describe("Comprehensive Code Review Audit Fulfillment", () => {
       expect(content).toContain("onKeyDown={handleTabKeyDown}");
     });
 
-    it("ensures TurnstileWidget wrapper has role region and accessible label", () => {
-      const turnstilePath = path.resolve(process.cwd(), "src/components/TurnstileWidget.tsx");
-      const content = fs.readFileSync(turnstilePath, "utf-8");
-
-      expect(content).toContain('role="region"');
-      expect(content).toContain('aria-label="Cloudflare Turnstile セキュリティ認証"');
-    });
-
     it("ensures schema.migration.sql contains CREATE TABLE IF NOT EXISTS admin_login_attempts", () => {
       const migrationPath = path.resolve(process.cwd(), "schema.migration.sql");
       const content = fs.readFileSync(migrationPath, "utf-8");

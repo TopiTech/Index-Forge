@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect } from "vitest";
 import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 import type { PricePoint } from "../types";
@@ -8,78 +8,28 @@ import { MAX_SYNC_TICKERS_PER_REQUEST } from "../../worker/internal-impl";
 import { SYNC_BATCH_SIZE } from "./priceSync";
 import { MAX_OWNER_TOKEN_LENGTH } from "./apiContract";
 import { calculateRiskMetrics } from "./analytics";
+import { createStubWorkerEnv } from "../test-helpers/env";
 
 const workerSrc = readFileSync(resolve("worker/internal-impl.ts"), "utf-8");
 
 describe("regression: worker API contract", () => {
-  it("R1: /api/snapshot response includes required Snapshot fields (no misleading OHLC)", () => {
-    // Worker snapshot block must define all required Snapshot fields
-    expect(workerSrc).toMatch(/const snapshot = \{[^}]*\bcurrent:/s);
-    expect(workerSrc).toMatch(/const snapshot = \{[^}]*\bchange:/s);
-    expect(workerSrc).toMatch(/const snapshot = \{[^}]*\bchangePct:/s);
-    // OHLC fields (open/high/low) should NOT be present since Yahoo chart API
-    // only provides close prices; setting them equal to close is misleading.
-    expect(workerSrc).not.toMatch(/const snapshot = \{[^}]*\bopen:/s);
-    expect(workerSrc).not.toMatch(/const snapshot = \{[^}]*\bhigh:/s);
-    expect(workerSrc).not.toMatch(/const snapshot = \{[^}]*\blow:/s);
-  });
-
-  it("R2: CORS response includes Vary: Origin to prevent cache poisoning", () => {
-    expect(workerSrc).toMatch(/headers\[.vary.\]\s*=\s*.Origin./i);
-  });
-
-  it("R2b: CORS only allows localhost origins, not arbitrary origins", () => {
-    // Must have an origin allowlist check, not blind reflection
-    expect(workerSrc).toMatch(/isAllowedOrigin/);
-    expect(workerSrc).toMatch(/localhost/);
-  });
-
-  it("R3: invalid JSON body returns 400 not 500", () => {
-    expect(workerSrc).toContain("parseJsonBody");
-    expect(workerSrc).toContain("Invalid JSON body");
-    // Both POST handlers must use the helper
-    const syncUsesHelper =
-      workerSrc.includes('"/api/sync-prices"') &&
-      workerSrc
-        .slice(
-          workerSrc.indexOf('"/api/sync-prices"'),
-          workerSrc.indexOf('"/api/sync-prices"') + 2000,
-        )
-        .includes("parseJsonBody");
-    const calcUsesHelper =
-      workerSrc.includes('"/api/calculate"') &&
-      workerSrc
-        .slice(workerSrc.indexOf('"/api/calculate"'), workerSrc.indexOf('"/api/calculate"') + 2000)
-        .includes("parseJsonBody");
-    expect(syncUsesHelper).toBe(true);
-    expect(calcUsesHelper).toBe(true);
-  });
-
+  // R1 (snapshot response shape), R2/R2b (CORS + Vary) and R3 (invalid JSON
+  // -> 400 on both POST endpoints) used to grep `internal-impl.ts`. They are
+  // asserted against real responses in `workerHttpContract.test.ts`.
   it("R4: /api/sync-prices rejects batches larger than 12 instead of silently truncating them", async () => {
     // SEC-11/DATA-07: the per-request ticker cap was lowered from 30 to 12
     // and the client batch size follows it (see R7).
     expect(MAX_SYNC_TICKERS_PER_REQUEST).toBe(12);
     expect(workerSrc).toContain("rawTickers.length > MAX_SYNC_TICKERS_PER_REQUEST");
 
-    const env = {
-      ASSETS: { fetch: vi.fn() },
-      DB: {
-        prepare: vi.fn().mockReturnValue({
-          bind: vi.fn().mockReturnValue({
-            all: vi.fn().mockResolvedValue({ results: [] }),
-            run: vi.fn().mockResolvedValue({ success: true, meta: { changes: 1 } }),
-          }),
-        }),
-        batch: vi.fn().mockResolvedValue([]),
-      },
-    };
+    const env = createStubWorkerEnv();
     const res = await worker.fetch(
       new Request("http://localhost/api/sync-prices", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ tickers: Array.from({ length: 13 }, (_, i) => `T${i}`) }),
       }),
-      env as never,
+      env,
     );
 
     expect(res.status).toBe(400);
@@ -108,18 +58,7 @@ describe("regression: worker API contract", () => {
     // shared API contract; the Worker must enforce exactly that value.
     expect(MAX_OWNER_TOKEN_LENGTH).toBe(256);
 
-    const env = {
-      ASSETS: { fetch: vi.fn() },
-      DB: {
-        prepare: vi.fn().mockReturnValue({
-          bind: vi.fn().mockReturnValue({
-            all: vi.fn().mockResolvedValue({ results: [] }),
-            run: vi.fn().mockResolvedValue({ success: true, meta: { changes: 1 } }),
-          }),
-        }),
-        batch: vi.fn().mockResolvedValue([]),
-      },
-    };
+    const env = createStubWorkerEnv();
 
     const res = await worker.fetch(
       new Request("http://localhost/api/indices", {
@@ -131,7 +70,7 @@ describe("regression: worker API contract", () => {
           basket: [{ ticker: "7203", name: "トヨタ", theme: "自動車", weight: 100 }],
         }),
       }),
-      env as never,
+      env,
     );
 
     expect(res.status).toBe(400);
@@ -185,27 +124,14 @@ describe("regression: worker API contract", () => {
   it("R10: /api/calculate requires theme on every basket item (no silent default)", async () => {
     // A theme-less basket item is malformed: the frontend always supplies a
     // theme, and silently defaulting would hide a broken client contract.
-    const env = {
-      ASSETS: { fetch: vi.fn() },
-      DB: {
-        prepare: vi.fn().mockReturnValue({
-          bind: vi.fn().mockReturnValue({
-            all: vi.fn().mockResolvedValue({ results: [] }),
-            run: vi.fn().mockResolvedValue({ success: true }),
-          }),
-          all: vi.fn().mockResolvedValue({ results: [] }),
-          run: vi.fn().mockResolvedValue({ success: true }),
-        }),
-        batch: vi.fn().mockResolvedValue([]),
-      },
-    };
+    const env = createStubWorkerEnv();
     const res = await worker.fetch(
       new Request("http://localhost/api/calculate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ basket: [{ ticker: "7203", name: "Toyota", weight: 100 }] }),
       }),
-      env as never,
+      env,
     );
     expect(res.status).toBe(400);
     const data = (await res.json()) as { error?: string };
