@@ -521,14 +521,21 @@ export function useSimulation(
   // return (it is 0% by construction), so alpha would silently equal the whole
   // custom return — that applies to the Worker's baseline placeholder as well
   // as to a comparison window that the timeframe filter collapsed to one point.
+  //
+  // The flag describes what is *displayed*, not what has been requested. While
+  // the snapshot request is still in flight the displayed comparison line is
+  // the generated fallback, so it has to be disclosed from the first frame.
+  // Short-circuiting on `benchmarkLoading` reported "not a demo" for the whole
+  // request, which presented a fabricated benchmark curve and the alpha
+  // derived from it as real market data.
   const usingDemoBenchmark = useMemo(() => {
-    if (benchmarkLoading || filteredBenchmarkSeries.length === 0) return false;
+    if (filteredBenchmarkSeries.length === 0) return false;
     return (
       !activeBenchmarkData ||
       activeBenchmarkData.series.length < 2 ||
       filteredBenchmarkSeries.length < 2
     );
-  }, [benchmarkLoading, activeBenchmarkData, filteredBenchmarkSeries]);
+  }, [activeBenchmarkData, filteredBenchmarkSeries]);
 
   // Calculate quantitative risk metrics
   const metrics = useMemo<RiskMetrics>(() => {

@@ -1,10 +1,21 @@
 -- Seeding Indices (冪等: 既存レコードを上書き)
-INSERT OR REPLACE INTO indices (id, name, description, base_value, sort_order) VALUES
+--
+-- `INSERT OR REPLACE` は SQLite では「DELETE してから INSERT」なので、所有者
+-- メタデータ (owner_token_hash / owner_token_issued_at / creator_id /
+-- created_at) が全て NULL に戻り、さらに basket_items への
+-- ON DELETE CASCADE が発火して構成銘柄が消える。db:seed は本番 DB に対して
+-- 実行されるため、所有者メタデータを保持する upsert を使う。
+INSERT INTO indices (id, name, description, base_value, sort_order) VALUES
 ('nikkei-175', '日経175指数', '掲示板センチメント、モメンタム、国策テーマ、技術投機など175銘柄で構成される独自指数です。', 1000.0, 0),
 ('eroge-index', '完全エロゲ指数（EROGE Index）', '国内エロゲ・同人DL市場への直接・間接エクスポージャーを重視した構成です。', 1000.0, 1),
 ('ai-semi', 'AI・半導体強化指数', '最先端のAI技術と半導体製造装置メーカーを中心に構成された指数です。', 1000.0, 2),
-('infra-tech', '次世代インフラ・通信指数', '日本の通信インフラとDXを支える大手企業で構成される安定成長指数です。', 1000.0, 3),
-('jp-core', '日本コア・企業指数', '日本を代表する時価総額上位の優良株をバランスよく配置した指数です。', 1000.0, 4);
+('infra-tech', '次世代インフラ・通信指数', '日本の通信インフラとDXを支える大手企業で構成された安定成長指数です。', 1000.0, 3),
+('jp-core', '日本コア・企業指数', '日本を代表する時価総額上位の優良株をバランスよく配置した指数です。', 1000.0, 4)
+ON CONFLICT(id) DO UPDATE SET
+  name = excluded.name,
+  description = excluded.description,
+  base_value = excluded.base_value,
+  sort_order = excluded.sort_order;
 
 -- Seeding Basket Items (冪等)
 -- AI・半導体強化指数 (ai-semi)

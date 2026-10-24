@@ -21,6 +21,7 @@ import {
 import { useAuth } from "../hooks/useAuth";
 import { DataFreshness } from "./DataFreshness";
 import type { PageView } from "../lib/navigation";
+import type { TabFreshness } from "../contexts/FreshnessContext";
 
 interface NavItem {
     view: PageView;
@@ -88,17 +89,7 @@ interface SidebarProps {
     /** Toggle desktop collapsed state. */
     onToggleCollapse?: () => void;
     /** Data freshness props shared with the header. */
-    freshnessProps?: {
-        benchmarkUpdatedAt?: number | null;
-        calculationUpdatedAt?: number | null;
-        updatedAt?: number | string | null;
-        dataLoading?: boolean;
-        syncing?: boolean;
-        benchmarkStale?: boolean;
-        hasSyncWarning?: boolean;
-        typeLabel?: string;
-        customStatusText?: string;
-    };
+    freshnessProps?: Partial<TabFreshness>;
 }
 
 export function Sidebar({
@@ -289,9 +280,9 @@ export function Sidebar({
                     benchmarkUpdatedAt={freshnessProps?.benchmarkUpdatedAt}
                     calculationUpdatedAt={freshnessProps?.calculationUpdatedAt}
                     updatedAt={freshnessProps?.updatedAt}
-                    loading={freshnessProps?.dataLoading}
+                    loading={freshnessProps?.loading}
                     syncing={freshnessProps?.syncing}
-                    stale={freshnessProps?.benchmarkStale}
+                    stale={freshnessProps?.stale}
                     hasSyncWarning={freshnessProps?.hasSyncWarning}
                     typeLabel={freshnessProps?.typeLabel}
                     customStatusText={freshnessProps?.customStatusText}

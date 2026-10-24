@@ -37,6 +37,25 @@ function getEmptyStore(): OwnerStore {
   return Object.create(null);
 }
 
+/**
+ * Write one owner entry as an own data property.
+ *
+ * `Object.defineProperty` is used instead of a plain assignment because an
+ * assignment to `__proto__` on an object that *does* inherit from
+ * `Object.prototype` would invoke the inherited setter and mutate the
+ * prototype chain. `defineProperty` always creates an own property, so even
+ * an index id of `__proto__` — which the Worker's id rule allows — stays an
+ * ordinary entry.
+ */
+function defineOwnerEntry(store: OwnerStore, indexId: string, entry: OwnerEntry): void {
+  Object.defineProperty(store, indexId, {
+    value: entry,
+    enumerable: true,
+    writable: true,
+    configurable: true,
+  });
+}
+
 function getSafeStorage(): Storage | null {
   try {
     const storage = (globalThis as { localStorage?: Storage }).localStorage;
@@ -79,10 +98,17 @@ function readStore(now: number): { store: OwnerStore; changed: boolean } {
 
   let changed = false;
   for (const [key, value] of Object.entries(parsed as RawOwnerStore)) {
-    // Skip keys that interact with the object prototype chain when assigned
-    // through a plain object literal; index ids validated elsewhere can
-    // never contain underscores, so no legitimate entry is lost.
-    if (key === "__proto__" || key === "constructor" || key === "prototype") continue;
+    // Index ids are validated by the Worker against `^[A-Za-z0-9._-]+$`, so
+    // `constructor` and `prototype` are legal ids and their owner tokens have
+    // to survive a save/read round trip. The previous guard dropped exactly
+    // those ids on read while accepting them on write, so the creator of such
+    // an index silently lost the ownership rights to it.
+    //
+    // `__proto__` is a legal id as well, so it cannot simply be skipped
+    // either. The store is a null-prototype object and every write goes
+    // through `Object.defineProperty`, which creates an own data property
+    // instead of invoking an inherited setter — so none of these ids can
+    // reach `Object.prototype`.
     if (key.length === 0) continue;
 
     const entry = parseEntry(value, now);
@@ -96,7 +122,7 @@ function readStore(now: number): { store: OwnerStore; changed: boolean } {
       changed = true;
       continue;
     }
-    store[key] = entry.entry;
+    defineOwnerEntry(store, key, entry.entry);
   }
   return { store, changed };
 }
@@ -163,10 +189,10 @@ export function saveIndexOwnerToken(indexId: string, token: string, issuedAt?: n
   if (typeof issuedAt === "number" && Number.isFinite(issuedAt) && issuedAt > 0) {
     resolvedIssuedAt = issuedAt < 1e11 ? issuedAt * 1000 : issuedAt;
   }
-  store[indexId] = {
+  defineOwnerEntry(store, indexId, {
     token,
     issuedAt: resolvedIssuedAt,
-  };
+  });
   setStore(store);
 }
 

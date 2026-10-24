@@ -20,6 +20,45 @@ import { fileURLToPath } from "node:url";
 export const REQUIRED_MIGRATION_STEPS = [
   {
     type: "table",
+    name: "indices",
+    sql: `CREATE TABLE IF NOT EXISTS indices (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT,
+        base_value REAL DEFAULT 1000,
+        sort_order INTEGER DEFAULT 99,
+        owner_token_hash TEXT,
+        owner_token_issued_at INTEGER,
+        creator_id TEXT,
+        created_at INTEGER
+      )`,
+  },
+  {
+    type: "table",
+    name: "basket_items",
+    sql: `CREATE TABLE IF NOT EXISTS basket_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        index_id TEXT NOT NULL,
+        ticker TEXT NOT NULL,
+        name TEXT NOT NULL,
+        weight REAL NOT NULL,
+        theme TEXT,
+        FOREIGN KEY (index_id) REFERENCES indices (id) ON DELETE CASCADE,
+        UNIQUE(index_id, ticker)
+      )`,
+  },
+  {
+    type: "table",
+    name: "stock_prices",
+    sql: `CREATE TABLE IF NOT EXISTS stock_prices (
+        ticker TEXT NOT NULL,
+        date TEXT NOT NULL,
+        price REAL NOT NULL,
+        PRIMARY KEY (ticker, date)
+      )`,
+  },
+  {
+    type: "table",
     name: "access_passwords",
     sql: `CREATE TABLE IF NOT EXISTS access_passwords (
         id TEXT PRIMARY KEY,
@@ -176,6 +215,11 @@ export const REQUIRED_MIGRATION_STEPS = [
     type: "index",
     name: "idx_admin_sessions_expires_at",
     sql: "CREATE INDEX IF NOT EXISTS idx_admin_sessions_expires_at ON admin_sessions(expires_at)",
+  },
+  {
+    type: "index",
+    name: "idx_access_passwords_created_at",
+    sql: "CREATE INDEX IF NOT EXISTS idx_access_passwords_created_at ON access_passwords(created_at)",
   },
   {
     type: "index",

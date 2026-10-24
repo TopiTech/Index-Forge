@@ -22,6 +22,7 @@ import { useAuth } from "../hooks/useAuth";
 import { AuthModal } from "./AuthModal";
 import { useToast } from "./Toast";
 import { equalizeWeightsExact, redistributeWeightsExact, normalizeTicker } from "../lib/indexEngine";
+import { isValidTicker } from "../lib/apiContract";
 import { searchPopularStocks, PRESET_STOCKS, type PopularStock } from "../data/popularStocks";
 import { toFiniteNumberOr } from "../lib/downloadFileName";
 import { useSimulation } from "../hooks/useSimulation";
@@ -309,7 +310,7 @@ export function IndexBuilderContent({
       return;
     }
     const cleanTicker = normalizeTicker(customTicker);
-    if (!/^[A-Za-z0-9.^=_-]+$/.test(cleanTicker) || cleanTicker.length > 20) {
+    if (!isValidTicker(cleanTicker)) {
       setError(
         "銘柄コードは半角英数字、記号（. - _ ^ =、最大20文字）のみ使用可能です (例: 7203, AAPL, ^N225, USDJPY=X)",
       );

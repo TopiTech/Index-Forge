@@ -74,6 +74,15 @@ const rows = [];
 
 for (const file of files) {
   const path = join(distDir, "assets", file.name);
+  if (!existsSync(path)) {
+    // A stale dist/ can reference a chunk that the last build already
+    // removed. Without this guard the read below threw an unhandled ENOENT
+    // instead of the diagnostic the operator needs.
+    console.error(
+      `check-first-paint: dist/assets/${file.name} is referenced by dist/index.html but does not exist. Please run 'npm run build' first.`,
+    );
+    process.exit(1);
+  }
   const content = readFileSync(path);
   const raw = content.length;
   const gzip = gzipSync(content, { level: 9 }).length;

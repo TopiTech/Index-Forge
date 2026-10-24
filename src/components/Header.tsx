@@ -15,8 +15,25 @@ import { useToast } from "./Toast";
 import { ThemeControls } from "./ThemeControls";
 import { DataFreshness } from "./DataFreshness";
 import { AuthModal } from "./AuthModal";
+import type { TabFreshness } from "../contexts/FreshnessContext";
 
-export interface HeaderProps {
+/**
+ * The header's data-freshness props are the freshness registry's vocabulary.
+ *
+ * The header used to declare its own names (`dataLoading`, `benchmarkStale`)
+ * while the registry (`TabFreshness`) used `loading` / `stale`. Because both
+ * sets of properties are optional booleans, TypeScript accepted the mismatch
+ * silently: `useActiveFreshness(currentView, headerProps)` read `loading` and
+ * `stale` from an object that only had `dataLoading` / `benchmarkStale`, so
+ * both resolved to `undefined` and the header always reported "not loading"
+ * and "not stale" — the LIVE badge was shown even when the Worker had served
+ * an old snapshot.
+ *
+ * Extending the shared vocabulary removes the second spelling entirely. The
+ * two `never` properties below make the compiler reject the old names, so the
+ * mismatch cannot come back.
+ */
+export interface HeaderProps extends Partial<TabFreshness> {
   onNavigateToHome?: () => void;
   onOpenSearch?: () => void;
   onSearchHover?: () => void;
@@ -24,18 +41,13 @@ export interface HeaderProps {
   isNavOpen?: boolean;
   onToggleNav?: () => void;
   navToggleRef?: React.RefObject<HTMLButtonElement | null>;
-  benchmarkUpdatedAt?: number | null;
-  calculationUpdatedAt?: number | null;
-  dataLoading?: boolean;
-  syncing?: boolean;
-  benchmarkStale?: boolean;
-  hasSyncWarning?: boolean;
-  typeLabel?: string;
-  updatedAt?: number | string | null;
-  customStatusText?: string;
   isAuthModalOpen?: boolean;
   onOpenAuthModal?: () => void;
   onCloseAuthModal?: () => void;
+  /** @deprecated Renamed to `loading`. Kept only to reject the old name. */
+  dataLoading?: never;
+  /** @deprecated Renamed to `stale`. Kept only to reject the old name. */
+  benchmarkStale?: never;
 }
 
 /**
@@ -52,9 +64,9 @@ export function Header({
   benchmarkUpdatedAt,
   calculationUpdatedAt,
   updatedAt,
-  dataLoading = false,
+  loading = false,
   syncing = false,
-  benchmarkStale = false,
+  stale = false,
   hasSyncWarning = false,
   typeLabel,
   customStatusText,
@@ -153,9 +165,9 @@ export function Header({
                 benchmarkUpdatedAt={benchmarkUpdatedAt}
                 calculationUpdatedAt={calculationUpdatedAt}
                 updatedAt={updatedAt}
-                loading={dataLoading}
+                loading={loading}
                 syncing={syncing}
-                stale={benchmarkStale}
+                stale={stale}
                 hasSyncWarning={hasSyncWarning}
                 typeLabel={typeLabel}
                 customStatusText={customStatusText}

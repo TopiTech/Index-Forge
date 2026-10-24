@@ -45,6 +45,7 @@ import { ConfirmModal } from "./ConfirmModal";
 import { ModalBase } from "./ModalBase";
 import { useToast } from "./Toast";
 import { equalizeWeightsExact, normalizeTicker } from "../lib/indexEngine";
+import { isValidTicker } from "../lib/apiContract";
 import { TurnstileWidget, type TurnstileWidgetRef } from "./TurnstileWidget";
 
 /**
@@ -746,7 +747,7 @@ export function AdminDashboard({
     e.preventDefault();
     if (!addTicker.trim() || !addName.trim()) return;
     const cleanTicker = normalizeTicker(addTicker);
-    if (!/^[A-Za-z0-9.^=_-]+$/.test(cleanTicker) || cleanTicker.length > 20) {
+    if (!isValidTicker(cleanTicker)) {
       setIndexEditMessage({ type: "error", text: "有効な銘柄コードを入力してください（英数字・記号 . - _ ^ =、20文字以内）" });
       return;
     }

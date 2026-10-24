@@ -141,9 +141,9 @@ function PageLayout({
     benchmarkUpdatedAt: activeFreshness.benchmarkUpdatedAt,
     calculationUpdatedAt: activeFreshness.calculationUpdatedAt,
     updatedAt: activeFreshness.updatedAt,
-    dataLoading: activeFreshness.loading,
+    loading: activeFreshness.loading,
     syncing: activeFreshness.syncing,
-    benchmarkStale: activeFreshness.stale,
+    stale: activeFreshness.stale,
     hasSyncWarning: activeFreshness.hasSyncWarning,
     typeLabel: activeFreshness.typeLabel,
     customStatusText: activeFreshness.customStatusText,
@@ -979,7 +979,7 @@ function AppContent({
       onSearchHover: preloadGlobalSearchModal,
       benchmarkUpdatedAt,
       calculationUpdatedAt,
-      dataLoading: loadingBenchmark || loadingCalc,
+      loading: loadingBenchmark || loadingCalc,
       syncing,
       hasSyncWarning: syncWarnings.length > 0,
       typeLabel: "日足終値",
@@ -1030,7 +1030,7 @@ function AppContent({
   if (currentView === "market") {
     return (
       <PageLayout
-        headerProps={{ ...pageLayoutHeaderProps, benchmarkStale: false, typeLabel: "市況サマリー" }}
+        headerProps={{ ...pageLayoutHeaderProps, stale: false, typeLabel: "市況サマリー" }}
         currentView={currentView}
         navigateTo={navigateTo}
         searchModal={commonSearchModal}
@@ -1052,7 +1052,7 @@ function AppContent({
   if (currentView === "stock") {
     return (
       <PageLayout
-        headerProps={{ ...pageLayoutHeaderProps, benchmarkStale: false, typeLabel: "銘柄分析" }}
+        headerProps={{ ...pageLayoutHeaderProps, stale: false, typeLabel: "銘柄分析" }}
         currentView={currentView}
         navigateTo={navigateTo}
         searchModal={commonSearchModal}
@@ -1087,7 +1087,7 @@ function AppContent({
   if (currentView === "portfolio") {
     return (
       <PageLayout
-        headerProps={{ ...pageLayoutHeaderProps, benchmarkStale: false, typeLabel: "ポートフォリオ" }}
+        headerProps={{ ...pageLayoutHeaderProps, stale: false, typeLabel: "ポートフォリオ" }}
         currentView={currentView}
         navigateTo={navigateTo}
         searchModal={commonSearchModal}
@@ -1120,7 +1120,7 @@ function AppContent({
   if (currentView === "screener") {
     return (
       <PageLayout
-        headerProps={{ ...pageLayoutHeaderProps, benchmarkStale: false, typeLabel: "スクリーナー" }}
+        headerProps={{ ...pageLayoutHeaderProps, stale: false, typeLabel: "スクリーナー" }}
         currentView={currentView}
         navigateTo={navigateTo}
         searchModal={commonSearchModal}
@@ -1153,7 +1153,7 @@ function AppContent({
   if (currentView === "calendar") {
     return (
       <PageLayout
-        headerProps={{ ...pageLayoutHeaderProps, benchmarkStale: false, typeLabel: "経済カレンダー" }}
+        headerProps={{ ...pageLayoutHeaderProps, stale: false, typeLabel: "経済カレンダー" }}
         currentView={currentView}
         navigateTo={navigateTo}
         searchModal={commonSearchModal}
@@ -1174,7 +1174,7 @@ function AppContent({
   if (currentView === "builder") {
     return (
       <PageLayout
-        headerProps={{ ...pageLayoutHeaderProps, benchmarkStale: false, typeLabel: "指数試算" }}
+        headerProps={{ ...pageLayoutHeaderProps, stale: false, typeLabel: "指数試算" }}
         currentView={currentView}
         navigateTo={navigateTo}
         searchModal={commonSearchModal}
@@ -1193,7 +1193,7 @@ function AppContent({
   if (currentView === "disclaimer") {
     return (
       <PageLayout
-        headerProps={{ ...pageLayoutHeaderProps, benchmarkStale: false, typeLabel: "免責事項" }}
+        headerProps={{ ...pageLayoutHeaderProps, stale: false, typeLabel: "免責事項" }}
         currentView={currentView}
         navigateTo={navigateTo}
         searchModal={commonSearchModal}
@@ -1208,7 +1208,7 @@ function AppContent({
   if (currentView === "about") {
     return (
       <PageLayout
-        headerProps={{ ...pageLayoutHeaderProps, benchmarkStale: false, typeLabel: "開発者情報" }}
+        headerProps={{ ...pageLayoutHeaderProps, stale: false, typeLabel: "開発者情報" }}
         currentView={currentView}
         navigateTo={navigateTo}
         searchModal={commonSearchModal}
@@ -1241,7 +1241,7 @@ function AppContent({
   const dashboardLayoutProps: React.ComponentProps<typeof PageLayout> = {
     headerProps: {
       ...pageLayoutHeaderProps,
-      benchmarkStale: activeBenchmarkData?.stale === true,
+      stale: activeBenchmarkData?.stale === true,
       typeLabel: "日足終値",
     },
     currentView,

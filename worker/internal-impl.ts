@@ -34,6 +34,20 @@ import {
   isPriceCacheFresh as isPriceCacheFreshShared,
 } from "../src/lib/marketCache";
 import { toYahooSymbol } from "../src/lib/yahooSymbol";
+import {
+  MAX_BASKET_ITEMS,
+  MAX_DESCRIPTION_LENGTH,
+  MAX_OWNER_TOKEN_LENGTH,
+  MAX_STOCK_NAME_LENGTH,
+  MAX_THEME_LENGTH,
+  isValidBaseValue,
+  isValidIndexId,
+  isValidSortOrder,
+  isValidTicker,
+  isValidWeight,
+  validateBasketItems,
+} from "../src/lib/apiContract";
+import type { BasketItemInput } from "../src/lib/apiContract";
 import type { BasketItem, PricePoint, StockSeries } from "../src/types";
 
 /**
@@ -228,12 +242,7 @@ export function isMissingTableError(error: unknown, table: string): boolean {
   );
 }
 
-export interface BasketItemInput {
-  ticker: string;
-  name: string;
-  theme: string;
-  weight: number;
-}
+export type { BasketItemInput };
 
 export interface IndexWriteColumns {
   ownerTokenHash: boolean;
@@ -657,7 +666,11 @@ export const TICKER_MAPPINGS: TickerMappingItem[] = [
 // Upper bound for a single index basket. The save path chunks basket writes so
 // this remains below D1 statement-parameter and Worker invocation limits while
 // comfortably accommodating the largest built-in index (175 stocks).
-export const MAX_BASKET_ITEMS = 500;
+//
+// The value now lives in the shared API contract (`src/lib/apiContract.ts`)
+// because the client has to apply the very same limit: a basket the Worker
+// refuses to store must never be offered as "saved".
+export { MAX_BASKET_ITEMS };
 // `sync_logs.last_synced_at` is positive for a successful synchronization.
 // A negative value records a transient Yahoo failure at its absolute timestamp.
 // This lets us apply a short retry backoff without ever treating failed data
@@ -989,6 +1002,52 @@ export interface SchemaStep {
  */
 export const REQUIRED_SCHEMA_STEPS: SchemaStep[] = [
   {
+    // The indices table holds the custom indices themselves. It used to be
+    // created only by schema.sql, so a freshly provisioned D1 database
+    // answered every /api/indices request with "no such table: indices".
+    // The table is created with every column, which makes the ALTER TABLE
+    // steps below a no-op on a fresh database.
+    existing: { kind: "table", name: "indices" },
+    sql: `CREATE TABLE IF NOT EXISTS indices (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT,
+        base_value REAL DEFAULT 1000,
+        sort_order INTEGER DEFAULT 99,
+        owner_token_hash TEXT,
+        owner_token_issued_at INTEGER,
+        creator_id TEXT,
+        created_at INTEGER
+      )`,
+  },
+  {
+    // The constituents of an index. Created after `indices` so the foreign
+    // key has a parent table to point at.
+    existing: { kind: "table", name: "basket_items" },
+    sql: `CREATE TABLE IF NOT EXISTS basket_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        index_id TEXT NOT NULL,
+        ticker TEXT NOT NULL,
+        name TEXT NOT NULL,
+        weight REAL NOT NULL,
+        theme TEXT,
+        FOREIGN KEY (index_id) REFERENCES indices (id) ON DELETE CASCADE,
+        UNIQUE(index_id, ticker)
+      )`,
+  },
+  {
+    // The legacy per-day price table. /api/sync-prices still writes it, and
+    // neither migration path created it, so a legacy database failed at
+    // runtime with "no such table: stock_prices" and had no self-healing path.
+    existing: { kind: "table", name: "stock_prices" },
+    sql: `CREATE TABLE IF NOT EXISTS stock_prices (
+        ticker TEXT NOT NULL,
+        date TEXT NOT NULL,
+        price REAL NOT NULL,
+        PRIMARY KEY (ticker, date)
+      )`,
+  },
+  {
     existing: { kind: "table", name: "access_passwords" },
     sql: `CREATE TABLE IF NOT EXISTS access_passwords (
         id TEXT PRIMARY KEY,
@@ -1124,6 +1183,12 @@ export const REQUIRED_SCHEMA_STEPS: SchemaStep[] = [
   {
     existing: { kind: "index", name: "idx_admin_login_attempts_purge" },
     sql: "CREATE INDEX IF NOT EXISTS idx_admin_login_attempts_purge ON admin_login_attempts(last_failed_at, locked_until)",
+  },
+  {
+    // The account list is ordered by created_at on every admin dashboard load;
+    // the primary key (id) does not cover that ordering.
+    existing: { kind: "index", name: "idx_access_passwords_created_at" },
+    sql: "CREATE INDEX IF NOT EXISTS idx_access_passwords_created_at ON access_passwords(created_at)",
   },
 ];
 
@@ -6472,9 +6537,7 @@ export default {
           if (
             !indexId ||
             typeof indexId !== "string" ||
-            indexId.trim().length === 0 ||
-            indexId.trim().length > 100 ||
-            !/^[A-Za-z0-9._-]+$/.test(indexId.trim())
+            !isValidIndexId(indexId.trim())
           ) {
             return json(
               { error: "indexId is required (1-100 alphanumeric, dot, hyphen, underscore)" },
@@ -6521,8 +6584,16 @@ export default {
             typeof rawStock.ownerToken === "string" ? rawStock.ownerToken : null,
             typeof parsed.body.ownerToken === "string" ? parsed.body.ownerToken : null,
           ];
-          if (ownerTokenCandidates.some((token) => token !== null && token.trim().length > 256)) {
-            return json({ error: "作成者トークンは256文字以内で指定してください" }, 400, request);
+          if (
+            ownerTokenCandidates.some(
+              (token) => token !== null && token.trim().length > MAX_OWNER_TOKEN_LENGTH,
+            )
+          ) {
+            return json(
+              { error: `作成者トークンは${MAX_OWNER_TOKEN_LENGTH}文字以内で指定してください` },
+              400,
+              request,
+            );
           }
           const ticker =
             typeof rawStock.ticker === "string" ? rawStock.ticker.trim().toUpperCase() : "";
@@ -6532,7 +6603,7 @@ export default {
             rawStock.weight === undefined || rawStock.weight === null || rawStock.weight === ""
               ? 10
               : Number(rawStock.weight);
-          if (!Number.isFinite(rawWeight) || rawWeight <= 0 || rawWeight > 100) {
+          if (!isValidWeight(rawWeight)) {
             return json(
               { error: "銘柄の構成比率 (weight) は0超100以下の数値を指定してください" },
               400,
@@ -6541,13 +6612,13 @@ export default {
           }
           const weight = rawWeight;
 
-          if (!ticker || !/^[A-Za-z0-9.^=_-]+$/.test(ticker) || ticker.length > 20) {
+          if (!isValidTicker(ticker)) {
             return json({ error: "無効な銘柄コードです" }, 400, request);
           }
-          if (!name || name.length > 100) {
+          if (!name || name.length > MAX_STOCK_NAME_LENGTH) {
             return json({ error: "銘柄名は1〜100文字で入力してください" }, 400, request);
           }
-          if (theme.length > 100) {
+          if (theme.length > MAX_THEME_LENGTH) {
             return json({ error: "テーマは100文字以内で入力してください" }, 400, request);
           }
 
@@ -6780,13 +6851,9 @@ export default {
           const rawTicker = url.searchParams.get("ticker");
           if (
             !rawIndexId ||
-            rawIndexId.trim().length === 0 ||
-            rawIndexId.trim().length > 100 ||
-            !/^[A-Za-z0-9._-]+$/.test(rawIndexId.trim()) ||
+            !isValidIndexId(rawIndexId.trim()) ||
             !rawTicker ||
-            rawTicker.trim().length === 0 ||
-            rawTicker.trim().length > 20 ||
-            !/^[A-Za-z0-9.^=_-]+$/.test(rawTicker.trim())
+            !isValidTicker(rawTicker.trim())
           ) {
             return json(
               { error: "Valid indexId and ticker parameters are required" },
@@ -6799,8 +6866,12 @@ export default {
           // Header only: a `?ownerToken=` query value leaked the secret into
           // access and proxy logs (SEC-03).
           const providedToken = request.headers.get("x-owner-token")?.trim() || "";
-          if (providedToken.length > 256) {
-            return json({ error: "作成者トークンは256文字以内で指定してください" }, 400, request);
+          if (providedToken.length > MAX_OWNER_TOKEN_LENGTH) {
+            return json(
+              { error: `作成者トークンは${MAX_OWNER_TOKEN_LENGTH}文字以内で指定してください` },
+              400,
+              request,
+            );
           }
 
           const auth = await authenticatePassword(request, env, null, "auth-api", ctx);
@@ -6933,7 +7004,7 @@ export default {
           const rawSymbol = url.searchParams.get("symbol") || "^N225";
           const symbol = rawSymbol.trim();
 
-          if (symbol.length === 0 || symbol.length > 20 || !/^[A-Za-z0-9.^=_-]+$/.test(symbol)) {
+          if (!isValidTicker(symbol)) {
             return json({ error: "Invalid symbol parameter" }, 400, request);
           }
           if (!Object.prototype.hasOwnProperty.call(BENCHMARK_MAP, symbol)) {
@@ -7720,17 +7791,22 @@ export default {
 
           if (
             body.ownerToken !== undefined &&
-            (typeof body.ownerToken !== "string" || body.ownerToken.length > 256)
+            (typeof body.ownerToken !== "string" ||
+              body.ownerToken.length > MAX_OWNER_TOKEN_LENGTH)
           ) {
             return json(
-              { error: "Invalid ownerToken: must be a string up to 256 characters" },
+              {
+                error: `Invalid ownerToken: must be a string up to ${MAX_OWNER_TOKEN_LENGTH} characters`,
+              },
               400,
               request,
             );
           }
-          if (headerOwnerToken.length > 256) {
+          if (headerOwnerToken.length > MAX_OWNER_TOKEN_LENGTH) {
             return json(
-              { error: "Invalid ownerToken: must be a string up to 256 characters" },
+              {
+                error: `Invalid ownerToken: must be a string up to ${MAX_OWNER_TOKEN_LENGTH} characters`,
+              },
               400,
               request,
             );
@@ -7740,7 +7816,7 @@ export default {
             body.name !== undefined &&
             (typeof body.name !== "string" ||
               body.name.trim().length === 0 ||
-              body.name.trim().length > 100)
+              body.name.trim().length > MAX_STOCK_NAME_LENGTH)
           ) {
             return json({ error: "Invalid name: must be 1-100 characters" }, 400, request);
           }
@@ -7751,10 +7827,7 @@ export default {
 
           if (
             body.id !== undefined &&
-            (typeof body.id !== "string" ||
-              body.id.trim().length === 0 ||
-              body.id.trim().length > 100 ||
-              !/^[A-Za-z0-9._-]+$/.test(body.id.trim()))
+            (typeof body.id !== "string" || !isValidIndexId(body.id.trim()))
           ) {
             return json({ error: "Invalid id" }, 400, request);
           }
@@ -7785,31 +7858,21 @@ export default {
 
           if (
             body.description !== undefined &&
-            (typeof body.description !== "string" || body.description.length > 500)
+            (typeof body.description !== "string" ||
+              body.description.length > MAX_DESCRIPTION_LENGTH)
           ) {
             return json({ error: "Invalid description: max 500 characters" }, 400, request);
           }
           const description = typeof body.description === "string" ? body.description.trim() : "";
 
-          if (
-            body.baseValue !== undefined &&
-            (typeof body.baseValue !== "number" ||
-              !Number.isFinite(body.baseValue) ||
-              body.baseValue <= 0 ||
-              body.baseValue > 1000000)
-          ) {
+          if (body.baseValue !== undefined && !isValidBaseValue(body.baseValue)) {
             return json({ error: "Invalid baseValue" }, 400, request);
           }
           const baseValue = typeof body.baseValue === "number" ? body.baseValue : 1000;
 
           let sortOrder: number | null = null;
           if (body.sortOrder !== undefined && body.sortOrder !== null) {
-            if (
-              typeof body.sortOrder !== "number" ||
-              !Number.isFinite(body.sortOrder) ||
-              body.sortOrder < 0 ||
-              body.sortOrder > 9999
-            ) {
+            if (!isValidSortOrder(body.sortOrder)) {
               return json(
                 { error: "Invalid sortOrder: must be a number between 0 and 9999" },
                 400,
@@ -7831,59 +7894,11 @@ export default {
             );
           }
 
-          const seenTickers = new Set<string>();
-          const validatedBasket: BasketItemInput[] = [];
-          for (const item of basket) {
-            if (!item || typeof item !== "object") {
-              return json({ error: "Invalid basket item" }, 400, request);
-            }
-            const r = item as Record<string, unknown>;
-            if (
-              typeof r.ticker !== "string" ||
-              r.ticker.trim().length === 0 ||
-              r.ticker.trim().length > 20 ||
-              !/^[A-Za-z0-9.^=_-]+$/.test(r.ticker.trim())
-            ) {
-              return json({ error: "Invalid basket item: ticker" }, 400, request);
-            }
-            const ticker = r.ticker.trim().toUpperCase();
-            if (seenTickers.has(ticker)) {
-              return json({ error: `Duplicate ticker in basket: ${ticker}` }, 400, request);
-            }
-            seenTickers.add(ticker);
-
-            if (
-              typeof r.name !== "string" ||
-              r.name.trim().length === 0 ||
-              r.name.trim().length > 100
-            ) {
-              return json({ error: "Invalid basket item: name" }, 400, request);
-            }
-            if (
-              r.theme !== undefined &&
-              (typeof r.theme !== "string" || r.theme.trim().length > 100)
-            ) {
-              return json({ error: "Invalid basket item: theme" }, 400, request);
-            }
-            if (
-              typeof r.weight !== "number" ||
-              !Number.isFinite(r.weight) ||
-              r.weight <= 0 ||
-              r.weight > 100
-            ) {
-              return json(
-                { error: "Invalid basket item: weight must be > 0 and <= 100" },
-                400,
-                request,
-              );
-            }
-            validatedBasket.push({
-              ticker,
-              name: r.name.trim(),
-              theme: typeof r.theme === "string" ? r.theme.trim() : "カスタム",
-              weight: r.weight,
-            });
+          const basketValidation = validateBasketItems(basket);
+          if (!basketValidation.ok) {
+            return json({ error: basketValidation.error }, 400, request);
           }
+          const validatedBasket: BasketItemInput[] = basketValidation.basket;
 
           const totalWeight = validatedBasket.reduce((sum, item) => sum + item.weight, 0);
           if (!Number.isFinite(totalWeight) || totalWeight <= 0 || totalWeight > 10000) {
@@ -8327,13 +8342,7 @@ export default {
           }
 
           const rawId = url.searchParams.get("id");
-          if (
-            !rawId ||
-            typeof rawId !== "string" ||
-            rawId.trim().length === 0 ||
-            rawId.trim().length > 100 ||
-            !/^[A-Za-z0-9._-]+$/.test(rawId.trim())
-          ) {
+          if (!rawId || typeof rawId !== "string" || !isValidIndexId(rawId.trim())) {
             return json({ error: "Invalid or missing index id parameter" }, 400, request);
           }
           const id = rawId.trim();
@@ -8341,9 +8350,11 @@ export default {
           // request header. A `?ownerToken=` value used to work here and wrote
           // the secret into every access/proxy log for the URL.
           const providedToken = request.headers.get("x-owner-token")?.trim() || "";
-          if (providedToken.length > 256) {
+          if (providedToken.length > MAX_OWNER_TOKEN_LENGTH) {
             return json(
-              { error: "Invalid ownerToken: must be a string up to 256 characters" },
+              {
+                error: `Invalid ownerToken: must be a string up to ${MAX_OWNER_TOKEN_LENGTH} characters`,
+              },
               400,
               request,
             );
@@ -8438,12 +8449,7 @@ export default {
           }
           const rawTickers = body.tickers as unknown[];
           for (const t of rawTickers) {
-            if (
-              typeof t !== "string" ||
-              t.trim().length === 0 ||
-              t.trim().length > 20 ||
-              !/^[A-Za-z0-9.^=_-]+$/.test(t.trim())
-            ) {
+            if (typeof t !== "string" || !isValidTicker(t.trim())) {
               return json({ error: "Invalid ticker value" }, 400, request);
             }
           }
@@ -8822,13 +8828,7 @@ export default {
           const body = parsedCalc.body;
           const basket = Array.isArray(body.basket) ? body.basket : [];
           const rawBaseValue = body.baseValue;
-          if (
-            rawBaseValue !== undefined &&
-            (typeof rawBaseValue !== "number" ||
-              !Number.isFinite(rawBaseValue) ||
-              rawBaseValue <= 0 ||
-              rawBaseValue > 1000000)
-          ) {
+          if (rawBaseValue !== undefined && !isValidBaseValue(rawBaseValue)) {
             return json({ error: "Invalid baseValue" }, 400, request);
           }
           const baseValue = typeof rawBaseValue === "number" ? rawBaseValue : 1000;
@@ -8849,55 +8849,11 @@ export default {
           // request, not an implicit default. The stock endpoints differ
           // deliberately: their single-item form predates the contract and
           // defaults an absent theme for compatibility.
-          const seenCalcTickers = new Set<string>();
-          for (const item of basket) {
-            if (!item || typeof item !== "object") {
-              return json({ error: "Invalid basket item" }, 400, request);
-            }
-            const r = item as Record<string, unknown>;
-            if (
-              typeof r.ticker !== "string" ||
-              r.ticker.trim().length === 0 ||
-              r.ticker.trim().length > 20 ||
-              !/^[A-Za-z0-9.^=_-]+$/.test(r.ticker.trim())
-            ) {
-              return json({ error: "Invalid basket item: ticker" }, 400, request);
-            }
-            const ticker = r.ticker.trim().toUpperCase();
-            if (seenCalcTickers.has(ticker)) {
-              return json({ error: `Duplicate ticker in basket: ${ticker}` }, 400, request);
-            }
-            seenCalcTickers.add(ticker);
-
-            if (
-              typeof r.name !== "string" ||
-              r.name.trim().length === 0 ||
-              r.name.trim().length > 100
-            ) {
-              return json({ error: "Invalid basket item: name" }, 400, request);
-            }
-            if (typeof r.theme !== "string" || r.theme.trim().length > 100) {
-              return json({ error: "Invalid basket item: theme" }, 400, request);
-            }
-            if (
-              typeof r.weight !== "number" ||
-              !Number.isFinite(r.weight) ||
-              r.weight <= 0 ||
-              r.weight > 100
-            ) {
-              return json(
-                { error: "Invalid basket item: weight must be > 0 and <= 100" },
-                400,
-                request,
-              );
-            }
+          const calcBasketValidation = validateBasketItems(basket, { requireTheme: true });
+          if (!calcBasketValidation.ok) {
+            return json({ error: calcBasketValidation.error }, 400, request);
           }
-          const validatedBasket: BasketItemInput[] = (basket as BasketItemInput[]).map((item) => ({
-            ticker: (item.ticker as string).trim().toUpperCase(),
-            name: (item.name as string).trim(),
-            theme: (item.theme as string).trim(),
-            weight: item.weight,
-          }));
+          const validatedBasket: BasketItemInput[] = calcBasketValidation.basket;
 
           // In-memory cache check: identical basket and baseValue returns immediately,
           // saving both expensive D1 reads and calculation CPU time.

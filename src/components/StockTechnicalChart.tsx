@@ -376,6 +376,25 @@ export function StockTechnicalChart({
   /** Signature (and retry counter) of the last processed quote revision. */
   const processedQuoteRef = useRef<{ signature: string; retryKey: number } | null>(null);
 
+  /**
+   * The latest quote object.
+   *
+   * The data effect below is keyed on the *content* signature, not on the
+   * object identity. The quote object is replaced on every refresh, so the
+   * effect used to re-run (cancelling the in-flight request) even when
+   * nothing the chart shows had changed — and the signature guard then
+   * skipped re-issuing the request, so `localDataLoading` was never reset
+   * and the chart stayed on its spinner until a full page reload.
+   *
+   * The ref lets the effect body read the current quote without making the
+   * identity a dependency again. The effect that keeps it up to date is
+   * declared before the data effect, so it always runs first.
+   */
+  const stockRef = useRef(stock);
+  useEffect(() => {
+    stockRef.current = stock;
+  }, [stock]);
+
   useEffect(() => {
     const processed = processedQuoteRef.current;
     if (processed && processed.signature === stockContentSignature && processed.retryKey === retryKey) {
@@ -385,6 +404,10 @@ export function StockTechnicalChart({
     }
     processedQuoteRef.current = { signature: stockContentSignature, retryKey };
 
+    // The quote the run is based on. Reading it through the ref keeps the
+    // effect's dependencies aligned with its content signature.
+    const quote = stockRef.current;
+
     let isCancelled = false;
     setLocalDataLoading(true);
 
@@ -393,13 +416,13 @@ export function StockTechnicalChart({
         let rawSeries: Array<{ date: string; close: number }> | undefined;
 
         const isBenchmark =
-          stock.ticker.startsWith("^") ||
-          stock.ticker.includes("=") ||
-          stock.ticker === "BTC-USD";
+          quote.ticker.startsWith("^") ||
+          quote.ticker.includes("=") ||
+          quote.ticker === "BTC-USD";
 
         if (isBenchmark) {
           try {
-            const snapRes = await fetch(`/api/snapshot?symbol=${encodeURIComponent(stock.ticker)}`);
+            const snapRes = await fetch(`/api/snapshot?symbol=${encodeURIComponent(quote.ticker)}`);
             if (snapRes.ok) {
               const snapData = (await snapRes.json()) as {
                 series?: Array<{ date: string; close: number }>;
@@ -421,15 +444,15 @@ export function StockTechnicalChart({
           // cannot have changed, so the write is only needed when the ticker
           // itself changes. It is recorded as done only after the request
           // succeeded, so a failed write is retried on the next run.
-          if (lastSyncedTickerRef.current !== stock.ticker) {
+          if (lastSyncedTickerRef.current !== quote.ticker) {
             try {
               const syncRes = await fetch("/api/sync-prices", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ tickers: [stock.ticker] }),
+                body: JSON.stringify({ tickers: [quote.ticker] }),
               });
               if (syncRes.ok) {
-                lastSyncedTickerRef.current = stock.ticker;
+                lastSyncedTickerRef.current = quote.ticker;
               }
             } catch {
               // Preflight sync is best-effort; proceed to query /api/calculate.
@@ -443,9 +466,9 @@ export function StockTechnicalChart({
             body: JSON.stringify({
               basket: [
                 {
-                  ticker: stock.ticker,
-                  name: stock.name,
-                  theme: stock.theme || "その他",
+                  ticker: quote.ticker,
+                  name: quote.name,
+                  theme: quote.theme || "その他",
                   weight: 100,
                 },
               ],
@@ -461,7 +484,7 @@ export function StockTechnicalChart({
               }>;
             };
             const found = calcData.stockUniverse?.find(
-              (s) => s.ticker.toUpperCase() === stock.ticker.toUpperCase(),
+              (s) => s.ticker.toUpperCase() === quote.ticker.toUpperCase(),
             );
             rawSeries = found?.series;
           }
@@ -474,7 +497,7 @@ export function StockTechnicalChart({
             const points: PriceDataPoint[] = [];
             for (let i = 0; i < total; i++) {
               const rawP = rawSeries[i].close;
-              const p = Number.isFinite(rawP) && rawP > 0 ? rawP : stock.price;
+              const p = Number.isFinite(rawP) && rawP > 0 ? rawP : quote.price;
               const dateStr = rawSeries[i].date;
               const displayDate = formatChartDisplayDate(dateStr);
 
@@ -486,7 +509,7 @@ export function StockTechnicalChart({
               const rawHigh = (rawSeries[i] as { high?: number })?.high;
               const rawLow = (rawSeries[i] as { low?: number })?.low;
 
-              const baseVol = stock.volume > 0 ? stock.volume : 500000;
+              const baseVol = quote.volume > 0 ? quote.volume : 500000;
               const prevP = i > 0 ? (rawSeries[i - 1]?.close ?? p) : p;
               const priceChangeRate = prevP > 0 ? Math.abs(p - prevP) / prevP : 0.01;
               const dynamicVol = Math.round(
@@ -501,10 +524,10 @@ export function StockTechnicalChart({
               let candleLow = typeof rawLow === "number" && Number.isFinite(rawLow) && rawLow > 0 ? rawLow : null;
 
               if (i === total - 1) {
-                if (stock.dayHigh && stock.dayHigh > 0) candleHigh = stock.dayHigh;
-                if (stock.dayLow && stock.dayLow > 0) candleLow = stock.dayLow;
-                if (stock.previousClose && stock.previousClose > 0 && (!rawOpen || rawOpen <= 0)) {
-                  candleOpen = stock.previousClose;
+                if (quote.dayHigh && quote.dayHigh > 0) candleHigh = quote.dayHigh;
+                if (quote.dayLow && quote.dayLow > 0) candleLow = quote.dayLow;
+                if (quote.previousClose && quote.previousClose > 0 && (!rawOpen || rawOpen <= 0)) {
+                  candleOpen = quote.previousClose;
                 }
               }
 
@@ -535,7 +558,7 @@ export function StockTechnicalChart({
       }
 
       if (!isCancelled) {
-        const fallback = generateDeterministicHistory(stock, 80);
+        const fallback = generateDeterministicHistory(quote, 80);
         setLocalSeries(fallback);
         // DATA-27: the generated series is a reference value, not market data.
         setLocalSeriesIsSynthetic(true);
@@ -547,7 +570,10 @@ export function StockTechnicalChart({
     return () => {
       isCancelled = true;
     };
-  }, [stock, stockContentSignature, retryKey]);
+    // The dependencies mirror the guard above: the run is keyed on the
+    // *content* of the quote, so a refresh that returns the same numbers
+    // neither cancels the in-flight request nor re-issues it.
+  }, [stockContentSignature, retryKey]);
 
   const activeIsMobileRef = useRef(activeIsMobile);
   useEffect(() => {
@@ -654,8 +680,10 @@ export function StockTechnicalChart({
       resizeTimers.forEach(clearTimeout);
       if (container) container.innerHTML = "";
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [effectiveMode, stock.ticker, isUS, theme, retryKey]);
+    // `tvResolution.symbol` is derived from `stock.ticker` and `isUS`, both of
+    // which are dependencies here. Listing the resolved symbol directly keeps
+    // the effect self-describing instead of relying on a lint suppression.
+  }, [effectiveMode, stock.ticker, isUS, tvResolution.symbol, theme, retryKey]);
 
   // Dynamically update TradingView widget inner minHeight when mobile breakpoint changes without reloading iframe
   useEffect(() => {

@@ -1,4 +1,5 @@
 import type { BasketItem, PricePoint, StockSeries } from "../types";
+import { isValidTicker } from "./apiContract";
 
 export function normalizeTicker(ticker?: string | null): string {
   if (typeof ticker !== "string") return "";
@@ -147,7 +148,8 @@ const MIN_REQUEST_WEIGHT = 0.01;
  * Repairs a basket so it always satisfies the Worker contract
  * (`POST /api/calculate` rejects the whole request on a single bad entry:
  * ticker `^[A-Za-z0-9.^=_-]{1,20}$`, 1-100 char name, theme ≤ 100 chars,
- * `0 < weight <= 100`).
+ * `0 < weight <= 100`; see `src/lib/apiContract.ts` for the single definition
+ * of that boundary).
  *
  * The client can receive baskets the Worker itself would refuse to write:
  * legacy D1 rows carry NULL weights that `GET /api/indices` coerces to `0`,
@@ -175,7 +177,7 @@ export function sanitizeBasketForRequest(
   for (const item of items) {
     const rawTicker = typeof item?.ticker === "string" ? item.ticker : "";
     const ticker = normalizeTicker(rawTicker);
-    if (!ticker || ticker.length > 20 || !/^[A-Za-z0-9.^=_-]+$/.test(ticker)) {
+    if (!isValidTicker(ticker)) {
       dropped.push(rawTicker.trim() || "(ティッカーなし)");
       continue;
     }

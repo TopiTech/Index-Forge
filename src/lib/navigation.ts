@@ -1,3 +1,5 @@
+import { isValidTicker } from "./apiContract";
+
 export type PageView =
   | "dashboard"
   | "market"
@@ -94,8 +96,9 @@ export function parseStockParams(search: string = ""): StockQueryParams {
 
 // Tickers arrive from the URL (deep links, back/forward), so only accept a
 // short, known-safe symbol shape instead of echoing arbitrary path text into
-// the detail view. Aligned with worker's /api/stock/fundamentals validation.
-const STOCK_TICKER_PATTERN = /^[A-Za-z0-9.^=_-]{1,20}$/;
+// the detail view. The shape is the shared API contract
+// (`src/lib/apiContract.ts`), i.e. the same one the Worker's
+// /api/stock/fundamentals validation applies.
 
 function toHalfWidth(str: string): string {
   return str.replace(/[！-～]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0));
@@ -110,7 +113,7 @@ function normalizeTicker(raw: string | null | undefined): string | undefined {
     // Malformed percent-encoding: keep the raw text for the shape check below.
   }
   decoded = toHalfWidth(decoded).trim();
-  if (!STOCK_TICKER_PATTERN.test(decoded)) return undefined;
+  if (!isValidTicker(decoded)) return undefined;
   return decoded.toUpperCase();
 }
 

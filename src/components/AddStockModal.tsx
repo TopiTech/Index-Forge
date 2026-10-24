@@ -3,6 +3,7 @@ import { Plus, AlertCircle, Sparkles } from "lucide-react";
 import type { BasketItem } from "../types";
 import { searchPopularStocks, PRESET_STOCKS } from "../data/popularStocks";
 import { normalizeTicker } from "../lib/indexEngine";
+import { isValidTicker } from "../lib/apiContract";
 import { toFiniteNumberOr } from "../lib/downloadFileName";
 import { ModalBase } from "./ModalBase";
 
@@ -76,7 +77,7 @@ export function AddStockModal({
       return;
     }
 
-    if (!/^[A-Za-z0-9.^=_-]+$/.test(cleanTicker) || cleanTicker.length > 20) {
+    if (!isValidTicker(cleanTicker)) {
       setError("銘柄コードは英数字、記号（. - _ ^ =、最大20文字）で入力してください (例: 7203, AAPL, ^N225, USDJPY=X)");
       return;
     }

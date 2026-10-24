@@ -2019,6 +2019,53 @@ export function sanitizeStockFundamentals(
     ? raw.historicalFinances
     : null;
 
+  // The fiscal rows are rendered as `f.revenue.toLocaleString()`, so every
+  // numeric field of a row has to be a real number. Only `fiscalYear` used to
+  // be checked, so a payload row without a `revenue` reached the model as
+  // `null`/`undefined` and threw during render. There is no error boundary in
+  // the app, so a single malformed row blanked the whole SPA.
+  //
+  // A missing figure is repaired from the baseline row with the same fiscal
+  // year — the same fallback every other field above uses. A row that cannot
+  // be repaired at all is dropped rather than shown with holes in it.
+  const baselineFinancesByYear = new Map(
+    baseline.historicalFinances.map((entry) => [entry.fiscalYear, entry]),
+  );
+
+  const sanitizeHistoricalFinances = (): StockQuoteFundamentals["historicalFinances"] => {
+    if (rawFinances === null) return baseline.historicalFinances;
+    const sanitized: StockQuoteFundamentals["historicalFinances"] = [];
+    for (const entry of rawFinances) {
+      if (!entry || typeof entry !== "object") continue;
+      const r = entry as Record<string, unknown>;
+      if (typeof r.fiscalYear !== "string" || !r.fiscalYear.trim()) continue;
+      const fallback = baselineFinancesByYear.get(r.fiscalYear);
+      const revenue = readNumber(r.revenue, fallback?.revenue ?? Number.NaN);
+      const operatingIncome = readNumber(r.operatingIncome, fallback?.operatingIncome ?? Number.NaN);
+      const netIncome = readNumber(r.netIncome, fallback?.netIncome ?? Number.NaN);
+      const eps = readNumber(r.eps, fallback?.eps ?? Number.NaN);
+      const dps = readNumber(r.dps, fallback?.dps ?? Number.NaN);
+      if (
+        !Number.isFinite(revenue) ||
+        !Number.isFinite(operatingIncome) ||
+        !Number.isFinite(netIncome) ||
+        !Number.isFinite(eps) ||
+        !Number.isFinite(dps)
+      ) {
+        continue;
+      }
+      sanitized.push({
+        fiscalYear: r.fiscalYear.trim(),
+        revenue,
+        operatingIncome,
+        netIncome,
+        eps,
+        dps,
+      });
+    }
+    return sanitized;
+  };
+
   return {
     ...baseline,
     ticker,
@@ -2052,15 +2099,7 @@ export function sanitizeStockFundamentals(
         ? raw.technicalSignal
         : baseline.technicalSignal,
     sparkline,
-    historicalFinances:
-      rawFinances === null
-        ? baseline.historicalFinances
-        : rawFinances.filter(
-            (entry): entry is StockQuoteFundamentals["historicalFinances"][number] =>
-              Boolean(entry) &&
-              typeof entry === "object" &&
-              typeof (entry as { fiscalYear?: unknown }).fiscalYear === "string",
-          ),
+    historicalFinances: sanitizeHistoricalFinances(),
     // サーバーから実データが取得できている場合は、baseline の isDemoData: true を確実にクリアする
     isDemoData: raw.isDemoData === true ? true : undefined,
     // The PER disclosure must survive the sanitization: a PER that was
@@ -2136,7 +2175,13 @@ export async function fetchStockFundamentals(
             typeof raw === "object" &&
             typeof (raw as { ticker?: unknown }).ticker === "string" &&
             typeof (raw as { price?: unknown }).price === "number" &&
-            Number.isFinite((raw as { price?: unknown }).price)
+            Number.isFinite((raw as { price?: unknown }).price) &&
+            // A price of zero (or below) is not a market price: it is what an
+            // upstream placeholder for a suspended/delisted ticker looks like.
+            // The screener path already rejects such a payload, so accepting
+            // it here made the two endpoints of the same Worker disagree and
+            // cached a ¥0 quote as if it were live.
+            (raw as { price: number }).price > 0
           ) {
             const rawObj = raw as Record<string, unknown>;
             const baseline = getStockFundamentals(normTicker);

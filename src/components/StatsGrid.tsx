@@ -5,6 +5,7 @@ import type { Snapshot } from "../types";
 import type { Timeframe } from "../types";
 import type { CustomIndex } from "../data/indices";
 import { TIMEFRAME_LABELS } from "../lib/timeframe";
+import { changeTone } from "./changeTone";
 
 const fmt = new Intl.NumberFormat("ja-JP", { maximumFractionDigits: 2 });
 const pct = new Intl.NumberFormat("ja-JP", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -70,8 +71,8 @@ export function StatsGrid({
       trend: !hasCustom || typeof customReturnPct !== "number"
         ? undefined
         : {
-            text: `${safeCustomReturnPct > 0 ? "+" : ""}${pct.format(safeCustomReturnPct)}%`,
-            type: (safeCustomReturnPct > 0 ? "positive" : safeCustomReturnPct < 0 ? "negative" : "neutral") as "positive" | "negative" | "neutral",
+            text: `${changeTone(safeCustomReturnPct, 2) === "positive" ? "+" : ""}${pct.format(safeCustomReturnPct)}%`,
+            type: changeTone(safeCustomReturnPct, 2),
           },
       sub: selectedIndex ? `基準値 ${fmt.format(baseValue)}` : undefined,
       icon: <Activity size={16} />,
@@ -82,12 +83,12 @@ export function StatsGrid({
       value: benchmarkLoading ? "読込中..." : benchmarkData ? fmt.format(benchmarkData.snapshot.current) : "---",
       trend: hasBenchmark && typeof benchmarkReturnPct === "number"
         ? {
-            text: `${safeBenchmarkReturnPct > 0 ? "+" : ""}${pct.format(safeBenchmarkReturnPct)}%`,
-            type: (safeBenchmarkReturnPct > 0 ? "positive" : safeBenchmarkReturnPct < 0 ? "negative" : "neutral") as "positive" | "negative" | "neutral",
+            text: `${changeTone(safeBenchmarkReturnPct, 2) === "positive" ? "+" : ""}${pct.format(safeBenchmarkReturnPct)}%`,
+            type: changeTone(safeBenchmarkReturnPct, 2),
           }
         : undefined,
       sub: benchmarkData
-        ? `前日比 ${benchmarkData.snapshot.change >= 0 ? "+" : ""}${fmt.format(benchmarkData.snapshot.change)}${Number.isFinite(benchmarkData.snapshot.changePct) ? ` (${benchmarkData.snapshot.changePct >= 0 ? "+" : ""}${pct.format(benchmarkData.snapshot.changePct)}%)` : ""}`
+        ? `前日比 ${changeTone(benchmarkData.snapshot.change, 2) === "positive" ? "+" : ""}${fmt.format(benchmarkData.snapshot.change)}${Number.isFinite(benchmarkData.snapshot.changePct) ? ` (${changeTone(benchmarkData.snapshot.changePct, 2) === "positive" ? "+" : ""}${pct.format(benchmarkData.snapshot.changePct)}%)` : ""}`
         : undefined,
       icon: <Gauge size={16} />,
     },

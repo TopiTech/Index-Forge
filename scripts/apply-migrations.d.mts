@@ -1,3 +1,12 @@
+/**
+ * Type declarations for the migration runner.
+ *
+ * The file mirrors `scripts/apply-migrations.mjs`. It used to declare a
+ * `table` field on the index steps that the implementation never sets, which
+ * `skipLibCheck` kept from being reported: a caller that relied on the
+ * declared shape would have read `undefined` at runtime.
+ */
+
 export interface TableMigrationStep {
   type: "table";
   name: string;
@@ -7,7 +16,6 @@ export interface TableMigrationStep {
 export interface IndexMigrationStep {
   type: "index";
   name: string;
-  table: string;
   sql: string;
 }
 

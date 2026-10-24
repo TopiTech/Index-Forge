@@ -148,14 +148,20 @@ describe("Comprehensive Goal Code Review Final Pass - Regressions & Invariants",
       expect(content).toContain("isFirstPersist ? [newPos] : [...prev, newPos]");
     });
 
-    it("verifies StockTechnicalChart has proper cleanup and eslint-disable comment", () => {
+    it("verifies StockTechnicalChart cleans up the TradingView widget without a lint suppression", () => {
       const filePath = path.resolve(__dirname, "../components/StockTechnicalChart.tsx");
       const content = fs.readFileSync(filePath, "utf-8");
 
       expect(content).toContain("resizeTimers.forEach(clearTimeout);");
       expect(content).toContain("container.innerHTML = \"\";");
-      expect(content).toContain("// eslint-disable-next-line react-hooks/exhaustive-deps");
-      expect(content).toMatch(/\}, \[effectiveMode, stock\.ticker, isUS, theme, retryKey\]\);/);
+      // The mount effect now declares every value it reads, so the
+      // exhaustive-deps rule no longer has to be silenced for it.
+      expect(content).not.toContain("eslint-disable-next-line react-hooks/exhaustive-deps");
+      // It still must not depend on activeIsMobile: the widget is not
+      // re-mounted when the mobile breakpoint toggles.
+      const mountEffectDeps = content.match(/\}, \[[^\]]*effectiveMode[^\]]*\]\);/);
+      expect(mountEffectDeps).not.toBeNull();
+      expect(mountEffectDeps?.[0]).not.toContain("activeIsMobile");
     });
 
     it("verifies App.tsx validates position prices and guards unauthenticated additions", () => {

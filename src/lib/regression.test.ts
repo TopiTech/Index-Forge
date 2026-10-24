@@ -6,6 +6,7 @@ import worker from "../../worker/index";
 import { timingSafeEqual } from "../../worker/internal";
 import { MAX_SYNC_TICKERS_PER_REQUEST } from "../../worker/internal-impl";
 import { SYNC_BATCH_SIZE } from "./priceSync";
+import { MAX_OWNER_TOKEN_LENGTH } from "./apiContract";
 import { calculateRiskMetrics } from "./analytics";
 
 const workerSrc = readFileSync(resolve("worker/internal-impl.ts"), "utf-8");
@@ -100,8 +101,42 @@ describe("regression: worker API contract", () => {
     expect(deleteIndicesBlock).toContain('checkRateLimit(env, ip, "indices")');
   });
 
-  it("R6: POST /api/indices validates ownerToken length <= 256", () => {
-    expect(workerSrc).toContain("body.ownerToken.length > 256");
+  it("R6: POST /api/indices rejects an owner token longer than the contract limit", async () => {
+    // Behavioural check. The previous assertion only proved that the literal
+    // "256" appeared somewhere in the Worker source, so it stayed green even
+    // when the length check itself was removed. The limit now lives in the
+    // shared API contract; the Worker must enforce exactly that value.
+    expect(MAX_OWNER_TOKEN_LENGTH).toBe(256);
+
+    const env = {
+      ASSETS: { fetch: vi.fn() },
+      DB: {
+        prepare: vi.fn().mockReturnValue({
+          bind: vi.fn().mockReturnValue({
+            all: vi.fn().mockResolvedValue({ results: [] }),
+            run: vi.fn().mockResolvedValue({ success: true, meta: { changes: 1 } }),
+          }),
+        }),
+        batch: vi.fn().mockResolvedValue([]),
+      },
+    };
+
+    const res = await worker.fetch(
+      new Request("http://localhost/api/indices", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: "Regression",
+          ownerToken: "x".repeat(MAX_OWNER_TOKEN_LENGTH + 1),
+          basket: [{ ticker: "7203", name: "トヨタ", theme: "自動車", weight: 100 }],
+        }),
+      }),
+      env as never,
+    );
+
+    expect(res.status).toBe(400);
+    const data = (await res.json()) as { error?: string };
+    expect(data.error).toContain(String(MAX_OWNER_TOKEN_LENGTH));
   });
 
   it("R7: useCalculation.ts batches through the shared priceSync module (12 tickers per request)", () => {

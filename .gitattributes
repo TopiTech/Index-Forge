@@ -1,0 +1,12 @@
+# Normalize the line endings in the working tree.
+#
+# Without this file, `core.autocrlf=true` (the Windows default) makes a
+# checkout write CRLF while the files that were already in the tree used LF.
+# The two spellings are indistinguishable to git but not to the test suite:
+# several source-contract assertions compare multi-line string literals
+# against the raw file content, and a CRLF checkout made them fail even
+# though nothing about the code had changed.
+#
+# `text=auto` keeps git's binary detection, so the favicon and the generated
+# bundles are still stored byte for byte.
+* text=auto eol=lf

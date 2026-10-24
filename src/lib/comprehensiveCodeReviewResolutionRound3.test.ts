@@ -27,10 +27,13 @@ describe("Comprehensive Code Review Resolution Round 3", () => {
     });
 
     it("does not re-mount TradingView script when activeIsMobile toggles", () => {
-      // The script mount effect must not depend on activeIsMobile
-      expect(chartTsx).toMatch(
-        /\}, \[effectiveMode, stock\.ticker, isUS, theme, retryKey\]\);/
-      );
+      // The script mount effect must not depend on activeIsMobile. The
+      // dependency list is matched by its members instead of by an exact
+      // literal, so the assertion keeps testing the intent when the effect
+      // legitimately gains another dependency.
+      const mountEffectDeps = chartTsx.match(/\}, \[[^\]]*effectiveMode[^\]]*\]\);/);
+      expect(mountEffectDeps).not.toBeNull();
+      expect(mountEffectDeps?.[0]).not.toContain("activeIsMobile");
       // But instead uses activeIsMobileRef or dynamic style update
       expect(chartTsx).toContain("activeIsMobileRef");
     });

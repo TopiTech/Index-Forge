@@ -56,6 +56,20 @@ jobs:
           fi
         shell: bash
 
+      # INFRA-01: the dry run has to happen *after* the D1 id was injected,
+      # because wrangler rejects the placeholder. It is the same gate the pull
+      # request workflow runs, so a merge that skipped CI (an admin push, a
+      # re-run of a skipped workflow, a squash merge with the checks bypassed)
+      # cannot deploy a bundle that the pull request workflow would have
+      # rejected.
+      - name: Validate Worker Bundle (wrangler dry run)
+        run: npx wrangler deploy --dry-run --config wrangler.jsonc --outdir "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/wrangler-dry-run"
+
+      # PERF-01 / PERF-02 gate: the first paint must not download the ticker
+      # dataset or the chart library.
+      - name: Check first-paint bundle budget (PERF-01/PERF-02)
+        run: npm run check:first-paint
+
       - name: Deploy to Cloudflare
         uses: cloudflare/wrangler-action@v3
         with:

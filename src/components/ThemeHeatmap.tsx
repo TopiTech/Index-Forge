@@ -6,6 +6,7 @@ import { LayoutGrid, TrendingUp, TrendingDown, Layers, Grid } from "lucide-react
 import type { StockDetail } from "../types";
 import { createTreemapLayout, type TreemapLayout } from "../lib/treemap";
 import { formatStockPrice, formatStockChange } from "../lib/currency";
+import { changeTone, formatSignedPercent } from "./changeTone";
 
 interface ThemeHeatmapProps {
   stockDetails: StockDetail[];
@@ -105,8 +106,9 @@ export function ThemeHeatmap({ stockDetails, selectedTheme, onSelectTheme }: The
     const stockTheme = stock.theme || "その他";
     const tooltipId = getTooltipId(stock);
     const isSelectedTheme = selectedTheme ? stockTheme === selectedTheme : true;
-    const isUp = stock.changePct > 0;
-    const isDown = stock.changePct < 0;
+    const tone = changeTone(stock.changePct, 1);
+    const isUp = tone === "positive";
+    const isDown = tone === "negative";
     const tileArea = layout.width * layout.height;
     const sizeClass = tileArea >= 0.06 ? "is-large" : tileArea >= 0.018 ? "is-medium" : "is-small";
     const isWeightVisible = stock.weight >= 3 && layout.width >= 0.055;
@@ -120,7 +122,7 @@ export function ThemeHeatmap({ stockDetails, selectedTheme, onSelectTheme }: The
         tabIndex={0}
         aria-pressed={selectedTheme === stockTheme}
         aria-describedby={hoveredStock?.stock.ticker === stock.ticker ? tooltipId : undefined}
-        aria-label={`${stock.name} (${stock.ticker}) 騰落率: ${stock.changePct >= 0 ? "+" : ""}${stock.changePct.toFixed(1)}%、構成比: ${stock.weight.toFixed(1)}%`}
+        aria-label={`${stock.name} (${stock.ticker}) 騰落率: ${formatSignedPercent(stock.changePct, 1)}、構成比: ${stock.weight.toFixed(1)}%`}
         onClick={() => onSelectTheme(selectedTheme === stockTheme ? null : stockTheme)}
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") {
@@ -177,8 +179,7 @@ export function ThemeHeatmap({ stockDetails, selectedTheme, onSelectTheme }: The
             >
               {isUp && <TrendingUp size={10} />}
               {isDown && <TrendingDown size={10} />}
-              {stock.changePct >= 0 ? "+" : ""}
-              {stock.changePct.toFixed(1)}%
+              {formatSignedPercent(stock.changePct, 1)}
             </span>
           )}
         </div>
@@ -370,15 +371,14 @@ export function ThemeHeatmap({ stockDetails, selectedTheme, onSelectTheme }: The
                     style={{
                       fontSize: 12,
                       color:
-                        hoveredStock.stock.changePct > 0
+                        changeTone(hoveredStock.stock.changePct, 2) === "positive"
                           ? "var(--neon-green)"
-                          : hoveredStock.stock.changePct < 0
+                          : changeTone(hoveredStock.stock.changePct, 2) === "negative"
                             ? "var(--neon-red)"
                             : "inherit",
                     }}
                   >
-                    {hoveredStock.stock.changePct >= 0 ? "+" : ""}
-                    {hoveredStock.stock.changePct.toFixed(2)}%
+                    {formatSignedPercent(hoveredStock.stock.changePct, 2)}
                     {hoveredStock.stock.change !== 0 && (
                       <span style={{ fontSize: 10, marginLeft: 4, opacity: 0.8 }}>
                         ({formatStockChange(hoveredStock.stock.change, hoveredStock.stock.ticker)})

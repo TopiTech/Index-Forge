@@ -86,6 +86,11 @@ CREATE TABLE IF NOT EXISTS access_passwords (
     updated_at INTEGER
 );
 
+-- The account list is fetched on every admin dashboard load and is ordered by
+-- created_at; the primary key (id) does not cover that, so without this index
+-- the query is a full table scan plus a filesort.
+CREATE INDEX IF NOT EXISTS idx_access_passwords_created_at ON access_passwords(created_at);
+
 CREATE TABLE IF NOT EXISTS admin_login_attempts (
     ip TEXT PRIMARY KEY,
     failed_count INTEGER NOT NULL DEFAULT 0,

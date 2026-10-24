@@ -1,6 +1,32 @@
 import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 
+// Vitest defaults `NODE_ENV` to "test" only when it is unset
+// (`process.env.NODE_ENV ??= "test"` in `prepareVitest`). A shell that
+// exports `NODE_ENV=production` therefore survives into the test run.
+//
+// That matters for *module resolution*, not just for the runtime: Vite
+// computes `isProduction = process.env.NODE_ENV === "production"` in
+// `resolveConfig`, and in production mode its resolver externalizes Node
+// built-ins to the bare `__vite-browser-external` id instead of resolving
+// them natively. Vitest then maps that id back to a builtin with
+// `toBuiltin()`, which yields the empty specifier `node:` and the suite dies
+// with `Cannot find package 'node:'` before a single test runs.
+//
+// `test.env.NODE_ENV` below cannot prevent this: it is applied to the test
+// worker *after* this config file has been evaluated and the Vite server
+// created, so Vite has already decided that it is running in production
+// mode. The only place that decision can still be influenced is here, at
+// the top of the config file, which Vite evaluates before `resolveConfig`
+// reads `NODE_ENV`.
+//
+// `process.env.VITEST` is set by `prepareVitest` before the config file is
+// loaded, so it reliably identifies a test run and leaves `vite build` and
+// `vite dev` untouched.
+if (process.env.VITEST === "true") {
+  process.env.NODE_ENV = "test";
+}
+
 export default defineConfig({
   plugins: [react()],
   build: {

@@ -10,6 +10,14 @@ import type { CustomIndex } from "../data/indices";
 import { createPortfolioPosition, type PortfolioPosition } from "./portfolioStorage";
 import { escapeCsvCell, parseCsv } from "./csv";
 import { normalizeTicker } from "./indexEngine";
+import {
+  MAX_BASKET_ITEMS,
+  MAX_STOCK_NAME_LENGTH,
+  MAX_THEME_LENGTH,
+  clampBaseValue,
+  isValidIndexId,
+  isValidTicker,
+} from "./apiContract";
 import { safeRandomId } from "./randomId";
 
 export type SerializationResult<T> =
@@ -155,10 +163,14 @@ export function deserializeIndexFromJson(jsonStr: string): SerializationResult<C
     }
 
     const description = (typeof parsed.description === "string" ? parsed.description.trim() : "").slice(0, 500);
+    // Worker 契約 (POST /api/calculate, POST /api/indices) は baseValue を
+    // 0 < baseValue <= 1,000,000 に限定する。範囲外の値をそのまま持ち込むと、
+    // 取り込みは成功するのに以降の計算・保存が毎回400になり、永久に壊れた
+    // 指数が残る。よって取り込み時に契約の範囲へ丸める。
     const rawBaseValue = parsed.baseValue;
     const baseValue =
       typeof rawBaseValue === "number" && Number.isFinite(rawBaseValue) && rawBaseValue > 0
-        ? rawBaseValue
+        ? clampBaseValue(rawBaseValue)
         : 1000;
 
     const rawBasket = parsed.basket;
@@ -175,22 +187,17 @@ export function deserializeIndexFromJson(jsonStr: string): SerializationResult<C
       // Worker 契約 (POST /api/calculate) に合わせて正規化する。全角ティッカーの
       // ままだとリクエスト全体が400になり、プレビューが黙ってデモ表示へ切り替わる。
       const ticker = normalizeTicker(typeof r.ticker === "string" ? r.ticker : "");
-      if (
-        !ticker ||
-        ticker.length > 20 ||
-        !/^[A-Za-z0-9.^=_-]+$/.test(ticker) ||
-        seenTickers.has(ticker)
-      ) {
+      if (!isValidTicker(ticker) || seenTickers.has(ticker)) {
         continue;
       }
       seenTickers.add(ticker);
 
       const itemName = (
         typeof r.name === "string" && r.name.trim() ? r.name.trim() : ticker
-      ).slice(0, 100);
+      ).slice(0, MAX_STOCK_NAME_LENGTH);
       const theme = (
         typeof r.theme === "string" && r.theme.trim() ? r.theme.trim() : "カスタム"
-      ).slice(0, 100);
+      ).slice(0, MAX_THEME_LENGTH);
       // 0 < weight <= 100 (100超は上限クランプ。0/NaN は従来どおり既定値)。
       const weight =
         typeof r.weight === "number" && Number.isFinite(r.weight) && r.weight > 0
@@ -203,14 +210,17 @@ export function deserializeIndexFromJson(jsonStr: string): SerializationResult<C
     if (basket.length === 0) {
       return { ok: false, error: "有効な構成銘柄が見つかりませんでした" };
     }
+    // Worker 契約 (POST /api/indices, POST /api/calculate) は1指数あたり
+    // MAX_BASKET_ITEMS 銘柄まで。超えたまま取り込むと保存も計算も 400 になり、
+    // 取り込んだ指数が永久に壊れる。
+    if (basket.length > MAX_BASKET_ITEMS) {
+      basket.length = MAX_BASKET_ITEMS;
+    }
 
     // Worker 契約 (POST /api/indices) は id に [A-Za-z0-9._-] と 100 字以内を要求する。
     // 不正な id のままだと保存が 400 で拒否されるため、生成済み id へ退避する。
     const rawId = typeof parsed.id === "string" ? parsed.id.trim() : "";
-    const id =
-      rawId.length > 0 && rawId.length <= 100 && /^[A-Za-z0-9._-]+$/.test(rawId)
-        ? rawId
-        : `custom-${Date.now()}-${safeRandomId(6)}`;
+    const id = isValidIndexId(rawId) ? rawId : `custom-${Date.now()}-${safeRandomId(6)}`;
 
     // sortOrder は任意項目。有限数値のときだけ復元し、Worker 契約
     // (0..9999 の整数、超過・負値は 400) に収まるよう補正する。補正しないと
@@ -325,17 +335,17 @@ export function deserializeBasketFromCsv(csvStr: string): SerializationResult<Ba
     // Worker 契約に合わせて正規化 (全角→ASCII・大文字・文字種検証)。そのまま
     // 送ると1行の不正でリクエスト全体が400になり、保存もプレビューも止まる。
     const ticker = normalizeTicker(fields[tickerIdx] ?? "");
-    if (!ticker || ticker.length > 20 || !/^[A-Za-z0-9.^=_-]+$/.test(ticker) || seen.has(ticker)) {
+    if (!isValidTicker(ticker) || seen.has(ticker)) {
       continue;
     }
     seen.add(ticker);
 
     const name = (
       (nameIdx !== -1 && nameIdx < fields.length ? fields[nameIdx] : "") || ticker
-    ).slice(0, 100);
+    ).slice(0, MAX_STOCK_NAME_LENGTH);
     const theme = (
       (themeIdx !== -1 && themeIdx < fields.length ? fields[themeIdx] : "") || "カスタム"
-    ).slice(0, 100);
+    ).slice(0, MAX_THEME_LENGTH);
     const rawWeight = weightIdx !== -1 && weightIdx < fields.length ? parseNumericValue(fields[weightIdx]) : NaN;
     // 重みはパース忠実度を保つ (既存仕様: "1,000" → 1000)。Worker 契約 (>0 かつ <=100) は
     // リクエスト境界 (sanitizeBasketForRequest) で検証・補正する。
@@ -437,7 +447,7 @@ export function deserializePortfolioFromCsv(
     const fields = rows[rowIdx];
     if (fields.length <= tickerIdx) continue;
     const ticker = normalizeTicker(fields[tickerIdx] ?? "");
-    if (!ticker || ticker.length > 20 || !/^[A-Za-z0-9.^=_-]+$/.test(ticker)) continue;
+    if (!isValidTicker(ticker)) continue;
 
     const name = ((nameIdx !== -1 && nameIdx < fields.length ? fields[nameIdx] : "") || ticker).slice(0, 100);
     const rawShares = sharesIdx !== -1 && sharesIdx < fields.length ? parseNumericValue(fields[sharesIdx]) : NaN;

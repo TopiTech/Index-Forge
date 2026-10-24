@@ -28,6 +28,7 @@ import { escapeCsvCell } from "../lib/csv";
 import { toSafeDownloadFileName } from "../lib/downloadFileName";
 import { todayJstDateString } from "../lib/portfolioStorage";
 import { formatStockPrice } from "../lib/currency";
+import { changeTone, formatSignedPercent } from "./changeTone";
 
 // PERF-01: the add-stock dialog searches the 4,500+ ticker universe, so it
 // carries that dataset. This table is rendered on the dashboard (first paint),
@@ -698,8 +699,9 @@ export function ConstituentsTable({
             <AnimatePresence mode="popLayout">
               {filteredAndSorted.length > 0 ? (
                 filteredAndSorted.map((item) => {
-                  const isUp = item.changePct > 0;
-                  const isDown = item.changePct < 0;
+                  const changeToneValue = changeTone(item.changePct, 2);
+                  const isUp = changeToneValue === "positive";
+                  const isDown = changeToneValue === "negative";
                   return (
                     <tr key={item.ticker}>
                       <td>
@@ -759,12 +761,11 @@ export function ConstituentsTable({
                         >
                           {isUp && <TrendingUp size={11} />}
                           {isDown && <TrendingDown size={11} />}
-                          {item.changePct >= 0 ? "+" : ""}
-                          {item.changePct.toFixed(2)}%
+                          {formatSignedPercent(item.changePct, 2)}
                         </span>
                       </td>
                       <td style={{ textAlign: "center" }}>
-                        <Sparkline data={item.sparkline} isPositive={item.changePct >= 0} />
+                        <Sparkline data={item.sparkline} isPositive={isUp} />
                       </td>
                       <td style={{ textAlign: "right" }}>
                         <span
@@ -853,8 +854,9 @@ export function ConstituentsTable({
       >
         {filteredAndSorted.length > 0 ? (
           filteredAndSorted.map((item) => {
-            const isUp = item.changePct > 0;
-            const isDown = item.changePct < 0;
+            const changeToneValue = changeTone(item.changePct, 2);
+            const isUp = changeToneValue === "positive";
+            const isDown = changeToneValue === "negative";
             return (
               <article key={item.ticker} role="listitem" className="constituent-mobile-card">
                 <div className="constituent-mobile-heading">
@@ -908,8 +910,7 @@ export function ConstituentsTable({
                     <strong className={isUp ? "positive" : isDown ? "negative" : ""}>
                       {isUp && <TrendingUp size={12} aria-hidden="true" />}
                       {isDown && <TrendingDown size={12} aria-hidden="true" />}
-                      {item.changePct >= 0 ? "+" : ""}
-                      {item.changePct.toFixed(2)}%
+                      {formatSignedPercent(item.changePct, 2)}
                     </strong>
                   </div>
                   <div>
@@ -950,7 +951,7 @@ export function ConstituentsTable({
                       />
                     </div>
                   </div>
-                  <Sparkline data={item.sparkline} isPositive={item.changePct >= 0} />
+                  <Sparkline data={item.sparkline} isPositive={isUp} />
                 </div>
               </article>
             );

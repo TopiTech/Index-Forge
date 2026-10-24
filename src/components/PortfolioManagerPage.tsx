@@ -52,6 +52,13 @@ import {
 } from "../lib/indexSerialization";
 import { toSafeDownloadFileName } from "../lib/downloadFileName";
 import { normalizeTicker } from "../lib/indexEngine";
+import { isValidTicker } from "../lib/apiContract";
+import {
+  changeTone,
+  formatSignedAmount,
+  formatSignedPercent,
+  type ChangeTone,
+} from "./changeTone";
 import {
   getStockFundamentals,
   fetchStockFundamentals,
@@ -475,8 +482,16 @@ export function PortfolioManagerPage({
     return list;
   }, [summary.positions, tableSortField, tableSortAsc]);
 
-  const isTotalProfitPositive = summary.totalProfit >= 0;
-  const isDailyProfitPositive = summary.dailyTotalChange >= 0;
+  // A break-even portfolio is neither a gain nor a loss. The shared tone
+  // helper decides that, so a flat day is no longer painted green.
+  const totalProfitTone = changeTone(summary.totalProfit, 2);
+  const dailyProfitTone = changeTone(summary.dailyTotalChange, 2);
+  const profitColor = (tone: ChangeTone) =>
+    tone === "positive"
+      ? "var(--color-positive)"
+      : tone === "negative"
+        ? "var(--color-negative)"
+        : "var(--text-secondary)";
 
   const handleAddPosition = (e: React.FormEvent) => {
     e.preventDefault();
@@ -488,7 +503,7 @@ export function PortfolioManagerPage({
       setAddError("銘柄コードを入力してください");
       return;
     }
-    if (!/^[A-Za-z0-9.^=_-]{1,20}$/.test(ticker)) {
+    if (!isValidTicker(ticker)) {
       setAddError("銘柄コードは英数字、記号（. - _ ^ =、最大20文字）で入力してください (例: 7203, AAPL, ^N225, USDJPY=X)");
       return;
     }
@@ -1353,10 +1368,10 @@ export function PortfolioManagerPage({
             style={{
               fontSize: "1.6rem",
               marginTop: 4,
-              color: isTotalProfitPositive ? "var(--color-positive)" : "var(--color-negative)",
+              color: profitColor(totalProfitTone),
             }}
           >
-            {isTotalProfitPositive ? "+" : ""}¥{summary.totalProfit.toLocaleString()}
+            {formatSignedAmount(summary.totalProfit, (n) => `¥${n.toLocaleString()}`)}
           </div>
           <div
             style={{
@@ -1365,15 +1380,16 @@ export function PortfolioManagerPage({
               gap: 4,
               fontSize: "0.85rem",
               fontWeight: 600,
-              color: isTotalProfitPositive ? "var(--color-positive)" : "var(--color-negative)",
+              color: profitColor(totalProfitTone),
             }}
             className="mono"
           >
-            {isTotalProfitPositive ? <TrendingUp size={13} /> : <TrendingDown size={13} />}
-            <span>
-              {isTotalProfitPositive ? "+" : ""}
-              {summary.totalProfitPercent.toFixed(2)}%
-            </span>
+            {totalProfitTone === "positive" ? (
+              <TrendingUp size={13} />
+            ) : totalProfitTone === "negative" ? (
+              <TrendingDown size={13} />
+            ) : null}
+            <span>{formatSignedPercent(summary.totalProfitPercent, 2)}</span>
           </div>
         </div>
 
@@ -1384,10 +1400,10 @@ export function PortfolioManagerPage({
             style={{
               fontSize: "1.6rem",
               marginTop: 4,
-              color: isDailyProfitPositive ? "var(--color-positive)" : "var(--color-negative)",
+              color: profitColor(dailyProfitTone),
             }}
           >
-            {isDailyProfitPositive ? "+" : ""}¥{summary.dailyTotalChange.toLocaleString()}
+            {formatSignedAmount(summary.dailyTotalChange, (n) => `¥${n.toLocaleString()}`)}
           </div>
           <span className="tiny muted">本日の保有資産変動</span>
         </div>
@@ -1857,7 +1873,7 @@ export function PortfolioManagerPage({
             {watchlist.map((ticker) => {
               const live = liveQuotes.get(ticker.toUpperCase());
               const fund = live ?? getStockFundamentals(ticker);
-              const isPos = fund.changePercent >= 0;
+              const watchTone = changeTone(fund.changePercent, 2);
               return (
                 <div
                   key={ticker}
@@ -1910,10 +1926,9 @@ export function PortfolioManagerPage({
                     </div>
                     <div
                       className="mono tiny bold"
-                      style={{ color: isPos ? "var(--color-positive)" : "var(--color-negative)" }}
+                      style={{ color: profitColor(watchTone) }}
                     >
-                      {isPos ? "+" : ""}
-                      {fund.changePercent.toFixed(2)}%
+                      {formatSignedPercent(fund.changePercent, 2)}
                     </div>
                     <button
                       type="button"

@@ -722,11 +722,8 @@ export function StockAnalysisPage({
                       {formatStockPrice(item.price, item.ticker, { market: item.market })}
                     </span>
                     {/* 符号は値から導出する。固定 "+" だと全面安の上位銘柄で "+-1.20%" と表示される */}
-                    <span
-                      className={`stock-mover-change ${item.changePercent >= 0 ? "positive" : "negative"}`}
-                    >
-                      {item.changePercent > 0 ? "+" : ""}
-                      {item.changePercent.toFixed(2)}%
+                    <span className={`stock-mover-change ${changeTone(item.changePercent, 2)}`}>
+                      {formatSignedPercent(item.changePercent, 2)}
                     </span>
                   </div>
                 </div>
@@ -766,11 +763,8 @@ export function StockAnalysisPage({
                       {formatStockPrice(item.price, item.ticker, { market: item.market })}
                     </span>
                     {/* 符号・色は値から導出する。固定 negative だと全面高の下位銘柄が赤く "+なし" で表示される */}
-                    <span
-                      className={`stock-mover-change ${item.changePercent >= 0 ? "positive" : "negative"}`}
-                    >
-                      {item.changePercent > 0 ? "+" : ""}
-                      {item.changePercent.toFixed(2)}%
+                    <span className={`stock-mover-change ${changeTone(item.changePercent, 2)}`}>
+                      {formatSignedPercent(item.changePercent, 2)}
                     </span>
                   </div>
                 </div>
@@ -1060,7 +1054,7 @@ export function StockAnalysisPage({
         <div className="stock-analysis-macro-grid">
           {MACRO_QUICK_PICKS.map((macro) => {
             const macroFund = getCachedStockFundamentals(macro.symbol);
-            const isPos = macroFund.changePercent >= 0;
+            const macroTone = changeTone(macroFund.changePercent, 2);
             const isUsdJpy = macro.symbol.includes("USDJPY");
             const formattedPrice = isUsdJpy
               ? `¥${macroFund.price.toFixed(2)}`
@@ -1090,8 +1084,11 @@ export function StockAnalysisPage({
                 <div className="macro-card-right">
                   <div className="macro-card-price-block">
                     <div className="macro-card-price mono">{formattedPrice}</div>
-                    <div className={`macro-card-change mono tiny ${isPos ? "text-positive" : "text-negative"}`}>
-                      {isPos ? "+" : ""}{macroFund.changePercent.toFixed(2)}%
+                    <div
+                      className={`macro-card-change mono tiny ${macroTone === "positive" ? "text-positive" : macroTone === "negative" ? "text-negative" : ""}`}
+                      style={macroTone === "neutral" ? { color: "var(--text-muted)" } : undefined}
+                    >
+                      {formatSignedPercent(macroFund.changePercent, 2)}
                     </div>
                   </div>
                   <ChevronRight size={16} className="macro-card-arrow" />
