@@ -46,6 +46,7 @@ import { ModalBase } from "./ModalBase";
 import { useToast } from "./Toast";
 import { equalizeWeightsExact, normalizeTicker } from "../lib/indexEngine";
 import { isValidTicker } from "../lib/apiContract";
+import { safeRandomId } from "../lib/randomId";
 import { TurnstileWidget, type TurnstileWidgetRef } from "./TurnstileWidget";
 
 /**
@@ -862,7 +863,7 @@ export function AdminDashboard({
     }
     setCreatingIndex(true);
     try {
-      const newId = `idx-admin-${Date.now()}`;
+      const newId = `idx-admin-${Date.now()}-${safeRandomId(6)}`;
       const newIndex: CustomIndex = {
         id: newId,
         name: newIndexName.trim(),

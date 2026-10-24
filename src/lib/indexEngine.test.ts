@@ -83,6 +83,14 @@ describe("equalizeWeightsExact", () => {
     const sum7 = Number(res7.reduce((s, x) => s + x.weight, 0).toFixed(2));
     expect(sum7).toBe(100);
   });
+
+  it("handles basket size exceeding 100 with decimals=0 by elevating precision so all weights stay positive", () => {
+    const items105 = Array.from({ length: 105 }, (_, i) => ({ ticker: `T${i}`, weight: 1 }));
+    const res105 = equalizeWeightsExact(items105, 0);
+    expect(res105.every((x) => x.weight > 0)).toBe(true);
+    const sum105 = Number(res105.reduce((s, x) => s + x.weight, 0).toFixed(4));
+    expect(sum105).toBe(100);
+  });
 });
 
 describe("redistributeWeightsExact", () => {
@@ -112,6 +120,14 @@ describe("redistributeWeightsExact", () => {
     const sum = Number(res.reduce((s, x) => s + x.weight, 0).toFixed(2));
     expect(sum).toBe(100);
     expect(res.map((x) => x.weight)).toEqual([33.34, 33.33, 33.33]);
+  });
+
+  it("handles basket size exceeding 100 with decimals=0 by elevating precision so all weights stay positive", () => {
+    const items105 = Array.from({ length: 105 }, (_, i) => ({ ticker: `T${i}`, weight: (i % 5) + 1 }));
+    const res105 = redistributeWeightsExact(items105, 0);
+    expect(res105.every((x) => x.weight > 0)).toBe(true);
+    const sum105 = Number(res105.reduce((s, x) => s + x.weight, 0).toFixed(4));
+    expect(sum105).toBe(100);
   });
 });
 

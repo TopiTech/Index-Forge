@@ -29,7 +29,11 @@ export function normalizeWeights(items: BasketItem[]): BasketItem[] {
 export function equalizeWeightsExact<T extends { weight: number }>(items: T[], decimals = 2): T[] {
   const n = items.length;
   if (n === 0) return [];
-  const factor = 10 ** decimals;
+  let safeDecimals = Math.max(0, Math.floor(decimals));
+  while (n > 100 * 10 ** safeDecimals) {
+    safeDecimals++;
+  }
+  const factor = 10 ** safeDecimals;
   const totalUnits = 100 * factor;
   const baseUnits = Math.floor(totalUnits / n);
   let remainder = totalUnits - baseUnits * n;
@@ -39,7 +43,7 @@ export function equalizeWeightsExact<T extends { weight: number }>(items: T[], d
     if (remainder > 0) remainder--;
     return {
       ...item,
-      weight: Number(((baseUnits + extra) / factor).toFixed(decimals)),
+      weight: Number(((baseUnits + extra) / factor).toFixed(safeDecimals)),
     };
   });
 }
@@ -56,14 +60,18 @@ export function equalizeWeightsExact<T extends { weight: number }>(items: T[], d
  */
 export function redistributeWeightsExact<T extends { weight: number }>(items: T[], decimals = 2): T[] {
   if (items.length === 0) return [];
-  const factor = 10 ** decimals;
+  let safeDecimals = Math.max(0, Math.floor(decimals));
+  while (items.length > 100 * 10 ** safeDecimals) {
+    safeDecimals++;
+  }
+  const factor = 10 ** safeDecimals;
   const totalUnits = 100 * factor;
   const safeWeights = items.map((item) =>
     typeof item.weight === "number" && Number.isFinite(item.weight) && item.weight > 0 ? item.weight : 0,
   );
   const currentTotal = safeWeights.reduce((sum, w) => sum + w, 0);
   if (currentTotal <= 0) {
-    return equalizeWeightsExact(items, decimals);
+    return equalizeWeightsExact(items, safeDecimals);
   }
 
   const exactUnits = safeWeights.map((w) => (w / currentTotal) * totalUnits);
@@ -105,7 +113,7 @@ export function redistributeWeightsExact<T extends { weight: number }>(items: T[
 
   return items.map((item, i) => ({
     ...item,
-    weight: Number((allocated[i] / factor).toFixed(decimals)),
+    weight: Number((allocated[i] / factor).toFixed(safeDecimals)),
   }));
 }
 

@@ -389,7 +389,7 @@ export function IndexBuilderContent({
 
   const handleExportJson = () => {
     const currentIndex: CustomIndex = {
-      id: `custom-export-${Date.now()}`,
+      id: `custom-export-${Date.now()}-${safeRandomId(6)}`,
       name: name || "カスタム指数",
       description: description || "",
       baseValue,
@@ -590,7 +590,7 @@ export function IndexBuilderContent({
       return;
     }
     const tempIndex: CustomIndex = {
-      id: `temp-${Date.now()}`,
+      id: `temp-${Date.now()}-${safeRandomId(6)}`,
       name: name.trim() || "シミュレーションプレビュー指数",
       description: description.trim() || "シミュレーターから一時表示中の独自指数",
       baseValue,

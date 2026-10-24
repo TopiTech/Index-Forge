@@ -135,7 +135,8 @@ export class Tutorial3DScene {
     if (!context) throw new WebGLUnavailableError();
     this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, context });
     this.renderer.setSize(options.width, options.height);
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    const pixelRatio = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
+    this.renderer.setPixelRatio(Math.min(pixelRatio, 2));
 
     // 4. Lights
     this.setupLighting();

@@ -9,6 +9,7 @@ import { useAuth } from "./hooks/useAuth";
 import { useToast } from "./components/Toast";
 import { addWatchlistTicker, addPortfolioPosition, todayJstDateString } from "./lib/portfolioStorage";
 import { reportAddStockResult } from "./lib/addStockFeedback";
+import { safeRandomId } from "./lib/randomId";
 import { POPULAR_STOCKS } from "./data/popularStocksData";
 import { Header, type HeaderProps } from "./components/Header";
 import { Sidebar } from "./components/Sidebar";
@@ -1101,7 +1102,7 @@ function AppContent({
             }}
             onConvertAndCreateCustomIndex={(basket) => {
               const tempIndex: CustomIndex = {
-                id: `portfolio-${Date.now()}`,
+                id: `portfolio-${Date.now()}-${safeRandomId(6)}`,
                 name: "マイ・保有ポートフォリオ指数",
                 description: "保有株式の評価額比率から自動生成されたカスタム指数",
                 basket,
@@ -1134,7 +1135,7 @@ function AppContent({
             }}
             onBatchCreateCustomIndex={(basket) => {
               const tempIndex: CustomIndex = {
-                id: `screener-${Date.now()}`,
+                id: `screener-${Date.now()}-${safeRandomId(6)}`,
                 name: "スクリーニング選抜指数",
                 description: "スクリーナー条件抽出結果による均等配分指数",
                 basket,
