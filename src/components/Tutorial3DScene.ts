@@ -48,7 +48,7 @@ export class Tutorial3DScene {
   private step2CoreMesh: THREE.Mesh | null = null;
   private step2OrbitNodes: THREE.Mesh[] = [];
   private step3HeatmapBars: THREE.Mesh[] = [];
-  private step3Beacon: THREE.Mesh | null = null;
+  private step3Beacon: THREE.Group | null = null;
   private step4Blocks: { mesh: THREE.Mesh; targetPos: THREE.Vector3; initialPos: THREE.Vector3 }[] = [];
   private step4CoreEnergyRing: THREE.Mesh | null = null;
 
@@ -555,7 +555,7 @@ export class Tutorial3DScene {
 
     beaconGroup.position.set(1.4, 1.2, -0.6);
     group.add(beaconGroup);
-    this.step3Beacon = beaconGroup as unknown as THREE.Mesh;
+    this.step3Beacon = beaconGroup;
 
     this.scene.add(group);
     this.stepGroups.set(3, group);

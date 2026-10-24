@@ -61,17 +61,6 @@ export function IndexBuilderModal({
       className="modal-overlay"
       onMouseDown={handleBackdropMouseDown}
       onClick={handleBackdropClick}
-      style={{
-        position: "fixed",
-        inset: 0,
-        zIndex: "var(--z-modal-overlay)" as unknown as number,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        backgroundColor: "var(--surface-overlay)",
-        backdropFilter: "blur(8px)",
-        padding: 16,
-      }}
     >
       <motion.div
         className="modal-dialog builder-modal-dialog"

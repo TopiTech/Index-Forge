@@ -105,6 +105,27 @@ export function buildScreenerCsvRows(results: ScreenerCsvRow[]): string[][] {
 }
 
 /**
+ * Resolves the badge style class corresponding to a technical signal value.
+ * Safely guards against undefined, null, or non-string upstream inputs to prevent
+ * runtime `TypeError: signal.includes is not a function`.
+ */
+export function getTechnicalSignalBadgeClass(signal: unknown): string {
+  if (typeof signal !== "string") {
+    return "badge-default";
+  }
+  if (signal === "STRONG_BUY") {
+    return "badge-accent";
+  }
+  if (signal.includes("BUY")) {
+    return "badge-success";
+  }
+  if (signal.includes("SELL")) {
+    return "badge-danger";
+  }
+  return "badge-default";
+}
+
+/**
  * Lightweight SVG sparkline for displaying stock momentum at a glance.
  */
 function TableSparkline({ data, isPositive }: { data?: number[]; isPositive: boolean }) {
@@ -1195,17 +1216,11 @@ export function ScreenerPage({
 
                       <td style={{ textAlign: "center" }}>
                         <span
-                          className={`badge ${
-                            stock.technicalSignal === "STRONG_BUY"
-                              ? "badge-accent"
-                              : stock.technicalSignal.includes("BUY")
-                                ? "badge-success"
-                                : stock.technicalSignal.includes("SELL")
-                                  ? "badge-danger"
-                                  : "badge-default"
-                          } tiny mono`}
+                          className={`badge ${getTechnicalSignalBadgeClass(stock.technicalSignal)} tiny mono`}
                         >
-                          {stock.technicalSignal}
+                          {typeof stock.technicalSignal === "string" && stock.technicalSignal
+                            ? stock.technicalSignal
+                            : "NEUTRAL"}
                         </span>
                       </td>
                     </tr>
@@ -1347,17 +1362,11 @@ export function ScreenerPage({
                       ROE: {typeof stock.roe === "number" ? `${stock.roe.toFixed(1)}%` : "--"}
                     </span>
                     <span
-                      className={`badge ${
-                        stock.technicalSignal === "STRONG_BUY"
-                          ? "badge-accent"
-                          : stock.technicalSignal.includes("BUY")
-                            ? "badge-success"
-                            : stock.technicalSignal.includes("SELL")
-                              ? "badge-danger"
-                              : "badge-default"
-                      } tiny mono`}
+                      className={`badge ${getTechnicalSignalBadgeClass(stock.technicalSignal)} tiny mono`}
                     >
-                      {stock.technicalSignal}
+                      {typeof stock.technicalSignal === "string" && stock.technicalSignal
+                        ? stock.technicalSignal
+                        : "NEUTRAL"}
                     </span>
                   </div>
                 </article>
