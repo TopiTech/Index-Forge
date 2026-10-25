@@ -414,13 +414,13 @@ export function PortfolioManagerPage({
       const needsUsdJpy = positions.some((p) => getStockCurrency(p.ticker) === "$");
       const allTickers = Array.from(
         new Set([
-          ...positions.map((p) => p.ticker),
-          ...watchlist,
+          ...positions.map((p) => normalizeTicker(p.ticker)),
+          ...watchlist.map((w) => normalizeTicker(w)),
           // Only fetched when a USD position exists: the JPY totals otherwise
           // silently used a hardcoded FX constant instead of the live rate.
           ...(needsUsdJpy ? ["USDJPY=X"] : []),
         ]),
-      );
+      ).filter(Boolean);
       if (allTickers.length === 0) return;
       const requestId = ++requestIdRef.current;
       setRefreshing(true);
@@ -429,7 +429,7 @@ export function PortfolioManagerPage({
           allTickers.map(async (ticker) => {
             try {
               const data = await fetchStockFundamentals(ticker, forceRefresh);
-              return [ticker.toUpperCase(), data] as const;
+              return [normalizeTicker(ticker), data] as const;
             } catch {
               return null;
             }
@@ -1889,8 +1889,8 @@ export function PortfolioManagerPage({
             }}
           >
             {watchlist.map((ticker) => {
-              const live = liveQuotes.get(ticker.toUpperCase());
-              const fund = live ?? getStockFundamentals(ticker);
+              const live = liveQuotes.get(normalizeTicker(ticker)) || liveQuotes.get(ticker.toUpperCase());
+              const fund = live ?? getStockFundamentals(normalizeTicker(ticker));
               const watchTone = changeTone(fund.changePercent, 2);
               return (
                 <div

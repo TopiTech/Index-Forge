@@ -603,7 +603,7 @@ export async function changeAdminSecretCode(
   headers?: Record<string, string>,
 ): Promise<{ ok: boolean; error?: string; adminToken?: string }> {
   try {
-    const authHeaders = headers || getAuthHeaders();
+    const authHeaders = headers || getAdminSessionHeaders();
     const res = await fetchWithNetworkMark("/api/admin/admin-secret-code", {
       method: "PUT",
       headers: {

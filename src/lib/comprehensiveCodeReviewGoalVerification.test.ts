@@ -5,6 +5,14 @@ import { fetchLiveStockFundamentals, resetYahooCrumbCache } from "../../worker/i
 import { deserializePortfolioFromCsv, serializePortfolioToCsv } from "./indexSerialization";
 import { downsampleLTTB } from "./chartData";
 import { formatDynamicRelativeTime } from "./marketDataService";
+import { changeAdminSecretCode, storeAuth, clearAuth } from "./auth";
+import {
+  createPortfolioPosition,
+  sanitizeWatchlist,
+  calculatePortfolioSummary,
+  convertPortfolioToCustomIndexBasket,
+  type PortfolioPosition,
+} from "./portfolioStorage";
 
 /**
  * Deterministic Yahoo Finance test double.
@@ -237,6 +245,236 @@ describe("Goal Code Review Comprehensive Audit & Fix Verification", () => {
       expect(formatDynamicRelativeTime(-5, fixedNow)).toBe("たった今");
       expect(formatDynamicRelativeTime(NaN, fixedNow)).toBe("たった今");
       expect(formatDynamicRelativeTime("invalid-date-string", fixedNow)).toBe("たった今");
+    });
+  });
+
+  // ==========================================================================
+  // 6. Security Header Fallback & Ticker Normalization
+  // ==========================================================================
+  describe("6. Security Header Fallback & Ticker Normalization", () => {
+    afterEach(() => {
+      clearAuth();
+    });
+
+    it("never sends x-auth-password to /api/admin/admin-secret-code when headers are omitted", async () => {
+      storeAuth({
+        role: "admin",
+        name: "Master Admin",
+        password: "super-secret-admin-password",
+        maxStocks: null,
+        maxIndices: null,
+        id: "admin-master",
+        adminToken: "valid-admin-session-token-99999",
+      });
+
+      let capturedHeaders: Record<string, string> = {};
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
+        capturedHeaders = (init?.headers as Record<string, string>) || {};
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            ok: true,
+            adminToken: "renewed-admin-token-12345",
+            adminTokenExpiresAt: Date.now() + 28800000,
+          }),
+        } as Response);
+      });
+
+      try {
+        const res = await changeAdminSecretCode("current-code", "new-secret-code-2026");
+        expect(res.ok).toBe(true);
+        expect(res.adminToken).toBe("renewed-admin-token-12345");
+
+        // Privileged endpoint must receive session header ONLY (C-2/C-5)
+        expect(capturedHeaders["x-admin-session"]).toBe("valid-admin-session-token-99999");
+        expect(capturedHeaders["x-auth-password"]).toBeUndefined();
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+
+    it("sends empty auth headers when no admin session exists and headers are omitted", async () => {
+      clearAuth();
+
+      let capturedHeaders: Record<string, string> = {};
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
+        capturedHeaders = (init?.headers as Record<string, string>) || {};
+        return Promise.resolve({
+          ok: false,
+          status: 401,
+          json: async () => ({
+            ok: false,
+            error: "管理者セッションが無効または期限切れです",
+          }),
+        } as Response);
+      });
+
+      try {
+        const res = await changeAdminSecretCode("current-code", "new-code");
+        expect(res.ok).toBe(false);
+        expect(capturedHeaders["x-admin-session"]).toBeUndefined();
+        expect(capturedHeaders["x-auth-password"]).toBeUndefined();
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+
+    it("preserves explicitly passed custom headers when provided", async () => {
+      let capturedHeaders: Record<string, string> = {};
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
+        capturedHeaders = (init?.headers as Record<string, string>) || {};
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ ok: true, adminToken: "explicit-token-abc" }),
+        } as Response);
+      });
+
+      try {
+        const custom = { "x-admin-session": "custom-provided-token", "x-custom-trace": "trace-123" };
+        const res = await changeAdminSecretCode("code-a", "code-b", custom);
+        expect(res.ok).toBe(true);
+        expect(capturedHeaders["x-admin-session"]).toBe("custom-provided-token");
+        expect(capturedHeaders["x-custom-trace"]).toBe("trace-123");
+        expect(capturedHeaders["x-auth-password"]).toBeUndefined();
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+
+    it("createPortfolioPosition canonicalizes full-width and lowercase tickers", () => {
+      const pos1 = createPortfolioPosition({
+        ticker: " ７２０３ ",
+        name: "トヨタ自動車",
+        shares: 100,
+        averageCost: 2500,
+      });
+      expect(pos1.ticker).toBe("7203");
+      expect(pos1.id).toContain("pos-7203-100-");
+
+      const pos2 = createPortfolioPosition({
+        ticker: " aapl ",
+        name: "Apple Inc.",
+        shares: 10,
+        averageCost: 180,
+      });
+      expect(pos2.ticker).toBe("AAPL");
+      expect(pos2.id).toContain("pos-AAPL-10-");
+    });
+
+    it("sanitizeWatchlist canonicalizes and deduplicates full-width, mixed-case tickers", () => {
+      const raw = ["７２０３", " 7203 ", "aapl", "AAPL", " ａａｐｌ ", "9984", ""];
+      const sanitized = sanitizeWatchlist(raw);
+      expect(sanitized).toEqual(["7203", "AAPL", "9984"]);
+    });
+
+    it("calculatePortfolioSummary handles normalized quotesMap lookup for full-width input", () => {
+      const positions: PortfolioPosition[] = [
+        {
+          id: "pos-1",
+          ticker: "７２０３", // Full-width
+          name: "トヨタ自動車",
+          shares: 100,
+          averageCost: 2000,
+        },
+      ];
+
+      const quotesMap = new Map([
+        [
+          "7203",
+          {
+            ticker: "7203",
+            name: "トヨタ自動車",
+            price: 2800,
+            change: 50,
+            changePercent: 1.82,
+            volume: 1000000,
+            isPositive: true,
+          },
+        ],
+      ]);
+
+      const summary = calculatePortfolioSummary(positions, { quotesMap, usdJpyRate: 150 });
+      expect(summary.totalCost).toBe(200000); // 100 * 2000
+      expect(summary.totalMarketValue).toBe(280000); // 100 * 2800
+      expect(summary.totalProfit).toBe(80000);
+      expect(summary.totalProfitPercent).toBe(40);
+    });
+
+    it("calculatePortfolioSummary handles liveQuotes option key and uppercase Map keys", () => {
+      const positions: PortfolioPosition[] = [
+        {
+          id: "pos-aapl",
+          ticker: "aapl", // Lowercase
+          name: "Apple",
+          shares: 10,
+          averageCost: 150,
+        },
+      ];
+
+      const liveMap = new Map([
+        [
+          "AAPL",
+          {
+            ticker: "AAPL",
+            name: "Apple Inc.",
+            price: 220,
+            change: 5,
+            changePercent: 2.32,
+            volume: 50000000,
+            isPositive: true,
+          },
+        ],
+      ]);
+
+      const summary = calculatePortfolioSummary(positions, { liveQuotes: liveMap, usdJpyRate: 150 });
+      // Individual position values in native USD
+      expect(summary.positions[0].totalCost).toBe(1500); // 10 * 150 in USD
+      expect(summary.positions[0].marketValue).toBe(2200); // 10 * 220 in USD
+      expect(summary.positions[0].unrealizedProfit).toBe(700);
+      // Portfolio summary totals converted to JPY at usdJpyRate (150)
+      expect(summary.totalCost).toBe(225000); // 1500 * 150
+      expect(summary.totalMarketValue).toBe(330000); // 2200 * 150
+      expect(summary.totalProfit).toBe(105000); // 330000 - 225000
+    });
+
+    it("convertPortfolioToCustomIndexBasket groups positions with normalized tickers and allocates 100% total weight", () => {
+      const positions: PortfolioPosition[] = [
+        {
+          id: "p1",
+          ticker: "７２０３",
+          name: "トヨタ",
+          shares: 100,
+          averageCost: 2000,
+          currentPrice: 2000,
+        },
+        {
+          id: "p2",
+          ticker: "7203",
+          name: "トヨタ",
+          shares: 100,
+          averageCost: 2000,
+          currentPrice: 2000,
+        },
+        {
+          id: "p3",
+          ticker: " 8035 ",
+          name: "東京エレクトロン",
+          shares: 50,
+          averageCost: 20000,
+          currentPrice: 20000,
+        },
+      ];
+
+      const basket = convertPortfolioToCustomIndexBasket(positions);
+      expect(basket).toHaveLength(2);
+      expect(basket.find((b) => b.ticker === "7203")).toBeDefined();
+      expect(basket.find((b) => b.ticker === "8035")).toBeDefined();
+
+      const totalWeight = basket.reduce((acc, curr) => acc + curr.weight, 0);
+      expect(totalWeight).toBe(100);
     });
   });
 });

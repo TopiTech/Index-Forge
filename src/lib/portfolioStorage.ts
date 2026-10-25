@@ -7,6 +7,7 @@ import { getStockFundamentals, isMacroAsset } from "./marketDataService";
 import { safeRandomId } from "./randomId";
 import { getStockCurrency } from "./currency";
 import { allocateIntegerWeights } from "./weights";
+import { normalizeTicker } from "./yahooSymbol";
 import { DEFAULT_USD_JPY_RATE } from "../data/marketConstants";
 import type { BasketItem } from "../types";
 
@@ -193,7 +194,7 @@ function buildPortfolioPosition(
  * two identical lots) cannot collide.
  */
 export function createPortfolioPosition(input: NewPortfolioPosition): PortfolioPosition {
-  const ticker = input.ticker.trim();
+  const ticker = normalizeTicker(input.ticker);
   const name = input.name?.trim() || ticker;
   return buildPortfolioPosition(
     {
@@ -218,7 +219,7 @@ function sanitizePosition(raw: unknown): PortfolioPosition | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
   const record = raw as Record<string, unknown>;
 
-  const ticker = typeof record.ticker === "string" ? record.ticker.trim() : "";
+  const ticker = typeof record.ticker === "string" ? normalizeTicker(record.ticker) : "";
   if (!ticker) return null;
 
   const shares = Number(record.shares);
@@ -252,7 +253,7 @@ export function sanitizeWatchlist(raw: unknown): string[] {
   const result: string[] = [];
   for (const entry of raw) {
     if (typeof entry !== "string") continue;
-    const ticker = entry.trim().toUpperCase();
+    const ticker = normalizeTicker(entry);
     if (!ticker || seen.has(ticker)) continue;
     seen.add(ticker);
     result.push(ticker);
@@ -506,6 +507,9 @@ export interface PortfolioSummaryOptions {
   liveQuotes?:
     | Map<string, PortfolioLiveQuote>
     | ReadonlyMap<string, PortfolioLiveQuote>;
+  quotesMap?:
+    | Map<string, PortfolioLiveQuote>
+    | ReadonlyMap<string, PortfolioLiveQuote>;
   usdJpyRate?: number;
 }
 
@@ -531,9 +535,11 @@ export function calculatePortfolioSummary(
     optionsOrQuotes &&
     typeof optionsOrQuotes === "object" &&
     !("get" in optionsOrQuotes) &&
-    ("liveQuotes" in optionsOrQuotes || "usdJpyRate" in optionsOrQuotes)
+    ("liveQuotes" in optionsOrQuotes || "quotesMap" in optionsOrQuotes || "usdJpyRate" in optionsOrQuotes)
   ) {
-    quotesMap = optionsOrQuotes.liveQuotes;
+    quotesMap =
+      optionsOrQuotes.liveQuotes ??
+      (optionsOrQuotes as { quotesMap?: ReadonlyMap<string, PortfolioLiveQuote> }).quotesMap;
     effectiveUsdJpyRate = optionsOrQuotes.usdJpyRate ?? usdJpyRate;
   } else {
     quotesMap = optionsOrQuotes as ReadonlyMap<string, PortfolioLiveQuote> | undefined;
@@ -553,12 +559,13 @@ export function calculatePortfolioSummary(
 
   // 1. Calculate each position
   const enriched = positions.map((pos) => {
+    const normTicker = normalizeTicker(pos.ticker);
     const live =
       quotesMap && typeof quotesMap.get === "function"
-        ? quotesMap.get(pos.ticker.toUpperCase())
+        ? quotesMap.get(normTicker) || quotesMap.get(pos.ticker.toUpperCase())
         : undefined;
-    const fund = getStockFundamentals(pos.ticker);
-    const curr = getStockCurrency(pos.ticker);
+    const fund = getStockFundamentals(normTicker);
+    const curr = getStockCurrency(normTicker);
     const isUSD = curr === "$";
     const rawQuoteRate = quotesMap?.get?.("USDJPY=X")?.price;
     const fallbackRate =
@@ -698,7 +705,7 @@ export function convertPortfolioToCustomIndexBasket(
     { ticker: string; name: string; theme: string; marketValue: number }
   >();
   for (const pos of summary.positions) {
-    const normTicker = (pos.ticker || "").trim().toUpperCase();
+    const normTicker = normalizeTicker(pos.ticker);
     if (!normTicker || isMacroAsset(normTicker)) continue;
     const posMv = pos.marketValueJpy ?? pos.marketValue;
     const validMv = typeof posMv === "number" && Number.isFinite(posMv) && posMv > 0 ? posMv : 0;
