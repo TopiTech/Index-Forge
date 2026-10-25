@@ -11,6 +11,7 @@ import {
   isValidSortOrder,
   isValidTicker,
   isValidWeight,
+  readJsonBody,
   validateBasketItems,
 } from "./apiContract";
 import { deserializeIndexFromJson } from "./indexSerialization";
@@ -191,5 +192,26 @@ describe("apiContract: the imported index stays inside the Worker's contract", (
 describe("apiContract: the owner token length is stated once", () => {
   it("matches the length the Worker accepts", () => {
     expect(MAX_OWNER_TOKEN_LENGTH).toBe(256);
+  });
+});
+
+describe("apiContract: readJsonBody", () => {
+  it("returns the parsed JSON for a well-formed body", async () => {
+    const res = new Response(JSON.stringify({ ok: true, series: [1, 2, 3] }), {
+      headers: { "content-type": "application/json" },
+    });
+    const data = await readJsonBody<{ ok?: boolean; series?: unknown }>(res);
+    expect(data).toEqual({ ok: true, series: [1, 2, 3] });
+  });
+
+  it("returns null for an HTML error page served with HTTP 200", async () => {
+    const res = new Response("<html><body>502 Bad Gateway</body></html>", {
+      headers: { "content-type": "text/html" },
+    });
+    expect(await readJsonBody(res)).toBeNull();
+  });
+
+  it("returns null for an empty body", async () => {
+    expect(await readJsonBody(new Response(""))).toBeNull();
   });
 });

@@ -2584,12 +2584,20 @@ export async function fetchUpcomingEvents(forceRefresh = false): Promise<Calenda
       const url = forceRefresh
         ? `/api/market/calendar?refresh=${Date.now()}`
         : "/api/market/calendar";
+      // ここまでの他の /api/market/* フェッチと同じ8秒タイムアウトを適用する。
+      // カレンダーだけシグナルなしで待ち続けると、応答の遅いワーカーが
+      // CalendarPage をいつまでも空白のままにする。
+      const timeoutSignal =
+        typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function"
+          ? AbortSignal.timeout(8000)
+          : undefined;
       const res = await fetch(url, {
         headers: {
           accept: "application/json",
           ...(forceRefresh ? { "cache-control": "no-cache" } : {}),
         },
         cache: forceRefresh ? "no-cache" : "default",
+        signal: timeoutSignal,
       });
       if (res.ok) {
         const contentType = res.headers.get("content-type") || "";

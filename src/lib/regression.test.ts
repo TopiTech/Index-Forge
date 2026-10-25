@@ -80,14 +80,26 @@ describe("regression: worker API contract", () => {
 
   it("R7: useCalculation.ts batches through the shared priceSync module (12 tickers per request)", () => {
     const hookSrc = readFileSync(resolve("src/hooks/useCalculation.ts"), "utf-8");
+    const builderSrc = readFileSync(resolve("src/hooks/useSimulation.ts"), "utf-8");
     const priceSyncSrc = readFileSync(resolve("src/lib/priceSync.ts"), "utf-8");
 
-    // DATA-25: the batch size, the auth headers and the warning texts are
-    // owned by src/lib/priceSync, so the dashboard and the builder preview
-    // cannot drift apart again. useCalculation must not keep a private copy.
-    expect(hookSrc).toContain('import { syncPricesInBatches } from "../lib/priceSync"');
+    // DATA-25: the batch size, the auth headers, the warning texts and the
+    // force-refresh policy are owned by src/lib/priceSync, so the dashboard
+    // and the builder preview cannot drift apart again. Neither hook keeps a
+    // private copy: useSimulation used to send the raw `Boolean(force)`,
+    // which turned every unauthenticated builder refresh into a 401 per
+    // batch plus a wall of sync warnings.
+    expect(hookSrc).toContain(
+      'import { determineSyncForce, syncPricesInBatches } from "../lib/priceSync"',
+    );
     expect(hookSrc).not.toContain("const BATCH_SIZE");
+    expect(hookSrc).not.toContain("function determineSyncForce");
+    expect(builderSrc).toContain(
+      'import { determineSyncForce, syncPricesInBatches } from "../lib/priceSync"',
+    );
+    expect(builderSrc).not.toContain("force: Boolean(force)");
     expect(priceSyncSrc).toContain("export const SYNC_BATCH_SIZE = 12;");
+    expect(priceSyncSrc).toContain("export function determineSyncForce");
     // The client batch size must stay in step with the Worker's request cap.
     expect(SYNC_BATCH_SIZE).toBe(MAX_SYNC_TICKERS_PER_REQUEST);
   });

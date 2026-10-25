@@ -9,6 +9,7 @@ import {
   isIndexOwner,
 } from "../lib/ownership";
 import { getAuthHeaders } from "../lib/auth";
+import { readJsonBody } from "../lib/apiContract";
 import {
   sanitizeBasketForRequest,
   normalizeTicker,
@@ -302,7 +303,11 @@ export function useIndices() {
 
       if (!res.ok) throw new Error("指数一覧の取得に失敗しました");
 
-      const data: unknown = await res.json();
+      // HTTP 200 でも JSON でない本文(プロキシのHTMLエラー画面や204の空
+      // 本文)は、生の SyntaxError ではなく取得失敗として扱う。catch 節の
+      // キャッシュ/デフォルトへのフォールバックはそのまま機能する。
+      const data = await readJsonBody<unknown>(res);
+      if (data === null) throw new Error("指数一覧の応答を解析できませんでした");
       // The ETag and the body form one conditional-request pair: writing the
       // ETag before the body was validated (or by a superseded request) left
       // the stored ETag paired with a different body, so the next request

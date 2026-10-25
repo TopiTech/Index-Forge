@@ -58,6 +58,24 @@ export function buildSyncBatches(
   return batches;
 }
 
+/**
+ * Determine whether a price sync request should force-refresh prices.
+ *
+ * `force` means "re-fetch even cache-fresh rows", and the Worker requires
+ * authentication for it. This decision used to live only in `useCalculation`;
+ * `useSimulation` sent the raw `Boolean(force)` instead, so an unauthenticated
+ * builder preview refresh produced an HTTP 401 for every batch and a wall of
+ * sync warnings — the exact drift this module exists to prevent (DATA-25).
+ * The policy is therefore defined here, next to the request it guards, and
+ * both hooks call it before constructing their sync request.
+ */
+export function determineSyncForce(
+  force: boolean,
+  session: { password?: string } | null | undefined,
+): boolean {
+  return force && Boolean(session?.password);
+}
+
 export interface PriceSyncEntry {
   ticker: string;
   lastSynced: number;

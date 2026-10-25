@@ -75,3 +75,33 @@ describe("nikkei-175: client fallback vs seed.sql", () => {
     }
   });
 });
+
+describe("all built-in indices: client fallback vs seed.sql parity", () => {
+  // DATA-16 の再発防止ガード。nikkei-175 だけパリティテストがあり、他の
+  // 組み込みインデックスは未担保だったため、infra-tech の富士通ウェイトが
+  // クライアント(20)と seed.sql(10)で食い違うドリフトが実際に発生した。
+  // すべての DEFAULT_INDICES を対象に、seed.sql(サーバー側の真実)と
+  // クライアントフォールバックの完全一致をここで固定する。
+  for (const index of DEFAULT_INDICES) {
+    const seedRows = readSeedBasketRows(index.id);
+
+    it(`${index.id}: seed.sql に構成銘柄行が存在する`, () => {
+      expect(seedRows.length, `${index.id} は seed.sql に存在しません`).toBeGreaterThan(0);
+    });
+
+    it(`${index.id}: クライアントフォールバックが seed.sql と完全一致する`, () => {
+      const clientRows = index.basket.map((item) => ({
+        ticker: item.ticker,
+        name: item.name,
+        weight: Number(item.weight),
+        theme: item.theme ?? "",
+      }));
+      expect(clientRows).toEqual(seedRows);
+    });
+
+    it(`${index.id}: seed の重み合計が100である`, () => {
+      const total = seedRows.reduce((sum, row) => sum + row.weight, 0);
+      expect(Math.round(total * 100) / 100).toBe(100);
+    });
+  }
+});

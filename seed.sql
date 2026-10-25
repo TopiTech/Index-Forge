@@ -37,7 +37,7 @@ INSERT OR REPLACE INTO basket_items (index_id, ticker, name, weight, theme) VALU
 ('infra-tech', '9433', 'KDDI', 15, '通信'),
 ('infra-tech', '9434', 'ソフトバンク', 15, '通信'),
 ('infra-tech', '6501', '日立製作所', 15, 'DXインフラ'),
-('infra-tech', '6702', '富士通', 10, 'DXサービス'),
+('infra-tech', '6702', '富士通', 20, 'DXサービス'),
 ('infra-tech', '6701', 'NEC', 10, '通信設備'),
 ('infra-tech', '5803', 'フジクラ', 10, '光ファイバー');
 

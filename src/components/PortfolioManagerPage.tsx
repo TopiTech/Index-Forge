@@ -463,7 +463,13 @@ export function PortfolioManagerPage({
     }
   }, [isAuthenticated, loadLiveQuotes]);
 
-  const summary = calculatePortfolioSummary(positions, liveQuotes, usdJpyRate);
+  // positions / liveQuotes / usdJpyRate が変わらない再描画(入力欄のタイピング
+  // 等)でサマリー全体を再計算しない。結果はソート済みリストや表示全体に
+  // 波及するため、依存が変わったときだけ再構築する。
+  const summary = useMemo(
+    () => calculatePortfolioSummary(positions, liveQuotes, usdJpyRate),
+    [positions, liveQuotes, usdJpyRate],
+  );
   const [tableSortField, setTableSortField] = useState<"name" | "marketValue" | "unrealizedProfitPercent" | null>(null);
   const [tableSortAsc, setTableSortAsc] = useState<boolean>(true);
 

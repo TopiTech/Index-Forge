@@ -14,14 +14,15 @@ import {
   sanitizeBasketForRequest,
 } from "../lib/indexEngine";
 import { calculateRiskMetrics } from "../lib/analytics";
+import { readJsonBody } from "../lib/apiContract";
 import { filterByTimeframe } from "../lib/timeframe";
 import { isPriceCacheFresh } from "../lib/marketCache";
 import { mergeSyncCache, readSyncCache, removeFromSyncCache } from "../lib/syncCache";
-import { getAuthHeaders } from "../lib/auth";
+import { getAuthHeaders, getStoredAuth } from "../lib/auth";
 // The "sync prices → calculate" contract (batch size, auth headers, warning
 // texts, abort policy) is owned by src/lib/priceSync so the builder preview
 // and the dashboard cannot drift apart again.
-import { syncPricesInBatches } from "../lib/priceSync";
+import { determineSyncForce, syncPricesInBatches } from "../lib/priceSync";
 import { useBenchmark, isBenchmarkDataForSymbol } from "./useBenchmark";
 import { getMissingPriceDataTickers } from "./useCalculation";
 
@@ -267,7 +268,11 @@ export function useSimulation(
         const localSyncCache = readSyncCache();
         const nowSec = Math.floor(Date.now() / 1000);
 
-        const tickersToSync = force
+        // 強制更新は認証済みリクエストのみ Worker が受け付ける(未認証の
+        // force は 401 とバッチ警告の嵐になる)。判定は priceSync の契約に
+        // 一任し、ダッシュボードと同じポリシーをゲストにも適用する。
+        const effectiveForce = determineSyncForce(Boolean(force), getStoredAuth());
+        const tickersToSync = effectiveForce
           ? allTickers
           : allTickers.filter((t) => {
               const lastSynced = localSyncCache[t];
@@ -288,7 +293,7 @@ export function useSimulation(
           const { synced, warnings } = await syncPricesInBatches({
             tickers: tickersToSync,
             signal: controller.signal,
-            force: Boolean(force),
+            force: effectiveForce,
             // Guests send no auth header at all.
             authHeaders: getAuthHeaders(),
             isSuperseded,
@@ -314,7 +319,7 @@ export function useSimulation(
 
         if (controller.signal.aborted || isSuperseded()) return;
 
-        const bypassServerCalculationCache = Boolean(force || tickersToSync.length > 0);
+        const bypassServerCalculationCache = effectiveForce || tickersToSync.length > 0;
 
         // 2. Fetch calculated index and stockUniverse from /api/calculate
         const calcRes = await fetch(`${API_BASE}/calculate`, {
@@ -341,12 +346,19 @@ export function useSimulation(
         let serverErrorMessage: string | null = null;
 
         if (calcRes.ok) {
-          const data = await calcRes.json();
+          const data = await readJsonBody<{ stockUniverse?: unknown; series?: unknown }>(calcRes);
           // The response body is read asynchronously: a superseded request must
           // not publish its universe/series for a basket that no longer exists.
           if (controller.signal.aborted || isSuperseded()) return;
-          universe = Array.isArray(data.stockUniverse) ? data.stockUniverse : [];
-          series = Array.isArray(data.series) ? data.series : [];
+          if (!data) {
+            // HTTP 200 でも JSON でない本文(プロキシのHTMLエラー画面等)は、
+            // 非2xx応答と同じ理由表示に落とす。生の SyntaxError を汎用の
+            // ネットワークエラー扱いにすると原因が消えてしまう。
+            serverErrorMessage = `指数の計算に失敗しました (HTTP ${calcRes.status})`;
+          } else {
+            universe = Array.isArray(data.stockUniverse) ? data.stockUniverse : [];
+            series = Array.isArray(data.series) ? data.series : [];
+          }
 
           if (requestBasket.length > 0 && universe.length > 0) {
             const missingTickers = getMissingPriceDataTickers(requestBasket, universe);

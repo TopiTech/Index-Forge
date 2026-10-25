@@ -2,13 +2,14 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import type { CustomIndex } from "../data/indices";
 import type { BasketItem, PricePoint, StockDetail, StockSeries } from "../types";
 import { calculateStockDetails } from "../lib/analytics";
+import { readJsonBody } from "../lib/apiContract";
 import { sanitizeBasketForRequest } from "../lib/indexEngine";
 import { getAuthHeaders } from "../lib/auth";
 import { isPriceCacheFresh } from "../lib/marketCache";
 // The "sync prices → calculate" contract (batch size, auth headers, warning
 // texts, abort policy) is owned by src/lib/priceSync so the dashboard and the
 // builder preview cannot drift apart again.
-import { syncPricesInBatches } from "../lib/priceSync";
+import { determineSyncForce, syncPricesInBatches } from "../lib/priceSync";
 // The shared sync cache lives in src/lib/syncCache so the dashboard and the
 // builder cannot overwrite each other's entries. The re-exports keep the
 // historical import surface (`../hooks/useCalculation`) working for existing
@@ -26,7 +27,10 @@ import { useAuth } from "./useAuth";
 
 const API_BASE = "/api";
 
-export { SYNC_STORAGE_KEY, parseLocalSyncCache, type SyncCacheUpdateEntry };
+// The force-sync policy moved to src/lib/priceSync (the single owner of the
+// sync contract); the re-export keeps the historical import surface working
+// for existing callers and tests.
+export { SYNC_STORAGE_KEY, determineSyncForce, parseLocalSyncCache, type SyncCacheUpdateEntry };
 
 /**
  * Merge freshly synced tickers into the shared browser sync cache.
@@ -83,18 +87,6 @@ export function getClientCalcCacheSize(): number {
 
 export function clearClientCalcCache(): void {
   clientCalcCache.clear();
-}
-
-/**
- * Determine whether a price sync request should force-refresh prices.
- * Force synchronization requires authentication; unauthenticated viewers
- * fall back to normal freshness-checked sync to prevent spurious 401 errors.
- */
-export function determineSyncForce(
-  force: boolean,
-  session: { password?: string } | null | undefined,
-): boolean {
-  return force && Boolean(session?.password);
 }
 
 /**
@@ -326,8 +318,14 @@ export function useCalculation(selectedIndex: CustomIndex | null, enabled = true
           const errJson = await res.json().catch(() => ({}));
           throw new Error(errJson.error || "指数の計算に失敗しました");
         }
-        const data = await res.json();
+        // HTTP 200 でも JSON でない本文(プロキシのHTMLエラー画面等)は、
+        // 生の SyntaxError として利用者に見えていたため、契約モジュールの
+        // ヘルパーで一括して「応答なし」に落とす。
+        const data = await readJsonBody<{ series?: unknown; stockUniverse?: unknown }>(res);
         if (controller.signal.aborted) return;
+        if (!data) {
+          throw new Error("サーバーから無効な応答が返されました");
+        }
         const calculatedSeries = Array.isArray(data.series) ? data.series : [];
         setCustomSeries(calculatedSeries);
         const universe = Array.isArray(data.stockUniverse) ? data.stockUniverse : [];

@@ -49,7 +49,12 @@ export const MIN_WEIGHT = 0;
 /** Inclusive upper bound of a constituent weight (percent). */
 export const MAX_WEIGHT = 100;
 
-/** Inclusive lower bound of the base value an index is scaled to. */
+/**
+ * Exclusive lower bound of the base value an index is scaled to.
+ *
+ * The contract check is `baseValue > MIN_BASE_VALUE` (a base value of 0 would
+ * make every calculated point 0/0), so the bound itself is rejected.
+ */
 export const MIN_BASE_VALUE = 0;
 
 /** Inclusive upper bound of the base value an index is scaled to. */
@@ -210,4 +215,29 @@ export function validateBasketItems(
   }
 
   return { ok: true, basket };
+}
+
+/**
+ * Read a JSON body from a fetch Response, returning `null` when the body is
+ * not valid JSON.
+ *
+ * Several callers await `res.json()` on the success path without guarding it
+ * (`useCalculation`, `useSimulation`, `useIndices`). When a proxy or an error
+ * page answers HTTP 200 with HTML, that threw a raw `SyntaxError` whose
+ * message ("Unexpected token '<' …") reached the user or, worse, skipped the
+ * graceful fallback the surrounding code had prepared. This helper is the one
+ * place that decision is made: a non-JSON body is a failed response, not an
+ * exception.
+ *
+ * Like the rest of this module it must stay free of browser/Node specific
+ * imports: the Worker typecheck compiles this file too, and `Response` exists
+ * in both runtime type worlds.
+ */
+export async function readJsonBody<T = unknown>(res: Response): Promise<T | null> {
+  try {
+    const value = (await res.json()) as T;
+    return value;
+  } catch {
+    return null;
+  }
 }
