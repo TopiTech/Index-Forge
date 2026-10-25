@@ -164,6 +164,6 @@ export type {
 // Worker without pulling in the generated ambient declaration file.
 export type { D1Database, D1PreparedStatement } from "@cloudflare/workers-types";
 
-// toYahooSymbol historically lived in the worker entry module; the canonical
-// implementation is in src/lib/yahooSymbol and the Worker imports it there.
-export { toYahooSymbol } from "../src/lib/yahooSymbol";
+// toYahooSymbol and normalizeTicker live canonically in src/lib/yahooSymbol
+// and the Worker exports them for tests and consumers here.
+export { normalizeTicker, toYahooSymbol } from "../src/lib/yahooSymbol";

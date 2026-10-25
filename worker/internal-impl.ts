@@ -34,7 +34,7 @@ import {
   isPriceCacheFresh as isPriceCacheFreshShared,
 } from "../src/lib/marketCache";
 import { safeRandomId } from "../src/lib/randomId";
-import { toYahooSymbol } from "../src/lib/yahooSymbol";
+import { normalizeTicker, toYahooSymbol } from "../src/lib/yahooSymbol";
 import {
   LEGACY_REPAIRED_WEIGHT,
   MAX_BASKET_ITEMS,
@@ -3052,7 +3052,7 @@ export const US_CIK_LOOKUP: Record<string, string> = {
 export async function fetchSecEdgarFinancials(
   ticker: string,
 ): Promise<Array<{ fiscalYear: string; revenue: number; operatingIncome: number; netIncome: number; eps: number; dps: number }>> {
-  const norm = ticker.trim().toUpperCase();
+  const norm = normalizeTicker(ticker);
   const cik = US_CIK_LOOKUP[norm];
   if (!cik) return [];
 
@@ -3640,7 +3640,7 @@ export function normalizeDividendYield(
 }
 
 export async function fetchLiveStockFundamentals(ticker: string, env?: Env): Promise<StockQuoteFundamentals> {
-  const input = ticker.trim().toUpperCase();
+  const input = normalizeTicker(ticker);
   const matchedPreset =
     POPULAR_STOCKS.find((s) => s.ticker.toUpperCase() === input) ??
     (input ? POPULAR_STOCKS.find((s) => s.name === input) : undefined);
@@ -5552,7 +5552,9 @@ export async function checkRateLimit(
     // rows (approx every 100 requests). All three are written by unauthenticated
     // traffic and would otherwise grow without bound.
     if (Math.random() < 0.01) {
-      const purgePromise = purgeExpiredSecurityRows(env, now);
+      const purgePromise = purgeExpiredSecurityRows(env, now).catch((err) => {
+        console.error("checkRateLimit purgeExpiredSecurityRows failed:", err);
+      });
       if (ctx && typeof ctx.waitUntil === "function") {
         ctx.waitUntil(purgePromise);
       } else {
@@ -6970,11 +6972,11 @@ export default {
 
           const rawIndexId = url.searchParams.get("indexId");
           const rawTicker = url.searchParams.get("ticker");
+          const normalizedTicker = typeof rawTicker === "string" ? normalizeTicker(rawTicker) : "";
           if (
             !rawIndexId ||
             !isValidIndexId(rawIndexId.trim()) ||
-            !rawTicker ||
-            !isValidTicker(rawTicker.trim())
+            !isValidTicker(normalizedTicker)
           ) {
             return json(
               { error: INDEX_ID_TICKER_REQUIRED_MESSAGE },
@@ -6983,7 +6985,7 @@ export default {
             );
           }
           const indexId = rawIndexId.trim();
-          const ticker = rawTicker.trim().toUpperCase();
+          const ticker = normalizedTicker;
           // Header only: a `?ownerToken=` query value leaked the secret into
           // access and proxy logs (SEC-03).
           const providedToken = request.headers.get("x-owner-token")?.trim() || "";
@@ -7123,7 +7125,7 @@ export default {
           const now = Math.floor(Date.now() / 1000);
           const SNAPSHOT_CACHE_TTL = 5 * 60; // 5 minutes
           const rawSymbol = url.searchParams.get("symbol") || "^N225";
-          const symbol = rawSymbol.trim();
+          const symbol = normalizeTicker(rawSymbol);
 
           if (!isValidTicker(symbol)) {
             return json({ error: INVALID_SYMBOL_MESSAGE }, 400, request);
@@ -7545,13 +7547,13 @@ export default {
         request.method === "GET"
       ) {
         try {
-          const ticker = url.searchParams.get("ticker");
-          if (!ticker || !ticker.trim()) {
+          const rawTicker = url.searchParams.get("ticker");
+          if (!rawTicker || !rawTicker.trim()) {
             return json({ error: TICKER_REQUIRED_MESSAGE }, 400, request);
           }
 
-          const norm = ticker.trim().toUpperCase();
-          if (norm.length > 20 || !/^[A-Z0-9.^=_-]{1,20}$/.test(norm)) {
+          const norm = normalizeTicker(rawTicker);
+          if (!isValidTicker(norm)) {
             return json({ error: INVALID_TICKER_FORMAT_MESSAGE }, 400, request);
           }
 
@@ -8566,10 +8568,16 @@ export default {
             );
           }
           const rawTickers = body.tickers as unknown[];
+          const tickers: string[] = [];
           for (const t of rawTickers) {
-            if (typeof t !== "string" || !isValidTicker(t.trim())) {
+            if (typeof t !== "string") {
               return json({ error: INVALID_TICKER_VALUE_MESSAGE }, 400, request);
             }
+            const normalized = normalizeTicker(t);
+            if (!isValidTicker(normalized)) {
+              return json({ error: INVALID_TICKER_VALUE_MESSAGE }, 400, request);
+            }
+            tickers.push(normalized);
           }
           // Keep the request within Cloudflare's subrequest limits. Silently
           // truncating used to make callers believe every ticker was refreshed.
@@ -8582,9 +8590,7 @@ export default {
               request,
             );
           }
-          const tickers = Array.from(
-            new Set((rawTickers as string[]).map((t) => t.trim().toUpperCase())),
-          );
+          const uniqueTickers = Array.from(new Set(tickers));
           const force = body.force === true;
           if (force) {
             const bodyPassword = typeof body.password === "string" ? body.password : null;
@@ -8606,9 +8612,9 @@ export default {
           let syncLogs: unknown[] = [];
           try {
             const res = await env.DB.prepare(
-              `SELECT ticker, last_synced_at FROM sync_logs WHERE ticker IN (${tickers.map(() => "?").join(",")})`,
+              `SELECT ticker, last_synced_at FROM sync_logs WHERE ticker IN (${uniqueTickers.map(() => "?").join(",")})`,
             )
-              .bind(...tickers)
+              .bind(...uniqueTickers)
               .all();
             syncLogs = res.results;
           } catch (syncErr: unknown) {
@@ -8625,7 +8631,7 @@ export default {
 
           // Collect tickers that need fetching
           const toFetch: string[] = [];
-          for (const ticker of tickers) {
+          for (const ticker of uniqueTickers) {
             const lastSynced = lastSyncedMap.get(ticker);
             if (!force) {
               if (lastSynced !== undefined) {

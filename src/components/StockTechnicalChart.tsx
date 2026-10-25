@@ -20,6 +20,8 @@ import {
 import type { StockQuoteFundamentals } from "../lib/marketDataService";
 import { detectStockCurrency, formatStockPrice } from "../lib/currency";
 import { resolveTradingViewSymbol, getTradingViewWebUrl } from "../lib/tradingView";
+import { readJsonBody } from "../lib/apiContract";
+import { normalizeTicker } from "../lib/yahooSymbol";
 
 export interface StockTechnicalChartProps {
   stock: StockQuoteFundamentals;
@@ -429,22 +431,24 @@ export function StockTechnicalChart({
     async function fetchHistoricalPrices() {
       try {
         let rawSeries: Array<{ date: string; close: number }> | undefined;
+        const normalizedTicker = normalizeTicker(quote.ticker);
+        const tickerToFetch = normalizedTicker || quote.ticker;
 
         const isBenchmark =
-          quote.ticker.startsWith("^") ||
-          quote.ticker.includes("=") ||
-          quote.ticker === "BTC-USD";
+          tickerToFetch.startsWith("^") ||
+          tickerToFetch.includes("=") ||
+          tickerToFetch === "BTC-USD";
 
         if (isBenchmark) {
           try {
-            const snapRes = await fetch(`/api/snapshot?symbol=${encodeURIComponent(quote.ticker)}`);
+            const snapRes = await fetch(`/api/snapshot?symbol=${encodeURIComponent(tickerToFetch)}`);
             if (snapRes.ok) {
-              const snapData = (await snapRes.json()) as {
+              const snapData = (await readJsonBody(snapRes)) as {
                 series?: Array<{ date: string; close: number }>;
-              };
+              } | null;
               // DATA-27: a short but real series is still real data and must
               // be rendered as-is instead of being replaced by a synthetic one.
-              if (Array.isArray(snapData.series) && snapData.series.length >= 1) {
+              if (snapData && Array.isArray(snapData.series) && snapData.series.length >= 1) {
                 rawSeries = snapData.series;
               }
             }
@@ -459,15 +463,15 @@ export function StockTechnicalChart({
           // cannot have changed, so the write is only needed when the ticker
           // itself changes. It is recorded as done only after the request
           // succeeded, so a failed write is retried on the next run.
-          if (lastSyncedTickerRef.current !== quote.ticker) {
+          if (lastSyncedTickerRef.current !== tickerToFetch) {
             try {
               const syncRes = await fetch("/api/sync-prices", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ tickers: [quote.ticker] }),
+                body: JSON.stringify({ tickers: [tickerToFetch] }),
               });
               if (syncRes.ok) {
-                lastSyncedTickerRef.current = quote.ticker;
+                lastSyncedTickerRef.current = tickerToFetch;
               }
             } catch {
               // Preflight sync is best-effort; proceed to query /api/calculate.
@@ -481,8 +485,8 @@ export function StockTechnicalChart({
             body: JSON.stringify({
               basket: [
                 {
-                  ticker: quote.ticker,
-                  name: quote.name,
+                  ticker: tickerToFetch,
+                  name: quote.name?.trim() || tickerToFetch,
                   theme: quote.theme || "その他",
                   weight: 100,
                 },
@@ -492,14 +496,14 @@ export function StockTechnicalChart({
           });
 
           if (calcRes.ok) {
-            const calcData = (await calcRes.json()) as {
+            const calcData = (await readJsonBody(calcRes)) as {
               stockUniverse?: Array<{
                 ticker: string;
                 series?: Array<{ date: string; close: number }>;
               }>;
             };
-            const found = calcData.stockUniverse?.find(
-              (s) => s.ticker.toUpperCase() === quote.ticker.toUpperCase(),
+            const found = calcData && calcData.stockUniverse?.find(
+              (s) => s.ticker.toUpperCase() === tickerToFetch.toUpperCase(),
             );
             rawSeries = found?.series;
           }
