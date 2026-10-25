@@ -8566,7 +8566,16 @@ export default {
             } catch (quotaErr: unknown) {
               // A database that predates the quota table must not lose the
               // endpoint: the per-request rate limit still applies, so the
-              // request continues with the quota unenforced.
+              // request continues with the quota unenforced. Any other D1
+              // failure must not bypass the budget: fail closed.
+              if (!isMissingTableError(quotaErr, "sync_quota")) {
+                console.error("sync-prices: the daily quota check failed:", quotaErr);
+                return json(
+                  { error: "価格同期の上限を確認できないため、後で再試行してください" },
+                  503,
+                  request,
+                );
+              }
               console.warn("sync-prices: the daily quota could not be enforced:", quotaErr);
             }
           }

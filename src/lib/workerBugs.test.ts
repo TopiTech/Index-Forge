@@ -21,6 +21,8 @@ interface StatefulEnv {
   _stockSeries: Map<string, { ticker: string; prices: string; updated_at: number }>;
   /** Charged ticker budget per `ip::day` (SEC-11 daily quota). */
   _syncQuota: Map<string, number>;
+  /** When set, charging the quota fails with a non-schema D1 error. */
+  _failQuotaWrites?: boolean;
 }
 
 function createStatefulEnv(): StatefulEnv {
@@ -59,6 +61,9 @@ function createStatefulEnv(): StatefulEnv {
         env._rateLimits.set(k, { ip, endpoint, request_count: 1, window_start: now });
         return { results: [], changes: 1 };
       }
+    }
+    if (query.includes("INSERT INTO sync_quota") && env._failQuotaWrites) {
+      throw new Error("D1_ERROR: database is locked");
     }
     if (query.includes("INSERT INTO sync_quota")) {
       // Params: [ip, day, tickers, budget]. The real statement only applies
@@ -293,6 +298,33 @@ describe("worker: failed Yahoo synchronization backoff", () => {
     // The client is told about the exhausted budget in Japanese (DATA-14).
     expect(data.error).toContain("本日の価格同期上限に達しました");
     // The request is rejected before any Yahoo Finance call.
+    expect((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.length).toBe(0);
+  });
+
+  it("fails closed with 503 when the daily budget cannot be checked for a non-schema D1 error", async () => {
+    // A transient D1 failure while charging the budget must not bypass the
+    // per-IP quota. Only a missing sync_quota table may fail open.
+    const env = createStatefulEnv();
+    env._failQuotaWrites = true;
+
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ chart: { result: [{ timestamp: [], indicators: { quote: [{ close: [] }] } }] } }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+
+    const res = await worker.fetch(
+      new Request("http://localhost/api/sync-prices", {
+        method: "POST",
+        headers: { "cf-connecting-ip": "15.15.15.15" },
+        body: JSON.stringify({ tickers: ["7203"] }),
+      }),
+      env as any,
+    );
+
+    expect(res.status).toBe(503);
+    // No external fetch may happen when the budget could not be charged.
     expect((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.length).toBe(0);
   });
 

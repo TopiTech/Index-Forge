@@ -424,8 +424,11 @@ export function runMigration(targetFlag = "--local", configPath = "wrangler.loca
     try {
       execWrangler(targetFlag, configPath, dbName, OWNER_TOKEN_BACKFILL_SQL);
       console.log("   Backfilled owner_token_issued_at timestamp for grandfathered rows.");
-    } catch {
-      // Best effort backfill
+    } catch (err) {
+      // The backfill is idempotent, so a re-run completes it. Report the
+      // failure: a silent miss would leave legacy owner tokens exempt from
+      // rotation indefinitely.
+      console.warn(`   WARNING: owner_token_issued_at backfill failed: ${err.message}`);
     }
   }
 
