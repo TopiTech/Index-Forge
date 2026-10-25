@@ -2803,7 +2803,7 @@ export async function getYahooCrumb(
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
       },
       redirect: "manual",
-      signal: AbortSignal.timeout(4000),
+      signal: AbortSignal.timeout(2500),
     });
     // Read the single `set-cookie` value once instead of asserting the second
     // `get` non-null: the two reads can disagree, and the assertion hid that.
@@ -2827,7 +2827,7 @@ export async function getYahooCrumb(
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
           ...(cookie ? { Cookie: cookie } : {}),
         },
-        signal: AbortSignal.timeout(4000),
+        signal: AbortSignal.timeout(2500),
       });
       if (res2.ok) {
         crumbText = (await res2.text()).trim();
@@ -2844,7 +2844,7 @@ export async function getYahooCrumb(
               "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             ...(cookie ? { Cookie: cookie } : {}),
           },
-          signal: AbortSignal.timeout(4000),
+          signal: AbortSignal.timeout(2500),
         });
         if (resAlt.ok) {
           crumbText = (await resAlt.text()).trim();
@@ -3432,6 +3432,8 @@ interface YahooQuoteSummaryResponse {
         forwardPE?: { raw?: number };
         dividendYield?: { raw?: number };
         dividendRate?: { raw?: number };
+        trailingAnnualDividendYield?: { raw?: number };
+        trailingAnnualDividendRate?: { raw?: number };
         fiftyTwoWeekHigh?: { raw?: number };
         fiftyTwoWeekLow?: { raw?: number };
         volume?: { raw?: number };
@@ -3752,12 +3754,12 @@ export async function fetchLiveStockFundamentals(ticker: string, env?: Env): Pro
       const livePbr = stats.priceToBook?.raw || null;
       if (livePbr && livePbr > 0) pbr = Number(livePbr.toFixed(2));
 
-      const rawDiv = detail.dividendYield?.raw;
+      const rawDiv = detail.dividendYield?.raw ?? detail.trailingAnnualDividendYield?.raw;
       const normalizedDividendYield = normalizeDividendYield(rawDiv, "fraction");
       if (normalizedDividendYield !== null) {
         dividendYield = normalizedDividendYield;
       }
-      const rawDivRate = detail.dividendRate?.raw;
+      const rawDivRate = detail.dividendRate?.raw ?? detail.trailingAnnualDividendRate?.raw;
       if (typeof rawDivRate === "number" && Number.isFinite(rawDivRate)) {
         dps = Number(rawDivRate.toFixed(isUS ? 2 : 1));
       } else if (
@@ -3769,16 +3771,20 @@ export async function fetchLiveStockFundamentals(ticker: string, env?: Env): Pro
       }
 
       // 予想配当利回りと1株配当の相互整合性チェック・無配の厳格保証
-      if (dividendYield === 0) {
+      if (dividendYield === 0 && (dps === null || dps === undefined || dps === 0)) {
         dps = 0;
-      } else if (dps === 0 && (dividendYield === null || dividendYield === undefined)) {
+      } else if (dps === 0 && (dividendYield === null || dividendYield === undefined || dividendYield === 0)) {
         dividendYield = 0;
+        dps = 0;
+      } else if (dps !== null && dps !== undefined && dps > 0 && currentPrice > 0) {
+        // dps が実データとして存在する場合、dividendYield が未設定または 0 なら復元・算出
+        if (dividendYield === null || dividendYield === undefined || dividendYield === 0) {
+          dividendYield = Number(((dps / currentPrice) * 100).toFixed(2));
+        }
       } else if (dividendYield && dividendYield > 0) {
         if (dps === null || dps === undefined || dps <= 0) {
           dps = Number(((currentPrice * dividendYield) / 100).toFixed(isUS ? 2 : 1));
         }
-      } else if (dps && dps > 0 && currentPrice > 0 && (dividendYield === null || dividendYield === undefined)) {
-        dividendYield = Number(((dps / currentPrice) * 100).toFixed(2));
       }
 
       if (typeof liveEps === "number" && Number.isFinite(liveEps)) {
@@ -3878,10 +3884,16 @@ export async function fetchLiveStockFundamentals(ticker: string, env?: Env): Pro
             ? (isUS ? Number(stmtEps.toFixed(2)) : Number(stmtEps.toFixed(1)))
             : (isLatest ? (safeEpsVal ? (isUS ? Number(safeEpsVal.toFixed(2)) : Math.round(safeEpsVal)) : 0) : Math.round(safeEpsVal));
 
-          // 過去年度のDPS: 無配銘柄は確実に0 (0.9倍掛けの推計を撤廃)
-          const periodDps = isZeroDiv
+          // 過去年度のDPS: 無配銘柄は確実に0、アンカーに実績があればそれを尊重
+          const anchorMatched = baseline?.historicalFinances?.find((bh) =>
+            bh.fiscalYear.includes(dateYear),
+          );
+          let periodDps = isZeroDiv
             ? 0
             : (isUS ? Number(safeDpsVal.toFixed(2)) : Number(safeDpsVal.toFixed(1)));
+          if (!isLatest && anchorMatched && typeof anchorMatched.dps === "number") {
+            periodDps = anchorMatched.dps;
+          }
 
           return {
             fiscalYear: isUS ? `${dateYear} FY` : `${dateYear}/3`,
@@ -3911,7 +3923,14 @@ export async function fetchLiveStockFundamentals(ticker: string, env?: Env): Pro
               ? (isUS ? Number((eps * earningsRatio).toFixed(2)) : Math.round(eps * earningsRatio))
               : 0;
             const yDate = typeof y.date === "number" ? y.date : currentYear;
-            const rawYDps = isZeroDiv ? 0 : safeDpsVal;
+            const anchorMatched = baseline?.historicalFinances?.find((bh) =>
+              bh.fiscalYear.includes(String(yDate)),
+            );
+            const rawYDps = isZeroDiv
+              ? 0
+              : anchorMatched && typeof anchorMatched.dps === "number"
+              ? anchorMatched.dps
+              : safeDpsVal;
             const yDps = isUS ? Number(rawYDps.toFixed(2)) : Number(rawYDps.toFixed(1));
             return {
               fiscalYear: isUS ? `${yDate} FY` : `${yDate}/3`,
@@ -4003,10 +4022,15 @@ export async function fetchLiveStockFundamentals(ticker: string, env?: Env): Pro
               dps = Number(q.trailingAnnualDividendRate.toFixed(isUS ? 2 : 1));
             }
 
-            if (dividendYield === 0) {
+            if (dividendYield === 0 && (dps === null || dps === undefined || dps === 0)) {
               dps = 0;
-            } else if (dps === 0 && (dividendYield === null || dividendYield === undefined)) {
+            } else if (dps === 0 && (dividendYield === null || dividendYield === undefined || dividendYield === 0)) {
               dividendYield = 0;
+              dps = 0;
+            } else if (dps !== null && dps !== undefined && dps > 0 && currentPrice > 0) {
+              if (dividendYield === null || dividendYield === undefined || dividendYield === 0) {
+                dividendYield = Number(((dps / currentPrice) * 100).toFixed(2));
+              }
             } else if (dividendYield && dividendYield > 0 && (!dps || dps <= 0)) {
               dps = Number(((currentPrice * dividendYield) / 100).toFixed(isUS ? 2 : 1));
             }
@@ -4855,9 +4879,13 @@ export async function fetchLiveMarketCalendarAsync(
         const refTime = refDate.getTime() - 7 * 24 * 60 * 60 * 1000; // 直近7日以内〜未来
         const maxTime = refDate.getTime() + 90 * 24 * 60 * 60 * 1000; // 向こう90日以内
 
+        let liveUs10yYield: number | null = null;
         for (const q of results) {
           if (q.symbol === "^IRX" && typeof q.regularMarketPrice === "number" && q.regularMarketPrice > 0) {
             liveFomcRate = q.regularMarketPrice;
+          }
+          if (q.symbol === "^TNX" && typeof q.regularMarketPrice === "number" && q.regularMarketPrice > 0) {
+            liveUs10yYield = q.regularMarketPrice;
           }
         }
 
@@ -4870,6 +4898,14 @@ export async function fetchLiveMarketCalendarAsync(
               me.previous = `${lower}% - ${upper}% (現行誘導目標)`;
               me.forecast = "市場予想集計中";
               me.source = undefined; // LIVE実データ扱い
+            }
+          }
+        }
+
+        if (typeof liveUs10yYield === "number") {
+          for (const me of macroEvents) {
+            if (me.id.startsWith("macro-cpi") && !me.description?.includes("米10年債")) {
+              me.description = `${me.description || ""} (参考指標: 米10年債利回り ${liveUs10yYield.toFixed(2)}%)`;
             }
           }
         }
@@ -4930,10 +4966,8 @@ export async function fetchLiveMarketCalendarAsync(
 
   if (liveEarnings.length > 0 || liveFomcRate !== null) {
     for (const me of finalMacros) {
-      if (me.id.startsWith("macro-boj") || me.id.startsWith("macro-fomc")) {
-        if (me.source === "fallback") {
-          me.source = "official";
-        }
+      if (me.source === "fallback") {
+        me.source = "official";
       }
     }
     // 取得できた実データがあれば該当銘柄を実データに置換し、新規実データ銘柄を追加 (日本企業イベントの脱落を防止)

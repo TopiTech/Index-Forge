@@ -76,17 +76,21 @@ export function getDividendEvaluation(
   isMacro: boolean,
 ): string {
   if (isMacro) return "1株配当: --";
-  if (dividendYield === 0 || dps === 0) return "無配・内部留保/成長投資重視";
-  if (dps !== null && dps !== undefined && Number.isFinite(dps) && dps > 0) {
+  const hasDps = dps !== null && dps !== undefined && Number.isFinite(dps) && dps > 0;
+  const hasYield = dividendYield !== null && dividendYield !== undefined && Number.isFinite(dividendYield) && dividendYield > 0;
+  if (!hasDps && !hasYield && (dividendYield === 0 || dps === 0)) {
+    return "無配・内部留保/成長投資重視";
+  }
+  if (hasDps) {
     const formattedDps =
       currencyCode === "JPY"
         ? `${Number.isInteger(dps) ? dps : dps.toFixed(1)} 円`
         : currencyCode === "USD"
         ? `$${dps.toFixed(2)}`
         : `${dps} ${currencyCode}`;
-    return `1株配当: ${formattedDps}${dividendYield && dividendYield >= 3.5 ? " (高配当水準)" : ""}`;
+    return `1株配当: ${formattedDps}${hasYield && dividendYield >= 3.5 ? " (高配当水準)" : ""}`;
   }
-  if (dividendYield && dividendYield > 0) {
+  if (hasYield) {
     return dividendYield >= 3.5 ? "高配当水準 (利回り3.5%超)" : "配当実施中";
   }
   return "1株配当: --";
@@ -124,6 +128,7 @@ export function StockDetailPage({
 
   const mountedRef = useRef(true);
   const requestIdRef = useRef(0);
+  const hasAutoRetriedRef = useRef<string | null>(null);
   useEffect(() => {
     mountedRef.current = true;
     return () => {
@@ -140,6 +145,16 @@ export function StockDetailPage({
       if (!mountedRef.current || requestId !== requestIdRef.current) return;
       setStock(data);
       setLastUpdatedAt(Date.now());
+
+      // 初回ロードでデモフォールバックだった場合、Worker側Crumbウォームアップ完了直後の実データを1回自動再取得
+      if (data.isDemoData && !forceRefresh && hasAutoRetriedRef.current !== targetTicker) {
+        hasAutoRetriedRef.current = targetTicker;
+        setTimeout(() => {
+          if (mountedRef.current && requestId === requestIdRef.current) {
+            void loadStockData(targetTicker, true);
+          }
+        }, 1200);
+      }
     } catch {
       // Gracefully retain existing cached data on unexpected network error
     } finally {
@@ -150,6 +165,7 @@ export function StockDetailPage({
   }, []);
 
   useEffect(() => {
+    hasAutoRetriedRef.current = null;
     setStock(getCachedStockFundamentals(ticker));
     void loadStockData(ticker);
   }, [ticker, loadStockData]);
@@ -746,14 +762,34 @@ export function StockDetailPage({
                       ? Number(((f.operatingIncome / f.revenue) * 100).toFixed(1))
                       : 0;
                   const isLatest = idx === (stock.historicalFinances?.length ?? 1) - 1;
-                  const isZeroDiv = stock.dividendYield === 0 || stock.dps === 0;
-                  // 予想配当利回りが0%の場合、通期予想期の1株配当は確実に0にする
-                  const rawDps = isZeroDiv && (isLatest || stock.dividendYield === 0)
-                    ? 0
-                    : (isLatest && stock.dps !== null && stock.dps !== undefined ? stock.dps : f.dps);
-                  const formattedDps = stock.market === "US"
+                  
+                  // 1株配当の決定:
+                  // 過去実績期 (!isLatest) はその期の確定実績 f.dps を最優先採用
+                  // 今期予想期 (isLatest) は stock.dps / stock.dividendYield を反映
+                  let rawDps: number | null | undefined;
+                  if (!isLatest) {
+                    rawDps = typeof f.dps === "number" && Number.isFinite(f.dps) ? f.dps : undefined;
+                  } else {
+                    if (stock.dps !== null && stock.dps !== undefined && Number.isFinite(stock.dps)) {
+                      rawDps = stock.dps;
+                    } else if (stock.dividendYield === 0) {
+                      rawDps = 0;
+                    } else if (typeof f.dps === "number" && Number.isFinite(f.dps)) {
+                      rawDps = f.dps;
+                    } else {
+                      rawDps = undefined;
+                    }
+                  }
+
+                  const hasDps = typeof rawDps === "number" && Number.isFinite(rawDps);
+                  const formattedDps = !hasDps
+                    ? "--"
+                    : stock.market === "US"
                     ? (rawDps === 0 ? "0.00" : Number(rawDps).toFixed(2))
                     : (rawDps === 0 ? "0" : Number.isInteger(rawDps) ? String(rawDps) : Number(rawDps).toFixed(1));
+                  const isOpLoss = typeof f.operatingIncome === "number" && f.operatingIncome < 0;
+                  const isNetLoss = typeof f.netIncome === "number" && f.netIncome < 0;
+
                   return (
                     <tr key={f.fiscalYear} style={{ background: isLatest ? "rgba(56, 189, 248, 0.05)" : "transparent" }}>
                       <td style={{ fontWeight: isLatest ? 700 : 500 }} className="mono">
@@ -762,13 +798,31 @@ export function StockDetailPage({
                       <td style={{ textAlign: "right" }} className="mono">
                         {f.revenue.toLocaleString()}
                       </td>
-                      <td style={{ textAlign: "right" }} className="mono">
+                      <td
+                        style={{
+                          textAlign: "right",
+                          color: isOpLoss ? "var(--color-negative, #f43f5e)" : "inherit",
+                        }}
+                        className="mono"
+                      >
                         {f.operatingIncome.toLocaleString()}
                       </td>
-                      <td style={{ textAlign: "right", color: "var(--accent-text)" }} className="mono bold">
+                      <td
+                        style={{
+                          textAlign: "right",
+                          color: isOpLoss ? "var(--color-negative, #f43f5e)" : "var(--accent-text)",
+                        }}
+                        className="mono bold"
+                      >
                         {opMargin}%
                       </td>
-                      <td style={{ textAlign: "right" }} className="mono">
+                      <td
+                        style={{
+                          textAlign: "right",
+                          color: isNetLoss ? "var(--color-negative, #f43f5e)" : "inherit",
+                        }}
+                        className="mono"
+                      >
                         {f.netIncome.toLocaleString()}
                       </td>
                       <td style={{ textAlign: "right" }} className="mono">
@@ -778,7 +832,13 @@ export function StockDetailPage({
                             : f.eps
                           : "--"}
                       </td>
-                      <td style={{ textAlign: "right", color: rawDps > 0 ? "var(--neon-green)" : "var(--text-muted)" }} className="mono bold">
+                      <td
+                        style={{
+                          textAlign: "right",
+                          color: typeof rawDps === "number" && rawDps > 0 ? "var(--neon-green)" : "var(--text-muted)",
+                        }}
+                        className="mono bold"
+                      >
                         {formattedDps}
                       </td>
                     </tr>

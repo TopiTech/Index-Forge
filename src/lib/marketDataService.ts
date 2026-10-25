@@ -2174,30 +2174,29 @@ export async function fetchStockFundamentals(
   const isBrowser = typeof globalThis !== "undefined" && "window" in globalThis;
   if (isBrowser) {
     try {
+      const url = forceRefresh
+        ? `/api/stock/fundamentals?ticker=${encodeURIComponent(normTicker)}&refresh=${Date.now()}`
+        : `/api/stock/fundamentals?ticker=${encodeURIComponent(normTicker)}`;
       const res = await fetchWithNetworkMark(
-        `/api/stock/fundamentals?ticker=${encodeURIComponent(normTicker)}`,
+        url,
         {
-          headers: { accept: "application/json" },
+          headers: {
+            accept: "application/json",
+            ...(forceRefresh ? { "cache-control": "no-cache" } : {}),
+          },
           cache: forceRefresh ? "no-cache" : "default",
-          timeoutMs: DEFAULT_REQUEST_TIMEOUT_MS,
+          timeoutMs: 12000,
         },
       );
       if (res.ok) {
         const contentType = res.headers.get("content-type") || "";
         if (contentType.includes("json")) {
-          // A malformed JSON body must fall through to the baseline below,
-          // not throw out of the fetch path.
           const raw: unknown = await readJsonBody(res);
           if (
             isRecord(raw) &&
             typeof raw.ticker === "string" &&
             typeof raw.price === "number" &&
             Number.isFinite(raw.price) &&
-            // A price of zero (or below) is not a market price: it is what an
-            // upstream placeholder for a suspended/delisted ticker looks like.
-            // The screener path already rejects such a payload, so accepting
-            // it here made the two endpoints of the same Worker disagree and
-            // cached a ¥0 quote as if it were live.
             raw.price > 0
           ) {
             const baseline = getStockFundamentals(normTicker);

@@ -6963,6 +6963,48 @@ a.footer-creator-note:hover .footer-icon-accent {
   min-width: 680px;
 }
 
+/* ==========================================================================
+   FINANCIALS & PERFORMANCE TABLE RESPONSIVE STYLES
+   ========================================================================== */
+.financials-table-container {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border-radius: 8px;
+  position: relative;
+}
+
+.financials-table-container table {
+  min-width: 620px;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.financials-table-container th,
+.financials-table-container td {
+  white-space: nowrap;
+}
+
+/* 決算期列 (1列目) の Sticky 固定 */
+.financials-table-container th:first-child,
+.financials-table-container td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: var(--bg-card, #0f172a);
+  box-shadow: 2px 0 6px rgba(0, 0, 0, 0.15);
+}
+
+[data-theme="light"] .financials-table-container th:first-child,
+[data-theme="light"] .financials-table-container td:first-child {
+  background: var(--bg-card, #ffffff);
+  box-shadow: 2px 0 6px rgba(0, 0, 0, 0.05);
+}
+
+.financials-table-container tr:hover td:first-child {
+  background: var(--bg-card-hover, rgba(255, 255, 255, 0.04));
+}
+
 @media (max-width: 768px) {
   .calendar-month-container {
     padding-bottom: 8px;
@@ -6970,6 +7012,35 @@ a.footer-creator-note:hover .footer-icon-accent {
   .stock-hero-price {
     text-align: left !important;
     width: 100%;
+  }
+  .financials-table-container th,
+  .financials-table-container td {
+    padding: 8px 10px;
+    font-size: 0.8rem;
+  }
+  .stock-fundamentals-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 8px !important;
+  }
+  .stock-fundamentals-grid .card {
+    padding: 10px 12px !important;
+  }
+  .calendar-filter-bar {
+    padding: 10px 12px !important;
+    gap: 8px !important;
+  }
+  .calendar-month-grid {
+    min-width: 580px;
+  }
+}
+
+@media (max-width: 480px) {
+  .stock-fundamentals-grid {
+    grid-template-columns: 1fr 1fr !important;
+    gap: 6px !important;
+  }
+  .stock-hero-inner {
+    gap: 12px !important;
   }
 }
 
