@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   clearClientCalcCache,
   getClientCalcCache,
@@ -33,10 +33,20 @@ describe("clientCalcCache TTL (H-3)", () => {
   });
 
   it("treats an entry older than the freshness window as a miss and prunes it", () => {
-    seed("stale", 48 * 60 * 60 * 1000);
-    expect(getClientCalcCache("stale")).toBeUndefined();
-    // The stale entry must not linger and skew the LRU accounting either.
-    expect(getClientCalcCacheSize()).toBe(0);
+    // The policy's window depends on the day of week: a Friday-after-close
+    // entry stays fresh until Monday 09:00 JST, so a hard-coded 48-hour age
+    // changed meaning with the wall clock (it was only stale on weekdays).
+    // At Monday 10:00 JST, 48 hours earlier is Saturday 10:00; that entry's
+    // window ends at Monday 09:00 (47 hours), so it is unambiguously stale.
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(Date.UTC(2026, 0, 5, 1, 0, 0));
+    try {
+      seed("stale", 48 * 60 * 60 * 1000);
+      expect(getClientCalcCache("stale")).toBeUndefined();
+      // The stale entry must not linger and skew the LRU accounting either.
+      expect(getClientCalcCacheSize()).toBe(0);
+    } finally {
+      nowSpy.mockRestore();
+    }
   });
 
   it("does not let a far-future (corrupt clock/storage) timestamp stay fresh forever", () => {

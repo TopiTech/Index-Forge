@@ -1,6 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import type { BenchmarkOption, BenchmarkSymbol, Snapshot } from "../types";
-import { extractApiErrorMessage, readJsonBody } from "../lib/apiContract";
+import {
+  extractApiErrorMessage,
+  fetchWithNetworkMark,
+  isFetchTimeoutError,
+  readJsonBody,
+} from "../lib/apiContract";
 
 const API_BASE = "/api";
 const BENCHMARK_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
@@ -192,12 +197,6 @@ export function useBenchmark(initialSymbol: BenchmarkSymbol = "^N225", enabled =
     const controller = new AbortController();
     const requestId = ++requestIdRef.current;
     const isCurrentRequest = () => requestId === requestIdRef.current && mountedRef.current;
-    /** True when this request was aborted by the deadline below. */
-    let timedOut = false;
-    const timeout = setTimeout(() => {
-      timedOut = true;
-      controller.abort();
-    }, BENCHMARK_REQUEST_TIMEOUT_MS);
     setLoading(true);
     setError(null);
 
@@ -225,9 +224,10 @@ export function useBenchmark(initialSymbol: BenchmarkSymbol = "^N225", enabled =
 
     (async () => {
       try {
-        const res = await fetch(url, {
+        const res = await fetchWithNetworkMark(url, {
           signal: controller.signal,
           headers,
+          timeoutMs: BENCHMARK_REQUEST_TIMEOUT_MS,
         });
         if (res.status === 304) {
           if (cached) {
@@ -243,9 +243,10 @@ export function useBenchmark(initialSymbol: BenchmarkSymbol = "^N225", enabled =
             return;
           }
           // If 304 received without memory cache, refetch fresh data bypassing cache
-          const freshRes = await fetch(url, {
+          const freshRes = await fetchWithNetworkMark(url, {
             signal: controller.signal,
             cache: "reload",
+            timeoutMs: BENCHMARK_REQUEST_TIMEOUT_MS,
           });
           if (!freshRes.ok) {
             const errData: unknown = await readJsonBody(freshRes);
@@ -277,7 +278,7 @@ export function useBenchmark(initialSymbol: BenchmarkSymbol = "^N225", enabled =
         }
         publish(data, etag);
       } catch (err) {
-        if (timedOut) {
+        if (isFetchTimeoutError(err)) {
           if (isCurrentRequest()) {
             setError(`${selectedBenchmark} データの取得がタイムアウトしました`);
           }
@@ -292,7 +293,6 @@ export function useBenchmark(initialSymbol: BenchmarkSymbol = "^N225", enabled =
           err instanceof Error ? err.message : `${selectedBenchmark} データの取得に失敗しました`,
         );
       } finally {
-        clearTimeout(timeout);
         if (isCurrentRequest()) {
           // The loading flag is always released for the current request, also
           // after the deadline aborted it.
@@ -302,7 +302,6 @@ export function useBenchmark(initialSymbol: BenchmarkSymbol = "^N225", enabled =
     })();
 
     return () => {
-      clearTimeout(timeout);
       controller.abort();
     };
   }, [enabled, selectedBenchmark, retryCount]);

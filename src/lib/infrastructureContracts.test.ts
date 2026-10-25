@@ -1,14 +1,16 @@
 /**
  * Contract tests for the infrastructure and schema definitions.
  *
- * The schema is provisioned in two places: `schema.sql` (used by the
- * migration scripts) and the Worker's runtime provisioning (`ensurePasswordTable`).
- * A table or index that exists in only one of them silently diverges, so the
- * two definitions are asserted to stay in sync.
+ * `schema.sql` is the single source of truth; the Worker's runtime provisioning
+ * steps are generated from it into worker/schemaSteps.generated.ts and the
+ * legacy migration into schema.migration.sql. The assertions below target the
+ * generated Worker steps rather than the Worker source text, so the contracts
+ * keep holding after the definition moved out of internal-impl.ts.
  */
 import { describe, expect, it } from "vitest";
 import fs from "fs";
 import path from "path";
+import { REQUIRED_SCHEMA_STEPS } from "../../worker/internal";
 
 const repoRoot = path.resolve(__dirname, "../..");
 
@@ -18,7 +20,7 @@ function readRepoFile(relativePath: string): string {
 
 const schemaSql = readRepoFile("schema.sql");
 const migrationSql = readRepoFile("schema.migration.sql");
-const workerImpl = readRepoFile("worker/internal-impl.ts");
+const workerDdl = REQUIRED_SCHEMA_STEPS.map((step) => step.sql).join("\n");
 const ciWorkflow = readRepoFile(".github/workflows/ci.yml");
 const wranglerConfig = readRepoFile("wrangler.jsonc");
 
@@ -27,12 +29,12 @@ describe("schema provisioning parity", () => {
     const index = "CREATE INDEX IF NOT EXISTS idx_rate_limits_window_start ON rate_limits(window_start)";
 
     expect(schemaSql).toContain(index);
-    expect(workerImpl).toContain(index);
+    expect(workerDdl).toContain(index);
   });
 
   it("keeps the snapshot_cache single-row constraint in both provisioning paths", () => {
     expect(schemaSql).toMatch(/CREATE TABLE IF NOT EXISTS snapshot_cache \([\s\S]*?CHECK \(id = 1\)/);
-    expect(workerImpl).toMatch(
+    expect(workerDdl).toMatch(
       /CREATE TABLE IF NOT EXISTS snapshot_cache \([\s\S]*?CHECK \(id = 1\)/,
     );
   });
@@ -43,7 +45,7 @@ describe("schema provisioning parity", () => {
     expect(schemaSql).toContain(
       "CREATE INDEX IF NOT EXISTS idx_indices_creator_id ON indices(creator_id)",
     );
-    expect(workerImpl).toContain(
+    expect(workerDdl).toContain(
       "CREATE INDEX IF NOT EXISTS idx_indices_creator_id ON indices(creator_id)",
     );
 
@@ -53,8 +55,8 @@ describe("schema provisioning parity", () => {
     // searched). Re-adding either one only costs a write per row.
     expect(schemaSql).not.toContain("idx_basket_items_index_id");
     expect(schemaSql).not.toContain("idx_access_passwords_hash");
-    expect(workerImpl).not.toContain("idx_basket_items_index_id");
-    expect(workerImpl).not.toContain("idx_access_passwords_hash");
+    expect(workerDdl).not.toContain("idx_basket_items_index_id");
+    expect(workerDdl).not.toContain("idx_access_passwords_hash");
 
     // The unique constraint that replaced the basket_items index must stay.
     expect(schemaSql).toMatch(/UNIQUE\(index_id, ticker\)/);

@@ -1,7 +1,12 @@
 import React, { useState, useRef, useCallback, useEffect } from "react";
 import { TrendingUp, TrendingDown } from "lucide-react";
 import { TradingViewChartModal, type PopupSymbolInfo } from "./TradingViewChartModal";
-import { isRecord, readJsonBody } from "../lib/apiContract";
+import {
+  fetchWithNetworkMark,
+  isRecord,
+  readJsonBody,
+  releaseResponse,
+} from "../lib/apiContract";
 
 export interface TickerSymbolItem {
   proName: string;
@@ -260,13 +265,23 @@ export function TradingViewTickerTape() {
       if (etagRef.current) {
         headers["If-None-Match"] = etagRef.current;
       }
-      const res = await fetch("/api/ticker-prices", { headers, signal: controller.signal });
-      if (!isCurrent()) return;
-      if (res.status === 304) {
-        // Data has not changed; retain current quotes and save client processing
+      const res = await fetchWithNetworkMark("/api/ticker-prices", {
+        headers,
+        signal: controller.signal,
+      });
+      if (!isCurrent()) {
+        releaseResponse(res);
         return;
       }
-      if (!res.ok) return;
+      if (res.status === 304) {
+        // Data has not changed; retain current quotes and save client processing
+        releaseResponse(res);
+        return;
+      }
+      if (!res.ok) {
+        releaseResponse(res);
+        return;
+      }
 
       // DATA-29: the body is parsed and validated *before* the new ETag is
       // committed. Committing it earlier would let the next poll answer `304`

@@ -15,7 +15,7 @@ import {
   sanitizeBasketForRequest,
 } from "../lib/indexEngine";
 import { calculateRiskMetrics } from "../lib/analytics";
-import { extractApiErrorMessage, readJsonBody } from "../lib/apiContract";
+import { extractApiErrorMessage, fetchWithNetworkMark, readJsonBody } from "../lib/apiContract";
 import { filterByTimeframe } from "../lib/timeframe";
 import { isPriceCacheFresh } from "../lib/marketCache";
 import { mergeSyncCache, readSyncCache, removeFromSyncCache } from "../lib/syncCache";
@@ -175,12 +175,21 @@ export function useSimulation(
    */
   const requestIdRef = useRef(0);
 
-  /** Cancel the in-flight request and invalidate any response still in flight. */
+  /**
+   * Cancel the in-flight request and invalidate any response still in flight.
+   *
+   * The abort is the request's last exit path: its own `finally` refuses to
+   * touch state once superseded, so this owner must release `loading` here.
+   * Without it, aborting a refresh from the debounce window (add a stock, then
+   * remove it before the replacement starts) left the refresh control disabled
+   * forever.
+   */
   const abortInFlight = useCallback(() => {
     requestIdRef.current += 1;
     if (abortRef.current) {
       abortRef.current.abort();
       abortRef.current = null;
+      setLoading(false);
     }
   }, []);
 
@@ -323,7 +332,7 @@ export function useSimulation(
         const bypassServerCalculationCache = effectiveForce || tickersToSync.length > 0;
 
         // 2. Fetch calculated index and stockUniverse from /api/calculate
-        const calcRes = await fetch(`${API_BASE}/calculate`, {
+        const calcRes = await fetchWithNetworkMark(`${API_BASE}/calculate`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -437,7 +446,10 @@ export function useSimulation(
         setError("サーバーに接続できないため、デモデータで表示しています。数値は参考値です");
         setUsingDemoData(true);
       } finally {
-        if (!controller.signal.aborted) {
+        // Only the current request may clear the flag: a superseded request
+        // has already been released by its owner (abortInFlight) and may not
+        // race the replacement's setLoading(true).
+        if (!isSuperseded()) {
           setLoading(false);
         }
       }

@@ -13,8 +13,10 @@ import { getAuthHeaders } from "../lib/auth";
 import {
   LEGACY_REPAIRED_WEIGHT,
   fetchWithNetworkMark,
+  isFetchTimeoutError,
   readJsonBody,
   readResponseErrorMessage,
+  releaseResponse,
 } from "../lib/apiContract";
 import {
   sanitizeBasketForRequest,
@@ -300,7 +302,6 @@ export function useIndices() {
       setError(null);
 
       abortRef.current = controller;
-      const timeout = window.setTimeout(() => controller.abort(), INDICES_REQUEST_TIMEOUT_MS);
       let res: Response;
       try {
         // Transport failures are marked inside the helper; the outer catch
@@ -308,9 +309,9 @@ export function useIndices() {
         res = await fetchWithNetworkMark(`${API_BASE}/indices`, {
           headers: getIndicesRequestHeaders(cachedIndices),
           signal: controller.signal,
+          timeoutMs: INDICES_REQUEST_TIMEOUT_MS,
         });
       } finally {
-        window.clearTimeout(timeout);
         if (abortRef.current === controller) {
           abortRef.current = null;
         }
@@ -320,10 +321,14 @@ export function useIndices() {
         // Not Modified: local cached indices are completely up-to-date!
         // This should be unreachable without a matching local cache because
         // getIndicesRequestHeaders omits the ETag in that situation.
+        releaseResponse(res);
         return;
       }
 
-      if (!res.ok) throw new Error("指数一覧の取得に失敗しました");
+      if (!res.ok) {
+        releaseResponse(res);
+        throw new Error("指数一覧の取得に失敗しました");
+      }
 
       // HTTP 200 でも JSON でない本文(プロキシのHTMLエラー画面や204の空
       // 本文)は、生の SyntaxError ではなく取得失敗として扱う。catch 節の
@@ -372,14 +377,17 @@ export function useIndices() {
         return DEFAULT_INDICES;
       }
     } catch (err) {
-      if (controller.signal.aborted || !isCurrentRequest()) {
+      if (controller.signal.aborted || isFetchTimeoutError(err) || !isCurrentRequest()) {
         // The request was aborted (the consumer unmounted or the request
         // timed out) or a newer request superseded it. An aborted request
         // must not publish an error, a fallback list or a selection: the
         // in-memory state stays as it is and the user can retry explicitly.
         return getLocalIndicesCache() ?? DEFAULT_INDICES;
       }
-      const message = err instanceof Error ? err.message : "指数一覧の取得に失敗しました";
+      const message =
+        err instanceof Error && err.message
+          ? err.message
+          : "指数一覧の取得に失敗しました";
       setError(message);
       console.warn("API server unavailable, using cached/default indices:", err);
       // Fallback to local cached or built-in default indices so UI renders without failure

@@ -109,6 +109,13 @@ export function PortfolioManagerPage({
   // liveQuotes so the summary never picks up a demo/reference FX price from
   // the map; when unset the summary keeps its documented fallback constant.
   const [usdJpyRate, setUsdJpyRate] = useState<number | undefined>(undefined);
+  /**
+   * S9: the FX rate and its provenance are shown in three notes. They are
+   * derived once here so a fallback constant can never be labelled
+   * "real-time" by one of the notes while another says "reference".
+   */
+  const fxRate = usdJpyRate ?? DEFAULT_USD_JPY_RATE;
+  const fxRateIsLive = usdJpyRate !== undefined;
   const [refreshing, setRefreshing] = useState(false);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState<"HOLDINGS" | "WATCHLIST">("HOLDINGS");
@@ -1338,10 +1345,10 @@ export function PortfolioManagerPage({
           <span>
             為替換算基準レート:{" "}
             <strong className="mono" style={{ color: "var(--neon-cyan)" }}>
-              1 USD = {usdJpyRate ? usdJpyRate.toFixed(2) : DEFAULT_USD_JPY_RATE.toFixed(2)} JPY
+              1 USD = {fxRate.toFixed(2)} JPY
             </strong>{" "}
             <span className="tiny muted">
-              {usdJpyRate ? "(リアルタイム為替市場レート適用)" : "(基準参考レート)"}
+              {fxRateIsLive ? "(リアルタイム為替市場レート適用)" : "(基準参考レート)"}
             </span>
           </span>
         </div>
@@ -1565,7 +1572,7 @@ export function PortfolioManagerPage({
             </div>
 
             <div className="tiny muted" style={{ lineHeight: 1.5 }}>
-              ※ 保有株数と直近配当（DPS）実績に基づく年間税引前受取概算です。為替レート（USD/JPY）はリアルタイム取得値に連動します。
+              ※ 保有株数と直近配当（DPS）実績に基づく年間税引前受取概算です。為替レート（USD/JPY）は{fxRateIsLive ? "リアルタイム取得値" : "基準参考レート"}を使用しています。
             </div>
           </div>
         </div>
@@ -2184,7 +2191,7 @@ export function PortfolioManagerPage({
               lineHeight: 1.5,
             }}
           >
-            ※ 米国株 (USD) の評価額および損益は、為替市場のリアルタイムレート (1 USD ≒ {usdJpyRate ? usdJpyRate.toFixed(2) : DEFAULT_USD_JPY_RATE.toFixed(2)} 円) に基づき自動的に円換算されて総合計に反映されます。
+            ※ 米国株 (USD) の評価額および損益は、{fxRateIsLive ? "為替市場のリアルタイムレート" : "基準参考レート"} (1 USD ≒ {fxRate.toFixed(2)} 円) に基づき自動的に円換算されて総合計に反映されます。
           </div>
 
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>

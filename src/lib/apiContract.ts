@@ -304,7 +304,8 @@ export function validateBasketItems(
  * message ("Unexpected token '<' …") reached the user or, worse, skipped the
  * graceful fallback the surrounding code had prepared. This helper is the one
  * place that decision is made: a non-JSON body is a failed response, not an
- * exception.
+ * exception. A `FetchTimeoutError` is the one exception it rethrows: that is
+ * the caller's deadline path, not a malformed body.
  *
  * Like the rest of this module it must stay free of browser/Node specific
  * imports: the Worker typecheck compiles this file too, and `Response` exists
@@ -314,7 +315,12 @@ export async function readJsonBody<T = unknown>(res: Response): Promise<T | null
   try {
     const value = (await res.json()) as T;
     return value;
-  } catch {
+  } catch (error) {
+    // A deadline is not a malformed body: the caller's timeout branch must
+    // run instead of the graceful "empty/non-JSON response" fallback. The
+    // lifecycle wrapper throws this marker when a stalled body reaches the
+    // deadline, and the reader must preserve it.
+    if (isFetchTimeoutError(error)) throw error;
     return null;
   }
 }
@@ -402,25 +408,239 @@ export class FetchNetworkError extends Error {
   }
 }
 
+/** Shown when the request was still pending at the deadline. */
+export const REQUEST_TIMEOUT_MESSAGE =
+  "サーバーからの応答がタイムアウトしました。しばらくしてから再試行してください。";
+
 /**
- * `fetch()` with transport failures marked as `FetchNetworkError`.
+ * Deadline used by the endpoints that declare one.
  *
- * The single place that decides "the server was never reached": a rejection
- * from `fetch()` (DNS, offline, refused, opaque CORS) carries no status, so
- * callers must not sniff `err.message` (browser-locale English, brittle).
- * An aborted request rethrows untouched so unmount/timeout paths keep their
- * silence; everything after the transport (status checks, JSON parsing) runs
- * outside this helper so a real bug there keeps its own message.
+ * The helper itself has no deadline unless a caller passes one: imposing a
+ * default here would silently cap endpoints that never had a deadline (e.g.
+ * a calculate request over a large basket) and change their behaviour.
+ */
+export const DEFAULT_REQUEST_TIMEOUT_MS = 8000;
+
+/** Marker for a request aborted by the client's own deadline. */
+export class FetchTimeoutError extends Error {
+  constructor(options?: { cause?: unknown }) {
+    super(REQUEST_TIMEOUT_MESSAGE, options);
+    this.name = "FetchTimeoutError";
+  }
+}
+
+/** Whether `error` is the client-side deadline marker. */
+export function isFetchTimeoutError(error: unknown): error is FetchTimeoutError {
+  return error instanceof FetchTimeoutError;
+}
+
+/** `RequestInit` plus the deadline enforced by {@link fetchWithNetworkMark}. */
+export interface ApiRequestInit extends RequestInit {
+  /**
+   * Deadline in milliseconds. Omitted or `0` means no deadline — callers opt
+   * in with {@link DEFAULT_REQUEST_TIMEOUT_MS} or their own budget.
+   */
+  timeoutMs?: number;
+}
+
+/** Body readers whose work is covered by the request deadline. */
+type BodyReader = "json" | "text" | "arrayBuffer" | "blob" | "formData";
+
+interface ResponseLifecycle {
+  timedOut: () => boolean;
+  timeoutPromise: Promise<never> | null;
+  abortPromise: Promise<never> | null;
+  release: () => void;
+}
+
+const BODY_READERS = new Set<PropertyKey>([
+  "json",
+  "text",
+  "arrayBuffer",
+  "blob",
+  "formData",
+]);
+const responseLifecycles = new WeakMap<Response, ResponseLifecycle>();
+
+/**
+ * Release a response whose body the caller will not read.
+ *
+ * A discarded error/304 response must not keep the request timer or the
+ * caller's abort listener alive until the deadline. Calling this on a raw
+ * response (or twice) is a no-op.
+ */
+export function releaseResponse(res: Response): void {
+  const lifecycle = responseLifecycles.get(res);
+  if (!lifecycle) return;
+  lifecycle.release();
+  responseLifecycles.delete(res);
+}
+
+/**
+ * Run one body reader under the same deadline as the transport.
+ *
+ * `fetch()` settling means the headers arrived, not that the whole request is
+ * over: a body can stall while `res.json()`/`res.text()` waits. Racing the
+ * reader against the lifecycle promises keeps the deadline effective through
+ * consumption, and the `finally` clears the timer and caller listener on
+ * success, parse failure, abort and deadline alike.
+ */
+async function readResponseBody(
+  target: Response,
+  reader: BodyReader,
+  args: unknown[],
+  lifecycle: ResponseLifecycle,
+): Promise<unknown> {
+  const read = () =>
+    (target[reader] as (...params: unknown[]) => Promise<unknown>).apply(target, args);
+
+  try {
+    const readers: Promise<unknown>[] = [read()];
+    if (lifecycle.timeoutPromise) readers.push(lifecycle.timeoutPromise);
+    if (lifecycle.abortPromise) readers.push(lifecycle.abortPromise);
+    return await Promise.race(readers);
+  } catch (error) {
+    if (lifecycle.timedOut()) {
+      if (error instanceof FetchTimeoutError) throw error;
+      throw new FetchTimeoutError({ cause: error });
+    }
+    throw error;
+  } finally {
+    lifecycle.release();
+  }
+}
+
+function wrapResponseLifecycle(res: Response, lifecycle: ResponseLifecycle): Response {
+  const proxy = new Proxy(res, {
+    get(target, property) {
+      if (BODY_READERS.has(property)) {
+        return (...args: unknown[]) =>
+          readResponseBody(target, property as BodyReader, args, lifecycle);
+      }
+      const value = Reflect.get(target, property, target);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+  responseLifecycles.set(proxy, lifecycle);
+  return proxy;
+}
+
+/**
+ * The single client request entry point: timeout, caller abort, and transport
+ * error classification all live here.
+ *
+ * A rejection from `fetch()` (DNS, offline, refused, opaque CORS) carries no
+ * status, so callers must not sniff `err.message` (browser-locale English,
+ * brittle); it is marked as `FetchNetworkError`. A caller abort (unmount or a
+ * superseded request) rethrows untouched so those paths keep their silence.
+ * The helper's own deadline is a distinct `FetchTimeoutError` so a caller can
+ * decide between the endpoint's timeout UI and a generic network message.
+ * Status checks and payload validation stay outside; the returned response's
+ * body readers are wrapped only to keep the deadline, not to interpret their
+ * content.
+ *
+ * The deadline and the caller listener stay installed after the headers and
+ * until the response body settles; a caller that will not read the body must
+ * call {@link releaseResponse}. This is what makes a stalled `res.json()`
+ * behave like a stalled connection instead of escaping the deadline.
  */
 export async function fetchWithNetworkMark(
   input: RequestInfo | URL,
-  init?: RequestInit,
+  init: ApiRequestInit = {},
 ): Promise<Response> {
+  const { timeoutMs = 0, signal, ...requestInit } = init;
+  const controller = new AbortController();
+  let timedOut = false;
+  let released = false;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  // Held in objects because the Promise executor assigns them from a
+  // callback; a bare `let` is narrowed to `null` by the compiler's control
+  // flow even though the executor runs synchronously.
+  const timeoutControl: { reject: ((reason: FetchTimeoutError) => void) | null } = {
+    reject: null,
+  };
+  const abortControl: { reject: ((reason: unknown) => void) | null } = { reject: null };
+
+  const timeoutPromise =
+    timeoutMs > 0
+      ? new Promise<never>((_, reject) => {
+          timeoutControl.reject = reject;
+        })
+      : null;
+  // A rejection is observed by readResponseBody only when a body is read. The
+  // no-op handler keeps a timed-out abandoned response from becoming an
+  // unhandled rejection at the module level.
+  timeoutPromise?.catch(() => {});
+
+  const abortPromise = signal
+    ? new Promise<never>((_, reject) => {
+        abortControl.reject = reject;
+      })
+    : null;
+  abortPromise?.catch(() => {});
+
+  function release(): void {
+    if (released) return;
+    released = true;
+    if (timer !== null) {
+      clearTimeout(timer);
+      timer = null;
+    }
+    signal?.removeEventListener("abort", abortFromCaller);
+  }
+
+  function abortFromCaller(): void {
+    controller.abort();
+    abortControl.reject?.(new DOMException("The operation was aborted.", "AbortError"));
+    release();
+  }
+
+  if (timeoutMs > 0) {
+    timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+      timeoutControl.reject?.(new FetchTimeoutError());
+      release();
+    }, timeoutMs);
+  }
+
+  if (signal) {
+    if (signal.aborted) {
+      controller.abort();
+      abortControl.reject?.(new DOMException("The operation was aborted.", "AbortError"));
+      release();
+    } else {
+      signal.addEventListener("abort", abortFromCaller, { once: true });
+    }
+  }
+
+  let response: Response;
   try {
-    return await fetch(input, init);
+    response = await fetch(input, { ...requestInit, signal: controller.signal });
   } catch (fetchErr) {
-    if (init?.signal?.aborted) throw fetchErr;
+    release();
+    if (timedOut) throw new FetchTimeoutError({ cause: fetchErr });
+    if (signal?.aborted) throw fetchErr;
     if (fetchErr instanceof DOMException && fetchErr.name === "AbortError") throw fetchErr;
     throw new FetchNetworkError({ cause: fetchErr });
   }
+
+  if (timedOut) {
+    release();
+    throw new FetchTimeoutError();
+  }
+
+  // A body-less response (204/304) has no consumption window left, and a
+  // request with neither a deadline nor a caller listener owns no resources.
+  if (response.body === null || (!timeoutPromise && !abortPromise)) {
+    release();
+    return response;
+  }
+
+  return wrapResponseLifecycle(response, {
+    timedOut: () => timedOut,
+    timeoutPromise,
+    abortPromise,
+    release,
+  });
 }

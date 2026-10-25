@@ -2,7 +2,12 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import type { CustomIndex } from "../data/indices";
 import type { BasketItem, PricePoint, StockDetail, StockSeries } from "../types";
 import { calculateStockDetails } from "../lib/analytics";
-import { fetchWithNetworkMark, readJsonBody, readResponseErrorMessage } from "../lib/apiContract";
+import {
+  fetchWithNetworkMark,
+  readJsonBody,
+  readResponseErrorMessage,
+  releaseResponse,
+} from "../lib/apiContract";
 import { getIndexCoverageWarnings, sanitizeBasketForRequest } from "../lib/indexEngine";
 import { getAuthHeaders } from "../lib/auth";
 import { isPriceCacheFresh } from "../lib/marketCache";
@@ -323,7 +328,10 @@ export function useCalculation(selectedIndex: CustomIndex | null, enabled = true
           signal: controller.signal,
         });
 
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted) {
+          releaseResponse(res);
+          return;
+        }
 
         if (!res.ok) {
           throw new Error(await readResponseErrorMessage(res, "指数の計算に失敗しました"));

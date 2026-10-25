@@ -1,5 +1,10 @@
 import type { AuthSession, UserPasswordItem } from "../types";
-import { extractApiErrorMessage, isRecord, readJsonBody } from "./apiContract";
+import {
+  extractApiErrorMessage,
+  fetchWithNetworkMark,
+  isRecord,
+  readJsonBody,
+} from "./apiContract";
 
 const AUTH_STORAGE_KEY = "custom_stock_index_auth";
 
@@ -374,7 +379,7 @@ export async function verifyPassword(
       return { ok: false, error: "パスワードを入力してください" };
     }
 
-    const res = await fetch("/api/auth/verify", {
+    const res = await fetchWithNetworkMark("/api/auth/verify", {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-auth-mode": "user" },
       body: JSON.stringify({ password: trimmed, role: "user", userOnly: true }),
@@ -389,7 +394,7 @@ export async function verifyPassword(
     if (!res.ok || data.ok !== true) {
       return {
         ok: false,
-        error: typeof data.error === "string" ? data.error : "パスワードが正しくありません",
+        error: extractApiErrorMessage(data, "パスワードが正しくありません"),
       };
     }
 
@@ -477,7 +482,7 @@ export async function getTurnstileConfig(): Promise<{
   lockout?: { locked: boolean; remainingSeconds: number; remainingAttempts: number };
 }> {
   try {
-    const res = await fetch("/api/auth/turnstile-config");
+    const res = await fetchWithNetworkMark("/api/auth/turnstile-config");
     if (!res.ok) {
       return { siteKey: DEFAULT_TURNSTILE_SITE_KEY };
     }
@@ -527,7 +532,7 @@ export async function adminLogin(
       return { ok: false, error: "Turnstile認証（ロボット確認）を完了してください" };
     }
 
-    const res = await fetch("/api/auth/admin-login", {
+    const res = await fetchWithNetworkMark("/api/auth/admin-login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -547,7 +552,7 @@ export async function adminLogin(
     if (!res.ok || data.ok !== true) {
       return {
         ok: false,
-        error: typeof data.error === "string" ? data.error : "管理者ログインに失敗しました",
+        error: extractApiErrorMessage(data, "管理者ログインに失敗しました"),
         locked: Boolean(data.locked),
         remainingSeconds: typeof data.remainingSeconds === "number" ? data.remainingSeconds : undefined,
         remainingAttempts: typeof data.remainingAttempts === "number" ? data.remainingAttempts : undefined,
@@ -599,7 +604,7 @@ export async function changeAdminSecretCode(
 ): Promise<{ ok: boolean; error?: string; adminToken?: string }> {
   try {
     const authHeaders = headers || getAuthHeaders();
-    const res = await fetch("/api/admin/admin-secret-code", {
+    const res = await fetchWithNetworkMark("/api/admin/admin-secret-code", {
       method: "PUT",
       headers: {
         "Content-Type": "application/json",
@@ -616,7 +621,7 @@ export async function changeAdminSecretCode(
     if (!res.ok || data.ok !== true) {
       return {
         ok: false,
-        error: typeof data.error === "string" ? data.error : "秘密の暗号の更新に失敗しました",
+        error: extractApiErrorMessage(data, "秘密の暗号の更新に失敗しました"),
       };
     }
 

@@ -51,6 +51,13 @@ import {
 import type { BasketItemInput } from "../src/lib/apiContract";
 import type { BasketItem, PricePoint, StockSeries } from "../src/types";
 
+import {
+  OWNER_TOKEN_ISSUED_AT_BACKFILL_SQL,
+  PROBED_COLUMN_TABLES,
+  REQUIRED_SCHEMA_STEPS,
+  type SchemaStep,
+} from "./schemaSteps.generated";
+
 /**
  * The static-assets binding.
  *
@@ -980,8 +987,19 @@ export function isModernPasswordHash(storedHash: string): boolean {
 }
 
 export let isPasswordTableEnsured = false;
+/**
+ * Set once the provisioning pass failed in this isolate.
+ *
+ * A broken schema used to re-run every schema step on every authentication
+ * attempt (~30 DDL statements each time), turning a transient D1 problem into
+ * a write storm. The latch is deliberately per-isolate and is cleared by
+ * `resetPasswordTableEnsured` (tests) or by a cold start (module re-eval); a
+ * later request must not retry the same failing batch.
+ */
+let passwordTableProvisionFailed = false;
 export function resetPasswordTableEnsured(): void {
   isPasswordTableEnsured = false;
+  passwordTableProvisionFailed = false;
 }
 
 export async function runStatement(env: Env, sql: string): Promise<void> {
@@ -996,214 +1014,25 @@ export async function runStatement(env: Env, sql: string): Promise<void> {
   }
 }
 
-export interface SchemaStep {
-  /** sqlite_master object that makes this step unnecessary (table or index). */
-  existing?: { kind: "table" | "index"; name: string };
-  /** Column that makes this step unnecessary; skipped when its table is absent. */
-  column?: { table: string; name: string };
-  sql: string;
-}
+// The runtime provisioning steps are generated from schema.sql (the single
+// source of truth) by `npm run db:schema:generate`; this module only consumes
+// and re-exports them.
+export { OWNER_TOKEN_ISSUED_AT_BACKFILL_SQL, PROBED_COLUMN_TABLES, REQUIRED_SCHEMA_STEPS };
+export type { SchemaStep };
 
 /**
- * Objects the Worker may have to provision at runtime.
+ * Creates one canonical table if it is missing.
  *
- * `schema.sql` remains the canonical definition; this list only patches a
- * database that predates a table or column. It is declarative so
- * ensurePasswordTable() can probe once and run only what is actually missing:
- * the previous implementation issued ~15 DDL statements on every cold start,
- * swallowed every failure, and therefore re-ran them forever.
+ * The DDL is read from the generated projection of schema.sql, so an ad-hoc
+ * `CREATE TABLE` in a fallback path cannot drift from the canonical shape.
  */
-export const REQUIRED_SCHEMA_STEPS: SchemaStep[] = [
-  {
-    // The indices table holds the custom indices themselves. It used to be
-    // created only by schema.sql, so a freshly provisioned D1 database
-    // answered every /api/indices request with "no such table: indices".
-    // The table is created with every column, which makes the ALTER TABLE
-    // steps below a no-op on a fresh database.
-    existing: { kind: "table", name: "indices" },
-    sql: `CREATE TABLE IF NOT EXISTS indices (
-        id TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        description TEXT,
-        base_value REAL DEFAULT 1000,
-        sort_order INTEGER DEFAULT 99,
-        owner_token_hash TEXT,
-        owner_token_issued_at INTEGER,
-        creator_id TEXT,
-        created_at INTEGER
-      )`,
-  },
-  {
-    // The constituents of an index. Created after `indices` so the foreign
-    // key has a parent table to point at.
-    existing: { kind: "table", name: "basket_items" },
-    sql: `CREATE TABLE IF NOT EXISTS basket_items (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        index_id TEXT NOT NULL,
-        ticker TEXT NOT NULL,
-        name TEXT NOT NULL,
-        weight REAL NOT NULL,
-        theme TEXT,
-        FOREIGN KEY (index_id) REFERENCES indices (id) ON DELETE CASCADE,
-        UNIQUE(index_id, ticker)
-      )`,
-  },
-  {
-    // The legacy per-day price table. /api/sync-prices still writes it, and
-    // neither migration path created it, so a legacy database failed at
-    // runtime with "no such table: stock_prices" and had no self-healing path.
-    existing: { kind: "table", name: "stock_prices" },
-    sql: `CREATE TABLE IF NOT EXISTS stock_prices (
-        ticker TEXT NOT NULL,
-        date TEXT NOT NULL,
-        price REAL NOT NULL,
-        PRIMARY KEY (ticker, date)
-      )`,
-  },
-  {
-    existing: { kind: "table", name: "access_passwords" },
-    sql: `CREATE TABLE IF NOT EXISTS access_passwords (
-        id TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        password_hash TEXT NOT NULL,
-        role TEXT NOT NULL DEFAULT 'user',
-        max_stocks INTEGER DEFAULT 10,
-        max_indices INTEGER DEFAULT NULL,
-        secret_code_hash TEXT,
-        is_active INTEGER DEFAULT 1,
-        created_at INTEGER NOT NULL,
-        updated_at INTEGER
-      )`,
-  },
-  {
-    column: { table: "access_passwords", name: "max_indices" },
-    sql: "ALTER TABLE access_passwords ADD COLUMN max_indices INTEGER DEFAULT NULL",
-  },
-  {
-    column: { table: "access_passwords", name: "secret_code_hash" },
-    sql: "ALTER TABLE access_passwords ADD COLUMN secret_code_hash TEXT",
-  },
-  {
-    existing: { kind: "table", name: "admin_login_attempts" },
-    sql: `CREATE TABLE IF NOT EXISTS admin_login_attempts (
-          ip TEXT PRIMARY KEY,
-          failed_count INTEGER NOT NULL DEFAULT 0,
-          last_failed_at INTEGER NOT NULL,
-          locked_until INTEGER NOT NULL DEFAULT 0
-        )`,
-  },
-  {
-    existing: { kind: "table", name: "admin_sessions" },
-    sql: `CREATE TABLE IF NOT EXISTS admin_sessions (
-          token_hash TEXT PRIMARY KEY,
-          account_id TEXT NOT NULL,
-          created_at INTEGER NOT NULL,
-          expires_at INTEGER NOT NULL
-        )`,
-  },
-  {
-    existing: { kind: "table", name: "benchmark_cache" },
-    sql: `CREATE TABLE IF NOT EXISTS benchmark_cache (
-          symbol TEXT PRIMARY KEY,
-          data TEXT NOT NULL,
-          cached_at INTEGER NOT NULL
-        )`,
-  },
-  {
-    existing: { kind: "table", name: "rate_limits" },
-    sql: `CREATE TABLE IF NOT EXISTS rate_limits (
-          ip TEXT NOT NULL,
-          endpoint TEXT NOT NULL,
-          request_count INTEGER DEFAULT 1,
-          window_start INTEGER NOT NULL,
-          PRIMARY KEY (ip, endpoint)
-        )`,
-  },
-  {
-    // The expired-window purge filters on window_start, which the primary key
-    // does not cover; without this index the purge is a full table scan.
-    existing: { kind: "index", name: "idx_rate_limits_window_start" },
-    sql: "CREATE INDEX IF NOT EXISTS idx_rate_limits_window_start ON rate_limits(window_start)",
-  },
-  {
-    existing: { kind: "table", name: "sync_logs" },
-    sql: `CREATE TABLE IF NOT EXISTS sync_logs (
-          ticker TEXT PRIMARY KEY,
-          last_synced_at INTEGER NOT NULL
-        )`,
-  },
-  {
-    existing: { kind: "table", name: "snapshot_cache" },
-    sql: `CREATE TABLE IF NOT EXISTS snapshot_cache (
-          id INTEGER PRIMARY KEY CHECK (id = 1),
-          data TEXT NOT NULL,
-          cached_at INTEGER NOT NULL
-        )`,
-  },
-  {
-    existing: { kind: "table", name: "stock_series" },
-    sql: `CREATE TABLE IF NOT EXISTS stock_series (
-          ticker TEXT PRIMARY KEY,
-          prices TEXT NOT NULL,
-          updated_at INTEGER NOT NULL
-        )`,
-  },
-  {
-    existing: { kind: "table", name: "sync_quota" },
-    sql: `CREATE TABLE IF NOT EXISTS sync_quota (
-          ip TEXT NOT NULL,
-          day TEXT NOT NULL,
-          tickers INTEGER NOT NULL,
-          PRIMARY KEY (ip, day)
-        )`,
-  },
-  {
-    existing: { kind: "index", name: "idx_sync_quota_day" },
-    sql: "CREATE INDEX IF NOT EXISTS idx_sync_quota_day ON sync_quota(day)",
-  },
-  {
-    column: { table: "indices", name: "owner_token_hash" },
-    sql: "ALTER TABLE indices ADD COLUMN owner_token_hash TEXT",
-  },
-  {
-    column: { table: "indices", name: "owner_token_issued_at" },
-    sql: "ALTER TABLE indices ADD COLUMN owner_token_issued_at INTEGER",
-  },
-  {
-    column: { table: "indices", name: "created_at" },
-    sql: "ALTER TABLE indices ADD COLUMN created_at INTEGER",
-  },
-  {
-    column: { table: "indices", name: "creator_id" },
-    sql: "ALTER TABLE indices ADD COLUMN creator_id TEXT",
-  },
-  {
-    column: { table: "indices", name: "sort_order" },
-    sql: "ALTER TABLE indices ADD COLUMN sort_order INTEGER DEFAULT 99",
-  },
-  {
-    existing: { kind: "index", name: "idx_indices_creator_id" },
-    sql: "CREATE INDEX IF NOT EXISTS idx_indices_creator_id ON indices(creator_id)",
-  },
-  {
-    existing: { kind: "index", name: "idx_admin_sessions_account_id" },
-    sql: "CREATE INDEX IF NOT EXISTS idx_admin_sessions_account_id ON admin_sessions(account_id)",
-  },
-  {
-    existing: { kind: "index", name: "idx_admin_sessions_expires_at" },
-    sql: "CREATE INDEX IF NOT EXISTS idx_admin_sessions_expires_at ON admin_sessions(expires_at)",
-  },
-  {
-    existing: { kind: "index", name: "idx_admin_login_attempts_purge" },
-    sql: "CREATE INDEX IF NOT EXISTS idx_admin_login_attempts_purge ON admin_login_attempts(last_failed_at, locked_until)",
-  },
-  {
-    // The account list is ordered by created_at on every admin dashboard load;
-    // the primary key (id) does not cover that ordering.
-    existing: { kind: "index", name: "idx_access_passwords_created_at" },
-    sql: "CREATE INDEX IF NOT EXISTS idx_access_passwords_created_at ON access_passwords(created_at)",
-  },
-];
+async function ensureRequiredTable(env: Env, name: string): Promise<void> {
+  const step = REQUIRED_SCHEMA_STEPS.find(
+    (candidate) => candidate.existing?.kind === "table" && candidate.existing.name === name,
+  );
+  if (!step) throw new Error(`No schema step for table ${name}`);
+  await runStatement(env, step.sql);
+}
 
 /** Distinguishes "another request already created it" from a real DDL failure. */
 export function isAlreadyExistsError(error: unknown): boolean {
@@ -1216,8 +1045,6 @@ interface SchemaProbe {
   indexes: Set<string>;
   columns: Map<string, Set<string>>;
 }
-
-export const PROBED_COLUMN_TABLES = ["access_passwords", "indices"] as const;
 
 async function probeSchemaObjects(env: Env): Promise<SchemaProbe | null> {
   try {
@@ -1265,9 +1092,6 @@ async function probeSchemaObjects(env: Env): Promise<SchemaProbe | null> {
  * only happens when a row actually needs it, so a provisioned database costs
  * one extra read per cold start.
  */
-export const OWNER_TOKEN_ISSUED_AT_BACKFILL_SQL =
-  "UPDATE indices SET owner_token_issued_at = CAST(strftime('%s','now') AS INTEGER) WHERE owner_token_issued_at IS NULL AND owner_token_hash IS NOT NULL";
-
 async function backfillOwnerTokenIssuedAt(env: Env, probe: SchemaProbe | null): Promise<void> {
   const columnPresent = probe
     ? probe.tables.has("indices") &&
@@ -1291,7 +1115,7 @@ async function backfillOwnerTokenIssuedAt(env: Env, probe: SchemaProbe | null): 
 }
 
 export async function ensurePasswordTable(env: Env): Promise<void> {
-  if (isPasswordTableEnsured) return;
+  if (isPasswordTableEnsured || passwordTableProvisionFailed) return;
   const probe = await probeSchemaObjects(env);
   let allRequiredStepsApplied = true;
 
@@ -1326,6 +1150,11 @@ export async function ensurePasswordTable(env: Env): Promise<void> {
 
   if (allRequiredStepsApplied) {
     isPasswordTableEnsured = true;
+  } else {
+    // Latch the failure: the next authentication attempt must not repeat the
+    // whole batch. Its own D1 query will fail and be classified as 503 by the
+    // caller's unavailable path.
+    passwordTableProvisionFailed = true;
   }
 }
 
@@ -2288,8 +2117,15 @@ export async function authenticateAdminSession(
       id: row.account_id,
     };
   } catch (err) {
+    // The session lookup could not be evaluated, so this is neither an invalid
+    // credential nor a permission failure: the request boundary must answer
+    // 503, not "管理者権限が必要です" (B1).
     console.error("Failed to validate admin session:", err);
-    return { authenticated: false, error: "管理者セッションを検証できませんでした" };
+    return {
+      authenticated: false,
+      error: AUTH_SERVICE_UNAVAILABLE_MESSAGE,
+      unavailable: true,
+    };
   }
 }
 
@@ -2444,6 +2280,11 @@ export async function authenticateAdmin(
 export function adminAuthFailureResponse(auth: AuthResult, request: Request): Response {
   if (auth.rateLimited) {
     return json({ error: auth.error || RATE_LIMIT_ERROR_MESSAGE }, 429, request);
+  }
+  if (auth.unavailable) {
+    // A D1 outage is not an authorization decision. Keep the same `{ error }`
+    // envelope the client already parses, but make the failure retryable.
+    return json({ error: auth.error || AUTH_SERVICE_UNAVAILABLE_MESSAGE }, 503, request);
   }
   return json({ error: ADMIN_REQUIRED_MESSAGE }, 403, request);
 }
@@ -7311,15 +7152,7 @@ export default {
             } catch (cacheErr: unknown) {
               if (isMissingTableError(cacheErr, "snapshot_cache")) {
                 try {
-                  await env.DB.prepare(
-                    `
-                  CREATE TABLE IF NOT EXISTS snapshot_cache (
-                    id INTEGER PRIMARY KEY CHECK (id = 1),
-                    data TEXT NOT NULL,
-                    cached_at INTEGER NOT NULL
-                  )
-                `,
-                  ).run();
+                  await ensureRequiredTable(env, "snapshot_cache");
                   await env.DB.prepare(
                     "INSERT OR REPLACE INTO snapshot_cache (id, data, cached_at) VALUES (1, ?, ?)",
                   )
@@ -7344,15 +7177,7 @@ export default {
             } catch (cacheErr: unknown) {
               if (isMissingTableError(cacheErr, "benchmark_cache")) {
                 try {
-                  await env.DB.prepare(
-                    `
-                  CREATE TABLE IF NOT EXISTS benchmark_cache (
-                    symbol TEXT PRIMARY KEY,
-                    data TEXT NOT NULL,
-                    cached_at INTEGER NOT NULL
-                  )
-                `,
-                  ).run();
+                  await ensureRequiredTable(env, "benchmark_cache");
                   await env.DB.prepare(
                     "INSERT OR REPLACE INTO benchmark_cache (symbol, data, cached_at) VALUES (?, ?, ?)",
                   )

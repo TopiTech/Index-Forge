@@ -49,8 +49,11 @@
 - `npm run db:migrate:local`
   - Apply `schema.sql` to the local D1 database using `wrangler.local.jsonc`.
 
+- `npm run db:schema:generate`
+  - Regenerate `worker/schemaSteps.generated.ts` and `schema.migration.sql` from `schema.sql`, the single source of truth for the D1 definition. Run it after editing `schema.sql`; `src/lib/schemaSingleSource.test.ts` fails while either artifact is stale.
+
 - `npm run db:migrate:columns`
-  - Idempotently apply column migrations (`owner_token_hash` / `created_at` / `sort_order` / `creator_id` to `indices` and `max_indices` to `access_passwords`) to the remote D1 database via `scripts/apply-migrations.mjs` (inspects existing schema so it never fails even if columns already exist).
+  - Idempotently apply the tables, columns and indexes that `schema.sql` defines but the remote D1 database is missing, via `scripts/apply-migrations.mjs` (inspects existing schema so it never fails even if objects already exist).
 
 - `npm run db:migrate:columns:local`
   - Idempotently apply column migrations to the local D1 database via `scripts/apply-migrations.mjs`.

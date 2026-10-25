@@ -19,13 +19,15 @@ describe("Comprehensive Goal Code Review Fulfillment Round 4", () => {
 
   describe("1. StockTechnicalChart Integration & A11y", () => {
     it("queries /api/calculate to retrieve authentic historical price series instead of expecting series on /api/sync-prices", () => {
-      expect(chartTsx).toContain('fetch("/api/calculate"');
+      // The chart goes through the shared request layer (timeout + abort).
+      expect(chartTsx).toContain('fetchWithNetworkMark("/api/calculate"');
       expect(chartTsx).toContain("calcData.stockUniverse?.find");
-      expect(chartTsx).toContain("rawSeries[i].close");
+      // The authentic series is mapped without inventing OHLCV (S1).
+      expect(chartTsx).toContain("buildTechnicalChartSeries(rawSeries)");
     });
 
     it("includes preflight sync to /api/sync-prices with graceful error handling", () => {
-      expect(chartTsx).toContain('fetch("/api/sync-prices"');
+      expect(chartTsx).toContain('fetchWithNetworkMark("/api/sync-prices"');
       expect(chartTsx).toContain("// Preflight sync to ensure stock prices are refreshed into D1 cache");
     });
 

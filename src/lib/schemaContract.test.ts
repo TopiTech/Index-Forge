@@ -20,6 +20,7 @@ type Row = Record<string, SQLOutputValue>;
 type SqliteModule = typeof import("node:sqlite");
 
 const schemaSql = readFileSync(new URL("../../schema.sql", import.meta.url), "utf8");
+const migrationSql = readFileSync(new URL("../../schema.migration.sql", import.meta.url), "utf8");
 
 /** Every table the Worker reads or writes. */
 const EXPECTED_TABLES = [
@@ -379,5 +380,67 @@ describe("quote caches", () => {
     expect(run(insertLog, "7203.T", 4000)).toBe(1);
     expect(Number(one("SELECT last_synced_at FROM sync_logs WHERE ticker = ?", "7203.T").last_synced_at)).toBe(4000);
     expect(Number(one("SELECT COUNT(*) AS n FROM sync_logs").n)).toBe(1);
+  });
+});
+
+describe("schema.migration.sql converges a legacy database", () => {
+  function columns(target: DatabaseSync, table: string): string[] {
+    return target
+      .prepare(`PRAGMA table_info(${table})`)
+      .all()
+      .map((row) => String(row.name))
+      .sort();
+  }
+
+  function namedIndexes(target: DatabaseSync): Set<string> {
+    return new Set(
+      target
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND sql IS NOT NULL")
+        .all()
+        .map((row) => String(row.name)),
+    );
+  }
+
+  it("reaches the same columns and indexes as schema.sql", () => {
+    const legacy = new sqlite.DatabaseSync(":memory:");
+    try {
+      legacy.exec(`
+        CREATE TABLE indices (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          description TEXT,
+          base_value REAL DEFAULT 1000
+        );
+        CREATE TABLE basket_items (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          index_id TEXT NOT NULL,
+          ticker TEXT NOT NULL,
+          name TEXT NOT NULL,
+          weight REAL NOT NULL,
+          theme TEXT
+        );
+        CREATE TABLE access_passwords (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          password_hash TEXT NOT NULL,
+          role TEXT NOT NULL DEFAULT 'user',
+          max_stocks INTEGER DEFAULT 10,
+          is_active INTEGER DEFAULT 1,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER
+        );
+        CREATE INDEX idx_basket_items_index_id ON basket_items(index_id);
+        CREATE INDEX idx_access_passwords_hash ON access_passwords(password_hash);
+      `);
+
+      legacy.exec(migrationSql);
+
+      for (const table of EXPECTED_TABLES) {
+        expect(columns(legacy, table), `column set of ${table}`).toEqual(columns(db, table));
+      }
+      expect(namedIndexes(legacy)).toEqual(namedIndexes(db));
+    } finally {
+      legacy.close();
+    }
   });
 });

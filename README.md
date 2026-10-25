@@ -64,7 +64,7 @@ npx wrangler secret put ADMIN_PASSWORD --config wrangler.local.jsonc
 
 `--config wrangler.local.jsonc` は必須です（`wrangler.jsonc` は `database_id` がプレースホルダのため、手元からの Wrangler 実行では使いません。詳細は「1. Cloudflare での準備」の注意書きを参照）。
 
-初回ログイン後に管理画面からマスター管理者パスワードを変更すると、以後は D1 に保存された PBKDF2 ハッシュだけが有効になります。旧バージョンで `plain_password` 列を持つ D1 を利用している場合は、バックアップを取得したうえで `schema.migration.sql` を一度だけ実行し、既存の平文値を消去してください。
+初回ログイン後に管理画面からマスター管理者パスワードを変更すると、以後は D1 に保存された PBKDF2 ハッシュだけが有効になります。旧バージョンで `plain_password` 列を持つ D1 を利用している場合は、バックアップを取得したうえで `schema.migration.sql` を一度だけ実行してください。同ファイルは `schema.sql` から生成されるため手編集せず、平文値の消去が必要な場合はファイル冒頭に記載された `UPDATE access_passwords SET plain_password = NULL ...` を手動で実行してください。
 
 ### 4. 管理者ログインの2要素認証(秘密の暗号 + Turnstile)の設定
 

@@ -17,7 +17,13 @@ import {
 import type { StockMarket, UniverseStock } from "../data/stockUniverse";
 import { normalizeSearchQuery } from "./searchNormalize";
 import { escapeCsvCell } from "./csv";
-import { isRecord, readJsonBody } from "./apiContract";
+import {
+  DEFAULT_REQUEST_TIMEOUT_MS,
+  fetchWithNetworkMark,
+  isRecord,
+  readJsonBody,
+  releaseResponse,
+} from "./apiContract";
 
 export type UniverseStockLookup = (ticker: string) => UniverseStock | undefined;
 let universeLookupFn: UniverseStockLookup | null = null;
@@ -1785,16 +1791,13 @@ export async function fetchMarketOverview(forceRefresh = false): Promise<MarketO
   const isCooldown = now < overviewEndpointMissingUntil;
   if (isBrowser && (!overviewEndpointConfirmedMissing || !isCooldown || forceRefresh)) {
     try {
-      const timeoutSignal =
-        typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function"
-          ? AbortSignal.timeout(8000)
-          : undefined;
-      const res = await fetch("/api/market/overview", {
+      const res = await fetchWithNetworkMark("/api/market/overview", {
         headers: { accept: "application/json" },
         cache: forceRefresh ? "no-cache" : "default",
-        signal: timeoutSignal,
+        timeoutMs: DEFAULT_REQUEST_TIMEOUT_MS,
       });
       if (res.status === 404) {
+        releaseResponse(res);
         overviewEndpointConfirmedMissing = true;
         overviewEndpointMissingUntil = now + 30000;
         return withFallbackMetadata(DEFAULT_MARKET_OVERVIEW);
@@ -1804,6 +1807,7 @@ export async function fetchMarketOverview(forceRefresh = false): Promise<MarketO
         // The SPA fallback answers *.html paths with index.html; anything
         // that is not JSON means the route does not exist.
         if (!contentType.includes("json")) {
+          releaseResponse(res);
           overviewEndpointConfirmedMissing = true;
           overviewEndpointMissingUntil = now + 30000;
           return withFallbackMetadata(DEFAULT_MARKET_OVERVIEW);
@@ -1819,6 +1823,8 @@ export async function fetchMarketOverview(forceRefresh = false): Promise<MarketO
             dataSource: normalized.dataSource || "live",
           };
         }
+      } else {
+        releaseResponse(res);
       }
     } catch {
       // Graceful fallback to rich local baseline; a network error may be
@@ -2168,15 +2174,14 @@ export async function fetchStockFundamentals(
   const isBrowser = typeof globalThis !== "undefined" && "window" in globalThis;
   if (isBrowser) {
     try {
-      const timeoutSignal =
-        typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function"
-          ? AbortSignal.timeout(8000)
-          : undefined;
-      const res = await fetch(`/api/stock/fundamentals?ticker=${encodeURIComponent(normTicker)}`, {
-        headers: { accept: "application/json" },
-        cache: forceRefresh ? "no-cache" : "default",
-        signal: timeoutSignal,
-      });
+      const res = await fetchWithNetworkMark(
+        `/api/stock/fundamentals?ticker=${encodeURIComponent(normTicker)}`,
+        {
+          headers: { accept: "application/json" },
+          cache: forceRefresh ? "no-cache" : "default",
+          timeoutMs: DEFAULT_REQUEST_TIMEOUT_MS,
+        },
+      );
       if (res.ok) {
         const contentType = res.headers.get("content-type") || "";
         if (contentType.includes("json")) {
@@ -2200,7 +2205,11 @@ export async function fetchStockFundamentals(
             stockFundamentalsFailureCache.delete(normTicker);
             return data;
           }
+        } else {
+          releaseResponse(res);
         }
+      } else {
+        releaseResponse(res);
       }
     } catch {
       // Graceful fallback to rich baseline
@@ -2413,14 +2422,10 @@ export async function fetchScreenerStocks(
   const isBrowser = typeof globalThis !== "undefined" && "window" in globalThis;
   if (isBrowser) {
     try {
-      const timeoutSignal =
-        typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function"
-          ? AbortSignal.timeout(8000)
-          : undefined;
-      const res = await fetch("/api/stocks/screener", {
+      const res = await fetchWithNetworkMark("/api/stocks/screener", {
         headers: { accept: "application/json" },
         cache: forceRefresh ? "no-cache" : "default",
-        signal: timeoutSignal,
+        timeoutMs: DEFAULT_REQUEST_TIMEOUT_MS,
       });
       if (res.ok) {
         const contentType = res.headers.get("content-type") || "";
@@ -2455,7 +2460,11 @@ export async function fetchScreenerStocks(
               return runStockScreener(options, sanitizedRows);
             }
           }
+        } else {
+          releaseResponse(res);
         }
+      } else {
+        releaseResponse(res);
       }
     } catch {
       // Graceful fallback to baseline
@@ -2586,20 +2595,16 @@ export async function fetchUpcomingEvents(forceRefresh = false): Promise<Calenda
       const url = forceRefresh
         ? `/api/market/calendar?refresh=${Date.now()}`
         : "/api/market/calendar";
-      // ここまでの他の /api/market/* フェッチと同じ8秒タイムアウトを適用する。
-      // カレンダーだけシグナルなしで待ち続けると、応答の遅いワーカーが
-      // CalendarPage をいつまでも空白のままにする。
-      const timeoutSignal =
-        typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function"
-          ? AbortSignal.timeout(8000)
-          : undefined;
-      const res = await fetch(url, {
+      // 8秒の期限は他の /api/market/* フェッチと同じ値。カレンダーだけ
+      // 待ち続けると、応答の遅いワーカーが CalendarPage をいつまでも空白の
+      // ままにする。
+      const res = await fetchWithNetworkMark(url, {
         headers: {
           accept: "application/json",
           ...(forceRefresh ? { "cache-control": "no-cache" } : {}),
         },
         cache: forceRefresh ? "no-cache" : "default",
-        signal: timeoutSignal,
+        timeoutMs: DEFAULT_REQUEST_TIMEOUT_MS,
       });
       if (res.ok) {
         const contentType = res.headers.get("content-type") || "";
@@ -2612,7 +2617,11 @@ export async function fetchUpcomingEvents(forceRefresh = false): Promise<Calenda
               return valid;
             }
           }
+        } else {
+          releaseResponse(res);
         }
+      } else {
+        releaseResponse(res);
       }
     } catch {
       // Graceful fallback to client cache or dynamic generator

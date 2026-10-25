@@ -5,7 +5,7 @@ import type { UserPasswordItem } from "../types";
 import { useModalFocus } from "../hooks/useModalFocus";
 import { generateSecurePassword } from "../lib/auth";
 import { readApiErrorMessage } from "../lib/auth";
-import { readJsonBody } from "../lib/apiContract";
+import { fetchWithNetworkMark, readJsonBody } from "../lib/apiContract";
 
 interface EditPasswordModalProps {
   isOpen: boolean;
@@ -123,7 +123,7 @@ export function EditPasswordModal({
         payload.password = newPassword.trim();
       }
 
-      const res = await fetch("/api/admin/passwords", {
+      const res = await fetchWithNetworkMark("/api/admin/passwords", {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",

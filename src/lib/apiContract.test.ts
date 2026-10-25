@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { installFailingFetch } from "../test-helpers/networkFailure";
+import { installAbortableHangingFetch, installFailingFetch } from "../test-helpers/networkFailure";
 import {
   FetchNetworkError,
+  REQUEST_TIMEOUT_MESSAGE,
   LEGACY_REPAIRED_WEIGHT,
   NETWORK_UNREACHABLE_MESSAGE,
   fetchWithNetworkMark,
@@ -13,6 +14,7 @@ import {
   clampBaseValue,
   extractApiErrorMessage,
   isApiErrorBody,
+  isFetchTimeoutError,
   isRecord,
   isValidBaseValue,
   isValidIndexId,
@@ -21,6 +23,7 @@ import {
   isValidWeight,
   readJsonBody,
   readResponseErrorMessage,
+  releaseResponse,
   validateBasketItems,
   validateSingleStockItem,
 } from "./apiContract";
@@ -460,6 +463,139 @@ describe("apiContract: error pipeline is single-sourced (M-8)", () => {
         (err: unknown) => err,
       );
       expect(failure).toBe(abortErr);
+    });
+
+    it("owns the deadline: a pending request fails as FetchTimeoutError, not as a network error", async () => {
+      const fetchMock = installAbortableHangingFetch();
+      const failure = await fetchWithNetworkMark("http://localhost/api/indices", {
+        timeoutMs: 10,
+      }).catch((err: unknown) => err);
+
+      expect(isFetchTimeoutError(failure)).toBe(true);
+      expect((failure as Error).message).toBe(REQUEST_TIMEOUT_MESSAGE);
+      expect((failure as Error).cause).toBeInstanceOf(DOMException);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("rethrows a caller abort untouched instead of reporting the deadline", async () => {
+      installAbortableHangingFetch();
+      const controller = new AbortController();
+      const request = fetchWithNetworkMark("http://localhost/api/indices", {
+        signal: controller.signal,
+        timeoutMs: 10_000,
+      });
+
+      controller.abort();
+      const failure = await request.catch((err: unknown) => err);
+
+      expect(failure).toBeInstanceOf(DOMException);
+      expect((failure as DOMException).name).toBe("AbortError");
+      expect(isFetchTimeoutError(failure)).toBe(false);
+    });
+
+    it("keeps the deadline alive through a body that never settles", async () => {
+      // Headers resolve immediately; only the body stays pending. The old
+      // helper cleared its timer at this point, so readJsonBody waited forever.
+      const body = new ReadableStream<Uint8Array>({ start() {} });
+      const response = new Response(body, { status: 200 });
+      vi.stubGlobal("fetch", vi.fn(async () => response));
+
+      const wrapped = await fetchWithNetworkMark("http://localhost/api/indices", {
+        timeoutMs: 20,
+      });
+      const failure = await readJsonBody(wrapped).catch((err: unknown) => err);
+
+      expect(isFetchTimeoutError(failure)).toBe(true);
+      expect((failure as Error).message).toBe(REQUEST_TIMEOUT_MESSAGE);
+    });
+
+    it("releases the deadline and caller listener after a normal body read", async () => {
+      vi.useFakeTimers();
+      try {
+        const controller = new AbortController();
+        const response = new Response(JSON.stringify({ ok: true }), { status: 200 });
+        vi.stubGlobal("fetch", vi.fn(async () => response));
+
+        const removeSpy = vi.spyOn(controller.signal, "removeEventListener");
+        const wrapped = await fetchWithNetworkMark("http://localhost/api/indices", {
+          signal: controller.signal,
+          timeoutMs: 10_000,
+        });
+        // Headers are in, but the body has not been consumed: the deadline is
+        // still installed. The old helper had already cleared it here.
+        expect(vi.getTimerCount()).toBe(1);
+        await expect(wrapped.text()).resolves.toBe(JSON.stringify({ ok: true }));
+
+        // The timer must not survive the body read.
+        expect(vi.getTimerCount()).toBe(0);
+        // And the caller listener must be removed, not left installed until
+        // the caller happens to abort later.
+        expect(removeSpy).toHaveBeenCalledWith("abort", expect.any(Function));
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("releases the deadline and caller listener when the body is not JSON", async () => {
+      vi.useFakeTimers();
+      try {
+        const controller = new AbortController();
+        const response = new Response("<html>proxy error</html>", { status: 200 });
+        vi.stubGlobal("fetch", vi.fn(async () => response));
+
+        const removeSpy = vi.spyOn(controller.signal, "removeEventListener");
+        const wrapped = await fetchWithNetworkMark("http://localhost/api/indices", {
+          signal: controller.signal,
+          timeoutMs: 10_000,
+        });
+        await expect(readJsonBody(wrapped)).resolves.toBeNull();
+        expect(vi.getTimerCount()).toBe(0);
+        expect(removeSpy).toHaveBeenCalledWith("abort", expect.any(Function));
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("releases a stalled body when the caller aborts", async () => {
+      vi.useFakeTimers();
+      try {
+        const body = new ReadableStream<Uint8Array>({ start() {} });
+        const response = new Response(body, { status: 200 });
+        vi.stubGlobal("fetch", vi.fn(async () => response));
+        const controller = new AbortController();
+        const wrapped = await fetchWithNetworkMark("http://localhost/api/indices", {
+          signal: controller.signal,
+          timeoutMs: 10_000,
+        });
+
+        const read = readJsonBody(wrapped);
+        controller.abort();
+        await expect(read).resolves.toBeNull();
+        expect(vi.getTimerCount()).toBe(0);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("releases a discarded response without reading its body", async () => {
+      vi.useFakeTimers();
+      try {
+        const body = new ReadableStream<Uint8Array>({ start() {} });
+        const response = new Response(body, { status: 200 });
+        vi.stubGlobal("fetch", vi.fn(async () => response));
+        const controller = new AbortController();
+        const removeSpy = vi.spyOn(controller.signal, "removeEventListener");
+
+        const wrapped = await fetchWithNetworkMark("http://localhost/api/indices", {
+          signal: controller.signal,
+          timeoutMs: 10_000,
+        });
+        releaseResponse(wrapped);
+        expect(vi.getTimerCount()).toBe(0);
+        expect(removeSpy).toHaveBeenCalledWith("abort", expect.any(Function));
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 

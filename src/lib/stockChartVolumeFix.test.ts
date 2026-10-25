@@ -35,9 +35,12 @@ describe("Stock Local Technical Chart Volume Rendering Fix", () => {
       expect(chartSource).toContain("Number.isFinite(dataMax) && dataMax > 0");
     });
 
-    it("calculates dynamic volume rather than a flat wall when raw volume is absent", () => {
-      expect(chartSource).toContain("pointVolume");
-      expect(chartSource).toContain("priceChangeRate");
+    it("does not derive a volume for sessions whose volume is unknown (S1)", () => {
+      // The API series is {date, close}: a missing volume must leave the bar
+      // out instead of inventing one from the quote or the price change.
+      expect(chartSource).not.toContain("pointVolume");
+      expect(chartSource).not.toContain("dynamicVol");
+      expect(chartSource).toContain("buildTechnicalChartSeries(rawSeries)");
     });
 
     it("renders volume in Recharts Bar component with yAxisId=volume", () => {

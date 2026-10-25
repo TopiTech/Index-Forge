@@ -16,7 +16,7 @@
  * fetch/JSON logic (no DOM, no storage) so the Worker typecheck can compile it.
  */
 
-import { isRecord, readJsonBody } from "./apiContract";
+import { fetchWithNetworkMark, isRecord, readJsonBody, releaseResponse } from "./apiContract";
 
 /** Worker API prefix shared by every client request. */
 const API_BASE = "/api";
@@ -169,23 +169,28 @@ export async function syncPricesInBatches(options: PriceSyncOptions): Promise<Pr
     if (wasAborted()) return abortedResult();
 
     try {
-      const res = await fetch(`${API_BASE}/sync-prices`, {
+      const res = await fetchWithNetworkMark(`${API_BASE}/sync-prices`, {
         method: "POST",
         headers,
         body: JSON.stringify({ tickers: batch, force }),
         signal,
       });
-      if (wasAborted()) return abortedResult();
+      if (wasAborted()) {
+        releaseResponse(res);
+        return abortedResult();
+      }
 
       if (res.status === 429) {
         // The daily quota is exhausted: keep calculating with what is already
         // stored instead of hammering the endpoint (and surfacing a hard error).
+        releaseResponse(res);
         warnings.push(SYNC_RATE_LIMIT_WARNING);
         rateLimited = true;
         break;
       }
 
       if (!res.ok) {
+        releaseResponse(res);
         warnings.push(formatSyncBatchFailureWarning(index + 1));
       } else {
         const parsed: unknown = await readJsonBody(res);

@@ -1,15 +1,35 @@
+-- Canonical D1 schema — the single source of truth for the database definition.
+--
+-- The Worker's runtime provisioning steps (worker/schemaSteps.generated.ts) and
+-- schema.migration.sql are generated from this file. After changing a table,
+-- column, index, default or constraint here, run:
+--
+--   npm run db:schema:generate
+--
+-- src/lib/schemaSingleSource.test.ts fails when either generated artifact drifts
+-- from this file.
+--
+-- `-- @legacy-add` marks a column that runtime provisioning and the legacy
+-- migration must add with ALTER TABLE to a database created before the column
+-- existed (SQLite has no ADD COLUMN IF NOT EXISTS). Unmarked columns are only
+-- ever created together with their table.
 CREATE TABLE IF NOT EXISTS indices (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     description TEXT,
     base_value REAL DEFAULT 1000,
+    -- @legacy-add
     sort_order INTEGER DEFAULT 99,
+    -- @legacy-add
     owner_token_hash TEXT,
     -- Unix seconds of the last owner-token issue/replacement. Owner tokens are
     -- rejected by the API once they are older than 90 days, so every path that
     -- writes owner_token_hash must also write this column.
+    -- @legacy-add
     owner_token_issued_at INTEGER,
+    -- @legacy-add
     creator_id TEXT,
+    -- @legacy-add
     created_at INTEGER
 );
 
@@ -77,9 +97,11 @@ CREATE TABLE IF NOT EXISTS access_passwords (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     password_hash TEXT NOT NULL,
+    -- @legacy-add
     secret_code_hash TEXT,
     role TEXT NOT NULL DEFAULT 'user',
     max_stocks INTEGER DEFAULT 10,
+    -- @legacy-add
     max_indices INTEGER DEFAULT NULL,
     is_active INTEGER DEFAULT 1,
     created_at INTEGER NOT NULL,

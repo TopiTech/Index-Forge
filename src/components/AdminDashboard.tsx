@@ -45,7 +45,7 @@ import { ConfirmModal } from "./ConfirmModal";
 import { ModalBase } from "./ModalBase";
 import { useToast } from "./Toast";
 import { equalizeWeightsExact, normalizeTicker } from "../lib/indexEngine";
-import { isRecord, isValidTicker, readJsonBody } from "../lib/apiContract";
+import { fetchWithNetworkMark, isRecord, isValidTicker, readJsonBody } from "../lib/apiContract";
 import { safeRandomId } from "../lib/randomId";
 import { TurnstileWidget, type TurnstileWidgetRef } from "./TurnstileWidget";
 
@@ -319,7 +319,7 @@ export function AdminDashboard({
     setLoadingStats(true);
     setStatsError(null);
     try {
-      const res = await fetch("/api/admin/system-stats", {
+      const res = await fetchWithNetworkMark("/api/admin/system-stats", {
         headers: getHeaders(),
         signal: controller.signal,
       });
@@ -372,7 +372,7 @@ export function AdminDashboard({
     try {
       setLoadingPasswords(true);
       setPasswordFetchError(null);
-      const res = await fetch("/api/admin/passwords", {
+      const res = await fetchWithNetworkMark("/api/admin/passwords", {
         headers: getHeaders(),
         signal: controller.signal,
       });
@@ -603,7 +603,7 @@ export function AdminDashboard({
     setIssuedPassword(null);
 
     try {
-      const res = await fetch("/api/admin/passwords", {
+      const res = await fetchWithNetworkMark("/api/admin/passwords", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -654,10 +654,13 @@ export function AdminDashboard({
     }
     setDeletingPassword(true);
     try {
-      const res = await fetch(`/api/admin/passwords?id=${encodeURIComponent(passwordToDelete.id)}`, {
-        method: "DELETE",
-        headers: getHeaders(),
-      });
+      const res = await fetchWithNetworkMark(
+        `/api/admin/passwords?id=${encodeURIComponent(passwordToDelete.id)}`,
+        {
+          method: "DELETE",
+          headers: getHeaders(),
+        },
+      );
       if (res.ok) {
         toastSuccess(`パスワード「${passwordToDelete.name}」を削除しました`);
         setPasswordToDelete(null);
@@ -723,7 +726,7 @@ export function AdminDashboard({
     }
     try {
       const nextActive = item.is_active !== 1;
-      const res = await fetch("/api/admin/passwords", {
+      const res = await fetchWithNetworkMark("/api/admin/passwords", {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
@@ -935,7 +938,7 @@ export function AdminDashboard({
     setUpdatingAdminPwd(true);
     setAdminPwdMessage(null);
     try {
-      const res = await fetch("/api/admin/admin-password", {
+      const res = await fetchWithNetworkMark("/api/admin/admin-password", {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",

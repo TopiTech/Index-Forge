@@ -20,7 +20,12 @@ import {
 import type { StockQuoteFundamentals } from "../lib/marketDataService";
 import { detectStockCurrency, formatStockPrice } from "../lib/currency";
 import { resolveTradingViewSymbol, getTradingViewWebUrl } from "../lib/tradingView";
-import { readJsonBody } from "../lib/apiContract";
+import {
+  DEFAULT_REQUEST_TIMEOUT_MS,
+  fetchWithNetworkMark,
+  readJsonBody,
+  releaseResponse,
+} from "../lib/apiContract";
 import { normalizeTicker } from "../lib/yahooSymbol";
 
 export interface StockTechnicalChartProps {
@@ -33,10 +38,15 @@ export interface PriceDataPoint {
   date: string;
   displayDate: string;
   close: number;
-  open: number;
-  high: number;
-  low: number;
-  volume: number;
+  /**
+   * Real traded volume for the session, when the API actually supplies it.
+   *
+   * Deliberately optional: `/api/calculate` includes it only when the stored
+   * Yahoo series had it, and `/api/snapshot` returns `{date, close}` only. The
+   * chart must not invent a volume bar for a session whose volume is unknown;
+   * a missing value means "not available", never "zero".
+   */
+  volume?: number;
   sma25: number | null;
   sma75: number | null;
 }
@@ -128,7 +138,7 @@ export function formatTechnicalTooltipValue(
  * turn the whole line into `NaN`.
  */
 export function computeSma(
-  rawSeries: Array<{ close?: number }>,
+  rawSeries: ReadonlyArray<{ close?: number }>,
   endIndex: number,
   window: number,
   fallbackPrice: number,
@@ -140,6 +150,59 @@ export function computeSma(
     sum += typeof c === "number" && Number.isFinite(c) && c > 0 ? c : fallbackPrice;
   }
   return Math.round((sum / window) * 100) / 100;
+}
+
+/** One raw price point exactly as an API endpoint returns it. */
+export interface RawChartPoint {
+  date: string;
+  close: number;
+  volume?: number;
+}
+
+/**
+ * Map an API price series to chart points without inventing market data.
+ *
+ * `/api/calculate` returns `{date, close, volume?}` and `/api/snapshot`
+ * returns `{date, close}`. An earlier version derived an open/high/low and,
+ * when volume was absent, a volume for every session, then rendered the result
+ * as if it were observed data. This mapper copies only what the payload
+ * actually contains: a valid close and, when present, a positive finite
+ * volume. The renderer omits the volume pane entirely when no point carries
+ * one.
+ *
+ * A non-positive/non-finite close is not a historical observation. The row is
+ * dropped instead of being replaced by the current quote price, so a missing
+ * value can neither be drawn as a past close nor feed an invented value into
+ * an SMA.
+ */
+export function buildTechnicalChartSeries(
+  rawSeries: readonly RawChartPoint[],
+): PriceDataPoint[] {
+  const validSeries = rawSeries.filter(
+    (raw): raw is RawChartPoint =>
+      !!raw &&
+      typeof raw === "object" &&
+      typeof raw.close === "number" &&
+      Number.isFinite(raw.close) &&
+      raw.close > 0,
+  );
+
+  return validSeries.map((raw, index) => {
+    const close = raw.close;
+    const volume =
+      typeof raw.volume === "number" && Number.isFinite(raw.volume) && raw.volume > 0
+        ? raw.volume
+        : undefined;
+
+    return {
+      date: raw.date,
+      displayDate: formatChartDisplayDate(raw.date),
+      close,
+      ...(volume !== undefined ? { volume } : {}),
+      sma25: computeSma(validSeries, index, 25, close),
+      sma75: computeSma(validSeries, index, 75, close),
+    };
+  });
 }
 
 /**
@@ -155,8 +218,6 @@ export function generateDeterministicHistory(
   const now = baseDate;
   const currentPrice = stock.price > 0 ? stock.price : 1000;
   const prevClose = stock.previousClose > 0 ? stock.previousClose : currentPrice;
-  const dayHigh = stock.dayHigh > 0 ? stock.dayHigh : currentPrice * 1.01;
-  const dayLow = stock.dayLow > 0 ? stock.dayLow : currentPrice * 0.99;
   const rawYearHigh = stock.yearHigh > 0 ? stock.yearHigh : currentPrice * 1.2;
   const rawYearLow = stock.yearLow > 0 ? stock.yearLow : currentPrice * 0.8;
   const yearHigh = Math.max(rawYearHigh, rawYearLow, currentPrice);
@@ -225,10 +286,6 @@ export function generateDeterministicHistory(
     const dateStr = `${year}-${month}-${dayStr}`;
     const displayDate = `${d.getMonth() + 1}/${d.getDate()}`;
     const close = Math.round(rawPrices[i] * 100) / 100;
-    const isLast = i === safeTotalDays - 1;
-    const high = isLast ? Math.max(dayHigh, close) : close * (1 + seededRandom() * 0.012);
-    const low = isLast ? Math.min(dayLow, close) : close * (1 - seededRandom() * 0.012);
-    const open = i > 0 ? rawPrices[i - 1] : close * (1 - (seededRandom() - 0.5) * 0.01);
     const volume = Math.round(baseVolume * (0.6 + seededRandom() * 0.8));
 
     // SMA calculation
@@ -250,9 +307,6 @@ export function generateDeterministicHistory(
       date: dateStr,
       displayDate,
       close,
-      open,
-      high,
-      low,
       volume,
       sma25,
       sma75,
@@ -426,11 +480,12 @@ export function StockTechnicalChart({
     const quote = stockRef.current;
 
     let isCancelled = false;
+    const controller = new AbortController();
     setLocalDataLoading(true);
 
     async function fetchHistoricalPrices() {
       try {
-        let rawSeries: Array<{ date: string; close: number }> | undefined;
+        let rawSeries: RawChartPoint[] | undefined;
         const normalizedTicker = normalizeTicker(quote.ticker);
         const tickerToFetch = normalizedTicker || quote.ticker;
 
@@ -441,19 +496,26 @@ export function StockTechnicalChart({
 
         if (isBenchmark) {
           try {
-            const snapRes = await fetch(`/api/snapshot?symbol=${encodeURIComponent(tickerToFetch)}`);
+            const snapRes = await fetchWithNetworkMark(
+              `/api/snapshot?symbol=${encodeURIComponent(tickerToFetch)}`,
+              { signal: controller.signal, timeoutMs: DEFAULT_REQUEST_TIMEOUT_MS },
+            );
             if (snapRes.ok) {
               const snapData = (await readJsonBody(snapRes)) as {
-                series?: Array<{ date: string; close: number }>;
+                series?: RawChartPoint[];
               } | null;
               // DATA-27: a short but real series is still real data and must
               // be rendered as-is instead of being replaced by a synthetic one.
               if (snapData && Array.isArray(snapData.series) && snapData.series.length >= 1) {
                 rawSeries = snapData.series;
               }
+            } else {
+              releaseResponse(snapRes);
             }
           } catch {
-            // Snapshot query is best-effort
+            // A superseded/unmounted request must not continue into the
+            // calculation or publish anything; other failures are best-effort.
+            if (isCancelled || controller.signal.aborted) return;
           }
         } else {
           // Preflight sync to ensure stock prices are refreshed into D1 cache.
@@ -465,23 +527,31 @@ export function StockTechnicalChart({
           // succeeded, so a failed write is retried on the next run.
           if (lastSyncedTickerRef.current !== tickerToFetch) {
             try {
-              const syncRes = await fetch("/api/sync-prices", {
+              const syncRes = await fetchWithNetworkMark("/api/sync-prices", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ tickers: [tickerToFetch] }),
+                signal: controller.signal,
+                timeoutMs: DEFAULT_REQUEST_TIMEOUT_MS,
               });
+              // The preflight body is not consumed; release its timer/listener
+              // instead of leaving them installed until the deadline.
+              releaseResponse(syncRes);
               if (syncRes.ok) {
                 lastSyncedTickerRef.current = tickerToFetch;
               }
             } catch {
               // Preflight sync is best-effort; proceed to query /api/calculate.
               // The ticker stays unmarked, so the next run retries the write.
+              if (isCancelled || controller.signal.aborted) return;
             }
           }
 
-          const calcRes = await fetch("/api/calculate", {
+          const calcRes = await fetchWithNetworkMark("/api/calculate", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
+            signal: controller.signal,
+            timeoutMs: DEFAULT_REQUEST_TIMEOUT_MS,
             body: JSON.stringify({
               basket: [
                 {
@@ -499,84 +569,41 @@ export function StockTechnicalChart({
             const calcData = (await readJsonBody(calcRes)) as {
               stockUniverse?: Array<{
                 ticker: string;
-                series?: Array<{ date: string; close: number }>;
+                series?: RawChartPoint[];
               }>;
             };
             const found = calcData && calcData.stockUniverse?.find(
               (s) => s.ticker.toUpperCase() === tickerToFetch.toUpperCase(),
             );
             rawSeries = found?.series;
+          } else {
+            releaseResponse(calcRes);
           }
         }
 
         // DATA-27: a real series is kept as-is, however short it is. Only a
         // missing/failed response falls back to the generated reference series.
+        // The mapper copies only what the payload contains: a close and, when
+        // present, a real volume. It never derives OHLCV from the quote (S1).
+        // Rows without a usable close are dropped; if none remain, the series
+        // is not history and the disclosed reference fallback below is used.
         if (Array.isArray(rawSeries) && rawSeries.length >= 1) {
-            const total = rawSeries.length;
-            const points: PriceDataPoint[] = [];
-            for (let i = 0; i < total; i++) {
-              const rawP = rawSeries[i].close;
-              const p = Number.isFinite(rawP) && rawP > 0 ? rawP : quote.price;
-              const dateStr = rawSeries[i].date;
-              const displayDate = formatChartDisplayDate(dateStr);
-
-              const sma25 = computeSma(rawSeries, i, 25, p);
-              const sma75 = computeSma(rawSeries, i, 75, p);
-
-              const rawVol = (rawSeries[i] as { volume?: number })?.volume;
-              const rawOpen = (rawSeries[i] as { open?: number })?.open;
-              const rawHigh = (rawSeries[i] as { high?: number })?.high;
-              const rawLow = (rawSeries[i] as { low?: number })?.low;
-
-              const baseVol = quote.volume > 0 ? quote.volume : 500000;
-              const prevP = i > 0 ? (rawSeries[i - 1]?.close ?? p) : p;
-              const priceChangeRate = prevP > 0 ? Math.abs(p - prevP) / prevP : 0.01;
-              const dynamicVol = Math.round(
-                baseVol * (0.65 + Math.min(priceChangeRate * 12, 1.2) + ((i * 13 + Math.round(p)) % 10) * 0.035),
-              );
-              const pointVolume = typeof rawVol === "number" && Number.isFinite(rawVol) && rawVol > 0
-                ? rawVol
-                : dynamicVol;
-
-              let candleOpen = typeof rawOpen === "number" && Number.isFinite(rawOpen) && rawOpen > 0 ? rawOpen : prevP;
-              let candleHigh = typeof rawHigh === "number" && Number.isFinite(rawHigh) && rawHigh > 0 ? rawHigh : null;
-              let candleLow = typeof rawLow === "number" && Number.isFinite(rawLow) && rawLow > 0 ? rawLow : null;
-
-              if (i === total - 1) {
-                if (quote.dayHigh && quote.dayHigh > 0) candleHigh = quote.dayHigh;
-                if (quote.dayLow && quote.dayLow > 0) candleLow = quote.dayLow;
-                if (quote.previousClose && quote.previousClose > 0 && (!rawOpen || rawOpen <= 0)) {
-                  candleOpen = quote.previousClose;
-                }
-              }
-
-              const finalHigh = candleHigh ?? Math.max(p, candleOpen) * 1.008;
-              const finalLow = candleLow ?? Math.min(p, candleOpen) * 0.992;
-
-              points.push({
-                date: dateStr,
-                displayDate,
-                close: p,
-                open: candleOpen,
-                high: finalHigh,
-                low: finalLow,
-                volume: pointVolume,
-                sma25,
-                sma75,
-              });
-            }
-            if (!isCancelled) {
-              setLocalSeries(points);
-              setLocalSeriesIsSynthetic(false);
-              setLocalDataLoading(false);
-              return;
-            }
+          const points = buildTechnicalChartSeries(rawSeries);
+          if (points.length > 0 && !isCancelled && !controller.signal.aborted) {
+            setLocalSeries(points);
+            setLocalSeriesIsSynthetic(false);
+            setLocalDataLoading(false);
+            return;
           }
-        } catch {
-        // Fall back gracefully to deterministic series
+        }
+      } catch {
+        // An aborted request must not publish the generated reference series.
+        // A real failure (including the request deadline) keeps the existing
+        // graceful fallback below.
+        if (isCancelled || controller.signal.aborted) return;
       }
 
-      if (!isCancelled) {
+      if (!isCancelled && !controller.signal.aborted) {
         const fallback = generateDeterministicHistory(quote, 80);
         setLocalSeries(fallback);
         // DATA-27: the generated series is a reference value, not market data.
@@ -588,6 +615,7 @@ export function StockTechnicalChart({
     void fetchHistoricalPrices();
     return () => {
       isCancelled = true;
+      controller.abort();
     };
     // The dependencies mirror the guard above: the run is keyed on the
     // *content* of the quote, so a refresh that returns the same numbers
@@ -721,6 +749,16 @@ export function StockTechnicalChart({
     if (selectedRange === "3M") return localSeries.slice(-65);
     return localSeries;
   }, [localSeries, selectedRange]);
+
+  /**
+   * Volume is shown only when the API actually supplied it for the window.
+   * A close-only window (e.g. from `/api/snapshot`) must not grow a volume
+   * pane derived from the quote (S1).
+   */
+  const hasRealVolume = useMemo(
+    () => displaySeries.some((point) => typeof point.volume === "number"),
+    [displaySeries],
+  );
 
   const handleRetryTV = useCallback(() => {
     setTvError(false);
@@ -875,7 +913,7 @@ export function StockTechnicalChart({
             <div>
               <div style={{ fontWeight: 600 }}>TradingView自動フォールバック稼働中</div>
               <div className="tiny" style={{ opacity: 0.9 }}>
-                TradingViewシンボル非対応またはエラー・接続制限を検知したため、ローカル高機能チャートで表示しています（日足終値・移動平均線・出来高）。
+                TradingViewシンボル非対応またはエラー・接続制限を検知したため、ローカル高機能チャートで表示しています（日足終値・移動平均線{hasRealVolume ? "・出来高" : ""}）。
               </div>
             </div>
           </div>
@@ -1063,16 +1101,18 @@ export function StockTechnicalChart({
                     }}
                   />
 
-                  <YAxis
-                    yAxisId="volume"
-                    orientation="right"
-                    domain={[
-                      0,
-                      (dataMax: number) =>
-                        Number.isFinite(dataMax) && dataMax > 0 ? dataMax * 3.5 : 100000,
-                    ]}
-                    hide={true}
-                  />
+                  {hasRealVolume && (
+                    <YAxis
+                      yAxisId="volume"
+                      orientation="right"
+                      domain={[
+                        0,
+                        (dataMax: number) =>
+                          Number.isFinite(dataMax) && dataMax > 0 ? dataMax * 3.5 : 100000,
+                      ]}
+                      hide={true}
+                    />
+                  )}
 
                   <Tooltip
                     allowEscapeViewBox={{ x: false, y: true }}
@@ -1103,13 +1143,15 @@ export function StockTechnicalChart({
                     }}
                   />
 
-                  <Bar
-                    yAxisId="volume"
-                    dataKey="volume"
-                    name="volume"
-                    fill="rgba(6, 182, 212, 0.2)"
-                    barSize={activeIsMobile ? 3 : 6}
-                  />
+                  {hasRealVolume && (
+                    <Bar
+                      yAxisId="volume"
+                      dataKey="volume"
+                      name="volume"
+                      fill="rgba(6, 182, 212, 0.2)"
+                      barSize={activeIsMobile ? 3 : 6}
+                    />
+                  )}
 
                   <Area
                     yAxisId="price"
