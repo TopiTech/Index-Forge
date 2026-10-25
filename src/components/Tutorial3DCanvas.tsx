@@ -31,6 +31,9 @@ export const Tutorial3DCanvas = forwardRef<Tutorial3DCanvasHandle, Tutorial3DCan
     // The scene lifecycle effect runs once, but a restored context needs the
     // *current* step and motion flags: reading the mount-time props rebuilt the
     // scene at a stale step whenever the user had advanced the tutorial first.
+    // The mount effect below reads these through the ref as well, so its
+    // empty dependency array is complete and needs no lint suppression;
+    // prop changes after mount flow through the dedicated sync effects.
     const latestPropsRef = useRef({ currentStep, isReducedMotion, isAutoRotatePaused });
     useEffect(() => {
       latestPropsRef.current = { currentStep, isReducedMotion, isAutoRotatePaused };
@@ -82,10 +85,10 @@ export const Tutorial3DCanvas = forwardRef<Tutorial3DCanvasHandle, Tutorial3DCan
           canvas,
           width: initialWidth,
           height: initialHeight,
-          initialStep: currentStep,
-          isReducedMotion,
+          initialStep: latestPropsRef.current.currentStep,
+          isReducedMotion: latestPropsRef.current.isReducedMotion,
         });
-        sceneInstance.isAutoRotatePaused = isAutoRotatePaused;
+        sceneInstance.isAutoRotatePaused = latestPropsRef.current.isAutoRotatePaused;
         sceneRef.current = sceneInstance;
       } catch (err) {
         console.warn("Failed to initialize Three.js WebGL scene:", err);
@@ -149,7 +152,6 @@ export const Tutorial3DCanvas = forwardRef<Tutorial3DCanvasHandle, Tutorial3DCan
           sceneRef.current = null;
         }
       };
-      // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     // Sync currentStep

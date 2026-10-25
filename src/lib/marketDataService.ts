@@ -17,6 +17,7 @@ import {
 import type { StockMarket, UniverseStock } from "../data/stockUniverse";
 import { normalizeSearchQuery } from "./searchNormalize";
 import { escapeCsvCell } from "./csv";
+import { isRecord, readJsonBody } from "./apiContract";
 
 export type UniverseStockLookup = (ticker: string) => UniverseStock | undefined;
 let universeLookupFn: UniverseStockLookup | null = null;
@@ -1807,7 +1808,9 @@ export async function fetchMarketOverview(forceRefresh = false): Promise<MarketO
           overviewEndpointMissingUntil = now + 30000;
           return withFallbackMetadata(DEFAULT_MARKET_OVERVIEW);
         }
-        const normalized = normalizeMarketOverview(await res.json());
+        // A JSON content-type with a malformed body must fall through to the
+        // baseline fallback below, not throw out of the fetch path.
+        const normalized = normalizeMarketOverview(await readJsonBody(res));
         if (normalized) {
           overviewEndpointConfirmedMissing = false;
           overviewEndpointMissingUntil = 0;
@@ -2177,23 +2180,23 @@ export async function fetchStockFundamentals(
       if (res.ok) {
         const contentType = res.headers.get("content-type") || "";
         if (contentType.includes("json")) {
-          const raw = await res.json();
+          // A malformed JSON body must fall through to the baseline below,
+          // not throw out of the fetch path.
+          const raw: unknown = await readJsonBody(res);
           if (
-            raw &&
-            typeof raw === "object" &&
-            typeof (raw as { ticker?: unknown }).ticker === "string" &&
-            typeof (raw as { price?: unknown }).price === "number" &&
-            Number.isFinite((raw as { price?: unknown }).price) &&
+            isRecord(raw) &&
+            typeof raw.ticker === "string" &&
+            typeof raw.price === "number" &&
+            Number.isFinite(raw.price) &&
             // A price of zero (or below) is not a market price: it is what an
             // upstream placeholder for a suspended/delisted ticker looks like.
             // The screener path already rejects such a payload, so accepting
             // it here made the two endpoints of the same Worker disagree and
             // cached a ¥0 quote as if it were live.
-            (raw as { price: number }).price > 0
+            raw.price > 0
           ) {
-            const rawObj = raw as Record<string, unknown>;
             const baseline = getStockFundamentals(normTicker);
-            const data = cacheStockFundamentals(rawObj, baseline, normTicker);
+            const data = cacheStockFundamentals(raw, baseline, normTicker);
             stockFundamentalsFailureCache.delete(normTicker);
             return data;
           }
@@ -2422,16 +2425,15 @@ export async function fetchScreenerStocks(
       if (res.ok) {
         const contentType = res.headers.get("content-type") || "";
         if (contentType.includes("json")) {
-          const raw = await res.json();
+          const raw: unknown = await readJsonBody(res);
           if (Array.isArray(raw) && raw.length > 0) {
             const valid = raw.filter(
               (item): item is Record<string, unknown> =>
-                !!item &&
-                typeof item === "object" &&
-                typeof (item as { ticker?: unknown }).ticker === "string" &&
-                typeof (item as { price?: unknown }).price === "number" &&
-                Number.isFinite((item as { price?: unknown }).price) &&
-                (item as { price: number }).price > 0,
+                isRecord(item) &&
+                typeof item.ticker === "string" &&
+                typeof item.price === "number" &&
+                Number.isFinite(item.price) &&
+                item.price > 0,
             );
             if (valid.length > 0) {
               const fetchedAt = Date.now();
@@ -2602,7 +2604,7 @@ export async function fetchUpcomingEvents(forceRefresh = false): Promise<Calenda
       if (res.ok) {
         const contentType = res.headers.get("content-type") || "";
         if (contentType.includes("json")) {
-          const raw = await res.json();
+          const raw: unknown = await readJsonBody(res);
           if (Array.isArray(raw) && raw.length > 0) {
             const valid = raw.filter(isValidCalendarEvent);
             if (valid.length > 0) {

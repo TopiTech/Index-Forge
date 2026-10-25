@@ -91,7 +91,7 @@ describe("review regressions: Worker input boundaries", () => {
     );
 
     expect(response.status).toBe(400);
-    expect((await response.json()).error).toContain("Unsupported symbol");
+    expect((await response.json()).error).toContain("対応していないシンボルです。");
     expect(fetchYahoo).not.toHaveBeenCalled();
     fetchYahoo.mockRestore();
   });

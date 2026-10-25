@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import type { BenchmarkOption, BenchmarkSymbol, Snapshot } from "../types";
+import { extractApiErrorMessage, readJsonBody } from "../lib/apiContract";
 
 const API_BASE = "/api";
 const BENCHMARK_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
@@ -104,13 +105,15 @@ function parseJsonBody(text: string): unknown {
   }
 }
 
-/** Read the `error` field of an API error body. */
+/**
+ * Read the `error` field of an API error body.
+ *
+ * The "what counts as an error body" rule is single-sourced in
+ * `src/lib/apiContract.ts`; this stays as a thin alias because the hook
+ * already calls it in two places.
+ */
 function readErrorMessage(payload: unknown): string {
-  if (payload && typeof payload === "object" && !Array.isArray(payload)) {
-    const error = (payload as Record<string, unknown>).error;
-    if (typeof error === "string" && error.trim()) return error.trim();
-  }
-  return "";
+  return extractApiErrorMessage(payload, "");
 }
 
 export function useBenchmark(initialSymbol: BenchmarkSymbol = "^N225", enabled = true) {
@@ -228,10 +231,12 @@ export function useBenchmark(initialSymbol: BenchmarkSymbol = "^N225", enabled =
         });
         if (res.status === 304) {
           if (cached) {
-            // Re-validating the cached entry extends its lifetime, so it must
-            // not happen for a request that has already been superseded.
+            // A 304 only confirms the server still serves the same payload;
+            // the entry's age stays anchored to its fetch time. Bumping the
+            // timestamp here re-armed the TTL on every revalidation, so an
+            // entry fetched once stayed "fresh" (and `lastUpdatedAt` kept
+            // looking current) for as long as the tab lived.
             if (isCurrentRequest() && !controller.signal.aborted) {
-              cached.timestamp = Date.now();
               setLastUpdatedAt(cached.timestamp);
               setBenchmarkData(cached.data);
             }
@@ -243,7 +248,7 @@ export function useBenchmark(initialSymbol: BenchmarkSymbol = "^N225", enabled =
             cache: "reload",
           });
           if (!freshRes.ok) {
-            const errData: unknown = await freshRes.json().catch(() => null);
+            const errData: unknown = await readJsonBody(freshRes);
             throw new Error(
               readErrorMessage(errData) || `${selectedBenchmark} データの取得に失敗しました`,
             );
@@ -261,11 +266,11 @@ export function useBenchmark(initialSymbol: BenchmarkSymbol = "^N225", enabled =
           return;
         }
         if (!res.ok) {
-          const errData: unknown = await res.json().catch(() => null);
+          const errData: unknown = await readJsonBody(res);
           throw new Error(readErrorMessage(errData) || `${selectedBenchmark} データの取得に失敗しました`);
         }
         const etag = res.headers.get("etag");
-        const raw: unknown = await res.json().catch(() => null);
+        const raw: unknown = await readJsonBody(res);
         const data = normalizeBenchmarkData(raw);
         if (!data) {
           throw new Error(`${selectedBenchmark} データの形式が不正です`);

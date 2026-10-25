@@ -158,4 +158,23 @@ describe("Tutorial3DCanvas", () => {
     canvas.dispatchEvent(new Event("webglcontextrestored"));
     expect(FakeScene.instances).toHaveLength(1);
   });
+
+  it("mounts without silencing exhaustive-deps (props flow through latestPropsRef)", () => {
+    // U-8 P-6: the mount effect reads currentStep/isReducedMotion/
+    // isAutoRotatePaused through latestPropsRef (which the always-running
+    // sync effect keeps fresh), so its empty dependency array is complete.
+    // The lint suppression is gone; if it comes back, this fails.
+    const nodeFs = process.getBuiltinModule("node:fs") as {
+      readFileSync: (path: string, encoding: "utf8") => string;
+    };
+    const nodePath = process.getBuiltinModule("node:path") as {
+      join: (...parts: string[]) => string;
+    };
+    const source = nodeFs.readFileSync(
+      nodePath.join(process.cwd(), "src/components/Tutorial3DCanvas.tsx"),
+      "utf8",
+    );
+    expect(source).not.toContain("eslint-disable-next-line react-hooks/exhaustive-deps");
+    expect(source).toContain("latestPropsRef.current.currentStep");
+  });
 });

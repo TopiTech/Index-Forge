@@ -1,4 +1,5 @@
 import { isValidTicker } from "./apiContract";
+import { normalizeTicker as normalizeTickerBase } from "./yahooSymbol";
 
 export type PageView =
   | "dashboard"
@@ -100,10 +101,6 @@ export function parseStockParams(search: string = ""): StockQueryParams {
 // (`src/lib/apiContract.ts`), i.e. the same one the Worker's
 // /api/stock/fundamentals validation applies.
 
-function toHalfWidth(str: string): string {
-  return str.replace(/[！-～]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0));
-}
-
 function normalizeTicker(raw: string | null | undefined): string | undefined {
   if (!raw) return undefined;
   let decoded = raw.trim();
@@ -112,9 +109,12 @@ function normalizeTicker(raw: string | null | undefined): string | undefined {
   } catch {
     // Malformed percent-encoding: keep the raw text for the shape check below.
   }
-  decoded = toHalfWidth(decoded).trim();
-  if (!isValidTicker(decoded)) return undefined;
-  return decoded.toUpperCase();
+  // Base normalization (trim, full-width to half-width, upper-case) is
+  // single-sourced in `./yahooSymbol`; only the URL percent-decoding and the
+  // contract shape check stay here, because they are URL-layer concerns.
+  const normalized = normalizeTickerBase(decoded);
+  if (!isValidTicker(normalized)) return undefined;
+  return normalized;
 }
 
 /**

@@ -98,10 +98,14 @@ export function TutorialPage({ onComplete, onSkip }: TutorialPageProps) {
       }
 
       const target = e.target as HTMLElement | null;
+      // A focused SELECT accepts single-letter type-ahead ("m"/"r") and
+      // Space/arrow keys natively; hijacking them here would both break the
+      // control and toggle motion/camera state behind the user's back.
       const isInputFocused =
         target &&
         (target.tagName === "INPUT" ||
           target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT" ||
           target.isContentEditable);
       if (isInputFocused) return;
       // The 3D canvas handles the same keys for camera control and only calls

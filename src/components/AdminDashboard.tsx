@@ -45,7 +45,7 @@ import { ConfirmModal } from "./ConfirmModal";
 import { ModalBase } from "./ModalBase";
 import { useToast } from "./Toast";
 import { equalizeWeightsExact, normalizeTicker } from "../lib/indexEngine";
-import { isValidTicker } from "../lib/apiContract";
+import { isRecord, isValidTicker, readJsonBody } from "../lib/apiContract";
 import { safeRandomId } from "../lib/randomId";
 import { TurnstileWidget, type TurnstileWidgetRef } from "./TurnstileWidget";
 
@@ -189,7 +189,10 @@ export function AdminDashboard({
   saveCustomIndex,
   deleteCustomIndex,
 }: AdminDashboardProps) {
-  const { session, isAdmin, adminLogin, logout, getHeaders } = useAuth();
+  // Every request from this console targets `/api/admin/*`, whose gate
+  // evaluates only the administrator session: the aliased session-only
+  // headers keep the plaintext password off the wire (C-2/C-5).
+  const { session, isAdmin, adminLogin, logout, getAdminHeaders: getHeaders } = useAuth();
   const { success: toastSuccess, error: toastError } = useToast();
 
   // Admin login state if not admin
@@ -320,9 +323,9 @@ export function AdminDashboard({
         headers: getHeaders(),
         signal: controller.signal,
       });
-      const payload = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+      const payload: unknown = await readJsonBody(res);
       if (!isCurrent()) return;
-      if (!res.ok || payload.ok !== true) {
+      if (!res.ok || !isRecord(payload) || payload.ok !== true) {
         setStatsError(reportAdminFailure(payload, res.status, "テレメトリを取得できませんでした"));
         return;
       }
@@ -374,7 +377,7 @@ export function AdminDashboard({
         signal: controller.signal,
       });
       // UI-38: a non-JSON error body (gateway 500, HTML page) must not throw.
-      const payload: unknown = await res.json().catch(() => ({}));
+      const payload: unknown = await readJsonBody(res);
       if (!res.ok) {
         const errText = reportAdminFailure(payload, res.status, "パスワード一覧を取得できませんでした");
         console.error("Failed to fetch passwords:", errText);
@@ -615,7 +618,8 @@ export function AdminDashboard({
         }),
       });
 
-      const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+      const parsedCreateBody: unknown = await readJsonBody(res);
+      const data: Record<string, unknown> = isRecord(parsedCreateBody) ? parsedCreateBody : {};
       if (!res.ok || data.ok !== true) {
         throw new Error(reportAdminFailure(data, res.status, "パスワード作成に失敗しました"));
       }
@@ -659,7 +663,7 @@ export function AdminDashboard({
         setPasswordToDelete(null);
         await fetchPasswords();
       } else {
-        const data: unknown = await res.json().catch(() => ({}));
+        const data: unknown = await readJsonBody(res);
         toastError("削除に失敗しました: " + reportAdminFailure(data, res.status, "サーバーが処理を拒否しました"));
       }
     } catch (err) {
@@ -734,7 +738,7 @@ export function AdminDashboard({
         toastSuccess(`「${item.name}」を${nextActive ? "有効化" : "無効化"}しました`);
         await fetchPasswords();
       } else {
-        const data: unknown = await res.json().catch(() => ({}));
+        const data: unknown = await readJsonBody(res);
         toastError("状態更新に失敗しました: " + reportAdminFailure(data, res.status, "サーバーが処理を拒否しました"));
       }
     } catch (err) {
@@ -942,7 +946,8 @@ export function AdminDashboard({
           newPassword: normalizedPassword,
         }),
       });
-      const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+      const parsedAdminPwdBody: unknown = await readJsonBody(res);
+      const data: Record<string, unknown> = isRecord(parsedAdminPwdBody) ? parsedAdminPwdBody : {};
       if (!res.ok || data.ok !== true) {
         throw new Error(reportAdminFailure(data, res.status, "管理者パスワードの更新に失敗しました"));
       }

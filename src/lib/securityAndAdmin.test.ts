@@ -684,9 +684,12 @@ describe("Security and Admin Regression Tests", () => {
         maxStocks: 5,
       };
 
+      // C-2: the duplicate `x-admin-key` alias is no longer sent. The admin
+      // session token still rides along for the mixed endpoints that need
+      // both the password and the admin bypass.
       const adminHeaders = getAuthHeaders(adminSession);
       expect(adminHeaders["x-auth-password"]).toBe("pwd1");
-      expect(adminHeaders["x-admin-key"]).toBe("pwd1");
+      expect(adminHeaders["x-admin-key"]).toBeUndefined();
 
       const userHeaders = getAuthHeaders(userSession);
       expect(userHeaders["x-auth-password"]).toBe("pwd2");
@@ -954,7 +957,7 @@ describe("Security and Admin Regression Tests", () => {
       const res = await worker.fetch(req, env as any);
       expect(res.status).toBe(404);
       const data = await res.json();
-      expect(data.error).toContain("Index not found");
+      expect(data.error).toContain("指数が見つかりません");
     });
 
     it("normalizes tickers to uppercase and detects duplicate tickers case-insensitively in POST /api/indices", async () => {

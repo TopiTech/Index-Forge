@@ -16,6 +16,8 @@
  * fetch/JSON logic (no DOM, no storage) so the Worker typecheck can compile it.
  */
 
+import { isRecord, readJsonBody } from "./apiContract";
+
 /** Worker API prefix shared by every client request. */
 const API_BASE = "/api";
 
@@ -117,10 +119,16 @@ export function toSyncTimestamp(value: unknown, fallback: number = Date.now()): 
     : fallback;
 }
 
+/** One row of a `/api/sync-prices` response body. */
 interface SyncResponseRow {
   ticker?: unknown;
   status?: unknown;
   lastSynced?: unknown;
+}
+
+/** Narrow one response row: malformed rows are skipped, never trusted. */
+function asSyncResponseRow(row: unknown): SyncResponseRow | null {
+  return isRecord(row) ? row : null;
 }
 
 /**
@@ -180,12 +188,19 @@ export async function syncPricesInBatches(options: PriceSyncOptions): Promise<Pr
       if (!res.ok) {
         warnings.push(formatSyncBatchFailureWarning(index + 1));
       } else {
-        const data = (await res.json().catch(() => ({}))) as { results?: SyncResponseRow[] };
+        const parsed: unknown = await readJsonBody(res);
+        // A non-JSON body (proxy error page served as 200) yields no rows:
+        // the tickers stay unsynced and the calculation falls back to the
+        // stored prices instead of throwing on `data.results`.
+        const results: unknown[] =
+          isRecord(parsed) && Array.isArray(parsed.results) ? parsed.results : [];
         if (wasAborted()) return abortedResult();
-        if (Array.isArray(data.results)) {
+        if (results.length > 0) {
           const failed: string[] = [];
-          for (const row of data.results) {
-            const ticker = typeof row?.ticker === "string" ? row.ticker.trim().toUpperCase() : "";
+          for (const rawRow of results) {
+            const row = asSyncResponseRow(rawRow);
+            if (!row) continue;
+            const ticker = typeof row.ticker === "string" ? row.ticker.trim().toUpperCase() : "";
             if (!ticker) continue;
             if (row.status === "synced" || row.status === "cached") {
               synced.push({ ticker, lastSynced: toSyncTimestamp(row.lastSynced) });

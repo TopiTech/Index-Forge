@@ -294,7 +294,7 @@ describe("Worker boundary validation invariants (name / description / password l
     const res = await worker.fetch(req, env);
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error?: string };
-    expect(body.error).toBe("Invalid name: must be 1-100 characters");
+    expect(body.error).toBe("名前は1〜100文字で入力してください。");
   });
 
   it("rejects an index description longer than 500 characters", async () => {
@@ -316,6 +316,6 @@ describe("Worker boundary validation invariants (name / description / password l
     const res = await worker.fetch(req, env);
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error?: string };
-    expect(body.error).toBe("Invalid description: max 500 characters");
+    expect(body.error).toBe("説明文は500文字以内で入力してください。");
   });
 });

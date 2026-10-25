@@ -5,6 +5,7 @@ import {
   clearAuth,
   verifyPassword,
   adminLogin,
+  getAdminSessionHeaders,
   getAuthHeaders,
   beginAuthAttempt,
   cancelPendingAuthAttempt,
@@ -165,10 +166,11 @@ export function useAuth() {
     // SEC-01: revoke the server-side administrator session before dropping the
     // local copy. Best effort: a failed request leaves an expiring session row
     // behind, which is why the local state is cleared synchronously either way
-    // (and this must not make logout async).
+    // (and this must not make logout async). The logout endpoint evaluates
+    // only the session token, so the password is not sent with it (C-2/C-5).
     const current = sessionRef.current ?? getStoredAuth();
     if (current) {
-      const headers = getAuthHeaders(current);
+      const headers = getAdminSessionHeaders(current);
       if (Object.keys(headers).length > 0) {
         void fetch("/api/auth/logout", { method: "POST", headers }).catch(() => {});
       }
@@ -189,6 +191,17 @@ export function useAuth() {
     return getAuthHeaders(session);
   }, [session]);
 
+  /**
+   * Session-only headers for `/api/admin/*`.
+   *
+   * The privileged gate ignores the password, so admin components use this
+   * instead of `getHeaders` and never transmit the plaintext password where
+   * it is not evaluated (C-2/C-5).
+   */
+  const getAdminHeaders = useCallback((): Record<string, string> => {
+    return getAdminSessionHeaders(session);
+  }, [session]);
+
   return {
     session,
     isAuthenticated,
@@ -201,5 +214,6 @@ export function useAuth() {
     adminLogin: handleAdminLogin,
     logout,
     getHeaders,
+    getAdminHeaders,
   };
 }

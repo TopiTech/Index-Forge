@@ -53,6 +53,7 @@ async function flushAsyncChain(): Promise<void> {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe("useBenchmark session cache (R8, remaining gap)", () => {
@@ -93,5 +94,61 @@ describe("useBenchmark session cache (R8, remaining gap)", () => {
     const next = renderHook(() => useBenchmark("^N225", true));
     expect(next.result.current.benchmarkData).toBeNull();
     expect(next.result.current.loading).toBe(true);
+  });
+
+  it("serves cached data on 304 without extending its TTL (H-10)", async () => {
+    // A 304 only confirms the server still serves the same payload. The
+    // previous implementation bumped `cached.timestamp` on every
+    // revalidation, so an entry fetched once stayed "fresh" (and
+    // `lastUpdatedAt` kept looking current) for as long as the tab lived.
+    const payload = JSON.stringify({
+      snapshot: {
+        symbol: "^N225",
+        label: "^N225",
+        current: 100,
+        change: 1,
+        changePct: 0.5,
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        description: "",
+      },
+      series: [{ date: "2026-01-01", close: 100 }],
+    });
+    const seenInits: Array<RequestInit | undefined> = [];
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+        seenInits.push(init);
+        if (seenInits.length === 1) {
+          return new Response(payload, {
+            status: 200,
+            headers: { "content-type": "application/json", etag: '"E1"' },
+          });
+        }
+        return new Response(null, { status: 304 });
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const first = renderHook(() => useBenchmark("^N225", true));
+    await waitFor(() => expect(first.result.current.benchmarkData).not.toBeNull());
+    const fetchedAt = first.result.current.lastUpdatedAt;
+    expect(typeof fetchedAt).toBe("number");
+    cleanup();
+
+    // Six minutes later the entry is past its TTL: the next consumer must
+    // revalidate instead of serving it as fresh.
+    const t0 = fetchedAt as number;
+    vi.spyOn(Date, "now").mockReturnValue(t0 + 6 * 60 * 1000);
+
+    const next = renderHook(() => useBenchmark("^N225", true));
+    await waitFor(() => expect(next.result.current.benchmarkData).not.toBeNull());
+
+    // The revalidation used the stored ETag ...
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const revalidationHeaders = seenInits[1]?.headers as Record<string, string> | undefined;
+    expect(revalidationHeaders?.["If-None-Match"]).toBe('"E1"');
+    // ... served the validated payload, but the entry age and the displayed
+    // update time stay anchored to the original fetch.
+    expect(next.result.current.benchmarkData?.snapshot.current).toBe(100);
+    expect(next.result.current.lastUpdatedAt).toBe(t0);
   });
 });

@@ -40,12 +40,16 @@ describe("Comprehensive Audit Fixes: generateSecurePassword", () => {
 });
 
 describe("Comprehensive Audit Fixes: worker/internal-impl.ts password ID generation", () => {
-  it("uses crypto.randomUUID for password IDs instead of Math.random", () => {
+  it("uses the shared crypto-safe id helper for password IDs instead of Math.random", () => {
     const workerFilePath = path.resolve(__dirname, "../../worker/internal-impl.ts");
     const workerContent = fs.readFileSync(workerFilePath, "utf-8");
 
-    // Password ID generation line should use crypto.randomUUID
-    expect(workerContent).toMatch(/const id = `pwd-\${Date\.now\(\)}-\${crypto\.randomUUID\(\)\.slice\(0,\s*8\)}`;/);
+    // Password ID generation line should use the single-sourced safeRandomId
+    // (Web Crypto getRandomValues with identical 8-hex entropy as before).
+    expect(workerContent).toContain('import { safeRandomId } from "../src/lib/randomId";');
+    expect(workerContent).toMatch(/const id = `pwd-\${Date\.now\(\)}-\${safeRandomId\(4\)}`;/);
+    // U-8 M-13: no direct crypto.randomUUID remains in the Worker.
+    expect(workerContent).not.toContain("crypto.randomUUID");
     expect(workerContent).not.toMatch(/pwd-\${Date\.now\(\)}-\${Math\.random\(\)/);
   });
 });

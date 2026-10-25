@@ -33,6 +33,45 @@ interface OwnerStore {
 /** Raw shape read from storage: the current object form or a legacy string. */
 type RawOwnerStore = Record<string, unknown>;
 
+/**
+ * Threshold separating Unix seconds from Unix milliseconds.
+ *
+ * 1e11 as seconds is the year 5138; as milliseconds it is March 1973. Any
+ * real issuance timestamp is unambiguous, but the boundary between the two
+ * units is implicit (the Worker stores seconds, this store keeps
+ * milliseconds), so every conversion must go through `toIssuedAtMs` instead
+ * of re-implementing the comparison at each call site.
+ */
+const SECONDS_MS_THRESHOLD = 1e11;
+
+/**
+ * Normalize an issuance timestamp to Unix milliseconds.
+ *
+ * This is the single place where the seconds-vs-milliseconds ambiguity is
+ * resolved: values below the threshold are seconds and scaled up, larger
+ * values are already milliseconds, and anything else (missing, non-numeric,
+ * non-finite, non-positive) is invalid and reported as `null` so callers
+ * fall back to a known age instead of persisting a guessed one.
+ */
+function toIssuedAtMs(value: unknown): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return null;
+  return value < SECONDS_MS_THRESHOLD ? value * 1000 : value;
+}
+
+/**
+ * Convert the `ownerTokenIssuedAt` field of a `POST /api/indices` response to
+ * Unix milliseconds for this store.
+ *
+ * The Worker always emits Unix seconds, but the conversion lives here (next
+ * to the store that consumes it) so the API boundary has exactly one
+ * seconds-to-milliseconds translation. Returns `undefined` when the server
+ * sent no usable age — the caller must then keep the stored age instead of
+ * inventing one.
+ */
+export function serverIssuedAtToMs(value: unknown): number | undefined {
+  return toIssuedAtMs(value) ?? undefined;
+}
+
 function getEmptyStore(): OwnerStore {
   return Object.create(null);
 }
@@ -144,19 +183,16 @@ function parseEntry(
   const record = value as Record<string, unknown>;
   const token = typeof record.token === "string" ? record.token : "";
   if (!token) return null;
-  let issuedAt =
-    typeof record.issuedAt === "number" && Number.isFinite(record.issuedAt) && record.issuedAt > 0
-      ? record.issuedAt
-      : now;
-  if (issuedAt > 0 && issuedAt < 1e11) {
-    issuedAt = issuedAt * 1000;
-  }
+  const normalized = toIssuedAtMs(record.issuedAt);
   return {
-    entry: { token, issuedAt },
+    entry: { token, issuedAt: normalized ?? now },
     // A missing/invalid or unmigrated seconds-based issuedAt is repaired on the next write.
     migrated:
-      !(typeof record.issuedAt === "number" && Number.isFinite(record.issuedAt)) ||
-      (typeof record.issuedAt === "number" && record.issuedAt < 1e11),
+      !(
+        typeof record.issuedAt === "number" &&
+        Number.isFinite(record.issuedAt) &&
+        record.issuedAt >= SECONDS_MS_THRESHOLD
+      ),
   };
 }
 
@@ -185,13 +221,49 @@ export function saveIndexOwnerToken(indexId: string, token: string, issuedAt?: n
   if (!indexId || !token) return;
   const now = Date.now();
   const store = getStore(now);
-  let resolvedIssuedAt = now;
-  if (typeof issuedAt === "number" && Number.isFinite(issuedAt) && issuedAt > 0) {
-    resolvedIssuedAt = issuedAt < 1e11 ? issuedAt * 1000 : issuedAt;
+  defineOwnerEntry(store, indexId, {
+    token,
+    issuedAt: toIssuedAtMs(issuedAt) ?? now,
+  });
+  setStore(store);
+}
+
+/**
+ * Persist a server-confirmed owner token without sliding its expiry window.
+ *
+ * The Worker keeps the original issuance time when an existing index is
+ * edited, so the client must do the same: rewriting the stored entry with
+ * "now" on every save would make the browser believe the token is fresh for
+ * another 90 days while the Worker enforces the original (absolute) age and
+ * answers 403. Hence:
+ *
+ * - a new token, or a confirmed token with a server-supplied age, is stored
+ *   with that age (a missing age for a brand-new token means "now", which
+ *   matches a freshly minted server token);
+ * - a confirmed token identical to the stored one, but without a
+ *   server-supplied age, leaves the stored age untouched.
+ *
+ * Callers must only pass tokens the server echoed back for this index id;
+ * a missing echo means "not confirmed" and must not touch the store at all.
+ */
+export function persistConfirmedOwnerToken(
+  indexId: string,
+  token: string,
+  issuedAtMs?: number,
+): void {
+  if (!indexId || !token) return;
+  const now = Date.now();
+  const store = getStore(now);
+  const incoming = toIssuedAtMs(issuedAtMs);
+  const existing = store[indexId];
+  if (existing && existing.token === token && incoming === null) {
+    // Same token, no authoritative age: keep the stored issuance time so the
+    // client-side expiry stays aligned with the Worker's absolute window.
+    return;
   }
   defineOwnerEntry(store, indexId, {
     token,
-    issuedAt: resolvedIssuedAt,
+    issuedAt: incoming ?? now,
   });
   setStore(store);
 }

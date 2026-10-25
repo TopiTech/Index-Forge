@@ -5,6 +5,7 @@ import type { UserPasswordItem } from "../types";
 import { useModalFocus } from "../hooks/useModalFocus";
 import { generateSecurePassword } from "../lib/auth";
 import { readApiErrorMessage } from "../lib/auth";
+import { readJsonBody } from "../lib/apiContract";
 
 interface EditPasswordModalProps {
   isOpen: boolean;
@@ -137,7 +138,7 @@ export function EditPasswordModal({
       } else {
         // UI-38: the body may be `{error}`, `{ok:false,error}` or a non-JSON
         // gateway/500 page; never let the last case throw away the message.
-        const errorPayload: unknown = await res.json().catch(() => ({}));
+        const errorPayload: unknown = await readJsonBody(res);
         setError(readApiErrorMessage(errorPayload, res.status, "パスワード設定を更新できませんでした"));
       }
     } catch (err) {

@@ -612,7 +612,7 @@ describe("Comprehensive Review Fixes", () => {
         );
 
         expect(res.status).toBe(502);
-        expect((await res.json()).error).toContain("No data available");
+        expect((await res.json()).error).toContain("のデータを取得できませんでした");
       } finally {
         globalThis.fetch = originalFetch;
       }

@@ -96,4 +96,25 @@ describe("StockTechnicalChart & StockDetailPage Integration", () => {
       }
     });
   });
+
+  describe("isTradingViewSymbolError postMessage predicate (H-8)", () => {
+    it.each([
+      [{ name: "tv-widget-symbol-error" }],
+      [{ name: "symbol_error" }],
+      [{ event: "symbol_error" }],
+      [{ msg: "Symbol not found" }],
+      [{ msg: "SYMBOL is invalid" }],
+    ])("flags %s as an unusable symbol", async (data) => {
+      const { isTradingViewSymbolError } = await import("./StockTechnicalChart");
+      expect(isTradingViewSymbolError(data)).toBe(true);
+    });
+
+    it.each([[null], [undefined], ["symbol_error"], [42], [["symbol_error"]], [{}], [{ msg: "ok" }], [{ msg: 42 }], [{ name: "chart_ready" }]])(
+      "ignores non-error payloads: %s",
+      async (data) => {
+        const { isTradingViewSymbolError } = await import("./StockTechnicalChart");
+        expect(isTradingViewSymbolError(data)).toBe(false);
+      },
+    );
+  });
 });

@@ -10,6 +10,7 @@
 import { describe, expect, it } from "vitest";
 import { sanitizeIndex, sanitizeIndexList } from "../hooks/useIndices";
 import { sanitizeAuthSession } from "./auth";
+import { LEGACY_REPAIRED_WEIGHT } from "./apiContract";
 
 describe("sanitizeIndex", () => {
   it("keeps a well-formed index intact", () => {
@@ -60,7 +61,10 @@ describe("sanitizeIndex", () => {
     expect(index?.basket[0].ticker).toBe("7203");
   });
 
-  it("keeps a legacy zero weight and repairs a non-numeric one", () => {
+  it("repairs a legacy zero weight to the single-sourced value, like a non-numeric one", () => {
+    // M-5: displaying 0 while the Worker reader emits 1 for the same row
+    // (and the save path rebalances it) made the displayed basket differ from
+    // the saved one. Both repairs now state LEGACY_REPAIRED_WEIGHT.
     const index = sanitizeIndex({
       id: "custom-1",
       basket: [
@@ -69,8 +73,8 @@ describe("sanitizeIndex", () => {
       ],
     });
 
-    expect(index?.basket[0].weight).toBe(0);
-    expect(index?.basket[1].weight).toBe(1);
+    expect(index?.basket[0].weight).toBe(LEGACY_REPAIRED_WEIGHT);
+    expect(index?.basket[1].weight).toBe(LEGACY_REPAIRED_WEIGHT);
   });
 
   it("normalizes the ticker to upper case and clamps the weight", () => {

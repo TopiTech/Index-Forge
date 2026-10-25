@@ -1,4 +1,5 @@
 import type { AuthSession, UserPasswordItem } from "../types";
+import { extractApiErrorMessage, isRecord, readJsonBody } from "./apiContract";
 
 const AUTH_STORAGE_KEY = "custom_stock_index_auth";
 
@@ -313,23 +314,47 @@ export function clearAdminSession(): void {
 }
 
 /**
- * Returns HTTP headers for authenticated requests.
+ * Returns HTTP headers for password-authenticated requests.
  *
- * `x-admin-session` is the credential every `/api/admin/*` endpoint requires
- * (SEC-01). `x-auth-password`/`x-admin-key` are still sent for backward
- * compatibility with endpoints and deployments that have not migrated yet; the
- * Worker ignores them for privileged paths.
+ * These are the mixed endpoints that evaluate the password (`POST
+ * /api/indices`, `/api/indices/stock`, `/api/sync-prices` with `force`): the
+ * administrator session rides along so `authenticateAdmin` can grant the
+ * admin bypass without a second call.
+ *
+ * `x-admin-key` was a pure duplicate alias of `x-auth-password` (the Worker
+ * treats both identically) and is no longer sent (C-2): it doubled the
+ * plaintext exposure for zero function. The Worker keeps accepting it as a
+ * deprecated inbound alias so older cached frontends do not break.
+ *
+ * For `/api/admin/*` and `/api/auth/logout` use `getAdminSessionHeaders`
+ * instead: the privileged gate ignores the password there, so sending it
+ * would only widen exposure (C-2/C-5).
  */
 export function getAuthHeaders(session?: AuthSession | null): Record<string, string> {
   const current = session || getStoredAuth();
   if (!current?.password) return {};
   const headers: Record<string, string> = { "x-auth-password": current.password };
   if (current.role === "admin") {
-    headers["x-admin-key"] = current.password;
     const adminToken = sanitizeAdminToken(current.adminToken);
     if (adminToken) headers["x-admin-session"] = adminToken;
   }
   return headers;
+}
+
+/**
+ * Returns HTTP headers for privileged requests (`/api/admin/*`, `/api/auth/logout`).
+ *
+ * The privileged gate (`authenticateAdmin`) evaluates only `x-admin-session`;
+ * the plaintext password is never sent where it is not evaluated (C-2/C-5).
+ * Returns `{}` when there is no usable administrator session instead of
+ * falling back to the password, so a missing token can never silently become
+ * a password-authenticated privileged call.
+ */
+export function getAdminSessionHeaders(session?: AuthSession | null): Record<string, string> {
+  const current = session || getStoredAuth();
+  if (current?.role !== "admin") return {};
+  const adminToken = sanitizeAdminToken(current.adminToken);
+  return adminToken ? { "x-admin-session": adminToken } : {};
 }
 
 /**
@@ -356,7 +381,8 @@ export async function verifyPassword(
       signal,
     });
 
-    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    const parsedBody: unknown = await readJsonBody(res);
+    const data: Record<string, unknown> = isRecord(parsedBody) ? parsedBody : {};
     if (signal?.aborted) {
       return { ok: false, error: "認証がキャンセルされました" };
     }
@@ -457,7 +483,8 @@ export async function getTurnstileConfig(): Promise<{
     }
     // UI-38: a non-JSON body must not throw (the catch below would hide the
     // configuration) and the payload is validated field by field.
-    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    const parsedConfigBody: unknown = await readJsonBody(res);
+    const data: Record<string, unknown> = isRecord(parsedConfigBody) ? parsedConfigBody : {};
     const siteKey =
       typeof data.siteKey === "string" && data.siteKey.trim()
         ? data.siteKey
@@ -511,7 +538,8 @@ export async function adminLogin(
       signal,
     });
 
-    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    const parsedAdminBody: unknown = await readJsonBody(res);
+    const data: Record<string, unknown> = isRecord(parsedAdminBody) ? parsedAdminBody : {};
 
     if (signal?.aborted) {
       return { ok: false, error: "認証がキャンセルされました" };
@@ -583,7 +611,8 @@ export async function changeAdminSecretCode(
       }),
     });
 
-    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    const parsedSecretBody: unknown = await readJsonBody(res);
+    const data: Record<string, unknown> = isRecord(parsedSecretBody) ? parsedSecretBody : {};
     if (!res.ok || data.ok !== true) {
       return {
         ok: false,
@@ -609,10 +638,11 @@ export async function changeAdminSecretCode(
  * operator what to do next.
  */
 export function readApiErrorMessage(payload: unknown, status: number, fallback: string): string {
-  if (payload && typeof payload === "object" && !Array.isArray(payload)) {
-    const message = (payload as Record<string, unknown>).error;
-    if (typeof message === "string" && message.trim()) return message;
-  }
+  // The "what counts as an error body" rule is single-sourced in
+  // `src/lib/apiContract.ts`: this wrapper only adds the privileged-call
+  // status suffix on top of the shared extraction.
+  const extracted = extractApiErrorMessage(payload, "");
+  if (extracted) return extracted;
   const detail = status > 0 ? ` (HTTP ${status})` : "";
   return `${fallback}${detail}。通信状態を確認して再試行してください。`;
 }

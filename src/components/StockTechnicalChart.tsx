@@ -48,6 +48,27 @@ export interface PriceDataPoint {
  * because the latter is parsed as UTC midnight and therefore shifts the
  * calendar day in every negative UTC offset.
  */
+/**
+ * Decide whether a decoded TradingView postMessage payload reports a symbol
+ * the widget cannot display.
+ *
+ * Pure (no DOM, no JSON parsing, no origin check): the `message` listener
+ * keeps the try/catch around `JSON.parse` and the effect cleanup, and only
+ * delegates the shape judgement here so the rule is unit-testable and cannot
+ * drift between the widget and the modal. Non-object payloads (and arrays)
+ * are never errors.
+ */
+export function isTradingViewSymbolError(data: unknown): boolean {
+  if (!data || typeof data !== "object" || Array.isArray(data)) return false;
+  const record = data as Record<string, unknown>;
+  return (
+    record.name === "tv-widget-symbol-error" ||
+    record.name === "symbol_error" ||
+    record.event === "symbol_error" ||
+    (typeof record.msg === "string" && record.msg.toLowerCase().includes("symbol"))
+  );
+}
+
 export function formatChartDisplayDate(dateStr: string): string {
   if (!dateStr) return dateStr;
   const parts = dateStr.split(/[-/]/);
@@ -317,13 +338,7 @@ export function StockTechnicalChart({
     const handleTvMessage = (event: MessageEvent) => {
       try {
         const data = typeof event.data === "string" ? JSON.parse(event.data) : event.data;
-        if (
-          data &&
-          (data.name === "tv-widget-symbol-error" ||
-            data.name === "symbol_error" ||
-            data.event === "symbol_error" ||
-            (typeof data.msg === "string" && data.msg.toLowerCase().includes("symbol")))
-        ) {
+        if (isTradingViewSymbolError(data)) {
           setTvError(true);
           setTvFallbackActive(true);
         }

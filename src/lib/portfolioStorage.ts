@@ -4,6 +4,7 @@
  */
 
 import { getStockFundamentals, isMacroAsset } from "./marketDataService";
+import { safeRandomId } from "./randomId";
 import { getStockCurrency } from "./currency";
 import { allocateIntegerWeights } from "./weights";
 import { DEFAULT_USD_JPY_RATE } from "../data/marketConstants";
@@ -24,9 +25,16 @@ export interface PortfolioPosition {
  * 取得日として記録する当日の暦日 (YYYY-MM-DD, JST)。
  * `new Date().toISOString().split("T")[0]` は UTC 暦日を返すため、
  * JST の早朝 (00:00-08:59) に追加したポジションが前日付で記録される。
+ *
+ * フォーマッタはモジュールレベルで単一共有する: `Intl.DateTimeFormat` の
+ * 構築はロケール解決を伴う高コスト処理であり、呼び出し毎の生成は
+ * ポートフォリオ一覧の描画など高頻度パスで無駄になる。`format` 呼び出しは
+ * 副作用を持たないため、共有インスタンスで結果は変わらない。
  */
+const jstDateFormatter = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tokyo" });
+
 export function todayJstDateString(): string {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tokyo" }).format(new Date());
+  return jstDateFormatter.format(new Date());
 }
 
 export interface PositionCalculation extends PortfolioPosition {
@@ -134,24 +142,21 @@ function getLocalStorage(): Storage | null {
 }
 
 /**
- * Monotonic counter used to keep generated position ids unique.
- *
- * Two lots of the same ticker with the same share count are a normal
- * portfolio shape, so the id must not be derived from those two fields
- * alone: identical ids produce duplicate React keys and a delete that removes
- * both lots.
- */
-let positionIdCounter = 0;
-
-/**
  * Mints position ids. Deliberately not exported: the only way to obtain a
  * position is `createPortfolioPosition`, so no call site can derive an id
  * from a value that repeats (a millisecond timestamp, a ticker, or a share
  * count).
+ *
+ * The randomness (64 bits) is the uniqueness mechanism — not the timestamp
+ * and not a counter. The previous `Date.now()+counter` scheme reset its
+ * counter on every reload, so two identical lots added in the same
+ * millisecond after a reload collided: duplicate React keys and a delete
+ * that removed both lots. Two lots of the same ticker with the same share
+ * count are a normal portfolio shape, so the id must not be derived from
+ * those two fields alone.
  */
 function createPortfolioPositionId(ticker: string, shares: number): string {
-  positionIdCounter += 1;
-  return `pos-${ticker}-${shares}-${Date.now().toString(36)}-${positionIdCounter.toString(36)}`;
+  return `pos-${ticker}-${shares}-${safeRandomId(8)}`;
 }
 
 export interface NewPortfolioPosition {

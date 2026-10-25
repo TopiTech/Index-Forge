@@ -306,7 +306,7 @@ describe("worker fetch handlers", () => {
     const res = await worker.fetch(req, env as any);
     expect(res.status).toBe(404);
     const data = await res.json();
-    expect(data.error).toBe("Endpoint not found");
+    expect(data.error).toBe("エンドポイントが見つかりません。");
     expect(env.ASSETS.fetch).not.toHaveBeenCalled();
   });
 
@@ -414,7 +414,7 @@ describe("worker fetch handlers", () => {
     const res = await worker.fetch(req, env as any);
     expect(res.status).toBe(502);
     const data = await res.json();
-    expect(data.error).toContain("Failed to load static asset");
+    expect(data.error).toContain("静的アセットの読み込みに失敗しました");
   });
 
   it("normalizes Japanese TSE tickers and US/global tickers correctly with toYahooSymbol", () => {
@@ -485,7 +485,7 @@ describe("worker fetch handlers", () => {
       const res = await worker.fetch(req, env as any);
       expect(res.status).toBe(403);
       const data = await res.json();
-      expect(data.error).toContain("Cannot delete built-in system index");
+      expect(data.error).toContain("組み込みの指数は削除できません");
     }
   });
 
@@ -554,7 +554,7 @@ describe("worker fetch handlers", () => {
     expect(data.ok).toBe(true);
     expect(typeof data.ownerToken).toBe("string");
     expect(data.ownerToken.length).toBeGreaterThan(10);
-    expect(data.id).toMatch(/^custom-/);
+    expect(data.id).toMatch(/^custom-[0-9a-f]{32}$/);
   });
 
   it("POST /api/indices rejects unauthenticated creation even when an owner token is supplied", async () => {
@@ -780,7 +780,7 @@ describe("worker fetch handlers", () => {
     const res = await worker.fetch(req, env as any);
     expect(res.status).toBe(400);
     const data = await res.json();
-    expect(data.error).toContain("Invalid ownerToken");
+    expect(data.error).toContain("作成者トークンは");
   });
 
   it("toYahooSymbol normalizes lowercase Japanese tickers and US stock symbols", () => {
@@ -917,6 +917,7 @@ describe("worker fetch handlers", () => {
       const data = await res.json();
       expect(data.ok).toBe(true);
       expect(data.password.name).toBe("Test Analyst");
+      expect(data.password.id).toMatch(/^pwd-\d+-[0-9a-f]{8}$/);
       expect(data.password.max_stocks).toBe(5);
     });
 
@@ -956,6 +957,51 @@ describe("worker fetch handlers", () => {
       const data = await res.json();
       expect(data.ok).toBe(true);
       expect(data.ticker).toBe("7203");
+    });
+
+    it("POST /api/indices/stock normalizes a full-width ticker through the shared validator", async () => {
+      // The Worker used to judge the raw text (`trim().toUpperCase()` only),
+      // so a full-width ticker the UI had already normalized was rejected
+      // with 400 here while the bulk endpoints accepted it after the client
+      // sanitized it. The single-item validation is single-sourced in
+      // `validateSingleStockItem`, so both boundaries normalize first.
+      const env = createMockEnv();
+      const req = new Request("http://localhost/api/indices/stock", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-auth-password": TEST_ADMIN_PASSWORD,
+        },
+        body: JSON.stringify({
+          indexId: "test-index",
+          stock: { ticker: "７２０３", name: "Toyota", weight: 20 },
+        }),
+      });
+
+      const res = await worker.fetch(req, env as any);
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.ok).toBe(true);
+      expect(data.ticker).toBe("7203");
+    });
+
+    it("POST /api/indices/stock reports the shared validator messages", async () => {
+      const env = createMockEnv();
+      const badWeight = new Request("http://localhost/api/indices/stock", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-auth-password": TEST_ADMIN_PASSWORD,
+        },
+        body: JSON.stringify({
+          indexId: "test-index",
+          stock: { ticker: "7203", name: "Toyota", weight: 0 },
+        }),
+      });
+      const res = await worker.fetch(badWeight, env as any);
+      expect(res.status).toBe(400);
+      const data = await res.json();
+      expect(data.error).toBe("銘柄の構成比率 (weight) は0超100以下の数値を指定してください");
     });
 
     it("DELETE /api/indices/stock rejects unauthenticated request with 401", async () => {
@@ -1015,7 +1061,7 @@ describe("worker fetch handlers", () => {
       const res = await worker.fetch(req, env as any);
       expect(res.status).toBe(400);
       const data = await res.json();
-      expect(data.error).toContain("Invalid basket");
+      expect(data.error).toContain("銘柄を1件以上指定してください");
     });
 
     it("allows admins to save and calculate an index with more than 100 basket items", async () => {

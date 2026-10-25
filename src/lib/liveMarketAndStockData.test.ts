@@ -233,7 +233,7 @@ describe("Live Market and Stock Data Endpoints & Services", () => {
       const res = await worker.fetch(req, env as any);
       expect(res.status).toBe(400);
       const data = await res.json();
-      expect(data.error).toContain("ticker");
+      expect(data.error).toContain("ティッカー");
     });
 
     it("returns 400 when ticker format is invalid or oversized", async () => {
@@ -247,7 +247,7 @@ describe("Live Market and Stock Data Endpoints & Services", () => {
       const invalidRes = await worker.fetch(invalidCharsReq, env as any);
       expect(invalidRes.status).toBe(400);
       const invalidData = await invalidRes.json();
-      expect(invalidData.error).toContain("Invalid ticker format");
+      expect(invalidData.error).toContain("ティッカーの形式が正しくありません");
 
       const oversizedReq = new Request(
         "http://localhost/api/stock/fundamentals?ticker=TOOLONGTICKERSYMBOLOVER20CHARS",

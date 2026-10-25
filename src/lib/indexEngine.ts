@@ -1,13 +1,11 @@
 import type { BasketItem, PricePoint, StockSeries } from "../types";
 import { isValidTicker } from "./apiContract";
 
-export function normalizeTicker(ticker?: string | null): string {
-  if (typeof ticker !== "string") return "";
-  return ticker
-    .trim()
-    .replace(/[！-～]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0xfee0))
-    .toUpperCase();
-}
+// Single-sourced: the canonical normalization lives in `./yahooSymbol` (which
+// has no imports, so it stays Worker-bundleable). This re-export keeps the
+// historical import surface working for existing callers and tests.
+export { normalizeTicker } from "./yahooSymbol";
+import { normalizeTicker } from "./yahooSymbol";
 
 export function normalizeWeights(items: BasketItem[]): BasketItem[] {
   const safeItems = items.map((item) => ({
@@ -16,9 +14,14 @@ export function normalizeWeights(items: BasketItem[]): BasketItem[] {
   }));
   const total = safeItems.reduce((sum, item) => sum + item.weight, 0);
   if (total <= 0) return safeItems;
+  // No intermediate rounding: the caller rounds once at its own boundary
+  // (index values to cents, UI weights to its display precision). Rounding
+  // here to 4dp and again at the boundary was a textbook double rounding:
+  // the second rounding could flip the last digit of an already-rounded
+  // value. Full precision flows through; only the final output is rounded.
   return safeItems.map((item) => ({
     ...item,
-    weight: Number(((item.weight / total) * 100).toFixed(4)),
+    weight: (item.weight / total) * 100,
   }));
 }
 
@@ -265,12 +268,50 @@ function toBasketItem(item: BasketItem & { originalWeight?: number | null }): Ba
   return { ticker: item.ticker, name: item.name, theme: item.theme, weight: item.weight };
 }
 
-export function calculateCustomIndex(
+/** How one matrix cell was produced for one constituent on one date. */
+export type PriceFillKind = "real" | "pre" | "gap" | "trailing";
+
+/** One constituent row of the shared price matrix. */
+export interface IndexMatrixRow {
+  ticker: string;
+  weight: number;
+  /** Base price: the first valid close of this constituent. */
+  basePrice: number;
+  /** Per-date close actually used (real or filled, exactly as calculated). */
+  values: number[];
+  /** How each cell of `values` was produced. */
+  fills: PriceFillKind[];
+}
+
+/** The single price matrix both the index values and the coverage use. */
+export interface IndexPriceMatrix {
+  dates: string[];
+  rows: IndexMatrixRow[];
+  tickerIndex: Map<string, number>;
+}
+
+/** A price is usable only when it is a positive finite number. */
+function isUsableClose(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0;
+}
+
+/**
+ * Build the date × constituent price matrix both consumers share.
+ *
+ * `calculateCustomIndex` used to own this loop and silently forward-filled
+ * every gap with the previous close, so a delisted constituent stayed frozen
+ * at its last price forever with no record of the substitution. Extracting
+ * the builder keeps the values byte-identical while recording, per cell,
+ * whether the price is real or filled — and, for fills, whether the
+ * constituent had not started yet (`pre`, anchored at its base price by
+ * design), missed a date mid-series (`gap`) or has not printed since
+ * (`trailing`). `computeIndexCoverage` reads the same matrix, so the
+ * disclosed gaps can never drift from the calculated values.
+ */
+export function buildIndexPriceMatrix(
   basket: BasketItem[],
   stockUniverse: StockSeries[],
-  baseValue = 1000,
-): PricePoint[] {
-  const safeBase = typeof baseValue === "number" && Number.isFinite(baseValue) && baseValue > 0 ? baseValue : 1000;
+): IndexPriceMatrix {
   const normalized = normalizeWeights(basket);
   const stockByTicker = new Map(stockUniverse.map((stock) => [normalizeTicker(stock.ticker), stock]));
   const selected = normalized
@@ -280,84 +321,211 @@ export function calculateCustomIndex(
     })
     .filter((stock): stock is StockSeries & { weight: number } => Boolean(stock));
 
-  if (selected.length === 0) return [];
+  const empty: IndexPriceMatrix = { dates: [], rows: [], tickerIndex: new Map() };
+  if (selected.length === 0) return empty;
 
-  // 基準日の価格（全銘柄の最初の有効な価格）を取得。
-  // Stocks with no valid base price are excluded rather than aborting the
-  // entire index: a single missing data point in a large basket should not
-  // make the whole index uncomputable. The remaining stocks' weights are
-  // re-normalized during the calculation loop below.
   const initialBasePrices = selected.map((stock) => {
     const sorted = [...stock.series].sort((a, b) => a.date.localeCompare(b.date));
-    const first = sorted.find((p) => typeof p.close === "number" && Number.isFinite(p.close) && p.close > 0);
-    return first ? first.close : 0;
+    const first = sorted.find((p) => isUsableClose(p.close));
+    return first ? (first.close as number) : 0;
   });
 
-  // Filter out stocks that have no valid base price.
   const validIndices = initialBasePrices
     .map((bp, i) => (bp > 0 ? i : -1))
     .filter((i) => i >= 0);
-
-  if (validIndices.length === 0) return [];
+  if (validIndices.length === 0) return empty;
 
   const validStocks = validIndices.map((i) => selected[i]);
   const basePrices = validIndices.map((i) => initialBasePrices[i]);
-
-  // Build ticker → index map for O(1) lookup instead of findIndex
   const tickerIndexMap = new Map(validStocks.map((s, i) => [normalizeTicker(s.ticker), i]));
 
-  // 有効銘柄から存在する全日付を抽出してソート (YYYY-MM-DD sorts correctly as strings)
   const allDates = Array.from(new Set(
     validStocks.flatMap((stock) => stock.series.map((p) => p.date)),
   )).sort();
+  if (allDates.length === 0) return empty;
 
-  if (allDates.length === 0) return [];
-
-  // 各銘柄の各日付における価格をマッピング
-  // データ開始前は初値（基準価格）でバックフィルし、データ欠落時は前日価格でフォワードフィル
-  const stockPriceMatrix = validStocks.map((stock, stockIndex) => {
+  const rows: IndexMatrixRow[] = validStocks.map((stock, stockIndex) => {
     const priceMap = new Map(stock.series.map((p) => [p.date, p.close]));
+    const sortedCloses = [...stock.series]
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .filter((p) => isUsableClose(p.close));
+    const firstRealDate = sortedCloses.length > 0 ? sortedCloses[0].date : null;
+    const lastRealDate = sortedCloses.length > 0 ? sortedCloses[sortedCloses.length - 1].date : null;
     const firstPrice = basePrices[stockIndex];
     let lastPrice = firstPrice;
 
-    return allDates.map((date) => {
+    const values: number[] = [];
+    const fills: PriceFillKind[] = [];
+    for (const date of allDates) {
       const price = priceMap.get(date);
-      if (price !== undefined && typeof price === "number" && Number.isFinite(price) && price > 0) {
+      if (isUsableClose(price)) {
         lastPrice = price;
-        return price;
+        values.push(price);
+        fills.push("real");
+        continue;
       }
-      return lastPrice; // 前日または初値価格を流用
-    });
+      values.push(lastPrice);
+      if (firstRealDate !== null && date < firstRealDate) {
+        fills.push("pre");
+      } else if (lastRealDate !== null && date > lastRealDate) {
+        fills.push("trailing");
+      } else {
+        fills.push("gap");
+      }
+    }
+    return { ticker: stock.ticker, weight: stock.weight, basePrice: firstPrice, values, fills };
   });
+
+  return { dates: allDates, rows, tickerIndex: tickerIndexMap };
+}
+
+export function calculateCustomIndex(
+  basket: BasketItem[],
+  stockUniverse: StockSeries[],
+  baseValue = 1000,
+): PricePoint[] {
+  const safeBase = typeof baseValue === "number" && Number.isFinite(baseValue) && baseValue > 0 ? baseValue : 1000;
+  // Values and coverage read one shared matrix: the fill behavior can no
+  // longer drift between the two.
+  const { dates: allDates, rows } = buildIndexPriceMatrix(basket, stockUniverse);
+  if (allDates.length === 0 || rows.length === 0) return [];
 
   return allDates.map((date, dateIndex) => {
     // この日付で有効なデータ（価格 > 0 かつ 基準価格が存在する）を持つ銘柄を抽出
-    const availableStocks = validStocks.filter((_, stockIndex) => {
-      const price = stockPriceMatrix[stockIndex][dateIndex];
-      const start = basePrices[stockIndex];
-      return price > 0 && start > 0;
-    });
+    // Matrix cells are always positive (a real close, or the base price
+    // carried forward), so every row participates exactly as before.
+    const availableRows = rows.filter(
+      (row) => row.values[dateIndex] > 0 && row.basePrice > 0,
+    );
 
-    if (availableStocks.length === 0) {
+    if (availableRows.length === 0) {
       return { date, value: safeBase, close: safeBase };
     }
 
     // 利用可能な銘柄の合計ウェイトを計算して再正規化
-    const totalWeightOfAvailable = availableStocks.reduce((sum, s) => sum + s.weight, 0);
+    const totalWeightOfAvailable = availableRows.reduce((sum, row) => sum + row.weight, 0);
 
-    const weightedRelative = availableStocks.reduce((sum, stock) => {
-      const stockIndex = tickerIndexMap.get(normalizeTicker(stock.ticker))!;
-      const start = basePrices[stockIndex];
-      const current = stockPriceMatrix[stockIndex][dateIndex];
-
+    const weightedRelative = availableRows.reduce((sum, row) => {
       // ウェイトを再正規化して適用 (合計ウェイトが0の場合は均等配分)
       const normalizedWeight = totalWeightOfAvailable > 0
-        ? stock.weight / totalWeightOfAvailable
-        : 1 / availableStocks.length;
-      return sum + (current / start) * normalizedWeight;
+        ? row.weight / totalWeightOfAvailable
+        : 1 / availableRows.length;
+      return sum + (row.values[dateIndex] / row.basePrice) * normalizedWeight;
     }, 0);
 
     const calculatedValue = Number((safeBase * weightedRelative).toFixed(2));
     return { date, value: calculatedValue, close: calculatedValue };
   });
+}
+
+/** One date of the coverage report: how much of the index is real prices. */
+export interface IndexCoveragePoint {
+  date: string;
+  /** Constituents participating in the value on this date. */
+  total: number;
+  /** Constituents with a real print on this date. */
+  available: number;
+  /** Tickers whose price was carried forward on this date (gap/trailing). */
+  filledTickers: string[];
+}
+
+/** Missing-data disclosure for one calculation, computed from the same matrix. */
+export interface IndexCoverage {
+  points: IndexCoveragePoint[];
+  /** Latest date of the calculation window (`""` when empty). */
+  latestDate: string;
+  /** gap + trailing cells over total cells (pre-start anchoring excluded). */
+  filledCellRatio: number;
+  /** Tickers carried forward on the latest date (the displayed value is stale for them). */
+  trailingFilledTickers: string[];
+}
+
+/**
+ * Disclose which parts of an index value are carried-forward prices.
+ *
+ * The forward fill itself is kept (a single gap must not make a whole index
+ * uncomputable), but it used to be invisible: a delisted constituent stayed
+ * frozen at its last print forever while `syncStatus {total,found}` only
+ * counted tickers with *some* data. This reads the shared matrix, so the
+ * reported gaps are exactly the substitutions the values contain.
+ *
+ * `pre` fills (before a constituent's first print, anchored at its base
+ * price by design) are not missing data and are excluded from the fill
+ * counts; `gap` (mid-series) and `trailing` (no print since) fills are.
+ */
+export function computeIndexCoverage(
+  basket: BasketItem[],
+  stockUniverse: StockSeries[],
+): IndexCoverage {
+  const empty: IndexCoverage = {
+    points: [],
+    latestDate: "",
+    filledCellRatio: 0,
+    trailingFilledTickers: [],
+  };
+  const { dates, rows } = buildIndexPriceMatrix(basket, stockUniverse);
+  if (dates.length === 0 || rows.length === 0) return empty;
+
+  let filledCells = 0;
+  const points = dates.map((date, dateIndex) => {
+    const filledTickers: string[] = [];
+    let available = 0;
+    for (const row of rows) {
+      const fill = row.fills[dateIndex];
+      if (fill === "real") {
+        available += 1;
+      } else if (fill === "gap" || fill === "trailing") {
+        filledCells += 1;
+        filledTickers.push(row.ticker);
+      }
+    }
+    return { date, total: rows.length, available, filledTickers };
+  });
+  const latestPoint = points[points.length - 1];
+  return {
+    points,
+    latestDate: latestPoint ? latestPoint.date : "",
+    filledCellRatio: rows.length > 0 && dates.length > 0 ? filledCells / (rows.length * dates.length) : 0,
+    trailingFilledTickers: latestPoint ? [...latestPoint.filledTickers] : [],
+  };
+}
+
+/** Maximum tickers named inline before a warning compacts the rest. */
+const COVERAGE_WARNING_TICKER_LIMIT = 5;
+
+function formatTickerList(tickers: string[]): string {
+  if (tickers.length <= COVERAGE_WARNING_TICKER_LIMIT) return tickers.join("、");
+  const head = tickers.slice(0, COVERAGE_WARNING_TICKER_LIMIT).join("、");
+  return `${head}（他${tickers.length - COVERAGE_WARNING_TICKER_LIMIT}件）`;
+}
+
+/**
+ * Human-readable missing-data warnings for the calculation result.
+ *
+ * Pure (no React, no I/O) so hooks and tests share it: the dashboard appends
+ * these to its sync warnings, and the simulator uses the same wording.
+ * Empty when every participating price is real.
+ */
+export function getIndexCoverageWarnings(
+  basket: BasketItem[],
+  stockUniverse: StockSeries[],
+): string[] {
+  const coverage = computeIndexCoverage(basket, stockUniverse);
+  if (coverage.points.length === 0) return [];
+  const warnings: string[] = [];
+  if (coverage.trailingFilledTickers.length > 0) {
+    warnings.push(
+      `最新日（${coverage.latestDate}）時点で次の${coverage.trailingFilledTickers.length}銘柄の価格が欠測のため、直近の価格で補完して計算しています：${formatTickerList(coverage.trailingFilledTickers)}`,
+    );
+  }
+  const gapDays = coverage.points.filter(
+    (point) => point.date !== coverage.latestDate && point.filledTickers.length > 0,
+  ).length;
+  if (gapDays > 0) {
+    const percent = Number((coverage.filledCellRatio * 100).toFixed(1));
+    warnings.push(
+      `期間中に価格の欠測を補完した日が${gapDays}日あります（補完セル率 ${percent}%）。対象銘柄はチャート上で直近値のまま推移します`,
+    );
+  }
+  return warnings;
 }

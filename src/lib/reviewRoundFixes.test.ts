@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fetchSecEdgarFinancials } from "../../worker/internal";
@@ -279,6 +279,21 @@ describe("getSectorAveragePer specificity", () => {
 describe("JST acquisition date", () => {
   it("formats today as YYYY-MM-DD", () => {
     expect(todayJstDateString()).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+
+  it("rolls the calendar day over at JST midnight, not UTC midnight", () => {
+    // U-8 P-8: 2026-01-01T15:00:00Z is already 2026-01-02 in JST. A UTC-based
+    // implementation would report 01-01 here and misdate early-morning adds.
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-01-01T15:00:00Z"));
+      expect(todayJstDateString()).toBe("2026-01-02");
+      // Just before the JST boundary it must still be the previous day.
+      vi.setSystemTime(new Date("2026-01-01T14:59:59Z"));
+      expect(todayJstDateString()).toBe("2026-01-01");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("is used instead of the UTC ISO date at both add-position call sites", () => {

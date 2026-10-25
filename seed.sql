@@ -18,8 +18,12 @@ ON CONFLICT(id) DO UPDATE SET
   sort_order = excluded.sort_order;
 
 -- Seeding Basket Items (冪等)
+--
+-- `INSERT OR REPLACE` は行の DELETE+INSERT になるため、AUTOINCREMENT の `id`
+-- を消費し、seed 再実行のたびに行 identity が変わる。`UNIQUE(index_id, ticker)`
+-- （schema.sql）に対する upsert で既存行を更新し、存在しない行だけ挿入する。
 -- AI・半導体強化指数 (ai-semi)
-INSERT OR REPLACE INTO basket_items (index_id, ticker, name, weight, theme) VALUES
+INSERT INTO basket_items (index_id, ticker, name, weight, theme) VALUES
 ('ai-semi', '9984', 'ソフトバンクグループ', 15, 'AI投資'),
 ('ai-semi', '8035', '東京エレクトロン', 15, '製造装置'),
 ('ai-semi', '6857', 'アドバンテスト', 10, '検査装置'),
@@ -29,20 +33,28 @@ INSERT OR REPLACE INTO basket_items (index_id, ticker, name, weight, theme) VALU
 ('ai-semi', '6723', 'ルネサス', 10, '車載半導体'),
 ('ai-semi', '3778', 'さくらインターネット', 10, 'AIクラウド'),
 ('ai-semi', '3993', 'PKSHA', 5, 'AIソフト'),
-('ai-semi', '4180', 'Appier', 5, 'AIソフト');
+('ai-semi', '4180', 'Appier', 5, 'AIソフト')
+ON CONFLICT(index_id, ticker) DO UPDATE SET
+  name = excluded.name,
+  weight = excluded.weight,
+  theme = excluded.theme;
 
 -- 次世代インフラ・通信指数 (infra-tech)
-INSERT OR REPLACE INTO basket_items (index_id, ticker, name, weight, theme) VALUES
+INSERT INTO basket_items (index_id, ticker, name, weight, theme) VALUES
 ('infra-tech', '9432', 'NTT', 15, '通信・IOWN'),
 ('infra-tech', '9433', 'KDDI', 15, '通信'),
 ('infra-tech', '9434', 'ソフトバンク', 15, '通信'),
 ('infra-tech', '6501', '日立製作所', 15, 'DXインフラ'),
 ('infra-tech', '6702', '富士通', 20, 'DXサービス'),
 ('infra-tech', '6701', 'NEC', 10, '通信設備'),
-('infra-tech', '5803', 'フジクラ', 10, '光ファイバー');
+('infra-tech', '5803', 'フジクラ', 10, '光ファイバー')
+ON CONFLICT(index_id, ticker) DO UPDATE SET
+  name = excluded.name,
+  weight = excluded.weight,
+  theme = excluded.theme;
 
 -- 日本コア・企業指数 (jp-core)
-INSERT OR REPLACE INTO basket_items (index_id, ticker, name, weight, theme) VALUES
+INSERT INTO basket_items (index_id, ticker, name, weight, theme) VALUES
 ('jp-core', '7203', 'トヨタ自動車', 15, '自動車'),
 ('jp-core', '4063', '信越化学工業', 10, '素材'),
 ('jp-core', '9983', 'ファーストリテイリング', 10, '小売'),
@@ -52,20 +64,28 @@ INSERT OR REPLACE INTO basket_items (index_id, ticker, name, weight, theme) VALU
 ('jp-core', '6861', 'キーエンス', 10, '自動化'),
 ('jp-core', '7974', '任天堂', 10, '娯楽'),
 ('jp-core', '8031', '三井物産', 7.5, '商社'),
-('jp-core', '8316', '三井住友FG', 7.5, '金融');
+('jp-core', '8316', '三井住友FG', 7.5, '金融')
+ON CONFLICT(index_id, ticker) DO UPDATE SET
+  name = excluded.name,
+  weight = excluded.weight,
+  theme = excluded.theme;
 
 -- 完全エロゲ指数（EROGE Index）
-INSERT OR REPLACE INTO basket_items (index_id, ticker, name, weight, theme) VALUES
+INSERT INTO basket_items (index_id, ticker, name, weight, theme) VALUES
 ('eroge-index', '2681', 'ゲオホールディングス', 35, 'DLSite'),
 ('eroge-index', '7803', 'ブシロード', 20, '萌えゲーム'),
 ('eroge-index', '3657', 'ポールトゥウィンHD', 15, '開発支援'),
 ('eroge-index', '3791', 'IGポート', 10, 'アニメIP'),
 ('eroge-index', '2652', 'まんだらけ', 8, '同人市場'),
 ('eroge-index', '9468', 'KADOKAWA', 4, 'ゲーム/アニメ'),
-('eroge-index', '4751', 'サイバーエージェント', 8, 'ゲーム/アニメ');
+('eroge-index', '4751', 'サイバーエージェント', 8, 'ゲーム/アニメ')
+ON CONFLICT(index_id, ticker) DO UPDATE SET
+  name = excluded.name,
+  weight = excluded.weight,
+  theme = excluded.theme;
 
 -- 日経175指数 (nikkei-175)
-INSERT OR REPLACE INTO basket_items (index_id, ticker, name, weight, theme) VALUES 
+INSERT INTO basket_items (index_id, ticker, name, weight, theme) VALUES 
 ('nikkei-175', '3103', 'ユニチカ', 4.0, 'A:掲示板・SNSセンチメント'),
 ('nikkei-175', '3350', 'メタプラネット', 3.5, 'A:掲示板・SNSセンチメント'),
 ('nikkei-175', '6740', 'ジャパンディスプレイ', 3.2, 'A:掲示板・SNSセンチメント'),
@@ -240,4 +260,8 @@ INSERT OR REPLACE INTO basket_items (index_id, ticker, name, weight, theme) VALU
 ('nikkei-175', '2488', 'JTP', 0.25, 'D:技術・ニッチ投機'),
 ('nikkei-175', '269A', 'Sapeet', 0.25, 'D:技術・ニッチ投機'),
 ('nikkei-175', '2315', 'CAICA D', 0.25, 'D:技術・ニッチ投機'),
-('nikkei-175', '5016', 'JX金属', 0.25, 'D:技術・ニッチ投機');
+('nikkei-175', '5016', 'JX金属', 0.25, 'D:技術・ニッチ投機')
+ON CONFLICT(index_id, ticker) DO UPDATE SET
+  name = excluded.name,
+  weight = excluded.weight,
+  theme = excluded.theme;

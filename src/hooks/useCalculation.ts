@@ -2,8 +2,8 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import type { CustomIndex } from "../data/indices";
 import type { BasketItem, PricePoint, StockDetail, StockSeries } from "../types";
 import { calculateStockDetails } from "../lib/analytics";
-import { readJsonBody } from "../lib/apiContract";
-import { sanitizeBasketForRequest } from "../lib/indexEngine";
+import { fetchWithNetworkMark, readJsonBody, readResponseErrorMessage } from "../lib/apiContract";
+import { getIndexCoverageWarnings, sanitizeBasketForRequest } from "../lib/indexEngine";
 import { getAuthHeaders } from "../lib/auth";
 import { isPriceCacheFresh } from "../lib/marketCache";
 // The "sync prices → calculate" contract (batch size, auth headers, warning
@@ -72,10 +72,21 @@ export function setClientCalcCache(key: string, entry: ClientCalcCacheEntry): vo
  * order, so the entry evicted first is the one that has not been used for the
  * longest time. Without the refresh the cache behaved like a FIFO and threw
  * away the index the user keeps coming back to.
+ *
+ * Freshness uses the same market-aware policy as the sync decision
+ * (`isPriceCacheFresh`): a calculation is only as fresh as the prices it was
+ * computed from. A hit older than that is dropped and reported as a miss, so
+ * a tab switch after a market move cannot keep showing yesterday's series
+ * with a stale `lastUpdatedAt` presented as current.
  */
 export function getClientCalcCache(key: string): ClientCalcCacheEntry | undefined {
   const entry = clientCalcCache.get(key);
   if (!entry) return undefined;
+  const nowSec = Math.floor(Date.now() / 1000);
+  if (!isPriceCacheFresh(nowSec, Math.floor(entry.timestamp / 1000))) {
+    clientCalcCache.delete(key);
+    return undefined;
+  }
   clientCalcCache.delete(key);
   clientCalcCache.set(key, entry);
   return entry;
@@ -298,7 +309,7 @@ export function useCalculation(selectedIndex: CustomIndex | null, enabled = true
 
         if (controller.signal.aborted) return;
 
-        const res = await fetch(`${API_BASE}/calculate`, {
+        const res = await fetchWithNetworkMark(`${API_BASE}/calculate`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -315,8 +326,7 @@ export function useCalculation(selectedIndex: CustomIndex | null, enabled = true
         if (controller.signal.aborted) return;
 
         if (!res.ok) {
-          const errJson = await res.json().catch(() => ({}));
-          throw new Error(errJson.error || "指数の計算に失敗しました");
+          throw new Error(await readResponseErrorMessage(res, "指数の計算に失敗しました"));
         }
         // HTTP 200 でも JSON でない本文(プロキシのHTMLエラー画面等)は、
         // 生の SyntaxError として利用者に見えていたため、契約モジュールの
@@ -332,6 +342,13 @@ export function useCalculation(selectedIndex: CustomIndex | null, enabled = true
         setStockUniverse(universe);
 
         if (requestBasket.length > 0) {
+          // Forward-filled prices are invisible in the series itself: disclose
+          // which constituents are carried forward (H-4) alongside the
+          // all-missing tickers below.
+          const coverageWarnings = getIndexCoverageWarnings(requestBasket, universe);
+          if (coverageWarnings.length > 0) {
+            setSyncWarnings((prev) => Array.from(new Set([...prev, ...coverageWarnings])));
+          }
           const missingTickers = getMissingPriceDataTickers(requestBasket, universe);
           if (missingTickers.length > 0) {
             for (const mt of missingTickers) {

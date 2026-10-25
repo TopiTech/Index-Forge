@@ -164,11 +164,16 @@ describe("P2/P3: admin name validation and indices weight guard", () => {
     // The SQL keeps NULL out of the numeric column and the reader replaces
     // every non-positive weight with a positive one (DATA-09): the write
     // endpoints reject a non-positive weight, so a basket read back from
-    // GET /api/indices has to stay saveable.
+    // GET /api/indices has to stay saveable. M-5 single-sources the repair
+    // value, so the assertion pins the shared constant (which the contract
+    // suite pins to 1), not the inlined literal.
     expect(workerSrc).toContain("COALESCE(b.weight, 0) AS weight");
-    expect(workerSrc).toContain("Number.isFinite(rawWeight) && rawWeight > 0 ? rawWeight : 1");
+    expect(workerSrc).toContain("? rawWeight : LEGACY_REPAIRED_WEIGHT");
+    expect(workerSrc).toContain("LEGACY_REPAIRED_WEIGHT,");
     // The old "coerce to 0" repair would emit a weight the write API rejects.
     expect(workerSrc).not.toContain("Number.isFinite(rawWeight) ? rawWeight : 0");
+    expect(workerSrc).not.toContain("? rawWeight : 0");
+    expect(workerSrc).not.toContain("? rawWeight : 1");
   });
 
   it("serves legacy NULL/zero basket weights as a positive weight", async () => {

@@ -125,12 +125,12 @@ describe("Comprehensive Goal Code Review - Unit 3 Fixes", () => {
       },
     } as unknown as Env;
 
-    // Test /api/stock/quote without ticker -> 400 with "ticker query parameter is required"
+    // Test /api/stock/quote without ticker -> 400 with the Japanese missing-ticker message
     const quoteReq = new Request("http://localhost/api/stock/quote", { method: "GET" });
     const quoteRes = await worker.fetch(quoteReq, mockEnv);
     expect(quoteRes.status).toBe(400);
     const quoteJson = (await quoteRes.json()) as { error?: string };
-    expect(quoteJson.error).toBe("ticker query parameter is required");
+    expect(quoteJson.error).toBe("ティッカーを指定してください。");
 
     // Test /api/screener -> returns universe array (status 200)
     const screenerReq = new Request("http://localhost/api/screener", { method: "GET" });

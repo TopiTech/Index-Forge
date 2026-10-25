@@ -278,7 +278,7 @@ describe("Comprehensive Goal Final Review Cycle Verification", () => {
         );
 
         const body = (await res.json()) as { error?: string };
-        expect(body.error).not.toBe("Valid indexId and ticker parameters are required");
+        expect(body.error).not.toBe("指数IDとティッカーを指定してください。");
       }
 
       for (const ticker of invalidTickers) {
@@ -295,7 +295,7 @@ describe("Comprehensive Goal Final Review Cycle Verification", () => {
 
         expect(res.status).toBe(400);
         const body = (await res.json()) as { error?: string };
-        expect(body.error).toBe("Valid indexId and ticker parameters are required");
+        expect(body.error).toBe("指数IDとティッカーを指定してください。");
       }
     });
 

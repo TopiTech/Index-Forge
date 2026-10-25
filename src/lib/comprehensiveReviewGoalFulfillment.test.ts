@@ -224,7 +224,7 @@ describe("Comprehensive Review Goal Fulfillment Suite", () => {
 
       expect(res.status).toBe(400);
       const data = (await res.json()) as any;
-      expect(data.error).toBe("Invalid ticker value");
+      expect(data.error).toBe("ティッカーの値が正しくありません。");
     });
   });
 

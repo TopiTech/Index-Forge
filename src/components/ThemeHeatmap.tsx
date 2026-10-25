@@ -36,8 +36,12 @@ export function ThemeHeatmap({ stockDetails, selectedTheme, onSelectTheme }: The
     const map = new Map<string, StockDetail[]>();
     for (const stock of filteredStocks) {
       const theme = stock.theme || "その他";
-      if (!map.has(theme)) map.set(theme, []);
-      map.get(theme)!.push(stock);
+      let bucket = map.get(theme);
+      if (!bucket) {
+        bucket = [];
+        map.set(theme, bucket);
+      }
+      bucket.push(stock);
     }
     return Array.from(map.entries()).sort((a, b) => {
       const weightA = a[1].reduce((sum, s) => sum + s.weight, 0);

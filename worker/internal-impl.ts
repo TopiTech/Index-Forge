@@ -33,19 +33,20 @@ import {
   getMarketAwareCacheDuration as getMarketAwareCacheDurationShared,
   isPriceCacheFresh as isPriceCacheFreshShared,
 } from "../src/lib/marketCache";
+import { safeRandomId } from "../src/lib/randomId";
 import { toYahooSymbol } from "../src/lib/yahooSymbol";
 import {
+  LEGACY_REPAIRED_WEIGHT,
   MAX_BASKET_ITEMS,
   MAX_DESCRIPTION_LENGTH,
   MAX_OWNER_TOKEN_LENGTH,
   MAX_STOCK_NAME_LENGTH,
-  MAX_THEME_LENGTH,
   isValidBaseValue,
   isValidIndexId,
   isValidSortOrder,
   isValidTicker,
-  isValidWeight,
   validateBasketItems,
+  validateSingleStockItem,
 } from "../src/lib/apiContract";
 import type { BasketItemInput } from "../src/lib/apiContract";
 import type { BasketItem, PricePoint, StockSeries } from "../src/types";
@@ -343,6 +344,11 @@ export interface IndexOwnershipLookup {
    * `null` means the column exists but the row predates issuance tracking; the
    * token is grandfathered (kept working) and the runtime backfill records the
    * migration time for it.
+   *
+   * A present but non-numeric value (corrupted/tampered cell) is normalized
+   * to `0`, which `isOwnerTokenExpired` treats as expired: an unreadable age
+   * must fail closed instead of being laundered into the `null`
+   * grandfathering path.
    */
   ownerTokenIssuedAt: number | null | undefined;
   creatorId: string | null;
@@ -424,7 +430,12 @@ export async function lookupIndexOwnership(
       ownerTokenIssuedAt = undefined;
     } else {
       const numericIssuedAt = Number(rawIssuedAt);
-      ownerTokenIssuedAt = Number.isFinite(numericIssuedAt) ? numericIssuedAt : null;
+      // Fail closed: only a finite number carries a trustworthy age. SQL NULL
+      // (pre-tracking row) stays `null` and grandfathered above, but garbage
+      // such as 'not-a-date' or Infinity must expire rather than inherit that
+      // leniency. `0` is already treated as expired by `isOwnerTokenExpired`
+      // (`issued <= 0`), binds cleanly to D1, and round-trips back to expired.
+      ownerTokenIssuedAt = Number.isFinite(numericIssuedAt) ? numericIssuedAt : 0;
     }
 
     return {
@@ -836,7 +847,9 @@ export function isValidOwnerTokenFormat(token: string): boolean {
  * (treated as valid) because the alternative silently locks every pre-existing
  * owner out of their own index. The migration and the runtime provisioner
  * backfill the issue date of those rows, after which the normal 90-day window
- * applies. Only a present, unparsable or outdated timestamp expires a token.
+ * applies. `lookupIndexOwnership` normalizes a present-but-unparsable cell to
+ * `0`, so only a present, unparsable (`0`/negative/non-positive) or outdated
+ * timestamp expires a token.
  */
 export function isOwnerTokenExpired(issuedAt: unknown, nowSeconds: number): boolean {
   if (issuedAt === undefined || issuedAt === null) return false;
@@ -1892,6 +1905,19 @@ export async function authenticatePassword(
   ctx?: WorkerExecutionContext,
   allowAdmin = true,
 ): Promise<AuthResult> {
+  // Read the Authorization header once: calling `get` twice (once for the
+  // `startsWith` guard, once for the value) needed a non-null assertion for
+  // the second read, and the two reads can disagree when headers are mutated.
+  // `x-admin-key` is a deprecated inbound alias of `x-auth-password`: the
+  // client no longer sends it (C-2), but older cached frontends still do, so
+  // the server keeps accepting it instead of breaking them. It grants nothing
+  // `x-auth-password` does not grant; privileged paths ignore both and
+  // require `x-admin-session` via `authenticateAdmin`.
+  const authorizationHeader = request.headers.get("authorization");
+  const bearerPassword =
+    authorizationHeader?.startsWith("Bearer ")
+      ? authorizationHeader.slice("Bearer ".length).trim()
+      : null;
   const pwd =
     explicitPassword !== undefined && explicitPassword !== null
       ? typeof explicitPassword === "string"
@@ -1899,9 +1925,7 @@ export async function authenticatePassword(
         : ""
       : request.headers.get("x-auth-password")?.trim() ||
         request.headers.get("x-admin-key")?.trim() ||
-        (request.headers.get("authorization")?.startsWith("Bearer ")
-          ? request.headers.get("authorization")!.slice(7).trim()
-          : null) ||
+        bearerPassword ||
         "";
 
   if (!pwd) {
@@ -2114,7 +2138,7 @@ export async function authenticatePassword(
   // A single generic message for every failure when admin results are not
   // allowed: the verify endpoint must not distinguish "no such account" from
   // "this is an admin password".
-  return { authenticated: false, error: "パスワードが正しくありません" };
+  return { authenticated: false, error: INCORRECT_PASSWORD_MESSAGE };
 }
 
 /**
@@ -2229,17 +2253,17 @@ export async function authenticateAdminSession(
         }
       | undefined;
     if (!row || typeof row.account_id !== "string" || row.account_id.length === 0) {
-      return { authenticated: false, error: "管理者セッションが無効または期限切れです" };
+      return { authenticated: false, error: ADMIN_SESSION_INVALID_MESSAGE };
     }
     // If account_id is 'admin-master', it may exist purely from env.ADMIN_PASSWORD before being written to access_passwords
     if (row.account_id === "admin-master") {
       if (row.password_account_id) {
         if (row.role !== "admin" || row.is_active !== 1) {
-          return { authenticated: false, error: "管理者セッションが無効または期限切れです" };
+          return { authenticated: false, error: ADMIN_SESSION_INVALID_MESSAGE };
         }
       } else {
         if (!env.ADMIN_PASSWORD?.trim()) {
-          return { authenticated: false, error: "管理者セッションが無効または期限切れです" };
+          return { authenticated: false, error: ADMIN_SESSION_INVALID_MESSAGE };
         }
       }
       return {
@@ -2252,7 +2276,7 @@ export async function authenticateAdminSession(
       };
     }
     if (!row.password_account_id || row.role !== "admin" || row.is_active !== 1) {
-      return { authenticated: false, error: "管理者セッションが無効または期限切れです" };
+      return { authenticated: false, error: ADMIN_SESSION_INVALID_MESSAGE };
     }
     return {
       authenticated: true,
@@ -2421,7 +2445,7 @@ export function adminAuthFailureResponse(auth: AuthResult, request: Request): Re
   if (auth.rateLimited) {
     return json({ error: auth.error || RATE_LIMIT_ERROR_MESSAGE }, 429, request);
   }
-  return json({ error: "管理者権限が必要です" }, 403, request);
+  return json({ error: ADMIN_REQUIRED_MESSAGE }, 403, request);
 }
 
 /**
@@ -2940,12 +2964,15 @@ export async function getYahooCrumb(
       redirect: "manual",
       signal: AbortSignal.timeout(4000),
     });
+    // Read the single `set-cookie` value once instead of asserting the second
+    // `get` non-null: the two reads can disagree, and the assertion hid that.
+    const singleSetCookie = res1.headers.get("set-cookie");
     const rawCookies: string[] =
       typeof (res1.headers as unknown as { getSetCookie?: () => string[] }).getSetCookie ===
       "function"
         ? (res1.headers as unknown as { getSetCookie: () => string[] }).getSetCookie()
-        : res1.headers.get("set-cookie")
-          ? [res1.headers.get("set-cookie")!]
+        : singleSetCookie
+          ? [singleSetCookie]
           : [];
     const cookie = rawCookies
       .map((c) => c.split(";")[0]?.trim())
@@ -5075,8 +5102,9 @@ export async function fetchLiveMarketCalendarAsync(
     }
 
     finalEarnings = fallbackEarnings.map((fe) => {
-      if (fe.ticker && liveMap.has(fe.ticker)) {
-        return liveMap.get(fe.ticker)!;
+      if (fe.ticker) {
+        const live = liveMap.get(fe.ticker);
+        if (live) return live;
       }
       return fe;
     });
@@ -5233,6 +5261,23 @@ export function matchesIfNoneMatch(
 export function getClientIp(request: Request): string {
   const cf = request.headers.get("cf-connecting-ip")?.trim();
   if (cf) return cf;
+  // `x-real-ip` / `x-forwarded-for` are client-controlled: honoring them for a
+  // request aimed at a public hostname would let a direct client choose its
+  // own rate-limit / lockout / quota identity and bypass all three (C-1).
+  // They are only honored for loopback targets (local dev behind a proxy).
+  // The check is deliberately hostname-only rather than `isLocalOrTestHost`:
+  // `isTestRuntime()` is true for the whole suite, so routing through it
+  // would make the production behavior untestable. With the hostname check,
+  // localhost requests keep exercising the fallbacks while a public-hostname
+  // request proves the fail-closed path. In production Cloudflare always sets
+  // CF-Connecting-IP, so nothing legitimate is lost by failing closed here.
+  let hostname = "";
+  try {
+    hostname = new URL(request.url).hostname;
+  } catch {
+    hostname = "";
+  }
+  if (!isLocalHostname(hostname)) return "unknown";
   const real = request.headers.get("x-real-ip")?.trim();
   if (real) return real;
   const forwardedHeader = request.headers.get("x-forwarded-for")?.trim();
@@ -5261,7 +5306,7 @@ export async function parseJsonBody(
       contentLength &&
       (!/^\d+$/.test(contentLength) || Number(contentLength) > MAX_REQUEST_BODY_SIZE)
     ) {
-      return { ok: false, response: json({ error: "Request body too large" }, 413, request) };
+      return { ok: false, response: json({ error: REQUEST_BODY_TOO_LARGE_MESSAGE }, 413, request) };
     }
 
     // Content-Length is optional for streamed/chunked requests. Read the
@@ -5269,7 +5314,7 @@ export async function parseJsonBody(
     // limit by omitting the header.
     const reader = request.body?.getReader();
     if (!reader) {
-      return { ok: false, response: json({ error: "Invalid JSON body" }, 400, request) };
+      return { ok: false, response: json({ error: INVALID_JSON_BODY_MESSAGE }, 400, request) };
     }
     const chunks: Uint8Array[] = [];
     let totalSize = 0;
@@ -5279,7 +5324,7 @@ export async function parseJsonBody(
       totalSize += value.byteLength;
       if (totalSize > MAX_REQUEST_BODY_SIZE) {
         await reader.cancel();
-        return { ok: false, response: json({ error: "Request body too large" }, 413, request) };
+        return { ok: false, response: json({ error: REQUEST_BODY_TOO_LARGE_MESSAGE }, 413, request) };
       }
       chunks.push(value);
     }
@@ -5293,12 +5338,12 @@ export async function parseJsonBody(
     if (!body || typeof body !== "object" || Array.isArray(body)) {
       return {
         ok: false,
-        response: json({ error: "Invalid JSON body: expected an object" }, 400, request),
+        response: json({ error: INVALID_JSON_OBJECT_MESSAGE }, 400, request),
       };
     }
     return { ok: true, body: body as Record<string, unknown> };
   } catch {
-    return { ok: false, response: json({ error: "Invalid JSON body" }, 400, request) };
+    return { ok: false, response: json({ error: INVALID_JSON_BODY_MESSAGE }, 400, request) };
   }
 }
 
@@ -5311,6 +5356,91 @@ export const RATE_LIMIT_MAX = 60; // max requests per window per endpoint
 // from a validation failure in the browser console.
 export const RATE_LIMIT_ERROR_MESSAGE =
   "リクエストが多すぎます。しばらく時間をおいてから再試行してください。";
+
+/**
+ * User-facing error message catalog (U-8 M-7 follow-up).
+ *
+ * The Japanese UI surfaces `error` verbatim through `readResponseErrorMessage`,
+ * so every literal below is part of the user-visible contract. They live here —
+ * next to `RATE_LIMIT_ERROR_MESSAGE` — instead of inline at each `json()` call
+ * site, so a wording change lands in exactly one place and cannot drift back
+ * into a mixed-language surface. The values are pinned literally by
+ * `src/lib/workerErrorMessages.test.ts`; behavior lives in `workerHttpContract`.
+ */
+export const INTERNAL_SERVER_ERROR_MESSAGE =
+  "サーバーでエラーが発生しました。しばらくしてから再試行してください。";
+export const REQUEST_BODY_TOO_LARGE_MESSAGE =
+  "リクエストが大きすぎます。銘柄数や説明文を減らして再試行してください。";
+export const INVALID_JSON_BODY_MESSAGE = "リクエストの形式が正しくありません。";
+export const INVALID_JSON_OBJECT_MESSAGE = "リクエストはオブジェクト形式で送信してください。";
+export const METHOD_NOT_ALLOWED_GET_MESSAGE =
+  "このエンドポイントではGETメソッドのみ利用できます。";
+export const METHOD_NOT_ALLOWED_POST_MESSAGE =
+  "このエンドポイントではPOSTメソッドのみ利用できます。";
+export const INDEX_NOT_FOUND_MESSAGE = "指数が見つかりません。";
+export const ENDPOINT_NOT_FOUND_MESSAGE = "エンドポイントが見つかりません。";
+export const STATIC_ASSET_HANDLER_UNAVAILABLE_MESSAGE =
+  "静的アセットのハンドラが利用できません。";
+export const STATIC_ASSET_LOAD_FAILED_MESSAGE = "静的アセットの読み込みに失敗しました。";
+export const INVALID_INDEX_ID_MESSAGE = "指数IDの形式が正しくありません。";
+export const INDEX_ID_REQUIRED_MESSAGE = "指数IDを指定してください。";
+export const INDEX_ID_FORMAT_MESSAGE =
+  "指数IDを指定してください（1〜100文字の英数字・ドット・ハイフン・アンダースコア）。";
+export const INDEX_ID_TICKER_REQUIRED_MESSAGE = "指数IDとティッカーを指定してください。";
+export const TICKER_REQUIRED_MESSAGE = "ティッカーを指定してください。";
+export const INVALID_TICKER_VALUE_MESSAGE = "ティッカーの値が正しくありません。";
+export const INVALID_TICKER_FORMAT_MESSAGE = "ティッカーの形式が正しくありません。";
+export const INVALID_SYMBOL_MESSAGE = "シンボルの指定が正しくありません。";
+export const UNSUPPORTED_SYMBOL_MESSAGE = "対応していないシンボルです。";
+export const INVALID_INDEX_NAME_MESSAGE = "名前は1〜100文字で入力してください。";
+export const INVALID_DESCRIPTION_MESSAGE = "説明文は500文字以内で入力してください。";
+export const INVALID_BASE_VALUE_MESSAGE = "基準値は0より大きく1000000以下で入力してください。";
+export const BASKET_MIN_ITEMS_MESSAGE = "銘柄を1件以上指定してください。";
+export const BASKET_TOTAL_WEIGHT_MESSAGE = "合計ウェイトは0より大きく10000以下にしてください。";
+export const TICKERS_ARRAY_REQUIRED_MESSAGE = "ティッカーの配列を指定してください。";
+export const TICKERS_ARRAY_EMPTY_MESSAGE = "ティッカーを1件以上指定してください。";
+export const INVALID_SORT_ORDER_MESSAGE = "表示順は0〜9999の数値で指定してください。";
+export const INVALID_PASSWORD_ID_MESSAGE = "パスワードIDの形式が正しくありません。";
+export const MISSING_PASSWORD_ID_MESSAGE = "パスワードIDを指定してください。";
+export const CANNOT_DELETE_SYSTEM_INDEX_MESSAGE = "組み込みの指数は削除できません。";
+export const CREATOR_STOCK_LIMIT_UNKNOWN_MESSAGE =
+  "作成者の銘柄数上限を確認できないため、後で再試行してください";
+export const ADMIN_SESSION_INVALID_MESSAGE = "管理者セッションが無効または期限切れです";
+export const ADMIN_REQUIRED_MESSAGE = "管理者権限が必要です";
+export const MAX_STOCKS_RANGE_MESSAGE = "銘柄数上限は1〜500の数値を指定してください";
+export const INDEX_LIMIT_MIGRATION_MESSAGE =
+  "指数上限を保存するにはデータベースのマイグレーションが必要です";
+export const MAX_INDICES_RANGE_MESSAGE = "指数上限は1〜100の数値を指定してください";
+export const ACCOUNT_NOT_FOUND_MESSAGE = "指定されたIDのアカウントが見つかりません";
+export const INVALID_USER_LABEL_MESSAGE = "ユーザー名/ラベルは1〜100文字で入力してください";
+export const INVALID_PASSWORD_LENGTH_MESSAGE = "パスワードは8〜100文字で入力してください";
+export const INCORRECT_PASSWORD_MESSAGE = "パスワードが正しくありません";
+export const INDEX_UPDATE_TOKEN_REQUIRED_MESSAGE =
+  "この指数を更新する権限がありません（作成者トークンが必要です）";
+export const INDEX_UPDATE_TOKEN_MISMATCH_MESSAGE =
+  "この指数を更新する権限がありません（作成者トークンが一致しません）";
+export const PROTECTED_INDEX_UPDATE_MESSAGE =
+  "この指数は保護されているため更新できません（管理者権限が必要です）";
+/** Admin-login lockout message shared by the password and secret-code paths. */
+export function adminLoginLockoutMessage(minutes: number): string {
+  return `試行回数の上限（${ADMIN_LOGIN_MAX_ATTEMPTS}回）に達したためロックされました。約${minutes}分後に再試行してください。`;
+}
+/** Owner-token length message (short form without の文字列) shared by admin writes. */
+export function ownerTokenLengthMessage(): string {
+  return `作成者トークンは${MAX_OWNER_TOKEN_LENGTH}文字以内で指定してください`;
+}
+/** Yahoo Finance returned no usable data for `symbol` (snapshot/quote paths). */
+export function yahooNoDataMessage(symbol: string): string {
+  return `Yahoo Financeから${symbol}のデータを取得できませんでした。`;
+}
+/** Basket cap message shared by the calculate and indices write paths. */
+export function basketMaxItemsMessage(): string {
+  return `銘柄は最大${MAX_BASKET_ITEMS}件まで指定できます。`;
+}
+/** Owner-token shape message shared by the indices write paths. */
+export function invalidOwnerTokenMessage(): string {
+  return `作成者トークンは${MAX_OWNER_TOKEN_LENGTH}文字以内の文字列で指定してください。`;
+}
 
 // Endpoints that receive high read/compute traffic use in-memory rate limiting
 // to prevent exhausting Cloudflare D1's 100,000 rows/month write quota (approx 3,333 writes/day).
@@ -5473,7 +5603,7 @@ export default {
 
       if (url.pathname === "/api/health") {
         if (request.method !== "GET") {
-          return json({ error: "Method not allowed. Use GET." }, 405, request, { allow: "GET" });
+          return json({ error: METHOD_NOT_ALLOWED_GET_MESSAGE }, 405, request, { allow: "GET" });
         }
         return json({ ok: true, service: "indexforge-worker" }, 200, request);
       }
@@ -5481,7 +5611,7 @@ export default {
       // Cloudflare Turnstile設定および管理者ロックアウト状態取得
       if (url.pathname === "/api/auth/turnstile-config") {
         if (request.method !== "GET") {
-          return json({ error: "Method not allowed. Use GET." }, 405, request, { allow: "GET" });
+          return json({ error: METHOD_NOT_ALLOWED_GET_MESSAGE }, 405, request, { allow: "GET" });
         }
         try {
           const ip = getClientIp(request);
@@ -5508,7 +5638,7 @@ export default {
           );
         } catch (err) {
           console.error("Turnstile config endpoint error:", err);
-          return json({ error: "Internal server error" }, 500, request);
+          return json({ error: INTERNAL_SERVER_ERROR_MESSAGE }, 500, request);
         }
       }
 
@@ -5609,7 +5739,7 @@ export default {
                   locked: true,
                   remainingSeconds: fail.remainingSeconds,
                   remainingAttempts: 0,
-                  error: `試行回数の上限（${ADMIN_LOGIN_MAX_ATTEMPTS}回）に達したためロックされました。約${minutes}分後に再試行してください。`,
+                  error: adminLoginLockoutMessage(minutes),
                 },
                 429,
                 request,
@@ -5666,7 +5796,7 @@ export default {
                   locked: true,
                   remainingSeconds: fail.remainingSeconds,
                   remainingAttempts: 0,
-                  error: `試行回数の上限（${ADMIN_LOGIN_MAX_ATTEMPTS}回）に達したためロックされました。約${minutes}分後に再試行してください。`,
+                  error: adminLoginLockoutMessage(minutes),
                 },
                 429,
                 request,
@@ -5719,7 +5849,7 @@ export default {
           );
         } catch (err) {
           console.error("Admin login endpoint error:", err);
-          return json({ error: "Internal server error" }, 500, request);
+          return json({ error: INTERNAL_SERVER_ERROR_MESSAGE }, 500, request);
         }
       }
 
@@ -5757,7 +5887,7 @@ export default {
           }
           if (!auth.authenticated || auth.role === "admin") {
             return json(
-              { ok: false, error: "パスワードが正しくありません" },
+              { ok: false, error: INCORRECT_PASSWORD_MESSAGE },
               401,
               request,
             );
@@ -5776,14 +5906,14 @@ export default {
           );
         } catch (err) {
           console.error("Authentication endpoint error:", err);
-          return json({ error: "Internal server error" }, 500, request);
+          return json({ error: INTERNAL_SERVER_ERROR_MESSAGE }, 500, request);
         }
       }
 
       // ログアウト (冪等): 提示された管理者セッションを失効させる
       if (url.pathname === "/api/auth/logout") {
         if (request.method !== "POST") {
-          return json({ error: "Method not allowed. Use POST." }, 405, request, { allow: "POST" });
+          return json({ error: METHOD_NOT_ALLOWED_POST_MESSAGE }, 405, request, { allow: "POST" });
         }
         try {
           const token = getAdminSessionToken(request);
@@ -5824,7 +5954,7 @@ export default {
           return json(results || [], 200, request);
         } catch (err) {
           console.error("Failed to fetch passwords:", err);
-          return json({ error: "Internal server error" }, 500, request);
+          return json({ error: INTERNAL_SERVER_ERROR_MESSAGE }, 500, request);
         }
       }
 
@@ -5844,7 +5974,7 @@ export default {
             name.trim().length === 0 ||
             name.trim().length > 100
           ) {
-            return json({ error: "ユーザー名/ラベルは1〜100文字で入力してください" }, 400, request);
+            return json({ error: INVALID_USER_LABEL_MESSAGE }, 400, request);
           }
           if (
             !password ||
@@ -5852,7 +5982,7 @@ export default {
             password.trim().length < 8 ||
             password.trim().length > 100
           ) {
-            return json({ error: "パスワードは8〜100文字で入力してください" }, 400, request);
+            return json({ error: INVALID_PASSWORD_LENGTH_MESSAGE }, 400, request);
           }
           let maxStockLimit: number | null = null;
           if (
@@ -5864,7 +5994,7 @@ export default {
           ) {
             const num = Number(maxStocks);
             if (!Number.isFinite(num) || num < 1 || num > 500) {
-              return json({ error: "銘柄数上限は1〜500の数値を指定してください" }, 400, request);
+              return json({ error: MAX_STOCKS_RANGE_MESSAGE }, 400, request);
             }
             maxStockLimit = Math.floor(num);
           }
@@ -5878,12 +6008,12 @@ export default {
           ) {
             const num = Number(maxIndices);
             if (!Number.isFinite(num) || num < 1 || num > 100) {
-              return json({ error: "指数上限は1〜100の数値を指定してください" }, 400, request);
+              return json({ error: MAX_INDICES_RANGE_MESSAGE }, 400, request);
             }
             maxIndexLimit = Math.floor(num);
           }
           const assignedRole = role === "admin" ? "admin" : "user";
-          const id = `pwd-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
+          const id = `pwd-${Date.now()}-${safeRandomId(4)}`;
           const initialPassword = password.trim();
           await ensurePasswordTable(env);
           const collision = await findPasswordCollision(env, initialPassword);
@@ -5909,7 +6039,7 @@ export default {
             if (maxIndexLimit !== null) {
               if (isMissingColumnError(insertErr, "max_indices")) {
                 return json(
-                  { error: "指数上限を保存するにはデータベースのマイグレーションが必要です" },
+                  { error: INDEX_LIMIT_MIGRATION_MESSAGE },
                   503,
                   request,
                 );
@@ -5952,7 +6082,7 @@ export default {
           );
         } catch (err) {
           console.error("Failed to create password:", err);
-          return json({ error: "Internal server error" }, 500, request);
+          return json({ error: INTERNAL_SERVER_ERROR_MESSAGE }, 500, request);
         }
       }
 
@@ -5969,7 +6099,7 @@ export default {
           const activeInput =
             isActive !== undefined ? isActive : (parsed.body as Record<string, unknown>).is_active;
           if (!id || typeof id !== "string") {
-            return json({ error: "Invalid password id" }, 400, request);
+            return json({ error: INVALID_PASSWORD_ID_MESSAGE }, 400, request);
           }
           if (id === "admin-master") {
             const isAttemptingDeactivation =
@@ -6005,7 +6135,7 @@ export default {
             // (which 400s above 100 chars) instead of silently truncating.
             if (name.trim().length > 100) {
               return json(
-                { error: "ユーザー名/ラベルは1〜100文字で入力してください" },
+                { error: INVALID_USER_LABEL_MESSAGE },
                 400,
                 request,
               );
@@ -6055,7 +6185,7 @@ export default {
 
           if (typeof password === "string" && password.trim().length > 0) {
             if (password.trim().length < 8 || password.trim().length > 100) {
-              return json({ error: "パスワードは8〜100文字で入力してください" }, 400, request);
+              return json({ error: INVALID_PASSWORD_LENGTH_MESSAGE }, 400, request);
             }
             const collision = await findPasswordCollision(env, password.trim(), id);
             let isTargetAdmin = role === "admin";
@@ -6090,7 +6220,7 @@ export default {
             } else {
               const num = Number(maxStocks);
               if (!Number.isFinite(num) || num < 1 || num > 500) {
-                return json({ error: "銘柄数上限は1〜500の数値を指定してください" }, 400, request);
+                return json({ error: MAX_STOCKS_RANGE_MESSAGE }, 400, request);
               }
               updates.push("max_stocks = ?");
               params.push(Math.floor(num));
@@ -6107,7 +6237,7 @@ export default {
             } else {
               const num = Number(maxIndices);
               if (!Number.isFinite(num) || num < 1 || num > 100) {
-                return json({ error: "指数上限は1〜100の数値を指定してください" }, 400, request);
+                return json({ error: MAX_INDICES_RANGE_MESSAGE }, 400, request);
               }
               updates.push("max_indices = ?");
               params.push(Math.floor(num));
@@ -6159,7 +6289,7 @@ export default {
             // default and can be treated as a no-op for that field.
             if (maxIndicesRequiresMigration) {
               return json(
-                { error: "指数上限を保存するにはデータベースのマイグレーションが必要です" },
+                { error: INDEX_LIMIT_MIGRATION_MESSAGE },
                 503,
                 request,
               );
@@ -6175,7 +6305,7 @@ export default {
             // The UPDATE matched no row: report the missing account instead of
             // returning success for a no-op (the admin UI closed the modal and
             // toasted success even though nothing changed).
-            return json({ error: "指定されたIDのアカウントが見つかりません" }, 404, request);
+            return json({ error: ACCOUNT_NOT_FOUND_MESSAGE }, 404, request);
           }
           clearAuthCache();
           // A role change, deactivation, or password change must not leave a live administrator
@@ -6193,7 +6323,7 @@ export default {
           return json({ ok: true }, 200, request);
         } catch (err) {
           console.error("Failed to update password:", err);
-          return json({ error: "Internal server error" }, 500, request);
+          return json({ error: INTERNAL_SERVER_ERROR_MESSAGE }, 500, request);
         }
       }
 
@@ -6206,7 +6336,7 @@ export default {
           }
           const id = url.searchParams.get("id");
           if (!id) {
-            return json({ error: "Missing password id" }, 400, request);
+            return json({ error: MISSING_PASSWORD_ID_MESSAGE }, 400, request);
           }
           if (id === "admin-master") {
             return json({ error: "マスター管理者パスワードは削除できません" }, 403, request);
@@ -6243,13 +6373,13 @@ export default {
             }
           }
           if (deleteChanges === 0) {
-            return json({ error: "指定されたIDのアカウントが見つかりません" }, 404, request);
+            return json({ error: ACCOUNT_NOT_FOUND_MESSAGE }, 404, request);
           }
           clearAuthCache();
           return json({ ok: true }, 200, request);
         } catch (err) {
           console.error("Failed to delete password:", err);
-          return json({ error: "Internal server error" }, 500, request);
+          return json({ error: INTERNAL_SERVER_ERROR_MESSAGE }, 500, request);
         }
       }
 
@@ -6261,7 +6391,7 @@ export default {
             return adminAuthFailureResponse(auth, request);
           }
           if (auth.id !== "admin-master") {
-            return json({ error: "管理者権限が必要です" }, 403, request);
+            return json({ error: ADMIN_REQUIRED_MESSAGE }, 403, request);
           }
           const parsed = await parseJsonBody(request);
           if (!parsed.ok) return parsed.response;
@@ -6321,7 +6451,7 @@ export default {
           );
         } catch (err) {
           console.error("Failed to update admin password:", err);
-          return json({ error: "Internal server error" }, 500, request);
+          return json({ error: INTERNAL_SERVER_ERROR_MESSAGE }, 500, request);
         }
       }
 
@@ -6336,7 +6466,7 @@ export default {
             return adminAuthFailureResponse(auth, request);
           }
           if (auth.id !== "admin-master") {
-            return json({ error: "管理者権限が必要です" }, 403, request);
+            return json({ error: ADMIN_REQUIRED_MESSAGE }, 403, request);
           }
           const parsed = await parseJsonBody(request);
           if (!parsed.ok) return parsed.response;
@@ -6369,6 +6499,11 @@ export default {
             "SELECT id FROM access_passwords WHERE id = 'admin-master'",
           ).all();
           if (!existingRows || existingRows.length === 0) {
+            // Bootstrap only: the caller already proved a valid administrator
+            // session above. The header fallback covers the migration window
+            // where the D1 row does not exist yet; `x-admin-key` stays
+            // accepted here for the same deprecated-alias reason as in
+            // `authenticatePassword`.
             const masterPwd =
               env.ADMIN_PASSWORD?.trim() ||
               request.headers.get("x-auth-password")?.trim() ||
@@ -6409,7 +6544,7 @@ export default {
           );
         } catch (err) {
           console.error("Failed to update admin secret code:", err);
-          return json({ error: "Internal server error" }, 500, request);
+          return json({ error: INTERNAL_SERVER_ERROR_MESSAGE }, 500, request);
         }
       }
 
@@ -6511,7 +6646,7 @@ export default {
           });
         } catch (err) {
           console.error("Failed to fetch system stats:", err);
-          return json({ error: "Internal server error" }, 500, request);
+          return json({ error: INTERNAL_SERVER_ERROR_MESSAGE }, 500, request);
         }
       }
 
@@ -6540,7 +6675,7 @@ export default {
             !isValidIndexId(indexId.trim())
           ) {
             return json(
-              { error: "indexId is required (1-100 alphanumeric, dot, hyphen, underscore)" },
+              { error: INDEX_ID_FORMAT_MESSAGE },
               400,
               request,
             );
@@ -6590,37 +6725,23 @@ export default {
             )
           ) {
             return json(
-              { error: `作成者トークンは${MAX_OWNER_TOKEN_LENGTH}文字以内で指定してください` },
+              { error: ownerTokenLengthMessage() },
               400,
               request,
             );
           }
-          const ticker =
-            typeof rawStock.ticker === "string" ? rawStock.ticker.trim().toUpperCase() : "";
-          const name = typeof rawStock.name === "string" ? rawStock.name.trim() : "";
-          const theme = typeof rawStock.theme === "string" ? rawStock.theme.trim() : "カスタム";
-          const rawWeight =
-            rawStock.weight === undefined || rawStock.weight === null || rawStock.weight === ""
-              ? 10
-              : Number(rawStock.weight);
-          if (!isValidWeight(rawWeight)) {
-            return json(
-              { error: "銘柄の構成比率 (weight) は0超100以下の数値を指定してください" },
-              400,
-              request,
-            );
+          // Single-item validation is single-sourced in `src/lib/apiContract`
+          // (`validateSingleStockItem`): the bulk endpoints share
+          // `validateBasketItems` and this endpoint shares the single-item
+          // spelling, so the two can no longer drift into two boundaries.
+          // The intentional differences from the bulk contract (missing theme
+          // defaults to "カスタム", missing weight defaults to 10) live in
+          // that function, not here.
+          const singleValidation = validateSingleStockItem(stock);
+          if (!singleValidation.ok) {
+            return json({ error: singleValidation.error }, 400, request);
           }
-          const weight = rawWeight;
-
-          if (!isValidTicker(ticker)) {
-            return json({ error: "無効な銘柄コードです" }, 400, request);
-          }
-          if (!name || name.length > MAX_STOCK_NAME_LENGTH) {
-            return json({ error: "銘柄名は1〜100文字で入力してください" }, 400, request);
-          }
-          if (theme.length > MAX_THEME_LENGTH) {
-            return json({ error: "テーマは100文字以内で入力してください" }, 400, request);
-          }
+          const { ticker, name, theme, weight } = singleValidation.item;
 
           // 現在の銘柄数チェック
           const { results: existingStocks } = await env.DB.prepare(
@@ -6636,7 +6757,7 @@ export default {
           const hasCheckedIndex = ownership.exists;
 
           if (!hasCheckedIndex) {
-            return json({ error: "Index not found" }, 404, request);
+            return json({ error: INDEX_NOT_FOUND_MESSAGE }, 404, request);
           }
 
           if (!isAdmin) {
@@ -6648,7 +6769,7 @@ export default {
 
               if (!providedToken) {
                 return json(
-                  { error: "この指数を更新する権限がありません（作成者トークンが必要です）" },
+                  { error: INDEX_UPDATE_TOKEN_REQUIRED_MESSAGE },
                   403,
                   request,
                 );
@@ -6656,7 +6777,7 @@ export default {
               const providedHash = await hashToken(providedToken);
               if (!timingSafeEqual(providedHash, existingHash)) {
                 return json(
-                  { error: "この指数を更新する権限がありません（作成者トークンが一致しません）" },
+                  { error: INDEX_UPDATE_TOKEN_MISMATCH_MESSAGE },
                   403,
                   request,
                 );
@@ -6668,7 +6789,7 @@ export default {
               }
             } else {
               return json(
-                { error: "この指数は保護されているため更新できません（管理者権限が必要です）" },
+                { error: PROTECTED_INDEX_UPDATE_MESSAGE },
                 403,
                 request,
               );
@@ -6710,7 +6831,7 @@ export default {
                       ).results?.[0] as { max_stocks?: unknown } | undefined);
                 if (!creatorRow) {
                   return json(
-                    { error: "作成者の銘柄数上限を確認できないため、後で再試行してください" },
+                    { error: CREATOR_STOCK_LIMIT_UNKNOWN_MESSAGE },
                     503,
                     request,
                   );
@@ -6724,7 +6845,7 @@ export default {
                     creatorMaxStocks > MAX_BASKET_ITEMS
                   ) {
                     return json(
-                      { error: "作成者の銘柄数上限を確認できないため、後で再試行してください" },
+                      { error: CREATOR_STOCK_LIMIT_UNKNOWN_MESSAGE },
                       503,
                       request,
                     );
@@ -6743,7 +6864,7 @@ export default {
               } catch (quotaLookupErr) {
                 console.error("Failed to check index creator stock quota:", quotaLookupErr);
                 return json(
-                  { error: "作成者の銘柄数上限を確認できないため、後で再試行してください" },
+                  { error: CREATOR_STOCK_LIMIT_UNKNOWN_MESSAGE },
                   503,
                   request,
                 );
@@ -6827,7 +6948,7 @@ export default {
           return json({ ok: true, message: "銘柄を追加・更新しました", ticker }, 200, request);
         } catch (err) {
           console.error("Failed to add stock:", err);
-          return json({ error: "Internal server error" }, 500, request);
+          return json({ error: INTERNAL_SERVER_ERROR_MESSAGE }, 500, request);
         }
       }
 
@@ -6856,7 +6977,7 @@ export default {
             !isValidTicker(rawTicker.trim())
           ) {
             return json(
-              { error: "Valid indexId and ticker parameters are required" },
+              { error: INDEX_ID_TICKER_REQUIRED_MESSAGE },
               400,
               request,
             );
@@ -6868,7 +6989,7 @@ export default {
           const providedToken = request.headers.get("x-owner-token")?.trim() || "";
           if (providedToken.length > MAX_OWNER_TOKEN_LENGTH) {
             return json(
-              { error: `作成者トークンは${MAX_OWNER_TOKEN_LENGTH}文字以内で指定してください` },
+              { error: ownerTokenLengthMessage() },
               400,
               request,
             );
@@ -6898,7 +7019,7 @@ export default {
           const hasCheckedIndex = ownership.exists;
 
           if (!hasCheckedIndex) {
-            return json({ error: "Index not found" }, 404, request);
+            return json({ error: INDEX_NOT_FOUND_MESSAGE }, 404, request);
           }
 
           if (!isAdmin) {
@@ -6986,7 +7107,7 @@ export default {
           return json({ ok: true, message: "銘柄を削除しました", ticker }, 200, request);
         } catch (err) {
           console.error("Failed to delete stock:", err);
-          return json({ error: "Internal server error" }, 500, request);
+          return json({ error: INTERNAL_SERVER_ERROR_MESSAGE }, 500, request);
         }
       }
 
@@ -7005,10 +7126,10 @@ export default {
           const symbol = rawSymbol.trim();
 
           if (!isValidTicker(symbol)) {
-            return json({ error: "Invalid symbol parameter" }, 400, request);
+            return json({ error: INVALID_SYMBOL_MESSAGE }, 400, request);
           }
           if (!Object.prototype.hasOwnProperty.call(BENCHMARK_MAP, symbol)) {
-            return json({ error: "Unsupported symbol parameter" }, 400, request);
+            return json({ error: UNSUPPORTED_SYMBOL_MESSAGE }, 400, request);
           }
 
           // A forced request must not be answered from either cache layer
@@ -7127,7 +7248,7 @@ export default {
               } catch {
                 // Corrupted cache, must return 502 error to protect against exposing malformed state
                 return json(
-                  { error: `No data available from Yahoo Finance for ${symbol}` },
+                  { error: yahooNoDataMessage(symbol) },
                   502,
                   request,
                 );
@@ -7159,7 +7280,7 @@ export default {
               });
             }
             return json(
-              { error: `No data available from Yahoo Finance for ${symbol}` },
+              { error: yahooNoDataMessage(symbol) },
               502,
               request,
             );
@@ -7262,7 +7383,7 @@ export default {
           });
         } catch (err) {
           console.error("API Error [snapshot]:", err);
-          return json({ error: "Internal server error" }, 500, request);
+          return json({ error: INTERNAL_SERVER_ERROR_MESSAGE }, 500, request);
         }
       }
 
@@ -7348,7 +7469,7 @@ export default {
           });
         } catch (err) {
           console.error("API Error [ticker-prices]:", err);
-          return json({ error: "Internal server error" }, 500, request);
+          return json({ error: INTERNAL_SERVER_ERROR_MESSAGE }, 500, request);
         }
       }
 
@@ -7414,7 +7535,7 @@ export default {
           });
         } catch (err) {
           console.error("API Error [market-overview]:", err);
-          return json({ error: "Internal server error" }, 500, request);
+          return json({ error: INTERNAL_SERVER_ERROR_MESSAGE }, 500, request);
         }
       }
 
@@ -7426,12 +7547,12 @@ export default {
         try {
           const ticker = url.searchParams.get("ticker");
           if (!ticker || !ticker.trim()) {
-            return json({ error: "ticker query parameter is required" }, 400, request);
+            return json({ error: TICKER_REQUIRED_MESSAGE }, 400, request);
           }
 
           const norm = ticker.trim().toUpperCase();
           if (norm.length > 20 || !/^[A-Z0-9.^=_-]{1,20}$/.test(norm)) {
-            return json({ error: "Invalid ticker format" }, 400, request);
+            return json({ error: INVALID_TICKER_FORMAT_MESSAGE }, 400, request);
           }
 
           const ip = getClientIp(request);
@@ -7491,7 +7612,7 @@ export default {
           });
         } catch (err) {
           console.error("API Error [stock-fundamentals]:", err);
-          return json({ error: "Internal server error" }, 500, request);
+          return json({ error: INTERNAL_SERVER_ERROR_MESSAGE }, 500, request);
         }
       }
 
@@ -7560,7 +7681,7 @@ export default {
           });
         } catch (err) {
           console.error("API Error [stocks-screener]:", err);
-          return json({ error: "Internal server error" }, 500, request);
+          return json({ error: INTERNAL_SERVER_ERROR_MESSAGE }, 500, request);
         }
       }
 
@@ -7636,7 +7757,7 @@ export default {
           });
         } catch (err) {
           console.error("API Error [market-calendar]:", err);
-          return json({ error: "Internal server error" }, 500, request);
+          return json({ error: INTERNAL_SERVER_ERROR_MESSAGE }, 500, request);
         }
       }
 
@@ -7739,10 +7860,13 @@ export default {
               // Legacy rows may carry NULL, zero or negative weights. The write
               // endpoints reject a non-positive weight, so a basket read from
               // this API must always be saveable again: every non-positive
-              // weight is replaced by an equal positive value (DATA-09).
+              // weight is replaced by the single-sourced repair value (DATA-09).
               const rawWeight = Number(row.weight);
-              const weight = Number.isFinite(rawWeight) && rawWeight > 0 ? rawWeight : 1;
-              indicesMap.get(id)!.basket.push({
+              const weight =
+                Number.isFinite(rawWeight) && rawWeight > 0 ? rawWeight : LEGACY_REPAIRED_WEIGHT;
+              const targetIndex = indicesMap.get(id);
+              if (!targetIndex) continue;
+              targetIndex.basket.push({
                 ticker,
                 name:
                   row.stock_name != null && String(row.stock_name).trim()
@@ -7771,7 +7895,7 @@ export default {
           });
         } catch (err) {
           console.error("API Error [indices]:", err);
-          return json({ error: "Internal server error" }, 500, request);
+          return json({ error: INTERNAL_SERVER_ERROR_MESSAGE }, 500, request);
         }
       }
 
@@ -7794,18 +7918,14 @@ export default {
             (typeof body.ownerToken !== "string" ||
               body.ownerToken.length > MAX_OWNER_TOKEN_LENGTH)
           ) {
-            return json(
-              {
-                error: `Invalid ownerToken: must be a string up to ${MAX_OWNER_TOKEN_LENGTH} characters`,
+            return json({ error: invalidOwnerTokenMessage(),
               },
               400,
               request,
             );
           }
           if (headerOwnerToken.length > MAX_OWNER_TOKEN_LENGTH) {
-            return json(
-              {
-                error: `Invalid ownerToken: must be a string up to ${MAX_OWNER_TOKEN_LENGTH} characters`,
+            return json({ error: invalidOwnerTokenMessage(),
               },
               400,
               request,
@@ -7818,7 +7938,7 @@ export default {
               body.name.trim().length === 0 ||
               body.name.trim().length > MAX_STOCK_NAME_LENGTH)
           ) {
-            return json({ error: "Invalid name: must be 1-100 characters" }, 400, request);
+            return json({ error: INVALID_INDEX_NAME_MESSAGE }, 400, request);
           }
           const name =
             typeof body.name === "string" && body.name.trim().length > 0
@@ -7829,12 +7949,12 @@ export default {
             body.id !== undefined &&
             (typeof body.id !== "string" || !isValidIndexId(body.id.trim()))
           ) {
-            return json({ error: "Invalid id" }, 400, request);
+            return json({ error: INVALID_INDEX_ID_MESSAGE }, 400, request);
           }
           const id =
             typeof body.id === "string" && body.id.trim().length > 0
               ? body.id.trim()
-              : `custom-${crypto.randomUUID()}`;
+              : `custom-${safeRandomId()}`;
 
           // Password authentication and the administrator decision.
           //
@@ -7861,12 +7981,12 @@ export default {
             (typeof body.description !== "string" ||
               body.description.length > MAX_DESCRIPTION_LENGTH)
           ) {
-            return json({ error: "Invalid description: max 500 characters" }, 400, request);
+            return json({ error: INVALID_DESCRIPTION_MESSAGE }, 400, request);
           }
           const description = typeof body.description === "string" ? body.description.trim() : "";
 
           if (body.baseValue !== undefined && !isValidBaseValue(body.baseValue)) {
-            return json({ error: "Invalid baseValue" }, 400, request);
+            return json({ error: INVALID_BASE_VALUE_MESSAGE }, 400, request);
           }
           const baseValue = typeof body.baseValue === "number" ? body.baseValue : 1000;
 
@@ -7874,7 +7994,7 @@ export default {
           if (body.sortOrder !== undefined && body.sortOrder !== null) {
             if (!isValidSortOrder(body.sortOrder)) {
               return json(
-                { error: "Invalid sortOrder: must be a number between 0 and 9999" },
+                { error: INVALID_SORT_ORDER_MESSAGE },
                 400,
                 request,
               );
@@ -7884,11 +8004,11 @@ export default {
 
           const basket: unknown[] = Array.isArray(body.basket) ? body.basket : [];
           if (basket.length === 0) {
-            return json({ error: "Basket must contain at least 1 item" }, 400, request);
+            return json({ error: BASKET_MIN_ITEMS_MESSAGE }, 400, request);
           }
           if (basket.length > MAX_BASKET_ITEMS) {
             return json(
-              { error: `Basket must contain at most ${MAX_BASKET_ITEMS} items` },
+              { error: basketMaxItemsMessage() },
               400,
               request,
             );
@@ -7903,7 +8023,7 @@ export default {
           const totalWeight = validatedBasket.reduce((sum, item) => sum + item.weight, 0);
           if (!Number.isFinite(totalWeight) || totalWeight <= 0 || totalWeight > 10000) {
             return json(
-              { error: "Invalid basket: total weight must be > 0 and <= 10000" },
+              { error: BASKET_TOTAL_WEIGHT_MESSAGE },
               400,
               request,
             );
@@ -7969,7 +8089,7 @@ export default {
                     ).results?.[0] as { max_stocks?: unknown } | undefined);
               if (!creatorRow) {
                 return json(
-                  { error: "作成者の銘柄数上限を確認できないため、後で再試行してください" },
+                  { error: CREATOR_STOCK_LIMIT_UNKNOWN_MESSAGE },
                   503,
                   request,
                 );
@@ -7982,7 +8102,7 @@ export default {
                   creatorMaxStocks > MAX_BASKET_ITEMS
                 ) {
                   return json(
-                    { error: "作成者の銘柄数上限を確認できないため、後で再試行してください" },
+                    { error: CREATOR_STOCK_LIMIT_UNKNOWN_MESSAGE },
                     503,
                     request,
                   );
@@ -8000,7 +8120,7 @@ export default {
             } catch (quotaLookupErr) {
               console.error("Failed to check index creator stock quota:", quotaLookupErr);
               return json(
-                { error: "作成者の銘柄数上限を確認できないため、後で再試行してください" },
+                { error: CREATOR_STOCK_LIMIT_UNKNOWN_MESSAGE },
                 503,
                 request,
               );
@@ -8087,7 +8207,7 @@ export default {
               if (existingHash) {
                 if (!providedToken) {
                   return json(
-                    { error: "この指数を更新する権限がありません（作成者トークンが必要です）" },
+                    { error: INDEX_UPDATE_TOKEN_REQUIRED_MESSAGE },
                     403,
                     request,
                   );
@@ -8095,7 +8215,7 @@ export default {
                 const providedHash = await hashToken(providedToken);
                 if (!timingSafeEqual(providedHash, existingHash)) {
                   return json(
-                    { error: "この指数を更新する権限がありません（作成者トークンが一致しません）" },
+                    { error: INDEX_UPDATE_TOKEN_MISMATCH_MESSAGE },
                     403,
                     request,
                   );
@@ -8109,7 +8229,7 @@ export default {
                 targetIssuedAt = existingIssuedAt ?? null;
               } else {
                 return json(
-                  { error: "この指数は保護されているため更新できません（管理者権限が必要です）" },
+                  { error: PROTECTED_INDEX_UPDATE_MESSAGE },
                   403,
                   request,
                 );
@@ -8328,7 +8448,7 @@ export default {
           );
         } catch (err) {
           console.error("API Error [POST indices]:", err);
-          return json({ error: "Internal server error" }, 500, request);
+          return json({ error: INTERNAL_SERVER_ERROR_MESSAGE }, 500, request);
         }
       }
 
@@ -8343,7 +8463,7 @@ export default {
 
           const rawId = url.searchParams.get("id");
           if (!rawId || typeof rawId !== "string" || !isValidIndexId(rawId.trim())) {
-            return json({ error: "Invalid or missing index id parameter" }, 400, request);
+            return json({ error: INDEX_ID_REQUIRED_MESSAGE }, 400, request);
           }
           const id = rawId.trim();
           // Owner tokens are credentials, so they are accepted only from the
@@ -8351,9 +8471,7 @@ export default {
           // the secret into every access/proxy log for the URL.
           const providedToken = request.headers.get("x-owner-token")?.trim() || "";
           if (providedToken.length > MAX_OWNER_TOKEN_LENGTH) {
-            return json(
-              {
-                error: `Invalid ownerToken: must be a string up to ${MAX_OWNER_TOKEN_LENGTH} characters`,
+            return json({ error: invalidOwnerTokenMessage(),
               },
               400,
               request,
@@ -8361,7 +8479,7 @@ export default {
           }
 
           if (SYSTEM_INDICES.has(id)) {
-            return json({ error: "Cannot delete built-in system index" }, 403, request);
+            return json({ error: CANNOT_DELETE_SYSTEM_INDEX_MESSAGE }, 403, request);
           }
 
           const ownership = await lookupIndexOwnership(env, id);
@@ -8369,7 +8487,7 @@ export default {
           const isExisting = ownership.exists;
 
           if (!isExisting) {
-            return json({ error: "Index not found" }, 404, request);
+            return json({ error: INDEX_NOT_FOUND_MESSAGE }, 404, request);
           }
 
           // Administrators must present a valid `x-admin-session`; the master
@@ -8421,7 +8539,7 @@ export default {
           return json({ ok: true, id, message: "Index deleted successfully" }, 200, request);
         } catch (err) {
           console.error("API Error [DELETE indices]:", err);
-          return json({ error: "Internal server error" }, 500, request);
+          return json({ error: INTERNAL_SERVER_ERROR_MESSAGE }, 500, request);
         }
       }
 
@@ -8438,11 +8556,11 @@ export default {
           if (!parsed.ok) return parsed.response;
           const body = parsed.body;
           if (!Array.isArray(body.tickers)) {
-            return json({ error: "Invalid request body: tickers array required" }, 400, request);
+            return json({ error: TICKERS_ARRAY_REQUIRED_MESSAGE }, 400, request);
           }
           if (body.tickers.length === 0) {
             return json(
-              { error: "Invalid request body: tickers array must not be empty" },
+              { error: TICKERS_ARRAY_EMPTY_MESSAGE },
               400,
               request,
             );
@@ -8450,7 +8568,7 @@ export default {
           const rawTickers = body.tickers as unknown[];
           for (const t of rawTickers) {
             if (typeof t !== "string" || !isValidTicker(t.trim())) {
-              return json({ error: "Invalid ticker value" }, 400, request);
+              return json({ error: INVALID_TICKER_VALUE_MESSAGE }, 400, request);
             }
           }
           // Keep the request within Cloudflare's subrequest limits. Silently
@@ -8819,7 +8937,7 @@ export default {
           return json({ ok: true, results }, 200, request);
         } catch (err) {
           console.error("API Error [sync-prices]:", err);
-          return json({ error: "Internal server error" }, 500, request);
+          return json({ error: INTERNAL_SERVER_ERROR_MESSAGE }, 500, request);
         }
       }
 
@@ -8838,15 +8956,15 @@ export default {
           const basket = Array.isArray(body.basket) ? body.basket : [];
           const rawBaseValue = body.baseValue;
           if (rawBaseValue !== undefined && !isValidBaseValue(rawBaseValue)) {
-            return json({ error: "Invalid baseValue" }, 400, request);
+            return json({ error: INVALID_BASE_VALUE_MESSAGE }, 400, request);
           }
           const baseValue = typeof rawBaseValue === "number" ? rawBaseValue : 1000;
           if (!Array.isArray(basket) || basket.length === 0) {
-            return json({ error: "Invalid basket: must contain at least 1 item" }, 400, request);
+            return json({ error: BASKET_MIN_ITEMS_MESSAGE }, 400, request);
           }
           if (basket.length > MAX_BASKET_ITEMS) {
             return json(
-              { error: `Invalid basket: must contain at most ${MAX_BASKET_ITEMS} items` },
+              { error: basketMaxItemsMessage() },
               400,
               request,
             );
@@ -8938,8 +9056,12 @@ export default {
                   const ticker =
                     typeof row.ticker === "string" ? row.ticker.trim().toUpperCase() : "";
                   if (!ticker) return;
-                  if (!pricesByTicker.has(ticker)) pricesByTicker.set(ticker, []);
-                  pricesByTicker.get(ticker)!.push({ date: row.date, close: row.price });
+                  let bucket = pricesByTicker.get(ticker);
+                  if (!bucket) {
+                    bucket = [];
+                    pricesByTicker.set(ticker, bucket);
+                  }
+                  bucket.push({ date: row.date, close: row.price });
                 });
               } catch (legacyErr: unknown) {
                 if (!isMissingTableError(legacyErr, "stock_prices")) throw legacyErr;
@@ -8992,13 +9114,13 @@ export default {
           return json(responseData, 200, request);
         } catch (err) {
           console.error("API Error [calculate]:", err);
-          return json({ error: "Internal server error" }, 500, request);
+          return json({ error: INTERNAL_SERVER_ERROR_MESSAGE }, 500, request);
         }
       }
 
       // 未知のAPIエンドポイントは404 JSONを返却（静的アセットへのフォールスルーを防止）
       if (url.pathname.startsWith("/api/")) {
-        return json({ error: "Endpoint not found" }, 404, request);
+        return json({ error: ENDPOINT_NOT_FOUND_MESSAGE }, 404, request);
       }
 
       // 静的アセットの配信（Cloudflare Assets）
@@ -9041,17 +9163,17 @@ export default {
         } catch (assetErr) {
           console.error("Failed to fetch static asset from env.ASSETS:", assetErr);
           return json(
-            { error: "Failed to load static asset from Cloudflare Assets" },
+            { error: STATIC_ASSET_LOAD_FAILED_MESSAGE },
             502,
             request,
           );
         }
       }
 
-      return json({ error: "Static asset handler not available" }, 404, request);
+      return json({ error: STATIC_ASSET_HANDLER_UNAVAILABLE_MESSAGE }, 404, request);
     } catch (unhandledErr) {
       console.error("Unhandled Worker error:", unhandledErr);
-      return json({ error: "Internal server error" }, 500, request);
+      return json({ error: INTERNAL_SERVER_ERROR_MESSAGE }, 500, request);
     }
   },
 

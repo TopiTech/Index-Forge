@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import worker from "../../worker/index";
+import { parseJsonBody } from "../../worker/internal-impl";
 import { clearMemoryCache, resetPasswordTableEnsured } from "../../worker/internal";
 import { createStubWorkerEnv } from "../test-helpers/env";
 
@@ -110,7 +111,52 @@ describe("Worker HTTP contract", () => {
 
       expect(response.status, path).toBe(400);
       const body = (await response.json()) as { error: string };
-      expect(body.error, path).toContain("Invalid JSON body");
+      expect(body.error, path).toContain("リクエストの形式が正しくありません");
+    }
+  });
+
+  it("answers protocol errors in Japanese (413/400/500 stay user-readable)", async () => {
+    // Oversized: the Content-Length pre-check rejects without reading 1 MiB.
+    const oversized = await parseJsonBody(
+      new Request("http://localhost/api/calculate", {
+        method: "POST",
+        headers: { "content-type": "application/json", "content-length": "2000000" },
+        body: "{}",
+      }),
+    );
+    expect(oversized.ok).toBe(false);
+    if (!oversized.ok) {
+      expect(oversized.response.status).toBe(413);
+      const body = (await oversized.response.json()) as { error: string };
+      expect(body.error).toContain("リクエストが大きすぎます");
+    }
+
+    // Malformed: invalid JSON is a 400 with guidance, never a raw SyntaxError.
+    const malformed = await parseJsonBody(
+      new Request("http://localhost/api/calculate", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "not-json",
+      }),
+    );
+    expect(malformed.ok).toBe(false);
+    if (!malformed.ok) {
+      expect(malformed.response.status).toBe(400);
+      const body = (await malformed.response.json()) as { error: string };
+      expect(body.error).toContain("リクエストの形式が正しくありません");
+    }
+
+    // Well-formed: a plain object passes through untouched.
+    const valid = await parseJsonBody(
+      new Request("http://localhost/api/calculate", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ basket: [] }),
+      }),
+    );
+    expect(valid.ok).toBe(true);
+    if (valid.ok) {
+      expect(valid.body).toEqual({ basket: [] });
     }
   });
 });

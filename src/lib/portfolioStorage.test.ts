@@ -4,6 +4,7 @@ import {
   addWatchlistTicker,
   calculatePortfolioSummary,
   convertPortfolioToCustomIndexBasket,
+  createPortfolioPosition,
   hasPersistedPortfolio,
   hasPersistedWatchlist,
   loadPortfolioPositions,
@@ -308,5 +309,36 @@ describe("PortfolioStorage & Engine", () => {
       expect(summary.positions[0].annualDividend).toBe(0);
       expect(summary.totalAnnualDividend).toBe(0);
     });
+  });
+});
+
+describe("position id uniqueness (H-6)", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("mints 100 unique ids for identical lots within one millisecond", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-05T00:00:00.000Z"));
+    const ids = new Set(
+      Array.from({ length: 100 }, () =>
+        createPortfolioPosition({ ticker: "7203", shares: 10, averageCost: 2500 }).id,
+      ),
+    );
+    expect(ids.size).toBe(100);
+  });
+
+  it("keeps ids unique across a module reload at the same millisecond", async () => {
+    // The old Date.now()+counter scheme reset its counter on every reload,
+    // so two identical lots added in the same millisecond collided. Randomness
+    // (not the timestamp, not a counter) is the uniqueness mechanism now.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-05T00:00:00.000Z"));
+    const before = createPortfolioPosition({ ticker: "7203", shares: 10, averageCost: 2500 });
+    vi.resetModules();
+    const reloaded = await import("./portfolioStorage");
+    const after = reloaded.createPortfolioPosition({ ticker: "7203", shares: 10, averageCost: 2500 });
+    expect(before.id).not.toBe(after.id);
+    expect(after.id.startsWith("pos-7203-10-")).toBe(true);
   });
 });

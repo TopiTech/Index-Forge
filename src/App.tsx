@@ -22,6 +22,7 @@ import { RiskMetricsCard } from "./components/RiskMetricsCard";
 import { ConstituentsTable } from "./components/ConstituentsTable";
 import { IndexBuilderModal } from "./components/IndexBuilderModal";
 import { useOverlayRoot } from "./components/ModalBase";
+import { acquireBodyScrollLock } from "./hooks/useModalFocus";
 // recharts (419KB / 113KB gzip) is only needed by these two dashboard widgets.
 // Importing them statically put the whole charting library in the first paint,
 // so they load as their own chunks behind a region-level Suspense boundary.
@@ -194,11 +195,10 @@ function PageLayout({
 
   useEffect(() => {
     if (!isNavOpen) return;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = previousOverflow;
-    };
+    // Shares the ref-counted overlay scroll lock with useModalFocus: an
+    // independent save/restore here corrupted body overflow whenever a drawer
+    // and a dialog closed in non-nested order.
+    return acquireBodyScrollLock();
   }, [isNavOpen]);
 
   return (
@@ -489,15 +489,15 @@ function AppContent({
   useEffect(() => {
     if (!isMobileLayout || !isSidebarOpen) return;
 
-    const previousOverflow = document.body.style.overflow;
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape") setIsSidebarOpen(false);
     };
 
-    document.body.style.overflow = "hidden";
+    // Same shared overlay scroll lock as the nav drawer above.
+    const releaseScrollLock = acquireBodyScrollLock();
     window.addEventListener("keydown", closeOnEscape);
     return () => {
-      document.body.style.overflow = previousOverflow;
+      releaseScrollLock();
       window.removeEventListener("keydown", closeOnEscape);
     };
   }, [isMobileLayout, isSidebarOpen]);

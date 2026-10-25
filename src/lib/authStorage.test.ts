@@ -140,9 +140,11 @@ describe("storeAuth / clearAuth", () => {
     vi.stubGlobal("sessionStorage", session.storage);
     vi.stubGlobal("localStorage", local.storage);
 
+    // C-2: the duplicate `x-admin-key` alias is no longer sent (the Worker
+    // treats it identically to `x-auth-password`, so it only doubled
+    // exposure). The session token still rides along for mixed endpoints.
     expect(getAuthHeaders()).toEqual({
       "x-auth-password": SESSION.password,
-      "x-admin-key": SESSION.password,
     });
   });
 });

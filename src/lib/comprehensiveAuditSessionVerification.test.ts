@@ -45,7 +45,7 @@ describe("Comprehensive Audit Session Verification", () => {
         const res = await worker.fetch(req, {} as any);
         expect(res.status).toBe(400);
         const data = (await res.json()) as any;
-        expect(data.error).toBe("Invalid ticker format");
+        expect(data.error).toBe("ティッカーの形式が正しくありません。");
       }
     });
 

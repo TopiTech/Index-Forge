@@ -45,7 +45,9 @@ describe("review follow-ups: modal backdrop safety and admin refresh guards", ()
 
     // A non-JSON error body must not throw (UI-38), and the message is read
     // through the shared helper instead of an unchecked `data.error` access.
-    expect(source).toContain("const payload: unknown = await res.json().catch(() => ({}));");
+    // M-8 single-sources body parsing in `readJsonBody`, so the pinned
+    // spelling is the helper call, which never throws on HTML/empty bodies.
+    expect(source).toContain("const payload: unknown = await readJsonBody(res);");
     expect(source).toContain("reportAdminFailure(payload, res.status,");
   });
 

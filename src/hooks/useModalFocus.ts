@@ -26,6 +26,38 @@ let activeScrollLocks = 0;
 let originalBodyOverflow: string | null = null;
 
 /**
+ * Single owner of the `body` scroll lock.
+ *
+ * Dialogs (`useModalFocus`), the nav drawer and the mobile sidebar used to
+ * save/restore `body.style.overflow` independently: with two owners a
+ * non-nested close order restored the wrong value (a drawer closing while a
+ * modal stayed open re-enabled scrolling behind the modal, and the modal
+ * close then froze the page). Every overlay now acquires through this
+ * ref-count — the inline style is touched only by the first acquirer and
+ * restored only by the last release — so any open/close order stays correct.
+ * The returned function releases the lock; calling it twice is a no-op and
+ * releasing more often than acquiring never drives the count negative.
+ */
+export function acquireBodyScrollLock(): () => void {
+  if (typeof document === "undefined") return () => {};
+  if (activeScrollLocks === 0) {
+    originalBodyOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+  }
+  activeScrollLocks++;
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    activeScrollLocks = Math.max(0, activeScrollLocks - 1);
+    if (activeScrollLocks === 0) {
+      document.body.style.overflow = originalBodyOverflow ?? "";
+      originalBodyOverflow = null;
+    }
+  };
+}
+
+/**
  * Last element outside every dialog that held focus.
  *
  * A chained dialog is often swapped for another one in the same commit: the
@@ -90,13 +122,7 @@ export function useModalFocus<T extends HTMLElement>(
       lastConnectedRestoreTarget = previousActiveElement;
     }
 
-    if (lockScroll) {
-      if (activeScrollLocks === 0) {
-        originalBodyOverflow = document.body.style.overflow;
-        document.body.style.overflow = "hidden";
-      }
-      activeScrollLocks++;
-    }
+    const releaseScrollLock = lockScroll ? acquireBodyScrollLock() : null;
 
     if (focusOnOpen) {
       const initialTarget = initialFocusRef?.current;
@@ -138,13 +164,7 @@ export function useModalFocus<T extends HTMLElement>(
     document.addEventListener("keydown", handleKeyDown, true);
     return () => {
       document.removeEventListener("keydown", handleKeyDown, true);
-      if (lockScroll) {
-        activeScrollLocks = Math.max(0, activeScrollLocks - 1);
-        if (activeScrollLocks === 0) {
-          document.body.style.overflow = originalBodyOverflow ?? "";
-          originalBodyOverflow = null;
-        }
-      }
+      releaseScrollLock?.();
 
       // A dialog that never took focus (hover preview) must not hand focus
       // back either: nothing was taken, so nothing may move.

@@ -3,13 +3,19 @@ import type { CustomIndex } from "../data/indices";
 import { DEFAULT_INDICES } from "../data/indices";
 import type { BasketItem } from "../types";
 import {
-  saveIndexOwnerToken,
   getIndexOwnerToken,
+  persistConfirmedOwnerToken,
   removeIndexOwnerToken,
   isIndexOwner,
+  serverIssuedAtToMs,
 } from "../lib/ownership";
 import { getAuthHeaders } from "../lib/auth";
-import { readJsonBody } from "../lib/apiContract";
+import {
+  LEGACY_REPAIRED_WEIGHT,
+  fetchWithNetworkMark,
+  readJsonBody,
+  readResponseErrorMessage,
+} from "../lib/apiContract";
 import {
   sanitizeBasketForRequest,
   normalizeTicker,
@@ -59,10 +65,15 @@ export function sanitizeIndex(raw: unknown): CustomIndex | null {
     const ticker = typeof entry.ticker === "string" ? entry.ticker.trim().toUpperCase() : "";
     if (!ticker || seen.has(ticker)) continue;
     seen.add(ticker);
+    // Non-positive weights are legacy (NULL/zero/negative) rows: the Worker
+    // reader repairs them to LEGACY_REPAIRED_WEIGHT, so the client applies
+    // the same rule instead of keeping 0. Displaying 0 while the save path
+    // silently rebalanced it made the displayed basket differ from the saved
+    // one (DATA-09/DATA-17).
     const weight =
-      typeof entry.weight === "number" && Number.isFinite(entry.weight) && entry.weight >= 0
+      typeof entry.weight === "number" && Number.isFinite(entry.weight) && entry.weight > 0
         ? Math.min(entry.weight, 100)
-        : 1;
+        : LEGACY_REPAIRED_WEIGHT;
     basket.push({
       ticker,
       name: typeof entry.name === "string" && entry.name.trim() ? entry.name.trim() : ticker,
@@ -208,19 +219,28 @@ export function buildSaveIndexRequest(
  * label the index as "My index". The signature deliberately has no
  * caller-token parameter so the unsafe value cannot flow in by accident.
  */
+/**
+ * Extract the owner token the Worker echoed back for this index id.
+ *
+ * Only an echoed token counts as server-confirmed: it proves the write
+ * actually persisted the token hash. Anything else (a caller-supplied token,
+ * or the previously stored one) must never be written to the store on the
+ * strength of this response. Returns `null` when the server confirmed
+ * nothing — the caller must then leave the store untouched.
+ */
+export function getEchoedOwnerToken(responseData: unknown): string | null {
+  if (responseData === null || typeof responseData !== "object" || Array.isArray(responseData)) {
+    return null;
+  }
+  const ownerToken = (responseData as Record<string, unknown>).ownerToken;
+  return typeof ownerToken === "string" && ownerToken.length > 0 ? ownerToken : null;
+}
+
 export function resolvePersistedOwnerToken(
   responseData: unknown,
   storedToken: string | null,
 ): string | null {
-  const ownerToken =
-    responseData !== null &&
-    typeof responseData === "object" &&
-    !Array.isArray(responseData) &&
-    typeof (responseData as Record<string, unknown>).ownerToken === "string" &&
-    ((responseData as Record<string, unknown>).ownerToken as string).length > 0
-      ? ((responseData as Record<string, unknown>).ownerToken as string)
-      : null;
-  return ownerToken || storedToken;
+  return getEchoedOwnerToken(responseData) || storedToken;
 }
 
 export function useIndices() {
@@ -283,7 +303,9 @@ export function useIndices() {
       const timeout = window.setTimeout(() => controller.abort(), INDICES_REQUEST_TIMEOUT_MS);
       let res: Response;
       try {
-        res = await fetch(`${API_BASE}/indices`, {
+        // Transport failures are marked inside the helper; the outer catch
+        // reports the connection hint while the fallback below is unchanged.
+        res = await fetchWithNetworkMark(`${API_BASE}/indices`, {
           headers: getIndicesRequestHeaders(cachedIndices),
           signal: controller.signal,
         });
@@ -450,31 +472,37 @@ export function useIndices() {
         const storedToken = getIndexOwnerToken(newIndex.id);
         const token = ownerToken || storedToken || safeRandomId(24);
         const { headers, body } = buildSaveIndexRequest(newIndex, token, getAuthHeaders());
-        const res = await fetch(`${API_BASE}/indices`, {
+        const res = await fetchWithNetworkMark(`${API_BASE}/indices`, {
           method: "POST",
           headers,
           body,
         });
         if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-          throw new Error(errData.error || "指数の保存に失敗しました");
+          throw new Error(await readResponseErrorMessage(res, "指数の保存に失敗しました"));
         }
-        const data = await res.json().catch(() => ({}));
+        const data = await readJsonBody<{
+          id?: unknown;
+          ownerToken?: unknown;
+          ownerTokenIssuedAt?: unknown;
+        }>(res);
         const savedId = (typeof data?.id === "string" && data.id.trim()) || newIndex.id;
         // resolvePersistedOwnerToken accepts only the server echo and the
         // stored value — the caller-supplied `token` cannot flow into
         // storage, so an admin editing another user's index (or a legacy
         // schema write) never falsely labels the index as "My index".
         const finalToken = resolvePersistedOwnerToken(data, storedToken);
-        if (finalToken && savedId) {
-          const rawIssuedAt = data?.ownerTokenIssuedAt;
-          const issuedAtMs =
-            typeof rawIssuedAt === "number" && Number.isFinite(rawIssuedAt) && rawIssuedAt > 0
-              ? rawIssuedAt < 1e11
-                ? rawIssuedAt * 1000
-                : rawIssuedAt
-              : undefined;
-          saveIndexOwnerToken(savedId, finalToken, issuedAtMs);
+        // Persist only what the server confirmed. When there is no echo the
+        // stored entry (with its original issuance time) is left untouched:
+        // rewriting it with "now" would slide the client-side expiry while
+        // the Worker enforces the original absolute age. Likewise, an echo
+        // without an issuance time keeps the stored age for the same token.
+        const echoedToken = getEchoedOwnerToken(data);
+        if (echoedToken && savedId) {
+          persistConfirmedOwnerToken(
+            savedId,
+            echoedToken,
+            serverIssuedAtToMs(data?.ownerTokenIssuedAt),
+          );
         }
         try {
           localStorage.removeItem(INDICES_ETAG_KEY);
@@ -504,13 +532,12 @@ export function useIndices() {
           getAuthHeaders(),
         );
 
-        const res = await fetch(url, {
+        const res = await fetchWithNetworkMark(url, {
           method: "DELETE",
           headers,
         });
         if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-          throw new Error(errData.error || "指数の削除に失敗しました");
+          throw new Error(await readResponseErrorMessage(res, "指数の削除に失敗しました"));
         }
 
         removeIndexOwnerToken(id);
@@ -559,14 +586,13 @@ export function useIndices() {
           theme: (typeof stock.theme === "string" && stock.theme.trim() ? stock.theme.trim() : "カスタム").slice(0, 100),
           weight: cleanWeight,
         };
-        const res = await fetch(`${API_BASE}/indices/stock`, {
+        const res = await fetchWithNetworkMark(`${API_BASE}/indices/stock`, {
           method: "POST",
           headers,
           body: JSON.stringify({ indexId, stock: sanitizedStock, password }),
         });
         if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-          throw new Error(errData.error || "銘柄の追加に失敗しました");
+          throw new Error(await readResponseErrorMessage(res, "銘柄の追加に失敗しました"));
         }
         try {
           localStorage.removeItem(INDICES_ETAG_KEY);
@@ -603,13 +629,12 @@ export function useIndices() {
           getIndexOwnerToken(indexId),
           headers,
         );
-        const res = await fetch(url, {
+        const res = await fetchWithNetworkMark(url, {
           method: "DELETE",
           headers: deleteHeaders,
         });
         if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-          throw new Error(errData.error || "銘柄の削除に失敗しました");
+          throw new Error(await readResponseErrorMessage(res, "銘柄の削除に失敗しました"));
         }
         try {
           localStorage.removeItem(INDICES_ETAG_KEY);

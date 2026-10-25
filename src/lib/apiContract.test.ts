@@ -1,19 +1,31 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { installFailingFetch } from "../test-helpers/networkFailure";
 import {
+  FetchNetworkError,
+  LEGACY_REPAIRED_WEIGHT,
+  NETWORK_UNREACHABLE_MESSAGE,
+  fetchWithNetworkMark,
   MAX_BASE_VALUE,
   MAX_BASKET_ITEMS,
   MAX_INDEX_ID_LENGTH,
   MAX_OWNER_TOKEN_LENGTH,
   MAX_TICKER_LENGTH,
   clampBaseValue,
+  extractApiErrorMessage,
+  isApiErrorBody,
+  isRecord,
   isValidBaseValue,
   isValidIndexId,
   isValidSortOrder,
   isValidTicker,
   isValidWeight,
   readJsonBody,
+  readResponseErrorMessage,
   validateBasketItems,
+  validateSingleStockItem,
 } from "./apiContract";
+import { normalizeTicker as canonicalNormalizeTicker } from "./yahooSymbol";
+import { normalizeTicker as engineNormalizeTicker } from "./indexEngine";
 import { deserializeIndexFromJson } from "./indexSerialization";
 
 describe("apiContract: ticker rule", () => {
@@ -192,6 +204,275 @@ describe("apiContract: the imported index stays inside the Worker's contract", (
 describe("apiContract: the owner token length is stated once", () => {
   it("matches the length the Worker accepts", () => {
     expect(MAX_OWNER_TOKEN_LENGTH).toBe(256);
+  });
+});
+
+describe("apiContract: ticker normalization is single-sourced (M-2)", () => {
+  it("exposes one normalization shared by indexEngine and yahooSymbol", () => {
+    // The re-export must be the same function object, not a second spelling.
+    expect(engineNormalizeTicker).toBe(canonicalNormalizeTicker);
+  });
+
+  it("normalizes full-width tickers before the contract judges them", () => {
+    expect(canonicalNormalizeTicker("７２０３")).toBe("7203");
+    expect(canonicalNormalizeTicker("  aapl ")).toBe("AAPL");
+    expect(canonicalNormalizeTicker(null)).toBe("");
+    expect(canonicalNormalizeTicker(undefined)).toBe("");
+    expect(isValidTicker(canonicalNormalizeTicker("７２０３"))).toBe(true);
+  });
+
+  it("accepts a full-width ticker in validateBasketItems via normalization", () => {
+    const result = validateBasketItems([
+      { ticker: "７２０３", name: "トヨタ", theme: "自動車", weight: 40 },
+    ]);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.basket[0].ticker).toBe("7203");
+  });
+
+  it("detects duplicates after normalization, not before", () => {
+    const result = validateBasketItems([
+      { ticker: "７２０３", name: "トヨタ", theme: "自動車", weight: 40 },
+      { ticker: "7203", name: "トヨタ", theme: "自動車", weight: 40 },
+    ]);
+    expect(result).toEqual({ ok: false, error: "Duplicate ticker in basket: 7203" });
+  });
+
+  it("emits byte-identical baskets for superficially different spellings (M-6)", () => {
+    // The Worker ETag-fingerprints `JSON.stringify({ baseValue, basket })`.
+    // Key order and whitespace differences must not produce a second ETag
+    // for the same response-affecting content, or the cache hit rate drops.
+    const messy = validateBasketItems([
+      { ticker: " 7203 ", name: " トヨタ ", theme: " 自動車 ", weight: 40 },
+      { ticker: "ａａｐｌ", name: "Apple", theme: "Tech", weight: 60 },
+    ]);
+    const clean = validateBasketItems([
+      { ticker: "7203", name: "トヨタ", theme: "自動車", weight: 40 },
+      { ticker: "AAPL", name: "Apple", theme: "Tech", weight: 60 },
+    ]);
+    expect(messy.ok).toBe(true);
+    expect(clean.ok).toBe(true);
+    if (!messy.ok || !clean.ok) return;
+    expect(messy.basket).toEqual(clean.basket);
+    expect(JSON.stringify({ baseValue: 1000, basket: messy.basket })).toBe(
+      JSON.stringify({ baseValue: 1000, basket: clean.basket }),
+    );
+  });
+
+  it("still rejects tickers that are invalid after normalization", () => {
+    expect(
+      validateBasketItems([{ ticker: "ＴＩＣＫＥＲ＠ＳＹＭ", name: "x", theme: "t", weight: 1 }]),
+    ).toEqual({ ok: false, error: "Invalid basket item: ticker" });
+    expect(validateBasketItems([{ ticker: "   ", name: "x", theme: "t", weight: 1 }])).toEqual({
+      ok: false,
+      error: "Invalid basket item: ticker",
+    });
+  });
+});
+
+describe("apiContract: single-stock validation is single-sourced (M-1)", () => {
+  it("accepts a well-formed constituent and normalizes the ticker", () => {
+    const result = validateSingleStockItem({
+      ticker: " 7203 ",
+      name: " トヨタ ",
+      theme: " 自動車 ",
+      weight: 20,
+    });
+    expect(result).toEqual({
+      ok: true,
+      item: { ticker: "7203", name: "トヨタ", theme: "自動車", weight: 20 },
+    });
+  });
+
+  it("accepts a full-width ticker exactly like the bulk validator", () => {
+    const result = validateSingleStockItem({ ticker: "７２０３", name: "トヨタ", weight: 10 });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.item.ticker).toBe("7203");
+  });
+
+  it("defaults a missing theme to カスタム for backward compatibility", () => {
+    for (const stock of [
+      { ticker: "7203", name: "トヨタ", weight: 10 },
+      { ticker: "7203", name: "トヨタ", theme: undefined, weight: 10 },
+    ]) {
+      const result = validateSingleStockItem(stock);
+      expect(result.ok).toBe(true);
+      if (!result.ok) continue;
+      expect(result.item.theme).toBe("カスタム");
+    }
+  });
+
+  it("defaults a missing or empty weight to 10", () => {
+    for (const weight of [undefined, null, ""]) {
+      const result = validateSingleStockItem({ ticker: "7203", name: "トヨタ", weight });
+      expect(result.ok).toBe(true);
+      if (!result.ok) continue;
+      expect(result.item.weight).toBe(10);
+    }
+  });
+
+  it("coerces numeric strings the way the endpoint always did", () => {
+    const result = validateSingleStockItem({ ticker: "7203", name: "トヨタ", weight: "50" });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.item.weight).toBe(50);
+  });
+
+  it("reports the endpoint's Japanese messages for each invalid field", () => {
+    expect(validateSingleStockItem({ ticker: "BAD@T", name: "トヨタ", weight: 10 })).toEqual({
+      ok: false,
+      error: "無効な銘柄コードです",
+    });
+    expect(validateSingleStockItem({ ticker: "7203", name: "", weight: 10 })).toEqual({
+      ok: false,
+      error: "銘柄名は1〜100文字で入力してください",
+    });
+    expect(validateSingleStockItem({ ticker: "7203", name: "x".repeat(101), weight: 10 })).toEqual({
+      ok: false,
+      error: "銘柄名は1〜100文字で入力してください",
+    });
+    expect(
+      validateSingleStockItem({ ticker: "7203", name: "トヨタ", theme: "x".repeat(101), weight: 10 }),
+    ).toEqual({ ok: false, error: "テーマは100文字以内で入力してください" });
+    for (const weight of [0, -1, 101, "abc", Number.NaN]) {
+      expect(validateSingleStockItem({ ticker: "7203", name: "トヨタ", weight })).toEqual({
+        ok: false,
+        error: "銘柄の構成比率 (weight) は0超100以下の数値を指定してください",
+      });
+    }
+  });
+
+  it("rejects non-object payloads with the endpoint's message", () => {
+    for (const stock of [null, undefined, "7203", 42, [{ ticker: "7203" }]]) {
+      expect(validateSingleStockItem(stock)).toEqual({
+        ok: false,
+        error: "銘柄情報 (stock) は必須です",
+      });
+    }
+  });
+});
+
+describe("apiContract: legacy weight repair is single-sourced (M-5)", () => {
+  it("states the repair value the Worker reader applies", () => {
+    expect(LEGACY_REPAIRED_WEIGHT).toBe(1);
+  });
+});
+
+describe("apiContract: error pipeline is single-sourced (M-8)", () => {
+  it("isRecord narrows only plain objects", () => {
+    expect(isRecord({ error: "x" })).toBe(true);
+    expect(isRecord(null)).toBe(false);
+    expect(isRecord([{ error: "x" }])).toBe(false);
+    expect(isRecord("error")).toBe(false);
+    expect(isRecord(42)).toBe(false);
+  });
+
+  it("isApiErrorBody accepts any object with a string error", () => {
+    expect(isApiErrorBody({ error: "bad" })).toBe(true);
+    expect(isApiErrorBody({ ok: false, error: "bad", locked: true })).toBe(true);
+    expect(isApiErrorBody({ error: 42 })).toBe(false);
+    expect(isApiErrorBody({})).toBe(false);
+    expect(isApiErrorBody(null)).toBe(false);
+    expect(isApiErrorBody("<html>error</html>")).toBe(false);
+  });
+
+  it("extractApiErrorMessage trims, and falls back otherwise", () => {
+    expect(extractApiErrorMessage({ error: "  bad  " }, "fallback")).toBe("bad");
+    expect(extractApiErrorMessage({ error: "" }, "fallback")).toBe("fallback");
+    expect(extractApiErrorMessage({ error: 42 }, "fallback")).toBe("fallback");
+    expect(extractApiErrorMessage(null, "fallback")).toBe("fallback");
+    expect(extractApiErrorMessage("text", "fallback")).toBe("fallback");
+  });
+
+  it("readResponseErrorMessage reads the Worker message", async () => {
+    const res = new Response(JSON.stringify({ ok: false, error: "銘柄名は1〜100文字で入力してください" }), {
+      headers: { "content-type": "application/json" },
+    });
+    await expect(readResponseErrorMessage(res, "fallback")).resolves.toBe(
+      "銘柄名は1〜100文字で入力してください",
+    );
+  });
+
+  it("FetchNetworkError carries the connection-check hint and the original cause", () => {
+    const cause = new TypeError("Failed to fetch");
+    const err = new FetchNetworkError({ cause });
+    expect(err).toBeInstanceOf(Error);
+    expect(err.name).toBe("FetchNetworkError");
+    expect(err.message).toBe(NETWORK_UNREACHABLE_MESSAGE);
+    expect(err.message).toBe(
+      "サーバーに接続できませんでした。ネットワーク接続を確認して再試行してください。",
+    );
+    expect(err.cause).toBe(cause);
+  });
+
+  it("FetchNetworkError works without a cause", () => {
+    const err = new FetchNetworkError();
+    expect(err.message).toBe(NETWORK_UNREACHABLE_MESSAGE);
+    expect(err.cause).toBeUndefined();
+  });
+
+  describe("fetchWithNetworkMark", () => {
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    it("passes a successful response through untouched", async () => {
+      const ok = new Response(JSON.stringify({ ok: true }), { status: 200 });
+      vi.stubGlobal("fetch", vi.fn(async () => ok));
+      await expect(fetchWithNetworkMark("http://localhost/api/indices")).resolves.toBe(ok);
+    });
+
+    it("marks a TypeError rejection with the connection hint and cause", async () => {
+      const cause = new TypeError("Failed to fetch");
+      installFailingFetch(cause);
+      const failure = await fetchWithNetworkMark("http://localhost/api/indices").catch(
+        (err: unknown) => err,
+      );
+      expect(failure).toBeInstanceOf(FetchNetworkError);
+      expect((failure as Error).message).toBe(NETWORK_UNREACHABLE_MESSAGE);
+      expect((failure as FetchNetworkError).cause).toBe(cause);
+    });
+
+    it("marks even a non-Error rejection: the transport never reached the server", async () => {
+      installFailingFetch("boom");
+      const failure = await fetchWithNetworkMark("http://localhost/api/indices").catch(
+        (err: unknown) => err,
+      );
+      expect(failure).toBeInstanceOf(FetchNetworkError);
+    });
+
+    it("rethrows untouched when the request signal is already aborted", async () => {
+      const controller = new AbortController();
+      controller.abort();
+      const cause = new TypeError("Failed to fetch");
+      installFailingFetch(cause);
+      const failure = await fetchWithNetworkMark("http://localhost/api/indices", {
+        signal: controller.signal,
+      }).catch((err: unknown) => err);
+      expect(failure).toBe(cause);
+    });
+
+    it("rethrows an AbortError rejection even without a signal", async () => {
+      const abortErr = new DOMException("The operation was aborted.", "AbortError");
+      installFailingFetch(abortErr);
+      const failure = await fetchWithNetworkMark("http://localhost/api/indices").catch(
+        (err: unknown) => err,
+      );
+      expect(failure).toBe(abortErr);
+    });
+  });
+
+  it("readResponseErrorMessage falls back for HTML, empty and error-less bodies", async () => {
+    const html = new Response("<html><body>502 Bad Gateway</body></html>", {
+      headers: { "content-type": "text/html" },
+    });
+    await expect(readResponseErrorMessage(html, "fallback")).resolves.toBe("fallback");
+    await expect(readResponseErrorMessage(new Response(""), "fallback")).resolves.toBe("fallback");
+    const noError = new Response(JSON.stringify({ ok: true }), {
+      headers: { "content-type": "application/json" },
+    });
+    await expect(readResponseErrorMessage(noError, "fallback")).resolves.toBe("fallback");
   });
 });
 

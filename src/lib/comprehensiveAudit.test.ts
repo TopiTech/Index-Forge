@@ -514,7 +514,7 @@ describe("Comprehensive Review & Hardening Audit", () => {
       const badRes = await worker.fetch(badReq, env as any);
       expect(badRes.status).toBe(400);
       const data = await badRes.json();
-      expect(data.error).toContain("Invalid sortOrder");
+      expect(data.error).toContain("表示順は0〜9999の数値で指定してください");
     });
   });
 
@@ -537,7 +537,7 @@ describe("Comprehensive Review & Hardening Audit", () => {
       const badRes = await worker.fetch(badReq, env as any);
       expect(badRes.status).toBe(400);
       const data = await badRes.json();
-      expect(data.error).toContain("indexId is required");
+      expect(data.error).toContain("指数IDを指定してください");
     });
 
     it("rejects invalid indexId or ticker in DELETE /api/indices/stock", async () => {
@@ -553,7 +553,7 @@ describe("Comprehensive Review & Hardening Audit", () => {
       const badRes = await worker.fetch(badReq, env as any);
       expect(badRes.status).toBe(400);
       const data = await badRes.json();
-      expect(data.error).toContain("Valid indexId and ticker parameters are required");
+      expect(data.error).toContain("指数IDとティッカーを指定してください");
     });
   });
 
@@ -570,7 +570,7 @@ describe("Comprehensive Review & Hardening Audit", () => {
       const delRes = await worker.fetch(delReq, env as any);
       expect(delRes.status).toBe(403);
       const data = await delRes.json();
-      expect(data.error).toContain("Cannot delete built-in system index");
+      expect(data.error).toContain("組み込みの指数は削除できません");
     });
   });
 });

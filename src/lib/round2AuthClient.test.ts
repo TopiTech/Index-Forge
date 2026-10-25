@@ -5,8 +5,10 @@
  *
  * Covered here:
  * - SEC-01: the administrator session token is validated, persisted with the
- *   session and sent as `x-admin-session`, while `x-auth-password` /
- *   `x-admin-key` stay for backward compatibility.
+ *   session and sent as `x-admin-session`. The duplicate `x-admin-key` alias
+ *   is no longer sent (C-2); privileged calls use session-only headers via
+ *   `getAdminSessionHeaders` so the password never travels where it is not
+ *   evaluated (C-2/C-5).
  * - SEC-06: a `sessionStorage` that rejects writes (or is unavailable) must
  *   never fall back to `localStorage`; the session stays in memory for the tab
  *   and a reload asks for a new login.
@@ -19,6 +21,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, renderHook } from "@testing-library/react";
 import {
   clearAuth,
+  getAdminSessionHeaders,
   getAuthHeaders,
   getStoredAuth,
   sanitizeAuthSession,
@@ -115,13 +118,15 @@ describe("SEC-01: administrator session token", () => {
     expect(getStoredAuth()?.adminToken).toBe(ADMIN_TOKEN);
     expect(readPersistedSession()?.adminToken).toBe(ADMIN_TOKEN);
 
-    // The legacy headers stay: a deployment that has not migrated yet (and the
-    // test-runtime fallback) still authenticate with the password.
+    // The duplicate `x-admin-key` alias is gone (C-2): the Worker treats it
+    // identically to `x-auth-password`, so sending both only doubled the
+    // plaintext exposure. The password stays for the mixed endpoints that
+    // evaluate it; privileged calls use `getAdminSessionHeaders` instead.
     expect(getAuthHeaders()).toEqual({
       "x-auth-password": "admin-pass",
-      "x-admin-key": "admin-pass",
       "x-admin-session": ADMIN_TOKEN,
     });
+    expect(getAdminSessionHeaders()).toEqual({ "x-admin-session": ADMIN_TOKEN });
   });
 
   it("does not send x-admin-session for a general user session", () => {
@@ -174,6 +179,36 @@ describe("SEC-01: administrator session token", () => {
   });
 });
 
+describe("C-2/C-5: session-only headers for privileged calls", () => {
+  it("sends only the session token for an administrator session", () => {
+    storeAuth(ADMIN_SESSION);
+    expect(getAdminSessionHeaders()).toEqual({ "x-admin-session": ADMIN_TOKEN });
+    expect(getAdminSessionHeaders(ADMIN_SESSION)).toEqual({ "x-admin-session": ADMIN_TOKEN });
+  });
+
+  it("sends nothing for a user session, even with an explicit parameter", () => {
+    storeAuth(USER_SESSION);
+    expect(getAdminSessionHeaders()).toEqual({});
+    expect(getAdminSessionHeaders(USER_SESSION)).toEqual({});
+  });
+
+  it("sends nothing when the administrator session has no usable token", () => {
+    const withoutToken: AuthSession = { ...ADMIN_SESSION };
+    delete withoutToken.adminToken;
+    expect(getAdminSessionHeaders(withoutToken)).toEqual({});
+    // A malformed token can never become a header value: it would only
+    // produce a predictable 403 while looking authenticated.
+    expect(
+      getAdminSessionHeaders({ ...ADMIN_SESSION, adminToken: "short" }),
+    ).toEqual({});
+  });
+
+  it("sends nothing when there is no session at all", () => {
+    clearAuth();
+    expect(getAdminSessionHeaders()).toEqual({});
+  });
+});
+
 describe("SEC-06: no localStorage fallback for the plaintext session", () => {
   it("keeps the session in memory when sessionStorage rejects writes", () => {
     const local = createStorage();
@@ -192,9 +227,9 @@ describe("SEC-06: no localStorage fallback for the plaintext session", () => {
     expect(getStoredAuth()?.adminToken).toBe(ADMIN_TOKEN);
     expect(getAuthHeaders()).toEqual({
       "x-auth-password": "admin-pass",
-      "x-admin-key": "admin-pass",
       "x-admin-session": ADMIN_TOKEN,
     });
+    expect(getAdminSessionHeaders()).toEqual({ "x-admin-session": ADMIN_TOKEN });
   });
 
   it("keeps the session in memory when sessionStorage is unavailable", () => {
@@ -270,11 +305,14 @@ describe("logout() revokes the administrator session", () => {
     expect(url).toBe("/api/auth/logout");
     expect(init?.method).toBe("POST");
     expect(readHeader(init, "x-admin-session")).toBe(ADMIN_TOKEN);
-    expect(readHeader(init, "x-auth-password")).toBe("admin-pass");
+    // C-2/C-5: the logout endpoint evaluates only the session token, so the
+    // password must not travel with the revocation request.
+    expect(readHeader(init, "x-auth-password")).toBeNull();
+    expect(readHeader(init, "x-admin-key")).toBeNull();
   });
 
   it("still clears the session when the revoke request fails", async () => {
-    storeAuth(USER_SESSION);
+    storeAuth(ADMIN_SESSION);
 
     const fetchMock = vi.fn(async () => {
       throw new Error("offline");
@@ -294,6 +332,32 @@ describe("logout() revokes the administrator session", () => {
     expect(result.current.session).toBeNull();
     expect(getStoredAuth()).toBeNull();
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("skips the revocation request for a user session with nothing server-side to revoke", () => {
+    // C-2/C-5: the logout endpoint evaluates only the administrator session.
+    // A user session previously still fired a password-carrying POST that the
+    // server ignored; now no request is sent, but the local state is still
+    // cleared synchronously.
+    storeAuth(USER_SESSION);
+
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result } = renderHook(() => useAuth());
+    act(() => {
+      result.current.logout();
+    });
+
+    expect(result.current.session).toBeNull();
+    expect(getStoredAuth()).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
 

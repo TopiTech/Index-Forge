@@ -58,12 +58,38 @@ export function isWebGLAvailable(canvas: HTMLCanvasElement): boolean {
   return getWebGL2Context(canvas) !== null;
 }
 
+/**
+ * Deterministic PRNG (mulberry32) for decorative placement.
+ *
+ * Particle scatter and exploded-block offsets used to call `Math.random`, so
+ * every visit rendered a different layout and no two runs could be compared.
+ * A seeded generator keeps the same organic look while making the layout a
+ * pure function of the seed (snapshot-testable and stable across reloads).
+ * The scene default is fixed, so the tutorial looks identical on every load;
+ * pass an explicit `seed` to stage a different arrangement.
+ */
+export function createSeededRandom(seed: number): () => number {
+  let state = seed >>> 0;
+  return () => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let t = state;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/** Default arrangement seed: the tutorial renders the same layout on every load. */
+export const TUTORIAL_SCENE_DEFAULT_SEED = 0xc0ffee;
+
 export interface Tutorial3DSceneOptions {
   canvas: HTMLCanvasElement;
   width: number;
   height: number;
   initialStep?: number;
   isReducedMotion?: boolean;
+  /** Arrangement seed for decorative scatter (default: fixed, deterministic). */
+  seed?: number;
 }
 
 export class Tutorial3DScene {
@@ -114,10 +140,14 @@ export class Tutorial3DScene {
   public isAutoRotatePaused: boolean = false;
   public isReducedMotion: boolean = false;
 
+  /** Decorative-placement source: seeded, so the layout is deterministic. */
+  private readonly random: () => number;
+
   constructor(options: Tutorial3DSceneOptions) {
     this.canvas = options.canvas;
     this.isReducedMotion = !!options.isReducedMotion;
     this.currentStep = options.initialStep ?? 1;
+    this.random = createSeededRandom(options.seed ?? TUTORIAL_SCENE_DEFAULT_SEED);
 
     // 1. Scene setup
     this.scene = new THREE.Scene();
@@ -196,9 +226,9 @@ export class Tutorial3DScene {
     const farCount = 280;
     const farPositions = new Float32Array(farCount * 3);
     for (let i = 0; i < farCount * 3; i += 3) {
-      farPositions[i] = (Math.random() - 0.5) * 45;
-      farPositions[i + 1] = (Math.random() - 0.5) * 35;
-      farPositions[i + 2] = (Math.random() - 0.5) * 45;
+      farPositions[i] = (this.random() - 0.5) * 45;
+      farPositions[i + 1] = (this.random() - 0.5) * 35;
+      farPositions[i + 2] = (this.random() - 0.5) * 45;
     }
     const farGeo = new THREE.BufferGeometry();
     farGeo.setAttribute("position", new THREE.BufferAttribute(farPositions, 3));
@@ -216,9 +246,9 @@ export class Tutorial3DScene {
     const nearCount = 120;
     const nearPositions = new Float32Array(nearCount * 3);
     for (let i = 0; i < nearCount * 3; i += 3) {
-      nearPositions[i] = (Math.random() - 0.5) * 20;
-      nearPositions[i + 1] = (Math.random() - 0.5) * 14;
-      nearPositions[i + 2] = (Math.random() - 0.5) * 20;
+      nearPositions[i] = (this.random() - 0.5) * 20;
+      nearPositions[i + 1] = (this.random() - 0.5) * 14;
+      nearPositions[i + 2] = (this.random() - 0.5) * 20;
     }
     const nearGeo = new THREE.BufferGeometry();
     nearGeo.setAttribute("position", new THREE.BufferAttribute(nearPositions, 3));
@@ -677,7 +707,7 @@ export class Tutorial3DScene {
 
       // Initial exploded position
       const initialPos = target.clone().multiplyScalar(2.6);
-      initialPos.y += (Math.random() - 0.5) * 1.5;
+      initialPos.y += (this.random() - 0.5) * 1.5;
       mesh.position.copy(initialPos);
 
       group.add(mesh);

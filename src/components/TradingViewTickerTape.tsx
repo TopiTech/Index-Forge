@@ -1,6 +1,7 @@
 import React, { useState, useRef, useCallback, useEffect } from "react";
 import { TrendingUp, TrendingDown } from "lucide-react";
 import { TradingViewChartModal, type PopupSymbolInfo } from "./TradingViewChartModal";
+import { isRecord, readJsonBody } from "../lib/apiContract";
 
 export interface TickerSymbolItem {
   proName: string;
@@ -157,9 +158,9 @@ interface TickerQuotesResponse {
  * never applied.
  */
 function isUsableQuotesPayload(
-  data: TickerQuotesResponse | null | undefined,
+  data: unknown,
 ): data is TickerQuotesResponse & { quotes: TickerQuoteRow[] } {
-  if (!data) return false;
+  if (!isRecord(data)) return false;
   return Array.isArray(data.quotes);
 }
 
@@ -271,7 +272,7 @@ export function TradingViewTickerTape() {
       // committed. Committing it earlier would let the next poll answer `304`
       // against the quotes that are still on screen, because the new body was
       // never applied (parse failure / unusable payload).
-      const data = (await res.json()) as TickerQuotesResponse;
+      const data: unknown = await readJsonBody(res);
       if (!isCurrent()) return;
       if (!isUsableQuotesPayload(data)) return;
 

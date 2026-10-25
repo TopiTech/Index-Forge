@@ -114,6 +114,42 @@ describe("comprehensiveGoalCodeReviewAudit", () => {
     });
   });
 
+  describe("getClientIp ignores spoofable headers for public hostnames (C-1)", () => {
+    it("still prefers cf-connecting-ip on a public hostname", () => {
+      const req = new Request("https://example.com/api/test", {
+        headers: {
+          "cf-connecting-ip": "1.1.1.1",
+          "x-real-ip": "2.2.2.2",
+          "x-forwarded-for": "3.3.3.3, 4.4.4.4",
+        },
+      });
+      expect(getClientIp(req)).toBe("1.1.1.1");
+    });
+
+    it("ignores x-real-ip aimed at a public hostname", () => {
+      const req = new Request("https://example.com/api/test", {
+        headers: { "x-real-ip": "2.2.2.2", "x-forwarded-for": "3.3.3.3" },
+      });
+      // A direct client can forge this header; without the edge-set header
+      // there is no trustworthy identity, so fail closed instead of adopting
+      // the claimed one (which would hand the client its own rate-limit and
+      // lockout bucket).
+      expect(getClientIp(req)).toBe("unknown");
+    });
+
+    it("ignores x-forwarded-for aimed at a public hostname", () => {
+      const req = new Request("https://example.com/api/test", {
+        headers: { "x-forwarded-for": "3.3.3.3, 4.4.4.4, 5.5.5.5" },
+      });
+      expect(getClientIp(req)).toBe("unknown");
+    });
+
+    it("returns unknown for a public hostname with no IP headers", () => {
+      const req = new Request("https://example.com/api/test");
+      expect(getClientIp(req)).toBe("unknown");
+    });
+  });
+
   describe("ConfirmModal accessibility structure", () => {
     it("passes plain string title to ModalBase without nesting redundant <h2> tags", () => {
       const confirmModalSource = readFileSync(

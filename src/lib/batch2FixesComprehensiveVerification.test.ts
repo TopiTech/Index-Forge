@@ -574,7 +574,7 @@ describe("Batch 2 Comprehensive Fixes Verification Suite", () => {
       const res = await worker.fetch(req, env as unknown as Env);
       expect(res.status).toBe(400);
       const data = (await res.json()) as { error?: string };
-      expect(data.error).toContain("total weight must be > 0 and <= 10000");
+      expect(data.error).toContain("合計ウェイトは0より大きく10000以下にしてください");
     });
 
     it("accepts request with valid basket total weights (e.g., 100%)", async () => {

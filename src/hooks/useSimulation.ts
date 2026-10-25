@@ -9,12 +9,13 @@ import type {
 } from "../types";
 import {
   calculateCustomIndex,
+  getIndexCoverageWarnings,
   normalizeWeights,
   normalizeTicker,
   sanitizeBasketForRequest,
 } from "../lib/indexEngine";
 import { calculateRiskMetrics } from "../lib/analytics";
-import { readJsonBody } from "../lib/apiContract";
+import { extractApiErrorMessage, readJsonBody } from "../lib/apiContract";
 import { filterByTimeframe } from "../lib/timeframe";
 import { isPriceCacheFresh } from "../lib/marketCache";
 import { mergeSyncCache, readSyncCache, removeFromSyncCache } from "../lib/syncCache";
@@ -361,6 +362,12 @@ export function useSimulation(
           }
 
           if (requestBasket.length > 0 && universe.length > 0) {
+            // Same missing-data disclosure as the dashboard calculation (H-4):
+            // carried-forward prices are invisible in the series itself.
+            const coverageWarnings = getIndexCoverageWarnings(requestBasket, universe);
+            if (coverageWarnings.length > 0) {
+              setSyncWarnings((prev) => Array.from(new Set([...prev, ...coverageWarnings])));
+            }
             const missingTickers = getMissingPriceDataTickers(requestBasket, universe);
             if (missingTickers.length > 0) {
               removeFromSyncCache(missingTickers);
@@ -378,12 +385,12 @@ export function useSimulation(
           // 非2xx応答でもプレビューは動かしつつ、理由を捨てない。バリデーション
           // エラー(400)やレート制限(429)を黙ってデモ表示に置き換えていたため、
           // 利用者は「なぜ数値が違うのか」を知らされなかった。
-          const errBody = (await calcRes.json().catch(() => ({}))) as Record<string, unknown>;
+          const errBody: unknown = await readJsonBody(calcRes);
           if (controller.signal.aborted || isSuperseded()) return;
-          serverErrorMessage =
-            typeof errBody.error === "string" && errBody.error.trim()
-              ? errBody.error.trim()
-              : `指数の計算に失敗しました (HTTP ${calcRes.status})`;
+          serverErrorMessage = extractApiErrorMessage(
+            errBody,
+            `指数の計算に失敗しました (HTTP ${calcRes.status})`,
+          );
         }
 
         // If server failed or returned empty universe, use robust client fallback calculation
@@ -475,7 +482,9 @@ export function useSimulation(
       });
       // The data was computed locally from the cached universe, so a warning
       // about an earlier failed sync no longer describes what is displayed.
-      setSyncWarnings((prev) => clearIfEmpty(prev));
+      // Carried-forward prices still do (H-4): recompute the disclosure from
+      // the same universe the series was just recomputed from.
+      setSyncWarnings(getIndexCoverageWarnings(basket, stockUniverse));
       return;
     }
 

@@ -3,6 +3,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   Tutorial3DScene,
   WebGLUnavailableError,
+  createSeededRandom,
+  TUTORIAL_SCENE_DEFAULT_SEED,
   isWebGLAvailable,
 } from "./Tutorial3DScene";
 
@@ -65,5 +67,32 @@ describe("Tutorial3DScene WebGL availability", () => {
       WebGLUnavailableError,
     );
     expect(consoleError).not.toHaveBeenCalled();
+  });
+});
+
+describe("createSeededRandom decorative placement (M-11)", () => {
+  it("produces the same sequence for the same seed", () => {
+    const a = createSeededRandom(TUTORIAL_SCENE_DEFAULT_SEED);
+    const b = createSeededRandom(TUTORIAL_SCENE_DEFAULT_SEED);
+    const seqA = Array.from({ length: 100 }, () => a());
+    const seqB = Array.from({ length: 100 }, () => b());
+    expect(seqA).toEqual(seqB);
+  });
+
+  it("produces different arrangements for different seeds", () => {
+    const a = createSeededRandom(1);
+    const b = createSeededRandom(2);
+    const seqA = Array.from({ length: 20 }, () => a());
+    const seqB = Array.from({ length: 20 }, () => b());
+    expect(seqA).not.toEqual(seqB);
+  });
+
+  it("stays within [0, 1) so scatter scaling cannot escape its volume", () => {
+    const random = createSeededRandom(TUTORIAL_SCENE_DEFAULT_SEED);
+    for (let i = 0; i < 1000; i++) {
+      const value = random();
+      expect(value).toBeGreaterThanOrEqual(0);
+      expect(value).toBeLessThan(1);
+    }
   });
 });

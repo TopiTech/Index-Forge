@@ -36,6 +36,24 @@ describe("normalizeWeights", () => {
     expect(result[0].weight).toBeCloseTo(100, 2);
   });
 
+  it("carries full precision so only the output boundary rounds once (M-4)", () => {
+    // A three-way split is 100/3: rounding here to 4dp and again at display
+    // (or at the index cents) was a textbook double rounding. The pipeline
+    // must carry the exact ratio; rounding happens once at the boundary.
+    const items: BasketItem[] = [
+      { ticker: "A", name: "A", theme: "t", weight: 1 },
+      { ticker: "B", name: "B", theme: "t", weight: 1 },
+      { ticker: "C", name: "C", theme: "t", weight: 1 },
+    ];
+    const result = normalizeWeights(items);
+    // Exact pipeline ratio (weight/total)*100, not the 4dp intermediate.
+    expect(result[0].weight).toBe((1 / 3) * 100);
+    expect(result[1].weight).toBe((1 / 3) * 100);
+    expect(result[2].weight).toBe((1 / 3) * 100);
+    expect(result[0].weight).not.toBe(33.3333);
+    expect(result.reduce((s, i) => s + i.weight, 0)).toBeCloseTo(100, 10);
+  });
+
   it("handles negative and NaN weights safely", () => {
     const items: BasketItem[] = [
       { ticker: "A", name: "Stock A", theme: "tech", weight: 50 },
