@@ -5,6 +5,7 @@ import {
   fetchWithNetworkMark,
   isFetchTimeoutError,
   readJsonBody,
+  releaseResponse,
 } from "../lib/apiContract";
 
 const API_BASE = "/api";
@@ -230,6 +231,7 @@ export function useBenchmark(initialSymbol: BenchmarkSymbol = "^N225", enabled =
           timeoutMs: BENCHMARK_REQUEST_TIMEOUT_MS,
         });
         if (res.status === 304) {
+          releaseResponse(res);
           if (cached) {
             // A 304 only confirms the server still serves the same payload;
             // the entry's age stays anchored to its fetch time. Bumping the

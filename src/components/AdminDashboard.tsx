@@ -45,7 +45,7 @@ import { ConfirmModal } from "./ConfirmModal";
 import { ModalBase } from "./ModalBase";
 import { useToast } from "./Toast";
 import { equalizeWeightsExact, normalizeTicker } from "../lib/indexEngine";
-import { fetchWithNetworkMark, isRecord, isValidTicker, readJsonBody } from "../lib/apiContract";
+import { fetchWithNetworkMark, isRecord, isValidTicker, readJsonBody, releaseResponse } from "../lib/apiContract";
 import { safeRandomId } from "../lib/randomId";
 import { TurnstileWidget, type TurnstileWidgetRef } from "./TurnstileWidget";
 
@@ -662,6 +662,7 @@ export function AdminDashboard({
         },
       );
       if (res.ok) {
+        releaseResponse(res);
         toastSuccess(`パスワード「${passwordToDelete.name}」を削除しました`);
         setPasswordToDelete(null);
         await fetchPasswords();
@@ -738,6 +739,7 @@ export function AdminDashboard({
         }),
       });
       if (res.ok) {
+        releaseResponse(res);
         toastSuccess(`「${item.name}」を${nextActive ? "有効化" : "無効化"}しました`);
         await fetchPasswords();
       } else {

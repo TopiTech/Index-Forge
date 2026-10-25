@@ -309,6 +309,29 @@ describe("PortfolioStorage & Engine", () => {
       expect(summary.positions[0].annualDividend).toBe(0);
       expect(summary.totalAnnualDividend).toBe(0);
     });
+
+    it("accepts a unified options object for liveQuotes and usdJpyRate", () => {
+      const usdPosition: PortfolioPosition = {
+        id: "usd-opt",
+        ticker: "AAPL",
+        name: "Apple",
+        shares: 5,
+        averageCost: 150,
+      };
+      const quotes = new Map([
+        ["AAPL", { price: 200, change: 2, dps: 1, name: "Apple" }],
+      ]);
+
+      const positionalSummary = calculatePortfolioSummary([usdPosition], quotes, 150);
+      const optionsSummary = calculatePortfolioSummary([usdPosition], {
+        liveQuotes: quotes,
+        usdJpyRate: 150,
+      });
+
+      expect(optionsSummary.totalMarketValue).toBe(positionalSummary.totalMarketValue);
+      expect(optionsSummary.positions[0].fxRate).toBe(150);
+      expect(optionsSummary.totalProfit).toBe(positionalSummary.totalProfit);
+    });
   });
 });
 

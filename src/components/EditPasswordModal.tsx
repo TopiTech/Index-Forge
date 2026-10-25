@@ -5,7 +5,7 @@ import type { UserPasswordItem } from "../types";
 import { useModalFocus } from "../hooks/useModalFocus";
 import { generateSecurePassword } from "../lib/auth";
 import { readApiErrorMessage } from "../lib/auth";
-import { fetchWithNetworkMark, readJsonBody } from "../lib/apiContract";
+import { fetchWithNetworkMark, readJsonBody, releaseResponse } from "../lib/apiContract";
 
 interface EditPasswordModalProps {
   isOpen: boolean;
@@ -133,6 +133,7 @@ export function EditPasswordModal({
       });
 
       if (res.ok) {
+        releaseResponse(res);
         onSuccess();
         onClose();
       } else {

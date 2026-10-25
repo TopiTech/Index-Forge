@@ -215,6 +215,22 @@ describe("apply-migrations script", () => {
       expect(dropSteps.map((s) => s.name)).toContain("idx_basket_items_index_id");
       expect(dropSteps.map((s) => s.name)).toContain("idx_access_passwords_hash");
     });
+
+    it("queues owner_token_issued_at column when missing from indices table", () => {
+      const probe = {
+        tables: new Set(["indices"]),
+        indexes: new Set<string>(),
+        columns: new Map([
+          ["indices", new Set(["id", "name", "owner_token_hash"])], // missing owner_token_issued_at
+        ]),
+      };
+
+      const pending = computePendingMigrations(probe);
+      const colSteps = pending.filter(
+        (s: MigrationStep): s is ColumnMigrationStep => s.type === "column",
+      );
+      expect(colSteps.some((s) => s.table === "indices" && s.name === "owner_token_issued_at")).toBe(true);
+    });
   });
 
   describe("runMigration export contract", () => {

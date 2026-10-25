@@ -502,10 +502,18 @@ export interface PortfolioLiveQuote {
   isDemoData?: boolean;
 }
 
+export interface PortfolioSummaryOptions {
+  liveQuotes?:
+    | Map<string, PortfolioLiveQuote>
+    | ReadonlyMap<string, PortfolioLiveQuote>;
+  usdJpyRate?: number;
+}
+
 // Calculate entire portfolio financials and breakdown
 export function calculatePortfolioSummary(
   positions: PortfolioPosition[],
-  liveQuotesMap?:
+  optionsOrQuotes?:
+    | PortfolioSummaryOptions
     | Map<string, PortfolioLiveQuote>
     | ReadonlyMap<string, PortfolioLiveQuote>
     | number,
@@ -516,11 +524,19 @@ export function calculatePortfolioSummary(
     | undefined;
   let effectiveUsdJpyRate = usdJpyRate;
 
-  if (typeof liveQuotesMap === "number") {
-    effectiveUsdJpyRate = liveQuotesMap;
+  if (typeof optionsOrQuotes === "number") {
+    effectiveUsdJpyRate = optionsOrQuotes;
     quotesMap = undefined;
+  } else if (
+    optionsOrQuotes &&
+    typeof optionsOrQuotes === "object" &&
+    !("get" in optionsOrQuotes) &&
+    ("liveQuotes" in optionsOrQuotes || "usdJpyRate" in optionsOrQuotes)
+  ) {
+    quotesMap = optionsOrQuotes.liveQuotes;
+    effectiveUsdJpyRate = optionsOrQuotes.usdJpyRate ?? usdJpyRate;
   } else {
-    quotesMap = liveQuotesMap;
+    quotesMap = optionsOrQuotes as ReadonlyMap<string, PortfolioLiveQuote> | undefined;
   }
   if (!positions || positions.length === 0) {
     return {

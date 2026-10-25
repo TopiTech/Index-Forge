@@ -38,6 +38,24 @@
 
 補足: `schema.sql` の差分はコメント（ヘッダと `-- @legacy-add` 7 箇所）のみで、テーブル・列・索引・既定値・制約は変更していない（`git diff schema.sql` で確認）。
 
+### 0.7 包括的品質監査・根本原因解決（2026-10-25、S10–S14）
+
+| チェック | コマンド | 終了コード | 結果 |
+|---|---|---|---|
+| lint | `npm run lint`（`eslint . --max-warnings=0`） | **0** | PASS（警告 0） |
+| test | `npm test`（`vitest run`） | **0** | PASS — **251 files / 2,376 tests**（9.22s） |
+| typecheck app / worker / test | `npx tsc -p tsconfig.{app,worker,test}.json --noEmit` | **0 / 0 / 0** | PASS |
+| build | `npm run build`（3 × tsc + `vite build`） | **0** | PASS（vite 4.11s） |
+| first-paint gate | `npm run check:first-paint` | **0** | PASS — 784,157 B raw / 220,480 B gzip（予算 900,000 / 250,000） |
+| worker bundle | `npx wrangler deploy --dry-run --config wrangler.local.jsonc` | **0** | PASS — 910.03 KiB raw / 147.69 KiB gzip |
+
+補足:
+- S10: `calculatePortfolioSummary` の options オブジェクト化（互換性完全維持）。
+- S11: `PortfolioManagerPage` の `totalMarketValue <= 0` 時のゼロ除算・NaN% 表示防止。
+- S12: `analytics.ts` の `roundSafe` 単一ソース化および `calculateStockDetails` の NaN/-0 伝播防止。
+- S13: `apply-migrations.mjs` の `owner_token_issued_at` 存在前提チェックの追加。
+- S14: `useBenchmark` (304), `EditPasswordModal` (ok), `AdminDashboard` (ok) での `releaseResponse` 呼び出しによるリソース・タイマー漏れの完全解消。
+
 ### 0.6 リクエスト期限の body 全体化（2026-10-25、最終変更）
 
 | チェック | コマンド | 終了コード | 結果 |
@@ -238,14 +256,30 @@
 - 修正方針: `usdJpyRate` の有無で文言を分岐（`:1344` と同じ条件を再利用）。
 - 必須テスト: rate 未指定時に「基準参考レート」、指定時に「リアルタイム」が出ること（DOM テスト）。
 
-### S10 [Low | 型設計] `calculatePortfolioSummary` の第 2 引数が Map か number かで意味が変わる
+### S10 [Low | 型設計] `calculatePortfolioSummary` の第 2 引数が Map か number かで意味が変わる — **修正済み 2026-10-25**
 
-- 箇所: `src/lib/portfolioStorage.ts:507-529`（`liveQuotesMap?: Map | ReadonlyMap | number`、number なら為替レートとして扱う）。
-- 症状: 呼び出し側が誤って数値を渡すと、live quotes が無いものとして計算され、為替だけ適用される。型は通るが意図が読めない。既存の後方互換オーバーロード。
-- 根本原因: シグネチャ変更時に旧呼び出しを壊さないため union を追加し、その後整理されていない。
-- 横断: この union は `portfolioStorage.ts:507` の 1 箇所のみ。他に同じ多重化はない。
-- 修正方針: `{ liveQuotes?: Map; usdJpyRate?: number }` のオプションオブジェクトに統一し、旧シグネチャは 1 リリースの互換シムに限定（呼び出し 2 箇所を先に移行）。
-- 必須テスト: 既存の portfolio 計算テストが同一結果を返すこと、rate と quotes を同時指定できること。
+- 対応（根本原因）: `PortfolioSummaryOptions` インターフェース（`{ liveQuotes?: ..., usdJpyRate?: number }`）を新設し、`calculatePortfolioSummary` が第 2 引数として options オブジェクトを受け付けるように拡張。既存の `(positions, liveQuotesMap, usdJpyRate)` ポジショナル引数シグネチャも完全互換で維持し、`PortfolioManagerPage.tsx` の呼び出し箇所を options オブジェクトへ移行。
+- テスト: `src/lib/portfolioStorage.test.ts` および `src/lib/comprehensiveGoalCodeReviewFixesVerification.test.ts`。
+
+### S11 [Medium | UI / ゼロ除算・NaN防御] `PortfolioManagerPage.tsx` のセクター配分で `totalMarketValue <= 0` 時に NaN% 表示 — **修正済み 2026-10-25**
+
+- 対応（根本原因）: `PortfolioManagerPage.tsx:647` で `totalMarketValue <= 0 || !Number.isFinite(summary.totalMarketValue)` の早期リターンを追加し、`:660` でも `total > 0 ? Number(((item.valueJpy / total) * 100).toFixed(1)) : 0` でゼロ除算・NaN を完全に防護。
+- テスト: `src/components/portfolioEnhancements.test.ts` および `src/lib/comprehensiveGoalCodeReviewFixesVerification.test.ts`。
+
+### S12 [Medium | 計算層 / 非有限数・-0防御] `calculateStockDetails` における NaN / -0 伝播 — **修正済み 2026-10-25**
+
+- 対応（根本原因）: `src/lib/analytics.ts` 内の `roundSafe` をモジュールスコープに昇格・エクスポートし、`calculateStockDetails` の `change`, `changePct`, `contributionPt`, `contributionPct` および構成ウェイト計算に適用。破損した価格・ウェイトが渡された場合でも NaN や `-0` を返さず、確実に安全な 0 を返すよう防護。
+- テスト: `src/lib/analytics.test.ts` および `src/lib/comprehensiveGoalCodeReviewFixesVerification.test.ts`。
+
+### S13 [Medium | 移行スクリプト / 前提列の存在確認] `apply-migrations.mjs` で `owner_token_issued_at` 列の存在確認なしに backfill SQL 実行 — **修正済み 2026-10-25**
+
+- 対応（根本原因）: `scripts/apply-migrations.mjs:207-211` において、`hasOwnerTokenHash` だけでなく `hasOwnerTokenIssuedAt` の存在（または pending 内での追加）も同時に検証するガードを追加。
+- テスト: `src/lib/applyMigrations.test.ts` および `src/lib/comprehensiveGoalCodeReviewFixesVerification.test.ts`。
+
+### S14 [Low | リソース管理 / レスポンスライフサイクル解放] 未読レスポンスにおける `releaseResponse` 呼び出し漏れ — **修正済み 2026-10-25**
+
+- 対応（根本原因）: `useBenchmark.ts`（304 応答時）、`EditPasswordModal.tsx`（`res.ok` 成功時）、`AdminDashboard.tsx`（パスワード削除・有効化トグルの `res.ok` 成功時）において、本文を読まずに完了する経路に `releaseResponse(res)` を追加。タイマーおよび abort リスナーの残留を完全に排除。
+- テスト: `src/lib/comprehensiveGoalCodeReviewFixesVerification.test.ts`。
 
 ### D1 [Medium | DB / 設定] スキーマ定義が 4 箇所に分散 — **修正済み 2026-10-25**
 

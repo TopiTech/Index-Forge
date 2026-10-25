@@ -207,8 +207,11 @@ export function runMigration(targetFlag = "--local", configPath = "wrangler.loca
   const hasOwnerTokenHash =
     (indicesCols && indicesCols.has("owner_token_hash")) ||
     pending.some((s) => s.type === "column" && s.table === "indices" && s.name === "owner_token_hash");
+  const hasOwnerTokenIssuedAt =
+    (indicesCols && indicesCols.has("owner_token_issued_at")) ||
+    pending.some((s) => s.type === "column" && s.table === "indices" && s.name === "owner_token_issued_at");
 
-  if (hasIndicesTable && hasOwnerTokenHash) {
+  if (hasIndicesTable && hasOwnerTokenHash && hasOwnerTokenIssuedAt) {
     try {
       execWrangler(targetFlag, configPath, dbName, OWNER_TOKEN_BACKFILL_SQL);
       console.log("   Backfilled owner_token_issued_at timestamp for grandfathered rows.");

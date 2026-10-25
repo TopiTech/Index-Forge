@@ -67,6 +67,12 @@ export function calculateSMA(data: number[], window: number): (number | null)[] 
   return result;
 }
 
+export function roundSafe(n: number, decimals: number, fallback = 0): number {
+  if (typeof n !== "number" || !Number.isFinite(n)) return fallback;
+  const rounded = Number(n.toFixed(decimals));
+  return Object.is(rounded, -0) ? 0 : rounded;
+}
+
 /**
  * 指数系列とベンチマーク系列からクオンツ・リスク指標を算出
  */
@@ -251,12 +257,6 @@ export function calculateRiskMetrics(
       ? Number((customReturns.reduce((min, r) => (r < min ? r : min), Infinity) * 100).toFixed(2))
       : 0;
 
-  const roundSafe = (n: number, decimals: number, fallback = 0) => {
-    if (!Number.isFinite(n)) return fallback;
-    const rounded = Number(n.toFixed(decimals));
-    return Object.is(rounded, -0) ? 0 : rounded;
-  };
-
   return {
     annualReturn: roundSafe(annualReturn, 2),
     annualVolatility: roundSafe(annualVolatility, 2),
@@ -314,29 +314,31 @@ export function calculateStockDetails(
 
     const rawChange = currentPrice - previousPrice;
     const change =
-      Math.abs(rawChange) < 0.005 || Object.is(rawChange, -0) ? 0 : Number(rawChange.toFixed(2));
+      Math.abs(rawChange) < 0.005 || Object.is(rawChange, -0) ? 0 : roundSafe(rawChange, 2);
     const rawChangePct =
       previousPrice > 0 ? ((currentPrice - previousPrice) / previousPrice) * 100 : 0;
     const changePct =
       Math.abs(rawChangePct) < 0.005 || Object.is(rawChangePct, -0)
         ? 0
-        : Number(rawChangePct.toFixed(2));
+        : roundSafe(rawChangePct, 2);
 
     // 指数への寄与度 (pt): (銘柄の騰落率 / 100) * (ウェイト / 100) * 前日指数値
-    const weightFraction = item.weight / 100;
+    const safeWeight =
+      typeof item.weight === "number" && Number.isFinite(item.weight) ? item.weight : 0;
+    const weightFraction = safeWeight / 100;
     const rawContributionPt = (changePct / 100) * weightFraction * prevIndexVal;
     const contributionPt =
       Math.abs(rawContributionPt) < 0.005 || Object.is(rawContributionPt, -0)
         ? 0
-        : Number(rawContributionPt.toFixed(2));
+        : roundSafe(rawContributionPt, 2);
     const rawContributionPct =
       prevIndexVal > 0 && Math.abs(contributionPt) >= 0.005
-        ? Number(((contributionPt / prevIndexVal) * 100).toFixed(2))
+        ? (contributionPt / prevIndexVal) * 100
         : 0;
     const contributionPct =
       Math.abs(rawContributionPct) < 0.005 || Object.is(rawContributionPct, -0)
         ? 0
-        : rawContributionPct;
+        : roundSafe(rawContributionPct, 2);
 
     // スパークライン（直近10営業日分）
     const sparkline = series.slice(-10).map((p) => p.close);

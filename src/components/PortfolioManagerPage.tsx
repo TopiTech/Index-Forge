@@ -474,7 +474,7 @@ export function PortfolioManagerPage({
   // 等)でサマリー全体を再計算しない。結果はソート済みリストや表示全体に
   // 波及するため、依存が変わったときだけ再構築する。
   const summary = useMemo(
-    () => calculatePortfolioSummary(positions, liveQuotes, usdJpyRate),
+    () => calculatePortfolioSummary(positions, { liveQuotes, usdJpyRate }),
     [positions, liveQuotes, usdJpyRate],
   );
   const [tableSortField, setTableSortField] = useState<"name" | "marketValue" | "unrealizedProfitPercent" | null>(null);
@@ -644,7 +644,12 @@ export function PortfolioManagerPage({
   };
 
   const sectorAllocation = useMemo(() => {
-    if (summary.positions.length === 0 || summary.totalMarketValue === 0) return [];
+    if (
+      summary.positions.length === 0 ||
+      summary.totalMarketValue <= 0 ||
+      !Number.isFinite(summary.totalMarketValue)
+    )
+      return [];
     const sectorMap = new Map<string, { name: string; valueJpy: number; count: number }>();
     for (const pos of summary.positions) {
       const sec = pos.sector?.trim() || pos.theme?.trim() || "その他";
@@ -657,7 +662,7 @@ export function PortfolioManagerPage({
     return Array.from(sectorMap.values())
       .map((item) => ({
         ...item,
-        percent: Number(((item.valueJpy / total) * 100).toFixed(1)),
+        percent: total > 0 ? Number(((item.valueJpy / total) * 100).toFixed(1)) : 0,
       }))
       .sort((a, b) => (b.valueJpy !== a.valueJpy ? b.valueJpy - a.valueJpy : a.name.localeCompare(b.name, "ja", { numeric: true })));
   }, [summary.positions, summary.totalMarketValue]);

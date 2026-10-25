@@ -99,6 +99,15 @@ describe("Portfolio Manager UI/UX & Feature Enhancements", () => {
       expect(sumPct).toBeLessThanOrEqual(101.0);
     });
 
+    it("safely handles empty positions or 0 total market value without NaN", () => {
+      const emptySummary = calculatePortfolioSummary([]);
+      expect(emptySummary.totalMarketValue).toBe(0);
+      const total = emptySummary.totalMarketValue;
+      const pct = total > 0 ? Number(((0 / total) * 100).toFixed(1)) : 0;
+      expect(Number.isFinite(pct)).toBe(true);
+      expect(pct).toBe(0);
+    });
+
     it("calculates diversification score for portfolio weightings", () => {
       const summary = calculatePortfolioSummary(samplePositions);
       const div = calculateDiversificationScore(

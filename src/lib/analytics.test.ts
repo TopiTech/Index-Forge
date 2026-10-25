@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { calculateSMA, calculateRiskMetrics, calculateStockDetails } from "./analytics";
+import { calculateSMA, calculateRiskMetrics, calculateStockDetails, roundSafe } from "./analytics";
 import type { BasketItem, PricePoint, StockSeries } from "../types";
 
 describe("analytics library", () => {
@@ -376,6 +376,58 @@ describe("analytics library", () => {
       expect(metaplanet?.isDemoData).toBeUndefined();
       expect(unitika?.currentPrice).toBe(1331);
       expect(metaplanet?.currentPrice).toBe(267);
+    });
+
+    it("safely handles non-finite prices, weights, and baseValue without producing NaN or -0", () => {
+      const details = calculateStockDetails(
+        [
+          { ticker: "NAN_STOCK", name: "NaN Corp", weight: NaN, theme: "Tech" },
+          { ticker: "ZERO_STOCK", name: "Zero Corp", weight: 0, theme: "Finance" },
+        ],
+        [
+          {
+            ticker: "NAN_STOCK",
+            name: "NaN Corp",
+            theme: "Tech",
+            sector: "Tech",
+            latestPrice: NaN,
+            series: [],
+          },
+          {
+            ticker: "ZERO_STOCK",
+            name: "Zero Corp",
+            theme: "Finance",
+            sector: "Finance",
+            latestPrice: 0,
+            series: [],
+          },
+        ],
+        NaN,
+        [],
+      );
+
+      for (const item of details) {
+        expect(Number.isFinite(item.change)).toBe(true);
+        expect(Number.isFinite(item.changePct)).toBe(true);
+        expect(Number.isFinite(item.contributionPt)).toBe(true);
+        expect(Number.isFinite(item.contributionPct)).toBe(true);
+        expect(Object.is(item.change, -0)).toBe(false);
+        expect(Object.is(item.changePct, -0)).toBe(false);
+        expect(Object.is(item.contributionPt, -0)).toBe(false);
+        expect(Object.is(item.contributionPct, -0)).toBe(false);
+      }
+    });
+  });
+
+  describe("roundSafe", () => {
+    it("handles standard rounding, negative numbers, -0 normalization and non-finite inputs", () => {
+      expect(roundSafe(12.3456, 2)).toBe(12.35);
+      expect(roundSafe(-0.0001, 2)).toBe(0);
+      expect(Object.is(roundSafe(-0.0001, 2), -0)).toBe(false);
+      expect(roundSafe(NaN, 2, 0)).toBe(0);
+      expect(roundSafe(Infinity, 2, -1)).toBe(-1);
+      expect(roundSafe(-Infinity, 2, 0)).toBe(0);
+      expect(roundSafe(100, 0)).toBe(100);
     });
   });
 });
