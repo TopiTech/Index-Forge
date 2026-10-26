@@ -26,6 +26,7 @@ import { useToast } from "./Toast";
 import { toYahooSymbol } from "../lib/yahooSymbol";
 import { escapeCsvCell } from "../lib/csv";
 import { toSafeDownloadFileName } from "../lib/downloadFileName";
+import { downloadBlob } from "../lib/downloadFile";
 import { todayJstDateString } from "../lib/portfolioStorage";
 import { formatStockPrice } from "../lib/currency";
 import { changeTone, formatSignedPercent } from "./changeTone";
@@ -311,18 +312,8 @@ export function ConstituentsTable({
 
     const csvContent = "\uFEFF" + [headers.join(","), ...rows.map((e) => e.join(","))].join("\r\n");
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.setAttribute("href", url);
     const safeFileName = toSafeDownloadFileName(indexName, "custom_index");
-    link.setAttribute(
-      "download",
-      `${safeFileName}_constituents_${todayJstDateString()}.csv`,
-    );
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    downloadBlob(blob, `${safeFileName}_constituents_${todayJstDateString()}.csv`);
     success("CSVファイルをダウンロードしました");
   };
 

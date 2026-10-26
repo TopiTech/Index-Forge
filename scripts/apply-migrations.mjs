@@ -226,15 +226,60 @@ export function runMigration(targetFlag = "--local", configPath = "wrangler.loca
   return { appliedCount: pending.length, steps: pending };
 }
 
+/**
+ * Parse CLI arguments for migration runner.
+ *
+ * Supports:
+ *   --remote / --local
+ *   --config <path> or --config=<path>
+ *   --database <name> or --database=<name>
+ *   --db <name> or --db=<name>
+ *
+ * Unspecified options fall back to the backward-compatible defaults:
+ *   targetFlag: "--local"
+ *   configPath: "wrangler.local.jsonc"
+ *   dbName: "original-stock-index-db"
+ */
+export function parseCliArgs(args = process.argv.slice(2)) {
+  let targetFlag = "--local";
+  let configPath = "wrangler.local.jsonc";
+  let dbName = "original-stock-index-db";
+
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === "--remote") {
+      targetFlag = "--remote";
+    } else if (arg === "--local") {
+      targetFlag = "--local";
+    } else if (arg === "--config") {
+      if (i + 1 < args.length && !args[i + 1].startsWith("--")) {
+        configPath = args[++i];
+      }
+    } else if (arg.startsWith("--config=")) {
+      configPath = arg.slice("--config=".length);
+    } else if (arg === "--database" || arg === "--db") {
+      if (i + 1 < args.length && !args[i + 1].startsWith("--")) {
+        dbName = args[++i];
+      }
+    } else if (arg.startsWith("--database=")) {
+      dbName = arg.slice("--database=".length);
+    } else if (arg.startsWith("--db=")) {
+      dbName = arg.slice("--db=".length);
+    }
+  }
+
+  return { targetFlag, configPath, dbName };
+}
+
 // CLI entry point
 const isDirectCall =
   process.argv[1] &&
   resolve(process.argv[1]) === resolve(fileURLToPath(import.meta.url));
 
 if (isDirectCall) {
-  const targetFlag = process.argv.includes("--remote") ? "--remote" : "--local";
+  const { targetFlag, configPath, dbName } = parseCliArgs(process.argv.slice(2));
   try {
-    runMigration(targetFlag);
+    runMigration(targetFlag, configPath, dbName);
   } catch (err) {
     console.error("\n❌ Migration failed:", err.message);
     process.exit(1);

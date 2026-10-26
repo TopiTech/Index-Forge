@@ -26,6 +26,7 @@ import {
 import { normalizeSearchQuery, getUniverseStockByTicker } from "../data/stockUniverse";
 import { detectStockCurrency } from "../lib/currency";
 import { toSafeDownloadFileName } from "../lib/downloadFileName";
+import { downloadBlob } from "../lib/downloadFile";
 import { ModalBase } from "./ModalBase";
 import { useToast } from "./Toast";
 import type { PageView } from "../lib/navigation";
@@ -288,16 +289,9 @@ export function CalendarPage({
     }
     const icsContent = exportCalendarToIcs(filteredEvents);
     const blob = new Blob([icsContent], { type: "text/calendar;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
     const d = new Date();
     const dStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-    a.href = url;
-    a.download = toSafeDownloadFileName(`indexforge_calendar_${dStr}.ics`);
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    downloadBlob(blob, toSafeDownloadFileName(`indexforge_calendar_${dStr}.ics`));
     toastSuccess("カレンダー (.ics) をダウンロードしました");
   };
 
@@ -308,16 +302,9 @@ export function CalendarPage({
     }
     const csvContent = exportCalendarToCsv(filteredEvents);
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
     const d = new Date();
     const dStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-    a.href = url;
-    a.download = toSafeDownloadFileName(`indexforge_calendar_${dStr}.csv`);
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    downloadBlob(blob, toSafeDownloadFileName(`indexforge_calendar_${dStr}.csv`));
     toastSuccess(`${filteredEvents.length}件のイベントをCSVエクスポートしました`);
   };
 
@@ -1294,14 +1281,7 @@ export function CalendarPage({
                 onClick={() => {
                   const singleIcs = exportCalendarToIcs([selectedEvent]);
                   const blob = new Blob([singleIcs], { type: "text/calendar;charset=utf-8" });
-                  const url = URL.createObjectURL(blob);
-                  const a = document.createElement("a");
-                  a.href = url;
-                  a.download = toSafeDownloadFileName(`event_${selectedEvent.id}.ics`);
-                  document.body.appendChild(a);
-                  a.click();
-                  document.body.removeChild(a);
-                  URL.revokeObjectURL(url);
+                  downloadBlob(blob, toSafeDownloadFileName(`event_${selectedEvent.id}.ics`));
                 }}
               >
                 <Download size={13} />

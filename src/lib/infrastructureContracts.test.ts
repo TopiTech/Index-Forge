@@ -23,6 +23,7 @@ const migrationSql = readRepoFile("schema.migration.sql");
 const workerDdl = REQUIRED_SCHEMA_STEPS.map((step) => step.sql).join("\n");
 const ciWorkflow = readRepoFile(".github/workflows/ci.yml");
 const wranglerConfig = readRepoFile("wrangler.jsonc");
+const packageJson = JSON.parse(readRepoFile("package.json")) as { scripts?: Record<string, string> };
 
 describe("schema provisioning parity", () => {
   it("creates the rate_limits purge index in both provisioning paths", () => {
@@ -94,5 +95,13 @@ describe("deployment configuration", () => {
     // `observability.enabled` is the master switch: with it disabled the whole
     // block is dead configuration and the Worker emits no invocation logs.
     expect(wranglerConfig).toMatch(/"observability":\s*\{[\s\S]*?"enabled":\s*true/);
+  });
+
+  it("separates production and local deployment scripts", () => {
+    const scripts = packageJson.scripts ?? {};
+    expect(scripts.deploy).toBe("npm run build && wrangler deploy --config wrangler.jsonc");
+    expect(scripts["deploy:local"]).toBe(
+      "npm run build && wrangler deploy --config wrangler.local.jsonc",
+    );
   });
 });

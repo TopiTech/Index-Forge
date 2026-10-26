@@ -44,6 +44,12 @@ export interface DatabaseProbeResult {
   columns: Map<string, Set<string>>;
 }
 
+export interface CliArgs {
+  targetFlag: "--local" | "--remote";
+  configPath: string;
+  dbName: string;
+}
+
 export const REQUIRED_MIGRATION_STEPS: readonly MigrationStep[];
 
 export const OWNER_TOKEN_BACKFILL_SQL: string;
@@ -54,6 +60,8 @@ export function computePendingMigrations(
 ): MigrationStep[];
 
 export function parseWranglerJson(stdout: string): Record<string, unknown>[];
+
+export function parseCliArgs(args?: readonly string[]): CliArgs;
 
 export function probeDatabase(
   targetFlag: "--local" | "--remote",

@@ -254,7 +254,7 @@ export function AddStockModal({
                 ref={tickerInputRef}
                 type="text"
                 value={ticker}
-                onChange={(e) => setTicker(e.target.value.toUpperCase())}
+                onChange={(e) => setTicker(normalizeTicker(e.target.value))}
                 placeholder="例: 7203, AAPL"
                 disabled={isLimitReached}
                 aria-invalid={Boolean(error)}

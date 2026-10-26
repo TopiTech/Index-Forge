@@ -51,6 +51,7 @@ import {
   calculateDiversificationScore,
 } from "../lib/indexSerialization";
 import { toSafeDownloadFileName } from "../lib/downloadFileName";
+import { downloadBlob } from "../lib/downloadFile";
 import { normalizeTicker } from "../lib/indexEngine";
 import { isValidTicker } from "../lib/apiContract";
 import {
@@ -586,17 +587,13 @@ export function PortfolioManagerPage({
     const csv = serializePortfolioToCsv(positions);
     // Excelでの文字化け防止のためUTF-8 BOMを付与
     const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = toSafeDownloadFileName(
-      `indexforge_portfolio_${todayJstDateString()}.csv`,
-      "portfolio.csv",
+    downloadBlob(
+      blob,
+      toSafeDownloadFileName(
+        `indexforge_portfolio_${todayJstDateString()}.csv`,
+        "portfolio.csv",
+      ),
     );
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
     success("ポートフォリオ（CSV形式）をダウンロードしました");
   };
 

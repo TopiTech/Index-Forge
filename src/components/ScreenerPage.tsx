@@ -30,6 +30,7 @@ import { allocateEvenWeights } from "../lib/weights";
 import { changeTone, formatSignedPercent } from "./changeTone";
 import { escapeCsvCell } from "../lib/csv";
 import { toSafeDownloadFileName } from "../lib/downloadFileName";
+import { downloadBlob } from "../lib/downloadFile";
 import { todayJstDateString } from "../lib/portfolioStorage";
 import type { PageView } from "../lib/navigation";
 import { useToast } from "./Toast";
@@ -434,15 +435,8 @@ export function ScreenerPage({
     const rows = buildScreenerCsvRows(results);
     const csvContent = "\uFEFF" + [headers.join(","), ...rows.map((r) => r.join(","))].join("\r\n");
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
     const dateStr = todayJstDateString();
-    a.href = url;
-    a.download = toSafeDownloadFileName(`IndexForge_Screener_${dateStr}.csv`);
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    downloadBlob(blob, toSafeDownloadFileName(`IndexForge_Screener_${dateStr}.csv`));
     success(`${results.length}件のスクリーニング結果をCSVエクスポートしました`);
   };
 

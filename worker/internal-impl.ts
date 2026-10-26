@@ -987,19 +987,16 @@ export function isModernPasswordHash(storedHash: string): boolean {
 }
 
 export let isPasswordTableEnsured = false;
-/**
- * Set once the provisioning pass failed in this isolate.
- *
- * A broken schema used to re-run every schema step on every authentication
- * attempt (~30 DDL statements each time), turning a transient D1 problem into
- * a write storm. The latch is deliberately per-isolate and is cleared by
- * `resetPasswordTableEnsured` (tests) or by a cold start (module re-eval); a
- * later request must not retry the same failing batch.
- */
-let passwordTableProvisionFailed = false;
+export const PROVISION_RETRY_INTERVAL_MS = 30_000;
+let passwordTableProvisionFailedAt = 0;
+
+export function getPasswordTableProvisionFailedAt(): number {
+  return passwordTableProvisionFailedAt;
+}
+
 export function resetPasswordTableEnsured(): void {
   isPasswordTableEnsured = false;
-  passwordTableProvisionFailed = false;
+  passwordTableProvisionFailedAt = 0;
 }
 
 export async function runStatement(env: Env, sql: string): Promise<void> {
@@ -1115,46 +1112,57 @@ async function backfillOwnerTokenIssuedAt(env: Env, probe: SchemaProbe | null): 
 }
 
 export async function ensurePasswordTable(env: Env): Promise<void> {
-  if (isPasswordTableEnsured || passwordTableProvisionFailed) return;
-  const probe = await probeSchemaObjects(env);
+  if (isPasswordTableEnsured) return;
+  const now = Date.now();
+  if (passwordTableProvisionFailedAt > 0 && now - passwordTableProvisionFailedAt < PROVISION_RETRY_INTERVAL_MS) {
+    return;
+  }
   let allRequiredStepsApplied = true;
 
-  for (const step of REQUIRED_SCHEMA_STEPS) {
-    if (probe) {
-      if (step.existing) {
-        const present =
-          step.existing.kind === "table"
-            ? probe.tables.has(step.existing.name)
-            : probe.indexes.has(step.existing.name);
-        if (present) continue;
+  try {
+    const probe = await probeSchemaObjects(env);
+
+    for (const step of REQUIRED_SCHEMA_STEPS) {
+      if (probe) {
+        if (step.existing) {
+          const present =
+            step.existing.kind === "table"
+              ? probe.tables.has(step.existing.name)
+              : probe.indexes.has(step.existing.name);
+          if (present) continue;
+        }
+        if (step.column) {
+          // A missing table means the CREATE TABLE step above (schema.sql on a
+          // fresh database) owns every column; there is nothing to ALTER yet.
+          if (!probe.tables.has(step.column.table)) continue;
+          if (probe.columns.get(step.column.table)?.has(step.column.name)) continue;
+        }
       }
-      if (step.column) {
-        // A missing table means the CREATE TABLE step above (schema.sql on a
-        // fresh database) owns every column; there is nothing to ALTER yet.
-        if (!probe.tables.has(step.column.table)) continue;
-        if (probe.columns.get(step.column.table)?.has(step.column.name)) continue;
+
+      try {
+        await runStatement(env, step.sql);
+      } catch (err) {
+        if (isAlreadyExistsError(err)) continue;
+        if (step.column && isMissingTableError(err, step.column.table)) continue;
+        allRequiredStepsApplied = false;
+        console.error("ensurePasswordTable: failed to provision schema object:", err);
       }
     }
 
-    try {
-      await runStatement(env, step.sql);
-    } catch (err) {
-      if (isAlreadyExistsError(err)) continue;
-      if (step.column && isMissingTableError(err, step.column.table)) continue;
-      allRequiredStepsApplied = false;
-      console.error("ensurePasswordTable: failed to provision schema object:", err);
-    }
+    await backfillOwnerTokenIssuedAt(env, probe);
+  } catch (err) {
+    allRequiredStepsApplied = false;
+    console.error("ensurePasswordTable: unexpected error during schema provisioning:", err);
   }
-
-  await backfillOwnerTokenIssuedAt(env, probe);
 
   if (allRequiredStepsApplied) {
     isPasswordTableEnsured = true;
+    passwordTableProvisionFailedAt = 0;
   } else {
-    // Latch the failure: the next authentication attempt must not repeat the
-    // whole batch. Its own D1 query will fail and be classified as 503 by the
-    // caller's unavailable path.
-    passwordTableProvisionFailed = true;
+    // Latch the failure with cooldown: the next authentication attempt must not
+    // repeat the whole batch within the retry window. Its own D1 query will fail
+    // and be classified as 503 by the caller's unavailable path.
+    passwordTableProvisionFailedAt = Date.now();
   }
 }
 
@@ -2780,6 +2788,13 @@ export function resetLastKnownTickerQuotes(): void {
   lastKnownTickerQuotes.clear();
 }
 
+export const YAHOO_CRUMB_NEGATIVE_CACHE_MS = 30_000;
+let yahooCrumbNegativeCacheUntil = 0;
+
+export function getYahooCrumbNegativeCacheUntil(): number {
+  return yahooCrumbNegativeCacheUntil;
+}
+
 export let cachedYahooCrumb: string | null = null;
 export let cachedYahooCookie: string | null = null;
 export let yahooCrumbExpiresAt = 0;
@@ -2788,12 +2803,17 @@ export function resetYahooCrumbCache(): void {
   cachedYahooCrumb = null;
   cachedYahooCookie = null;
   yahooCrumbExpiresAt = 0;
+  yahooCrumbNegativeCacheUntil = 0;
 }
 
 export async function getYahooCrumb(
   forceRefresh = false,
 ): Promise<{ crumb: string; cookie: string } | null> {
-  if (!forceRefresh && cachedYahooCrumb && cachedYahooCookie && Date.now() < yahooCrumbExpiresAt) {
+  const now = Date.now();
+  if (!forceRefresh && now < yahooCrumbNegativeCacheUntil) {
+    return null;
+  }
+  if (!forceRefresh && cachedYahooCrumb && cachedYahooCookie && now < yahooCrumbExpiresAt) {
     return { crumb: cachedYahooCrumb, cookie: cachedYahooCookie };
   }
   try {
@@ -2859,11 +2879,13 @@ export async function getYahooCrumb(
       cachedYahooCrumb = tokenCandidate;
       cachedYahooCookie = cookie;
       yahooCrumbExpiresAt = Date.now() + 1000 * 60 * 60; // 1 hour
+      yahooCrumbNegativeCacheUntil = 0;
       return { crumb: tokenCandidate, cookie };
     }
   } catch {
     // fallback
   }
+  yahooCrumbNegativeCacheUntil = Date.now() + YAHOO_CRUMB_NEGATIVE_CACHE_MS;
   return null;
 }
 
@@ -3482,7 +3504,14 @@ export function normalizeDividendYield(
   return Number(percent.toFixed(2));
 }
 
-export async function fetchLiveStockFundamentals(ticker: string, env?: Env): Promise<StockQuoteFundamentals> {
+export const STOCK_FUNDAMENTALS_TIMEOUT_BUDGET_MS = 6500;
+
+export async function fetchLiveStockFundamentals(
+  ticker: string,
+  env?: Env,
+  timeoutBudgetMs: number = STOCK_FUNDAMENTALS_TIMEOUT_BUDGET_MS,
+): Promise<StockQuoteFundamentals> {
+  const deadline = Date.now() + timeoutBudgetMs;
   const input = normalizeTicker(ticker);
   const matchedPreset =
     POPULAR_STOCKS.find((s) => s.ticker.toUpperCase() === input) ??
@@ -3562,13 +3591,15 @@ export async function fetchLiveStockFundamentals(ticker: string, env?: Env): Pro
   const currentYear = new Date().getFullYear();
 
   try {
-    const auth = await getYahooCrumb();
+    const auth = Date.now() < deadline ? await getYahooCrumb() : null;
+    const summaryTimeout = Math.max(500, Math.min(6000, deadline - Date.now()));
+    const chartTimeout = Math.max(500, Math.min(5000, deadline - Date.now()));
     const [summaryRes, chartRes] = await Promise.all([
-      auth
+      auth && Date.now() < deadline
         ? fetch(
             `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(yahooSymbol)}?modules=assetProfile,financialData,defaultKeyStatistics,summaryDetail,earnings,price,incomeStatementHistory,balanceSheetHistory,cashflowStatementHistory,calendarEvents&crumb=${encodeURIComponent(auth.crumb)}`,
             {
-              signal: AbortSignal.timeout(6000),
+              signal: AbortSignal.timeout(summaryTimeout),
               headers: {
                 "User-Agent":
                   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -3577,16 +3608,18 @@ export async function fetchLiveStockFundamentals(ticker: string, env?: Env): Pro
             },
           )
         : Promise.resolve(null),
-      fetch(
-        `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?interval=1d&range=1mo`,
-        {
-          signal: AbortSignal.timeout(5000),
-          headers: {
-            "User-Agent":
-              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-          },
-        },
-      ),
+      Date.now() < deadline
+        ? fetch(
+            `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?interval=1d&range=1mo`,
+            {
+              signal: AbortSignal.timeout(chartTimeout),
+              headers: {
+                "User-Agent":
+                  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+              },
+            },
+          )
+        : Promise.resolve(null),
     ]);
 
     let summaryData: YahooQuoteSummaryResponse | null = null;
@@ -3601,13 +3634,15 @@ export async function fetchLiveStockFundamentals(ticker: string, env?: Env): Pro
     }
 
     // Tier 2 Fallback: If Tier 1 (with crumb) failed or was skipped, try query1/query2 quoteSummary without crumb
-    if (!summaryData?.quoteSummary?.result?.[0] && !isMacroAsset) {
+    if (!summaryData?.quoteSummary?.result?.[0] && !isMacroAsset && Date.now() < deadline) {
       for (const host of ["query1.finance.yahoo.com", "query2.finance.yahoo.com"]) {
+        if (Date.now() >= deadline) break;
         try {
+          const altTimeout = Math.max(500, Math.min(4500, deadline - Date.now()));
           const altRes = await fetch(
             `https://${host}/v10/finance/quoteSummary/${encodeURIComponent(yahooSymbol)}?modules=assetProfile,financialData,defaultKeyStatistics,summaryDetail,earnings,price,incomeStatementHistory,balanceSheetHistory,cashflowStatementHistory,calendarEvents`,
             {
-              signal: AbortSignal.timeout(4500),
+              signal: AbortSignal.timeout(altTimeout),
               headers: {
                 "User-Agent":
                   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -3945,7 +3980,7 @@ export async function fetchLiveStockFundamentals(ticker: string, env?: Env): Pro
       }
 
       // Tier 3: SEC EDGAR official XBRL facts API for US stocks
-      if (isUS && (!historicalFinances || historicalFinances.length === 0)) {
+      if (isUS && (!historicalFinances || historicalFinances.length === 0) && Date.now() < deadline) {
         try {
           const secFinances = await fetchSecEdgarFinancials(normTicker);
           if (secFinances.length > 0) {
@@ -3960,11 +3995,12 @@ export async function fetchLiveStockFundamentals(ticker: string, env?: Env): Pro
     }
 
     // Secondary fallback: if summaryData was missing, attempt quote endpoint for real valuation metrics
-    if (!summaryData && !isMacroAsset) {
+    if (!summaryData && !isMacroAsset && Date.now() < deadline) {
       try {
+        const quoteTimeout = Math.max(500, Math.min(4000, deadline - Date.now()));
         const qUrl = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(yahooSymbol)}`;
         const qRes = await fetch(qUrl, {
-          signal: AbortSignal.timeout(4000),
+          signal: AbortSignal.timeout(quoteTimeout),
           headers: {
             "User-Agent":
               "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",

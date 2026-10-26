@@ -33,6 +33,8 @@ export {
   MAX_AUTH_ROW_VERIFICATIONS,
   ensurePasswordTable,
   resetPasswordTableEnsured,
+  PROVISION_RETRY_INTERVAL_MS,
+  getPasswordTableProvisionFailedAt,
   clearAuthCache,
   // Admin login security & Turnstile
   ADMIN_LOGIN_MAX_ATTEMPTS,
@@ -110,6 +112,7 @@ export {
   // Live market overview and stock fundamentals
   fetchLiveMarketOverview,
   fetchLiveStockFundamentals,
+  STOCK_FUNDAMENTALS_TIMEOUT_BUDGET_MS,
   fetchLiveScreenerUniverse,
   fetchLiveMarketCalendar,
   fetchLiveMarketCalendarAsync,
@@ -119,6 +122,8 @@ export {
   resetLastKnownScreenerUniverse,
   getYahooCrumb,
   resetYahooCrumbCache,
+  YAHOO_CRUMB_NEGATIVE_CACHE_MS,
+  getYahooCrumbNegativeCacheUntil,
   resetLastKnownMarketOverview,
   lastKnownMarketOverview,
   OVERVIEW_ASSET_DEFS,

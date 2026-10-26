@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   computePendingMigrations,
+  parseCliArgs,
   parseWranglerJson,
   REQUIRED_MIGRATION_STEPS,
   runMigration,
@@ -236,6 +237,61 @@ describe("apply-migrations script", () => {
   describe("runMigration export contract", () => {
     it("exports runMigration as a function matching declaration", () => {
       expect(typeof runMigration).toBe("function");
+    });
+  });
+
+  describe("parseCliArgs", () => {
+    it("returns default values when no arguments are provided", () => {
+      const parsed = parseCliArgs([]);
+      expect(parsed).toEqual({
+        targetFlag: "--local",
+        configPath: "wrangler.local.jsonc",
+        dbName: "original-stock-index-db",
+      });
+    });
+
+    it("parses --remote and --local target flags", () => {
+      expect(parseCliArgs(["--remote"]).targetFlag).toBe("--remote");
+      expect(parseCliArgs(["--local"]).targetFlag).toBe("--local");
+    });
+
+    it("parses --config <path> and --config=<path>", () => {
+      expect(parseCliArgs(["--config", "wrangler.jsonc"]).configPath).toBe("wrangler.jsonc");
+      expect(parseCliArgs(["--config=custom.wrangler.jsonc"]).configPath).toBe("custom.wrangler.jsonc");
+    });
+
+    it("parses --database <name> and --database=<name>", () => {
+      expect(parseCliArgs(["--database", "my-stock-db"]).dbName).toBe("my-stock-db");
+      expect(parseCliArgs(["--database=production-db"]).dbName).toBe("production-db");
+    });
+
+    it("parses --db <name> and --db=<name>", () => {
+      expect(parseCliArgs(["--db", "short-db"]).dbName).toBe("short-db");
+      expect(parseCliArgs(["--db=short-eq-db"]).dbName).toBe("short-eq-db");
+    });
+
+    it("parses mixed options correctly", () => {
+      const parsed = parseCliArgs([
+        "--remote",
+        "--config",
+        "wrangler.production.jsonc",
+        "--db",
+        "cloud-stock-db",
+      ]);
+      expect(parsed).toEqual({
+        targetFlag: "--remote",
+        configPath: "wrangler.production.jsonc",
+        dbName: "cloud-stock-db",
+      });
+    });
+
+    it("retains defaults when option flags lack values", () => {
+      const parsed = parseCliArgs(["--config", "--db"]);
+      expect(parsed).toEqual({
+        targetFlag: "--local",
+        configPath: "wrangler.local.jsonc",
+        dbName: "original-stock-index-db",
+      });
     });
   });
 });

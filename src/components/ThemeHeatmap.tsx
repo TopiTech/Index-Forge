@@ -424,7 +424,7 @@ export function ThemeHeatmap({ stockDetails, selectedTheme, onSelectTheme }: The
               </motion.div>
             )}
           </AnimatePresence>,
-          document.body,
+          (document.fullscreenElement as HTMLElement | null) ?? document.body,
         )}
     </Card>
   );
