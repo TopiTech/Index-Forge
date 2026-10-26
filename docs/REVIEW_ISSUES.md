@@ -87,6 +87,39 @@
 
 補足: 0.3 の `npm test` PASS は実行時刻に依存しており、日曜引け後には `useCalculationCache.test.ts` が fail した。0.4 で同テストを固定時刻に変更し、2 回連続で green を確認した。
 
+### 0.8 S6 メタテスト振る舞い化・N-1/N-2・サニタイズ追加パス後の再検証（2026-10-26）
+
+| チェック | コマンド | 終了コード | 結果 |
+|---|---|---|---|
+| lint | `npm run lint`（`eslint . --max-warnings=0`） | **0** | PASS（警告 0） |
+| test | `npm test`（`vitest run`） | **0** | PASS — **256 files / 2,411 tests** |
+| typecheck app / worker / test | `npm run build` 内の 3 × `tsc --noEmit` | **0** | PASS |
+| build | `npm run build`（3 × tsc + `vite build`） | **0** | PASS |
+| first-paint gate | `npm run check:first-paint` | **0** | PASS — 785,553 B raw / 220,740 B gzip（予算 900,000 / 250,000） |
+| worker bundle | `npx wrangler deploy --dry-run --config wrangler.local.jsonc` | **0** | PASS — D1/ASSETS バインド解決 |
+
+S6（§2、Unit E.4 の段階移行）の転換実績。いずれも「リファクタで壊れず実装回帰で落ちる」ことをソース改変の fail-before / 復元 pass-after で実測し、 genuine な表明（tickers・sceneDescription・伝播単体）は維持した：
+
+| 旧ピン | 新振る舞いテスト | 件数 |
+|---|---|---|
+| `portfolioAuthGuard.test.ts`（13 ピン、削除） | `portfolioAuthGate.test.tsx`（実ページ＋Sidebar の DOM） | 5 |
+| `stockChartVolumeFix.test.ts` の YAxis/Bar 文字列ピン | `volumeYAxisDomainMax` 純粋単体（0・負・NaN→フォールバック）＋ `stockTechnicalChartVolume.test.tsx`（実描画 2 件） | 2 + 2 |
+| `batch3FixesComprehensiveVerification.test.ts`（5 ピン削除、tickers 維持） | `batch3ModalAuthMacro.test.tsx`（ポータル配置・auth 状態パス・マクロ guard） | 8 |
+| `batch2FixesComprehensiveVerification.test.ts` ISSUE-06（fs 2 ピン削除、登録表明維持） | 登録済み SQL を `node:sqlite` で実実行（索引・列順・plan・purge） | 2 |
+| `headerAccessibility.test.ts`（4 ピン、削除） | `headerAccessibility.test.tsx`（Header＋Sidebar ハーネスの drawer キーボード契約） | 3 |
+| `tutorialKeyboardGuard.test.ts`（2）＋`tutorialPageEnhancements.test.ts`（11）（共に削除） | `tutorialPageBehavior.test.tsx`（ガード・遷移・文言・算出スタイル・データ） | 15 |
+| `demoDataBadgeEnhancements.test.ts`（2 ピン、伝播単体維持） | `demoDataBadgeBehavior.test.tsx`（ConstituentsTable＋PM ページの badge 描画両方向） | 4 |
+| `simulationBenchmarkWindow.test.ts` の文字列ピン | `isDemoBenchmarkSeries` 純粋単体＋境界・回帰（使用中デモ判定の誤検知修正を含む） | 8 |
+| `goalFollowupReview.test.ts`（削除） | `adminRequestOwnership.test.tsx`（backdrop・abort 所有権・mapping・telemetry） | 7 |
+
+根底修正（新 capability ではなく不具合是正・防御追加、すべてテスト付き）:
+
+- N-1: `StockDetailPage` の auto-retry timer 所有権（`autoRetryTimerRef` で unmount・ticker 切替時に解除）。`stockDetailAutoRetryTimer.test.tsx` 4 件。
+- N-2: `isTradingViewMessageOrigin` による postMessage origin 検証（§5 の残余リスクを縮小）。`tradingViewMessageOrigin.test.tsx` 7 件。
+- `GlobalSearchModal.sanitizeRecentSearchItem`（永続化ペイロードの読取時検証）。`globalSearchRecentSanitize.test.ts` 7 件。
+
+残量: 純粋文字列ピン 80 ファイル＋描画併用 12 ファイル（`comprehensive*`／`review*`／`goalRound*`／`audit*` 系が 35）。`responsiveDrawerStyle`（@media 系は jsdom で算出不可のため CSSOM 方式が適当）、`localDevConfig`、`portfolioResponsive` が次の小単位候補。`cssVariableCompleteness` は正規のトークン契約のため維持。
+
 ### 0.3 S5 修正パス後の再検証（2026-10-25）
 
 | チェック | コマンド | 終了コード | 結果 |

@@ -129,11 +129,16 @@ export function StockDetailPage({
   const mountedRef = useRef(true);
   const requestIdRef = useRef(0);
   const hasAutoRetriedRef = useRef<string | null>(null);
+  const autoRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
       requestIdRef.current += 1;
+      if (autoRetryTimerRef.current !== null) {
+        clearTimeout(autoRetryTimerRef.current);
+        autoRetryTimerRef.current = null;
+      }
     };
   }, []);
 
@@ -149,7 +154,12 @@ export function StockDetailPage({
       // 初回ロードでデモフォールバックだった場合、Worker側Crumbウォームアップ完了直後の実データを1回自動再取得
       if (data.isDemoData && !forceRefresh && hasAutoRetriedRef.current !== targetTicker) {
         hasAutoRetriedRef.current = targetTicker;
-        setTimeout(() => {
+        if (autoRetryTimerRef.current !== null) {
+          clearTimeout(autoRetryTimerRef.current);
+          autoRetryTimerRef.current = null;
+        }
+        autoRetryTimerRef.current = setTimeout(() => {
+          autoRetryTimerRef.current = null;
           if (mountedRef.current && requestId === requestIdRef.current) {
             void loadStockData(targetTicker, true);
           }
@@ -166,6 +176,13 @@ export function StockDetailPage({
 
   useEffect(() => {
     hasAutoRetriedRef.current = null;
+    if (autoRetryTimerRef.current !== null) {
+      clearTimeout(autoRetryTimerRef.current);
+      autoRetryTimerRef.current = null;
+    }
+    // Ticker 切替は進行中のリクエストを無効化する。requestId を進めることで
+    // 前ティッカーの遅延再取得ガードと競合しないようにする。
+    requestIdRef.current += 1;
     setStock(getCachedStockFundamentals(ticker));
     void loadStockData(ticker);
   }, [ticker, loadStockData]);

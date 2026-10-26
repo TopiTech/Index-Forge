@@ -61,14 +61,43 @@ export interface PriceDataPoint {
  * calendar day in every negative UTC offset.
  */
 /**
+ * Whether a `message` event origin belongs to the TradingView embed.
+ *
+ * Pure (no DOM): the `message` listener accepts only events from the
+ * TradingView widget frame, so an arbitrary frame on the page cannot force
+ * the chart into its local fallback. The allow-list mirrors the deployed
+ * Content Security Policy (`frame-src` in `worker/internal-impl.ts`): the
+ * `tradingview.com` and `tradingview-widget.com` apexes and their
+ * subdomains. Suffix/prefix lookalikes (`evil-tradingview.com`,
+ * `tradingview.com.evil.com`) do not match because the comparison is on the
+ * parsed hostname, not a substring.
+ */
+export function isTradingViewMessageOrigin(origin: unknown): boolean {
+  if (typeof origin !== "string" || origin.length === 0) return false;
+  let hostname: string;
+  try {
+    hostname = new URL(origin).hostname.toLowerCase();
+  } catch {
+    return false;
+  }
+  return (
+    hostname === "tradingview.com" ||
+    hostname.endsWith(".tradingview.com") ||
+    hostname === "tradingview-widget.com" ||
+    hostname.endsWith(".tradingview-widget.com")
+  );
+}
+
+/**
  * Decide whether a decoded TradingView postMessage payload reports a symbol
  * the widget cannot display.
  *
  * Pure (no DOM, no JSON parsing, no origin check): the `message` listener
- * keeps the try/catch around `JSON.parse` and the effect cleanup, and only
- * delegates the shape judgement here so the rule is unit-testable and cannot
- * drift between the widget and the modal. Non-object payloads (and arrays)
- * are never errors.
+ * keeps the try/catch around `JSON.parse`, the origin gate
+ * (`isTradingViewMessageOrigin`) and the effect cleanup, and only delegates
+ * the shape judgement here so the rule is unit-testable and cannot drift
+ * between the widget and the modal. Non-object payloads (and arrays) are
+ * never errors.
  */
 export function isTradingViewSymbolError(data: unknown): boolean {
   if (!data || typeof data !== "object" || Array.isArray(data)) return false;
@@ -203,6 +232,26 @@ export function buildTechnicalChartSeries(
       sma75: computeSma(validSeries, index, 75, close),
     };
   });
+}
+
+/** Scale applied to the largest volume bar so the line stays readable. */
+export const VOLUME_DOMAIN_SCALE = 3.5;
+
+/** Fallback upper bound when no positive finite maximum exists. */
+export const VOLUME_DOMAIN_FALLBACK_MAX = 100000;
+
+/**
+ * Upper bound of the hidden volume YAxis domain.
+ *
+ * Pure function behind the inline domain callback: a zero, negative or
+ * non-finite maximum (no volume pane, or corrupt data) would collapse the
+ * domain to `[0, 0]`/`NaN` and break the SVG scale, so it falls back to a
+ * fixed bound instead.
+ */
+export function volumeYAxisDomainMax(dataMax: unknown): number {
+  return typeof dataMax === "number" && Number.isFinite(dataMax) && dataMax > 0
+    ? dataMax * VOLUME_DOMAIN_SCALE
+    : VOLUME_DOMAIN_FALLBACK_MAX;
 }
 
 /**
@@ -392,6 +441,10 @@ export function StockTechnicalChart({
   useEffect(() => {
     if (effectiveMode !== "TRADINGVIEW") return;
     const handleTvMessage = (event: MessageEvent) => {
+      // Any frame on the page can post to this window; only the TradingView
+      // embed may trigger the fallback (N-2). A spoofed payload otherwise
+      // forces the local chart even when the widget is healthy.
+      if (!isTradingViewMessageOrigin(event.origin)) return;
       try {
         const data = typeof event.data === "string" ? JSON.parse(event.data) : event.data;
         if (isTradingViewSymbolError(data)) {
@@ -399,7 +452,7 @@ export function StockTechnicalChart({
           setTvFallbackActive(true);
         }
       } catch {
-        // Ignore non-JSON postMessage from other scripts
+        // Ignore non-JSON postMessage from the embed
       }
     };
 
@@ -1105,11 +1158,7 @@ export function StockTechnicalChart({
                     <YAxis
                       yAxisId="volume"
                       orientation="right"
-                      domain={[
-                        0,
-                        (dataMax: number) =>
-                          Number.isFinite(dataMax) && dataMax > 0 ? dataMax * 3.5 : 100000,
-                      ]}
+                      domain={[0, volumeYAxisDomainMax]}
                       hide={true}
                     />
                   )}

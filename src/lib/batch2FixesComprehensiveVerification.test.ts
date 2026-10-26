@@ -19,8 +19,7 @@ import {
   REQUIRED_MIGRATION_STEPS,
 } from "../../scripts/apply-migrations.mjs";
 import { changeAdminSecretCode } from "./auth";
-import fs from "node:fs";
-import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 
 function makeStorage(initial: Record<string, string> = {}) {
   const backing = new Map<string, string>(Object.entries(initial));
@@ -250,16 +249,90 @@ describe("Batch 2 Comprehensive Fixes Verification Suite", () => {
   // ISSUE-06 (P2): admin_login_attempts パージ用インデックスの追加
   // --------------------------------------------------------------------------
   describe("ISSUE-06: admin_login_attempts purge index registration", () => {
-    it("schema.sql defines idx_admin_login_attempts_purge", () => {
-      const schemaSql = fs.readFileSync(path.resolve(process.cwd(), "schema.sql"), "utf8");
-      expect(schemaSql).toContain("idx_admin_login_attempts_purge");
-      expect(schemaSql).toContain("admin_login_attempts(last_failed_at, locked_until)");
+    it("creates a working purge index when the registered schema step SQL runs", () => {
+      // The canonical DDL (table) and the artifact under test (index) both
+      // come from the registration array: no implementation text is read.
+      const tableStep = REQUIRED_SCHEMA_STEPS.find(
+        (s) => s.existing?.kind === "table" && s.existing?.name === "admin_login_attempts",
+      );
+      const indexStep = REQUIRED_SCHEMA_STEPS.find(
+        (s) => s.existing?.kind === "index" && s.existing?.name === "idx_admin_login_attempts_purge",
+      );
+      expect(tableStep?.sql).toBeTruthy();
+      expect(indexStep?.sql).toBeTruthy();
+
+      const db = new DatabaseSync(":memory:");
+      try {
+        db.exec(tableStep!.sql);
+        db.exec(indexStep!.sql);
+
+        const row = db
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_admin_login_attempts_purge'",
+          )
+          .get() as { name: string } | undefined;
+        expect(row?.name).toBe("idx_admin_login_attempts_purge");
+
+        const info = db
+          .prepare("PRAGMA index_info(idx_admin_login_attempts_purge)")
+          .all() as { seqno: number; name: string }[];
+        expect(info.map((c) => c.name)).toEqual(["last_failed_at", "locked_until"]);
+
+        // The purge predicate is servable by the index ...
+        const plan = db
+          .prepare(
+            "EXPLAIN QUERY PLAN SELECT ip FROM admin_login_attempts WHERE last_failed_at < ?",
+          )
+          .all() as { detail: string }[];
+        expect(plan.map((p) => p.detail).join("\n")).toContain(
+          "USING INDEX idx_admin_login_attempts_purge",
+        );
+
+        // ... and purging expired rows leaves live ones behind.
+        const insert = db.prepare(
+          "INSERT INTO admin_login_attempts (ip, failed_count, last_failed_at, locked_until) VALUES (?, 3, ?, 0)",
+        );
+        insert.run("10.0.0.1", 1000);
+        insert.run("10.0.0.2", 9999999999);
+        db.prepare("DELETE FROM admin_login_attempts WHERE last_failed_at < ?").run(2000);
+        const remaining = db.prepare("SELECT ip FROM admin_login_attempts").all() as {
+          ip: string;
+        }[];
+        expect(remaining.map((r) => r.ip)).toEqual(["10.0.0.2"]);
+      } finally {
+        db.close();
+      }
     });
 
-    it("schema.migration.sql defines idx_admin_login_attempts_purge", () => {
-      const migrationSql = fs.readFileSync(path.resolve(process.cwd(), "schema.migration.sql"), "utf8");
-      expect(migrationSql).toContain("idx_admin_login_attempts_purge");
-      expect(migrationSql).toContain("admin_login_attempts(last_failed_at, locked_until)");
+    it("creates the same working purge index from the registered migration step SQL", () => {
+      const tableStep = REQUIRED_SCHEMA_STEPS.find(
+        (s) => s.existing?.kind === "table" && s.existing?.name === "admin_login_attempts",
+      );
+      const migrationStep = REQUIRED_MIGRATION_STEPS.find(
+        (s) => s.type === "index" && s.name === "idx_admin_login_attempts_purge",
+      );
+      expect(tableStep?.sql).toBeTruthy();
+      expect(migrationStep?.sql).toBeTruthy();
+
+      const db = new DatabaseSync(":memory:");
+      try {
+        db.exec(tableStep!.sql);
+        db.exec(migrationStep!.sql);
+
+        const row = db
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_admin_login_attempts_purge'",
+          )
+          .get() as { name: string } | undefined;
+        expect(row?.name).toBe("idx_admin_login_attempts_purge");
+
+        const info = db
+          .prepare("PRAGMA index_info(idx_admin_login_attempts_purge)")
+          .all() as { seqno: number; name: string }[];
+        expect(info.map((c) => c.name)).toEqual(["last_failed_at", "locked_until"]);
+      } finally {
+        db.close();
+      }
     });
 
     it("REQUIRED_SCHEMA_STEPS registers idx_admin_login_attempts_purge index", () => {

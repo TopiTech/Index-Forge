@@ -1,7 +1,10 @@
 import { describe, it, expect } from "vitest";
 import { isPricePoint, sanitizePriceSeries } from "../../worker/internal-impl";
-import fs from "fs";
-import path from "path";
+import {
+  VOLUME_DOMAIN_FALLBACK_MAX,
+  VOLUME_DOMAIN_SCALE,
+  volumeYAxisDomainMax,
+} from "../components/StockTechnicalChart";
 
 describe("Stock Local Technical Chart Volume Rendering Fix", () => {
   describe("PricePoint and Yahoo Finance Volume Preservation", () => {
@@ -24,29 +27,28 @@ describe("Stock Local Technical Chart Volume Rendering Fix", () => {
     });
   });
 
-  describe("StockTechnicalChart Volume YAxis Domain Safeguard", () => {
-    const chartSource = fs.readFileSync(
-      path.resolve(__dirname, "../components/StockTechnicalChart.tsx"),
-      "utf-8",
-    );
-
-    it("ensures YAxis volume domain never evaluates to [0, 0] or NaN", () => {
-      // Must protect against dataMax <= 0 or NaN causing divide-by-zero SVG errors
-      expect(chartSource).toContain("Number.isFinite(dataMax) && dataMax > 0");
+  describe("StockTechnicalChart Volume YAxis Domain Safeguard (behavioral)", () => {
+    it("scales a positive finite maximum instead of collapsing the domain", () => {
+      expect(volumeYAxisDomainMax(1000)).toBe(1000 * VOLUME_DOMAIN_SCALE);
+      expect(volumeYAxisDomainMax(0.5)).toBe(0.5 * VOLUME_DOMAIN_SCALE);
     });
 
-    it("does not derive a volume for sessions whose volume is unknown (S1)", () => {
-      // The API series is {date, close}: a missing volume must leave the bar
-      // out instead of inventing one from the quote or the price change.
-      expect(chartSource).not.toContain("pointVolume");
-      expect(chartSource).not.toContain("dynamicVol");
-      expect(chartSource).toContain("buildTechnicalChartSeries(rawSeries)");
+    it("falls back for zero, negative or non-finite maxima", () => {
+      // A [0, 0] or NaN domain breaks the SVG scale; the volume-less chart
+      // (e.g. close-only snapshot windows) must still render.
+      expect(volumeYAxisDomainMax(0)).toBe(VOLUME_DOMAIN_FALLBACK_MAX);
+      expect(volumeYAxisDomainMax(-50)).toBe(VOLUME_DOMAIN_FALLBACK_MAX);
+      expect(volumeYAxisDomainMax(Number.NaN)).toBe(VOLUME_DOMAIN_FALLBACK_MAX);
+      expect(volumeYAxisDomainMax(Number.POSITIVE_INFINITY)).toBe(VOLUME_DOMAIN_FALLBACK_MAX);
+      expect(volumeYAxisDomainMax(undefined)).toBe(VOLUME_DOMAIN_FALLBACK_MAX);
     });
 
-    it("renders volume in Recharts Bar component with yAxisId=volume", () => {
-      expect(chartSource).toContain('<Bar');
-      expect(chartSource).toContain('yAxisId="volume"');
-      expect(chartSource).toContain('dataKey="volume"');
-    });
+    // No-synthesis is covered behaviorally by
+    // `src/components/stockTechnicalChartSeries.test.ts` (close-only series
+    // carry no volume key; zero/non-finite volumes are dropped) and by the
+    // Bar gating render tests in
+    // `src/components/stockTechnicalChartVolume.test.tsx`, so the
+    // `not.toContain("pointVolume"/"dynamicVol")` and `<Bar …>` source pins
+    // are deleted without coverage loss.
   });
 });

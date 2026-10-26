@@ -8,54 +8,20 @@ describe("Batch 3 Comprehensive Fixes Verification", () => {
   const readSrc = (relPath: string) =>
     readFileSync(resolve(process.cwd(), "src", relPath), "utf-8");
 
-  describe("ISSUE-04: handleAddStockToIndex unauthenticated guard", () => {
-    it("guards handleAddStockToIndex with isAuthenticated and opens auth modal", () => {
-      const appSource = readSrc("App.tsx");
-      expect(appSource).toMatch(
-        /const handleAddStockToIndex = useCallback\(\s*\([^)]*\)\s*=>\s*\{[\s\S]*?if \(!isAuthenticated\) \{\s*setIsAuthModalOpen\(true\);\s*return;\s*\}/,
-      );
-    });
+  // ISSUE-04 is covered behaviorally by
+  // `src/components/batch3ModalAuthMacro.test.tsx` → "auth modal shared state
+  // path": the real Header + AuthModal + ModalBase portal prove the
+  // open/close state path App wires through pageLayoutHeaderProps.
 
-    it("shares isAuthModalOpen with Header through pageLayoutHeaderProps", () => {
-      const appSource = readSrc("App.tsx");
-      expect(appSource).toContain("isAuthModalOpen,");
-      expect(appSource).toContain("onOpenAuthModal: () => setIsAuthModalOpen(true),");
-      expect(appSource).toContain("onCloseAuthModal: () => setIsAuthModalOpen(false),");
-    });
-  });
-
-  describe("ISSUE-05: IndexBuilderModal / TradingViewChartModal createPortal integration", () => {
-    it("ports IndexBuilderModal via useOverlayRoot and createPortal", () => {
-      const source = readSrc("components/IndexBuilderModal.tsx");
-      expect(source).toContain('import { createPortal } from "react-dom";');
-      expect(source).toContain('import { useOverlayRoot } from "./ModalBase";');
-      expect(source).toContain("const overlayRoot = useOverlayRoot();");
-      expect(source).toContain(
-        "return overlayRoot ? createPortal(modalContent, overlayRoot) : modalContent;",
-      );
-    });
-
-    it("ports TradingViewChartModal via useOverlayRoot and createPortal", () => {
-      const source = readSrc("components/TradingViewChartModal.tsx");
-      expect(source).toContain('import { createPortal } from "react-dom";');
-      expect(source).toContain('import { useOverlayRoot } from "./ModalBase";');
-      expect(source).toContain("const overlayRoot = useOverlayRoot();");
-      expect(source).toContain(
-        "return overlayRoot ? createPortal(modalContent, overlayRoot) : modalContent;",
-      );
-    });
-  });
+  // ISSUE-05 is covered behaviorally by
+  // `src/components/batch3ModalAuthMacro.test.tsx` → "modal overlay portal
+  // placement": both dialogs are asserted in `document.body` (outside the
+  // React container) and re-targeted into the fullscreen host.
 
   describe("ISSUE-11: Macro asset portfolio registration guard & conversion protection", () => {
-    it("disables add to portfolio button and guards handler for macro assets in StockDetailPage", () => {
-      const source = readSrc("components/StockDetailPage.tsx");
-      expect(source).toContain("disabled={isMacro}");
-      expect(source).toContain("if (isMacro) return;");
-      expect(source).toMatch(
-        /title=\{isMacro \? "マクロ資産・指数・為替はポートフォリオ登録対象外です" : undefined\}/,
-      );
-    });
-
+    // The disabled-button/handler-guard pins lived here as source strings;
+    // they now render in `src/components/batch3ModalAuthMacro.test.tsx` →
+    // "macro asset portfolio guard" (disabled + tooltip + no-call + contrast).
     it("filters out macro assets in convertPortfolioToCustomIndexBasket", () => {
       const positions: PortfolioPosition[] = [
         {

@@ -57,6 +57,36 @@ function safeLocalStorage(): RecentSearchStorage | null {
   }
 }
 
+/**
+ * Validate one recent-search entry read back from browser storage.
+ *
+ * The stored payload is untrusted: it can be hand-edited or written by an
+ * older build. Every other storage reader in the codebase (`sanitizePosition`,
+ * `sanitizeAuthSession`, `parseLocalSyncCache`, …) validates on read; this
+ * reader used to blind-cast, so a `{ title: {} }` entry reached the result
+ * list and crashed the render ("Objects are not valid as a React child").
+ * Malformed entries are dropped, display-only `subtitle` is coerced.
+ */
+export function sanitizeRecentSearchItem(raw: unknown): RecentSearchItem | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const record = raw as Record<string, unknown>;
+  const id = typeof record.id === "string" ? record.id.trim() : "";
+  const title = typeof record.title === "string" ? record.title.trim() : "";
+  if (!id || !title) return null;
+  if (record.type !== "stock" && record.type !== "index") return null;
+  const market = typeof record.market === "string" ? record.market.trim() : "";
+  if (!market) return null;
+  if (typeof record.timestamp !== "number" || !Number.isFinite(record.timestamp)) return null;
+  return {
+    id,
+    title,
+    subtitle: typeof record.subtitle === "string" ? record.subtitle : "",
+    type: record.type,
+    market: market as RecentSearchItem["market"],
+    timestamp: record.timestamp,
+  };
+}
+
 export function getRecentSearches(): RecentSearchItem[] {
   const storage = safeLocalStorage();
   if (!storage) return [];
@@ -64,7 +94,11 @@ export function getRecentSearches(): RecentSearchItem[] {
     const raw = storage.getItem(RECENT_SEARCHES_STORAGE_KEY);
     if (!raw) return [];
     const parsed: unknown = JSON.parse(raw);
-    return Array.isArray(parsed) ? (parsed as RecentSearchItem[]).slice(0, 8) : [];
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map(sanitizeRecentSearchItem)
+      .filter((item): item is RecentSearchItem => item !== null)
+      .slice(0, 8);
   } catch {
     return [];
   }

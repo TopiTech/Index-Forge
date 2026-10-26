@@ -13,10 +13,8 @@
  *    disclosure must cover that case, otherwise alpha silently equals the
  *    whole index return.
  */
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { calculatePeriodReturns } from "../hooks/useSimulation";
+import { calculatePeriodReturns, isDemoBenchmarkSeries } from "../hooks/useSimulation";
 import type { PricePoint } from "../types";
 
 describe("calculatePeriodReturns window alignment", () => {
@@ -92,15 +90,41 @@ describe("calculatePeriodReturns window alignment", () => {
   });
 });
 
-describe("benchmark demo disclosure covers unusable series", () => {
-  const source = readFileSync(resolve(process.cwd(), "src/hooks/useSimulation.ts"), "utf8");
-
-  it("treats a single-point benchmark series as demo data", () => {
-    expect(source).toContain("activeBenchmarkData.series.length < 2");
-    expect(source).toContain("filteredBenchmarkSeries.length < 2");
+describe("isDemoBenchmarkSeries disclosure predicate (behavioral)", () => {
+  const point = (date: string, close: number): PricePoint => ({ date, close });
+  const active = (closes: number[]) => ({
+    snapshot: {
+      symbol: "^N225",
+      label: "日経225",
+      current: closes[closes.length - 1] ?? 0,
+      change: 0,
+      changePct: 0,
+      updatedAt: "2026-09-01",
+      description: "",
+    },
+    series: closes.map((close, i) => point(`2026-09-0${i + 1}`, close)),
   });
 
-  it("keeps the disclosure flag in the public SimulationResult contract", () => {
-    expect(source).toMatch(/usingDemoBenchmark: boolean;/);
+  it("reports no demo while nothing is displayed yet", () => {
+    expect(isDemoBenchmarkSeries(null, [])).toBe(false);
+    expect(isDemoBenchmarkSeries(active([30000, 31500]), [])).toBe(false);
+  });
+
+  it("treats a missing benchmark as demo once a line is displayed", () => {
+    const displayed = [point("2026-09-01", 30000), point("2026-09-02", 31500)];
+    expect(isDemoBenchmarkSeries(null, displayed)).toBe(true);
+  });
+
+  it("treats a single-point benchmark series as demo data", () => {
+    const displayed = [point("2026-09-01", 30000), point("2026-09-02", 31500)];
+    // The Worker's baseline placeholder when Yahoo fails.
+    expect(isDemoBenchmarkSeries(active([30000]), displayed)).toBe(true);
+    // A comparison window the timeframe filter collapsed to one point.
+    expect(isDemoBenchmarkSeries(active([30000, 31500]), [point("2026-09-01", 30000)])).toBe(true);
+  });
+
+  it("reports real data only when both series have at least two points", () => {
+    const displayed = [point("2026-09-01", 30000), point("2026-09-02", 31500)];
+    expect(isDemoBenchmarkSeries(active([30000, 31500]), displayed)).toBe(false);
   });
 });

@@ -24,7 +24,7 @@ import { getAuthHeaders, getStoredAuth } from "../lib/auth";
 // texts, abort policy) is owned by src/lib/priceSync so the builder preview
 // and the dashboard cannot drift apart again.
 import { determineSyncForce, syncPricesInBatches } from "../lib/priceSync";
-import { useBenchmark, isBenchmarkDataForSymbol } from "./useBenchmark";
+import { useBenchmark, isBenchmarkDataForSymbol, type BenchmarkData } from "./useBenchmark";
 import { getMissingPriceDataTickers } from "./useCalculation";
 
 export interface ConstituentPerformance {
@@ -126,6 +126,32 @@ export function clearIfEmpty<T>(previous: T[]): T[] {
  * unbounded render loop. Returning the previous reference when the recomputed
  * series is unchanged keeps the write idempotent.
  */
+/**
+ * Whether the displayed benchmark comparison is generated demo data.
+ *
+ * Pure predicate behind the hook's `usingDemoBenchmark` flag: a single-point
+ * series cannot yield a return (it is 0% by construction), so alpha would
+ * silently equal the whole custom return — that applies to the Worker's
+ * baseline placeholder as well as to a comparison window that the timeframe
+ * filter collapsed to one point. An empty filtered series means nothing is
+ * displayed yet, which is not a demo.
+ *
+ * The flag describes what is *displayed*, not what has been requested. While
+ * the snapshot request is still in flight the displayed comparison line is
+ * the generated fallback, so it has to be disclosed from the first frame.
+ */
+export function isDemoBenchmarkSeries(
+  activeBenchmarkData: BenchmarkData | null,
+  filteredBenchmarkSeries: readonly PricePoint[],
+): boolean {
+  if (filteredBenchmarkSeries.length === 0) return false;
+  return (
+    !activeBenchmarkData ||
+    activeBenchmarkData.series.length < 2 ||
+    filteredBenchmarkSeries.length < 2
+  );
+}
+
 export function sameSeries(a: PricePoint[], b: PricePoint[]): boolean {
   if (a === b) return true;
   if (a.length !== b.length) return false;
@@ -561,14 +587,10 @@ export function useSimulation(
   // Short-circuiting on `benchmarkLoading` reported "not a demo" for the whole
   // request, which presented a fabricated benchmark curve and the alpha
   // derived from it as real market data.
-  const usingDemoBenchmark = useMemo(() => {
-    if (filteredBenchmarkSeries.length === 0) return false;
-    return (
-      !activeBenchmarkData ||
-      activeBenchmarkData.series.length < 2 ||
-      filteredBenchmarkSeries.length < 2
-    );
-  }, [activeBenchmarkData, filteredBenchmarkSeries]);
+  const usingDemoBenchmark = useMemo(
+    () => isDemoBenchmarkSeries(activeBenchmarkData, filteredBenchmarkSeries),
+    [activeBenchmarkData, filteredBenchmarkSeries],
+  );
 
   // Calculate quantitative risk metrics
   const metrics = useMemo<RiskMetrics>(() => {
