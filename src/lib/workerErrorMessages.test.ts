@@ -33,6 +33,11 @@ import {
   MAX_STOCKS_RANGE_MESSAGE,
   METHOD_NOT_ALLOWED_GET_MESSAGE,
   METHOD_NOT_ALLOWED_POST_MESSAGE,
+  METHOD_NOT_ALLOWED_PUT_MESSAGE,
+  METHOD_NOT_ALLOWED_INDICES_MESSAGE,
+  METHOD_NOT_ALLOWED_INDICES_STOCK_MESSAGE,
+  METHOD_NOT_ALLOWED_PASSWORDS_MESSAGE,
+  METHOD_NOT_ALLOWED_SECRET_CODE_MESSAGE,
   MISSING_PASSWORD_ID_MESSAGE,
   PROTECTED_INDEX_UPDATE_MESSAGE,
   REQUEST_BODY_TOO_LARGE_MESSAGE,
@@ -74,6 +79,21 @@ describe("worker error message catalog (U-8 M-7 follow-up)", () => {
     );
     expect(METHOD_NOT_ALLOWED_POST_MESSAGE).toBe(
       "このエンドポイントではPOSTメソッドのみ利用できます。",
+    );
+    expect(METHOD_NOT_ALLOWED_PUT_MESSAGE).toBe(
+      "このエンドポイントではPUTメソッドのみ利用できます。",
+    );
+    expect(METHOD_NOT_ALLOWED_INDICES_MESSAGE).toBe(
+      "このエンドポイントではGET, POST, DELETEメソッドのみ利用できます。",
+    );
+    expect(METHOD_NOT_ALLOWED_INDICES_STOCK_MESSAGE).toBe(
+      "このエンドポイントではPOST, DELETEメソッドのみ利用できます。",
+    );
+    expect(METHOD_NOT_ALLOWED_PASSWORDS_MESSAGE).toBe(
+      "このエンドポイントではGET, POST, PUT, DELETEメソッドのみ利用できます。",
+    );
+    expect(METHOD_NOT_ALLOWED_SECRET_CODE_MESSAGE).toBe(
+      "このエンドポイントではPUT, POSTメソッドのみ利用できます。",
     );
     expect(INDEX_NOT_FOUND_MESSAGE).toBe("指数が見つかりません。");
     expect(ENDPOINT_NOT_FOUND_MESSAGE).toBe("エンドポイントが見つかりません。");

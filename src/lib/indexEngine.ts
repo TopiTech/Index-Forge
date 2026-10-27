@@ -314,12 +314,19 @@ export function buildIndexPriceMatrix(
 ): IndexPriceMatrix {
   const normalized = normalizeWeights(basket);
   const stockByTicker = new Map(stockUniverse.map((stock) => [normalizeTicker(stock.ticker), stock]));
-  const selected = normalized
-    .map((item) => {
-      const stock = stockByTicker.get(normalizeTicker(item.ticker));
-      return stock && stock.series.length > 0 ? { ...stock, weight: item.weight } : null;
-    })
-    .filter((stock): stock is StockSeries & { weight: number } => Boolean(stock));
+  const consolidated = new Map<string, StockSeries & { weight: number }>();
+  for (const item of normalized) {
+    const norm = normalizeTicker(item.ticker);
+    const stock = stockByTicker.get(norm);
+    if (!stock || stock.series.length === 0) continue;
+    const existing = consolidated.get(norm);
+    if (existing) {
+      existing.weight += item.weight;
+    } else {
+      consolidated.set(norm, { ...stock, weight: item.weight });
+    }
+  }
+  const selected = Array.from(consolidated.values());
 
   const empty: IndexPriceMatrix = { dates: [], rows: [], tickerIndex: new Map() };
   if (selected.length === 0) return empty;

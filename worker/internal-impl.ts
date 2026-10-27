@@ -2583,8 +2583,9 @@ export async function fetchYahooFinance(symbol: string, range = "1y"): Promise<P
         const dd = String(date.getUTCDate()).padStart(2, "0");
         const safeVol =
           typeof vol === "number" && Number.isFinite(vol) && vol >= 0 ? Math.round(vol) : undefined;
+        const decimals = close < 1 ? 4 : 2;
         pointsByDate.set(`${yyyy}-${mm}-${dd}`, {
-          close: Number(close.toFixed(2)),
+          close: Number(close.toFixed(decimals)),
           volume: safeVol,
         });
       }
@@ -5288,6 +5289,16 @@ export const METHOD_NOT_ALLOWED_GET_MESSAGE =
   "このエンドポイントではGETメソッドのみ利用できます。";
 export const METHOD_NOT_ALLOWED_POST_MESSAGE =
   "このエンドポイントではPOSTメソッドのみ利用できます。";
+export const METHOD_NOT_ALLOWED_PUT_MESSAGE =
+  "このエンドポイントではPUTメソッドのみ利用できます。";
+export const METHOD_NOT_ALLOWED_INDICES_MESSAGE =
+  "このエンドポイントではGET, POST, DELETEメソッドのみ利用できます。";
+export const METHOD_NOT_ALLOWED_INDICES_STOCK_MESSAGE =
+  "このエンドポイントではPOST, DELETEメソッドのみ利用できます。";
+export const METHOD_NOT_ALLOWED_PASSWORDS_MESSAGE =
+  "このエンドポイントではGET, POST, PUT, DELETEメソッドのみ利用できます。";
+export const METHOD_NOT_ALLOWED_SECRET_CODE_MESSAGE =
+  "このエンドポイントではPUT, POSTメソッドのみ利用できます。";
 export const INDEX_NOT_FOUND_MESSAGE = "指数が見つかりません。";
 export const ENDPOINT_NOT_FOUND_MESSAGE = "エンドポイントが見つかりません。";
 export const STATIC_ASSET_HANDLER_UNAVAILABLE_MESSAGE =
@@ -5556,7 +5567,10 @@ export default {
       }
 
       // 管理者ログイン専用認証 (Turnstile検証 + 試行回数制限 + 秘密の暗号検証)
-      if (url.pathname === "/api/auth/admin-login" && request.method === "POST") {
+      if (url.pathname === "/api/auth/admin-login") {
+        if (request.method !== "POST") {
+          return json({ error: METHOD_NOT_ALLOWED_POST_MESSAGE }, 405, request, { allow: "POST" });
+        }
         try {
           const ip = getClientIp(request);
           const lockout = await checkAdminLoginLockout(env, ip);
@@ -5767,7 +5781,10 @@ export default {
       }
 
       // パスワード認証確認
-      if (url.pathname === "/api/auth/verify" && request.method === "POST") {
+      if (url.pathname === "/api/auth/verify") {
+        if (request.method !== "POST") {
+          return json({ error: METHOD_NOT_ALLOWED_POST_MESSAGE }, 405, request, { allow: "POST" });
+        }
         try {
           const parsed = await parseJsonBody(request);
           if (!parsed.ok) return parsed.response;
@@ -5843,8 +5860,23 @@ export default {
         }
       }
 
-      // 管理者向け: ユーザーパスワード一覧取得 (マスター管理者を除外)
-      if (url.pathname === "/api/admin/passwords" && request.method === "GET") {
+      // 管理者向け: ユーザーパスワード管理 (GET / POST / PUT / DELETE)
+      if (url.pathname === "/api/admin/passwords") {
+        if (
+          request.method !== "GET" &&
+          request.method !== "POST" &&
+          request.method !== "PUT" &&
+          request.method !== "DELETE"
+        ) {
+          return json(
+            { error: METHOD_NOT_ALLOWED_PASSWORDS_MESSAGE },
+            405,
+            request,
+            { allow: "GET, POST, PUT, DELETE" },
+          );
+        }
+
+        if (request.method === "GET") {
         try {
           const auth = await authenticateAdmin(request, env, ctx);
           if (!auth.authenticated) {
@@ -5872,7 +5904,7 @@ export default {
       }
 
       // 管理者向け: ユーザーパスワード新規作成（銘柄数制限設定 & 指数上限設定）
-      if (url.pathname === "/api/admin/passwords" && request.method === "POST") {
+      if (request.method === "POST") {
         try {
           const auth = await authenticateAdmin(request, env, ctx);
           if (!auth.authenticated) {
@@ -6000,7 +6032,7 @@ export default {
       }
 
       // 管理者向け: ユーザーパスワード更新
-      if (url.pathname === "/api/admin/passwords" && request.method === "PUT") {
+      if (request.method === "PUT") {
         try {
           const auth = await authenticateAdmin(request, env, ctx);
           if (!auth.authenticated) {
@@ -6241,7 +6273,7 @@ export default {
       }
 
       // 管理者向け: ユーザーパスワード削除
-      if (url.pathname === "/api/admin/passwords" && request.method === "DELETE") {
+      if (request.method === "DELETE") {
         try {
           const auth = await authenticateAdmin(request, env, ctx);
           if (!auth.authenticated) {
@@ -6295,9 +6327,13 @@ export default {
           return json({ error: INTERNAL_SERVER_ERROR_MESSAGE }, 500, request);
         }
       }
+    }
 
       // 管理者向け: 管理者マスターパスワード変更 (平文保存は行わない)
-      if (url.pathname === "/api/admin/admin-password" && request.method === "PUT") {
+      if (url.pathname === "/api/admin/admin-password") {
+        if (request.method !== "PUT") {
+          return json({ error: METHOD_NOT_ALLOWED_PUT_MESSAGE }, 405, request, { allow: "PUT" });
+        }
         try {
           const auth = await authenticateAdmin(request, env, ctx);
           if (!auth.authenticated) {
@@ -6369,10 +6405,15 @@ export default {
       }
 
       // 管理者向け: 秘密の暗号変更 (平文保存は行わずハッシュ保存)
-      if (
-        url.pathname === "/api/admin/admin-secret-code" &&
-        (request.method === "PUT" || request.method === "POST")
-      ) {
+      if (url.pathname === "/api/admin/admin-secret-code") {
+        if (request.method !== "PUT" && request.method !== "POST") {
+          return json(
+            { error: METHOD_NOT_ALLOWED_SECRET_CODE_MESSAGE },
+            405,
+            request,
+            { allow: "PUT, POST" },
+          );
+        }
         try {
           const auth = await authenticateAdmin(request, env, ctx);
           if (!auth.authenticated) {
@@ -6462,7 +6503,10 @@ export default {
       }
 
       // 管理者向け: システム運用・健全性メトリクス取得
-      if (url.pathname === "/api/admin/system-stats" && request.method === "GET") {
+      if (url.pathname === "/api/admin/system-stats") {
+        if (request.method !== "GET") {
+          return json({ error: METHOD_NOT_ALLOWED_GET_MESSAGE }, 405, request, { allow: "GET" });
+        }
         try {
           const auth = await authenticateAdmin(request, env, ctx);
           if (!auth.authenticated) {
@@ -6563,8 +6607,18 @@ export default {
         }
       }
 
-      // 構成銘柄の個別追加 (パスワード認証＋上限数チェック)
-      if (url.pathname === "/api/indices/stock" && request.method === "POST") {
+      // 構成銘柄の個別管理 (POST / DELETE)
+      if (url.pathname === "/api/indices/stock") {
+        if (request.method !== "POST" && request.method !== "DELETE") {
+          return json(
+            { error: METHOD_NOT_ALLOWED_INDICES_STOCK_MESSAGE },
+            405,
+            request,
+            { allow: "POST, DELETE" },
+          );
+        }
+
+        if (request.method === "POST") {
         try {
           const ip = getClientIp(request);
           const allowed = await checkRateLimit(
@@ -6866,7 +6920,7 @@ export default {
       }
 
       // 構成銘柄の個別削除 (パスワード認証)
-      if (url.pathname === "/api/indices/stock" && request.method === "DELETE") {
+      if (request.method === "DELETE") {
         try {
           const ip = getClientIp(request);
           const allowed = await checkRateLimit(
@@ -7023,9 +7077,13 @@ export default {
           return json({ error: INTERNAL_SERVER_ERROR_MESSAGE }, 500, request);
         }
       }
+    }
 
       // ベンチマーク・スナップショットの取得（D1キャッシュ付き・複数ベンチマーク対応・インメモリ&エッジキャッシュ）
-      if (url.pathname === "/api/snapshot" && request.method === "GET") {
+      if (url.pathname === "/api/snapshot") {
+        if (request.method !== "GET") {
+          return json({ error: METHOD_NOT_ALLOWED_GET_MESSAGE }, 405, request, { allow: "GET" });
+        }
         try {
           const ip = getClientIp(request);
           const allowed = await checkRateLimit(env, ip, "snapshot", RATE_LIMIT_MAX, false, ctx);
@@ -7285,7 +7343,10 @@ export default {
       }
 
       // ティッカーバー用リアルタイム実データ取得エンドポイント
-      if (url.pathname === "/api/ticker-prices" && request.method === "GET") {
+      if (url.pathname === "/api/ticker-prices") {
+        if (request.method !== "GET") {
+          return json({ error: METHOD_NOT_ALLOWED_GET_MESSAGE }, 405, request, { allow: "GET" });
+        }
         try {
           const ip = getClientIp(request);
           const allowed = await checkRateLimit(
@@ -7371,7 +7432,10 @@ export default {
       }
 
       // グローバル市場概況リアルタイムデータ取得エンドポイント
-      if (url.pathname === "/api/market/overview" && request.method === "GET") {
+      if (url.pathname === "/api/market/overview") {
+        if (request.method !== "GET") {
+          return json({ error: METHOD_NOT_ALLOWED_GET_MESSAGE }, 405, request, { allow: "GET" });
+        }
         try {
           const ip = getClientIp(request);
           const allowed = await checkRateLimit(
@@ -7437,10 +7501,10 @@ export default {
       }
 
       // 個別銘柄のファンダメンタルズ・リアルタイムデータ取得エンドポイント
-      if (
-        (url.pathname === "/api/stock/fundamentals" || url.pathname === "/api/stock/quote") &&
-        request.method === "GET"
-      ) {
+      if (url.pathname === "/api/stock/fundamentals" || url.pathname === "/api/stock/quote") {
+        if (request.method !== "GET") {
+          return json({ error: METHOD_NOT_ALLOWED_GET_MESSAGE }, 405, request, { allow: "GET" });
+        }
         try {
           const rawTicker = url.searchParams.get("ticker");
           if (!rawTicker || !rawTicker.trim()) {
@@ -7514,10 +7578,10 @@ export default {
       }
 
       // スクリーナー用リアルタイム実データ取得エンドポイント
-      if (
-        (url.pathname === "/api/stocks/screener" || url.pathname === "/api/screener") &&
-        request.method === "GET"
-      ) {
+      if (url.pathname === "/api/stocks/screener" || url.pathname === "/api/screener") {
+        if (request.method !== "GET") {
+          return json({ error: METHOD_NOT_ALLOWED_GET_MESSAGE }, 405, request, { allow: "GET" });
+        }
         try {
           const ip = getClientIp(request);
           const allowed = await checkRateLimit(
@@ -7583,7 +7647,10 @@ export default {
       }
 
       // 経済指標・決算発表カレンダーリアルタイム取得エンドポイント
-      if (url.pathname === "/api/market/calendar" && request.method === "GET") {
+      if (url.pathname === "/api/market/calendar") {
+        if (request.method !== "GET") {
+          return json({ error: METHOD_NOT_ALLOWED_GET_MESSAGE }, 405, request, { allow: "GET" });
+        }
         try {
           const ip = getClientIp(request);
           const allowed = await checkRateLimit(
@@ -7658,8 +7725,22 @@ export default {
         }
       }
 
-      // 登録されている指数一覧の取得 (D1から取得、sort_order使用、インメモリ&HTTPキャッシュ付き)
-      if (url.pathname === "/api/indices" && request.method === "GET") {
+      // 登録されている指数管理 (GET / POST / DELETE)
+      if (url.pathname === "/api/indices") {
+        if (
+          request.method !== "GET" &&
+          request.method !== "POST" &&
+          request.method !== "DELETE"
+        ) {
+          return json(
+            { error: METHOD_NOT_ALLOWED_INDICES_MESSAGE },
+            405,
+            request,
+            { allow: "GET, POST, DELETE" },
+          );
+        }
+
+        if (request.method === "GET") {
         try {
           const ip = getClientIp(request);
           if (!(await checkRateLimit(env, ip, "indices-list", RATE_LIMIT_MAX, false, ctx))) {
@@ -8439,9 +8520,13 @@ export default {
           return json({ error: INTERNAL_SERVER_ERROR_MESSAGE }, 500, request);
         }
       }
+    }
 
       // 銘柄データの同期 (履歴をD1に保存、並列バッチ処理)
-      if (url.pathname === "/api/sync-prices" && request.method === "POST") {
+      if (url.pathname === "/api/sync-prices") {
+        if (request.method !== "POST") {
+          return json({ error: METHOD_NOT_ALLOWED_POST_MESSAGE }, 405, request, { allow: "POST" });
+        }
         try {
           const ip = getClientIp(request);
           const allowed = await checkRateLimit(env, ip, "sync-prices", RATE_LIMIT_MAX, false, ctx);
@@ -8843,7 +8928,10 @@ export default {
       }
 
       // 独自指数の計算（D1キャッシュ優先）
-      if (url.pathname === "/api/calculate" && request.method === "POST") {
+      if (url.pathname === "/api/calculate") {
+        if (request.method !== "POST") {
+          return json({ error: METHOD_NOT_ALLOWED_POST_MESSAGE }, 405, request, { allow: "POST" });
+        }
         try {
           const ip = getClientIp(request);
           const allowed = await checkRateLimit(env, ip, "calculate", RATE_LIMIT_MAX, false, ctx);

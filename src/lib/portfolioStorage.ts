@@ -239,8 +239,8 @@ function sanitizePosition(raw: unknown): PortfolioPosition | null {
       name,
       shares,
       averageCost,
-      acquiredAt: typeof record.acquiredAt === "string" ? record.acquiredAt : undefined,
-      notes: typeof record.notes === "string" ? record.notes : undefined,
+      acquiredAt: typeof record.acquiredAt === "string" ? record.acquiredAt.trim() || undefined : undefined,
+      notes: typeof record.notes === "string" ? record.notes.trim() || undefined : undefined,
     },
     id,
   );
