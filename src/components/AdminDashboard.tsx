@@ -596,8 +596,8 @@ export function AdminDashboard({
       setCreateError("ユーザー名は100文字以内で入力してください");
       return;
     }
-    if (newUserPassword.trim().length > 100) {
-      setCreateError("パスワードは100文字以内で入力してください");
+    if (newUserPassword.trim().length < 8 || newUserPassword.trim().length > 100) {
+      setCreateError("パスワードは8〜100文字で入力してください");
       return;
     }
     setCreatingPassword(true);

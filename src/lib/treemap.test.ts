@@ -32,4 +32,17 @@ describe("createTreemapLayout", () => {
     expect(layout[0].width * layout[0].height).toBeGreaterThan(0);
     expect(layout[1].width * layout[1].height).toBeGreaterThan(0);
   });
+
+  it("returns empty array for empty inputs without error or division-by-zero", () => {
+    expect(createTreemapLayout([])).toEqual([]);
+  });
+
+  it("handles a single tile occupying the full layout", () => {
+    const layout = createTreemapLayout([{ key: "only", value: 100 }]);
+    expect(layout).toHaveLength(1);
+    expect(layout[0].x).toBe(0);
+    expect(layout[0].y).toBe(0);
+    expect(layout[0].width).toBeCloseTo(1, 4);
+    expect(layout[0].height).toBeCloseTo(1, 4);
+  });
 });

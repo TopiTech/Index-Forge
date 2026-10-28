@@ -293,3 +293,29 @@ describe("AdminDashboard telemetry generation guard (behavioral)", () => {
     expect(screen.queryByText("v2-fresh")).not.toBeNull();
   });
 });
+
+describe("AdminDashboard password creation validation (behavioral)", () => {
+  it("fast-fails client-side when password is under 8 characters without calling POST /api/admin/passwords", async () => {
+    let postCalled = false;
+    renderDashboard(async (url) => {
+      if (url.includes("/api/admin/passwords")) {
+        postCalled = true;
+        return jsonResponse([]);
+      }
+      return jsonResponse({ ok: true });
+    });
+
+    const nameInput = document.getElementById("new-user-name") as HTMLInputElement;
+    const passwordInput = document.getElementById("new-user-password") as HTMLInputElement;
+
+    fireEvent.change(nameInput, { target: { value: "Test User" } });
+    fireEvent.change(passwordInput, { target: { value: "short" } });
+
+    postCalled = false;
+    const submitBtn = screen.getByRole("button", { name: "ユーザーパスワードを発行" });
+    fireEvent.click(submitBtn);
+
+    expect(await screen.findByText("パスワードは8〜100文字で入力してください")).toBeTruthy();
+    expect(postCalled).toBe(false);
+  });
+});

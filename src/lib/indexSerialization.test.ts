@@ -170,4 +170,29 @@ describe("indexSerialization", () => {
     expect(moderate.hhi).toBe(2000);
     expect(moderate.level).toBe("MODERATE");
   });
+
+  it("clamps basket CSV constituents to MAX_BASKET_ITEMS (500) and provides a warning message", () => {
+    const rows = ["コード,銘柄名,テーマ,比率(%)"];
+    for (let i = 1; i <= 550; i++) {
+      rows.push(`STOCK${i},銘柄${i},テーマ,1`);
+    }
+    const csv = rows.join("\n");
+    const parsed = deserializeBasketFromCsv(csv);
+    expect(parsed.ok).toBe(true);
+    expect(parsed.data?.length).toBe(500);
+    expect(parsed.error).toContain("構成銘柄数が上限(500件)を超えているため、先頭500件のみ取り込みました");
+  });
+
+  it("combines limit warning and missing weight warning when importing >500 items without weight column", () => {
+    const rows = ["コード,銘柄名"];
+    for (let i = 1; i <= 520; i++) {
+      rows.push(`TICKER${i},銘柄${i}`);
+    }
+    const csv = rows.join("\n");
+    const parsed = deserializeBasketFromCsv(csv);
+    expect(parsed.ok).toBe(true);
+    expect(parsed.data?.length).toBe(500);
+    expect(parsed.error).toContain("構成銘柄数が上限(500件)を超えているため");
+    expect(parsed.error).toContain("重み(比率)列を解決できなかったため");
+  });
 });

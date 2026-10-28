@@ -44,7 +44,7 @@ function normalizeData(data: readonly TreemapDatum[]): TreemapDatum[] {
 
   return data.map((item, index) => ({
     key: item.key,
-    value: total > 0 ? safeValues[index] / safeTotal : 1 / data.length,
+    value: total > 0 ? safeValues[index] / safeTotal : data.length > 0 ? 1 / data.length : 0,
   }));
 }
 

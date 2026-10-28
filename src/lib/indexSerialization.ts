@@ -359,15 +359,33 @@ export function deserializeBasketFromCsv(csvStr: string): SerializationResult<Ba
     return { ok: false, error: "有効な銘柄行が見つかりませんでした" };
   }
 
+  // Worker 契約 (POST /api/indices, POST /api/calculate) は1指数あたり
+  // MAX_BASKET_ITEMS 銘柄まで。超えたまま取り込むと保存も計算も 400 になるため
+  // 先頭 MAX_BASKET_ITEMS 件にクランプし警告を付与する。
+  let limitWarning: string | null = null;
+  if (basket.length > MAX_BASKET_ITEMS) {
+    basket.length = MAX_BASKET_ITEMS;
+    limitWarning = `構成銘柄数が上限(${MAX_BASKET_ITEMS}件)を超えているため、先頭${MAX_BASKET_ITEMS}件のみ取り込みました`;
+  }
+
   // 重み列が解決できなかった場合、全銘柄が既定値 1 に丸められ意図しない配分で
   // 取り込まれる。既存の「列が無い場合は重み1」仕様は維持しつつ、呼び出し側が
   // 警告を表示できるよう ok:true + error で通知する。
   if (validWeightCount === 0) {
+    const weightWarning =
+      "重み(比率)列を解決できなかったため、全銘柄の重みを1として取り込みました。ヘッダーに「比率(%)」「weight」「配分」等を含めるか、取り込み後に重みを編集してください";
     return {
       ok: true,
       data: basket,
-      error:
-        "重み(比率)列を解決できなかったため、全銘柄の重みを1として取り込みました。ヘッダーに「比率(%)」「weight」「配分」等を含めるか、取り込み後に重みを編集してください",
+      error: limitWarning ? `${limitWarning}。${weightWarning}` : weightWarning,
+    };
+  }
+
+  if (limitWarning) {
+    return {
+      ok: true,
+      data: basket,
+      error: limitWarning,
     };
   }
 
