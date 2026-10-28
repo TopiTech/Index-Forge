@@ -105,8 +105,15 @@ describe("Macro Calendar Live Accuracy and Official Schedules", () => {
       const fomc = events.find((e) => e.id.startsWith("macro-fomc"));
       expect(fomc).toBeDefined();
       expect(fomc?.previous).toContain("4.25% - 4.50%");
+      // N-2: 3ヶ月 T-Bill (^IRX) からの推計は公式誘導目標を名乗らない
+      expect(fomc?.previous).toContain("参考推計");
+      expect(fomc?.previous).not.toContain("現行誘導目標");
       expect(fomc?.forecast).toBe("市場予想集計中");
-      expect(fomc?.source).toBeUndefined(); // Live data promotes source to undefined (LIVE)
+      // N-2/N-3: イベントの source は日程の来歴 (公定日程 = "official")、
+      // 値はフィールド単位の来歴で推計/参考値と区別される。
+      expect(fomc?.source).toBe("official");
+      expect(fomc?.fieldProvenance?.previous).toBe("estimated");
+      expect(fomc?.fieldProvenance?.forecast).toBe("reference");
     } finally {
       globalThis.fetch = origFetch;
     }

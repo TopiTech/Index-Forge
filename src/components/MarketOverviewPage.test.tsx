@@ -206,6 +206,67 @@ describe("MarketOverviewPage", () => {
     expect(link.closest("button")).toBeNull();
   });
 
+  it("badges a synthetic news item as a sample and never shows a fabricated time or link", async () => {
+    fetchOverview.mockResolvedValue(
+      makeOverview({
+        news: [
+          {
+            id: "s1",
+            title: "サンプルトピック",
+            source: "サンプル",
+            publishedAt: "",
+            isSample: true,
+          },
+          {
+            id: "r1",
+            title: "実際の配信記事",
+            source: "テスト通信",
+            publishedAt: "10:00",
+            relatedTicker: "8035",
+          },
+        ],
+      }),
+    );
+
+    renderPage();
+
+    const sampleRow = (await screen.findByText("サンプルトピック")).parentElement as HTMLElement;
+    const sampleBadge = within(sampleRow).getByText("サンプル");
+    expect(sampleBadge.getAttribute("title")).toMatch(/実在の記事ではなく/);
+    // 合成には媒体名・偽の鮮度・記事リンクを一切出さない
+    expect(within(sampleRow).queryByText(/(分前|時間前|日前|たった今|昨日)/)).toBeNull();
+    expect(within(sampleRow).queryByText(/^\d{2}:\d{2}$/)).toBeNull();
+    expect(within(sampleRow).queryByText("配信時刻不明")).toBeNull();
+    expect(within(sampleRow).queryByRole("link")).toBeNull();
+
+    const realRow = screen.getByText("実際の配信記事").parentElement as HTMLElement;
+    expect(within(realRow).getByText("テスト通信")).toBeTruthy();
+    expect(within(realRow).getByText("10:00")).toBeTruthy();
+    expect(within(realRow).queryByText("サンプル")).toBeNull();
+  });
+
+  it("marks a real article without a publish time as unknown instead of inventing one", async () => {
+    fetchOverview.mockResolvedValue(
+      makeOverview({
+        news: [
+          {
+            id: "r1",
+            title: "時刻のない実記事",
+            source: "テスト通信",
+            publishedAt: "",
+          },
+        ],
+      }),
+    );
+
+    renderPage();
+
+    const realRow = (await screen.findByText("時刻のない実記事")).parentElement as HTMLElement;
+    expect(within(realRow).getByText("配信時刻不明")).toBeTruthy();
+    expect(within(realRow).queryByText(/(分前|時間前|たった今)/)).toBeNull();
+    expect(within(realRow).queryByText("サンプル")).toBeNull();
+  });
+
   it("reports the payload's dataAsOf, never the render clock", async () => {
     const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_000);
     fetchOverview.mockResolvedValue(makeOverview({ dataAsOf: "2026-10-24T06:00:00.000Z" }));

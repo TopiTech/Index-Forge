@@ -226,14 +226,17 @@ describe("Batch 2 Comprehensive Fixes Verification Suite", () => {
 
     it("changeAdminSecretCode client helper extracts and returns adminToken", async () => {
       const originalFetch = globalThis.fetch;
-      globalThis.fetch = vi.fn().mockResolvedValue({
-        ok: true,
-        json: async () => ({
-          ok: true,
-          adminToken: "renewed-admin-token-token-1234",
-          adminTokenExpiresAt: Date.now() + 28800000,
-        }),
-      });
+      // A faithful Response keeps the shared readJsonBody contract (text/headers).
+      globalThis.fetch = vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            ok: true,
+            adminToken: "renewed-admin-token-token-1234",
+            adminTokenExpiresAt: Date.now() + 28800000,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
 
       try {
         const res = await changeAdminSecretCode("old-secret", "new-secret-999");

@@ -1,56 +1,64 @@
-import assert from "node:assert/strict";
-import test from "node:test";
+/**
+ * CLI 引数解析 (parseCliArgs) のテスト。
+ *
+ * 旧実装は `node:test` 形式だったが、どの npm script・CI ステップからも実行
+ * されていなかった (N-4)。標準ランナー (vitest) に統一し、`npm test` /
+ * CI の "Run Tests" から実行されるようにした。検証内容は変更しない。
+ */
+import { describe, expect, it } from "vitest";
 import { parseCliArgs } from "./apply-migrations.mjs";
 
-test("parseCliArgs defaults", () => {
-  const result = parseCliArgs([]);
-  assert.deepEqual(result, {
-    targetFlag: "--local",
-    configPath: "wrangler.local.jsonc",
-    dbName: "original-stock-index-db",
+describe("parseCliArgs", () => {
+  it("defaults", () => {
+    const result = parseCliArgs([]);
+    expect(result).toEqual({
+      targetFlag: "--local",
+      configPath: "wrangler.local.jsonc",
+      dbName: "original-stock-index-db",
+    });
   });
-});
 
-test("parseCliArgs parses --remote flag", () => {
-  const result = parseCliArgs(["--remote"]);
-  assert.equal(result.targetFlag, "--remote");
-  assert.equal(result.configPath, "wrangler.local.jsonc");
-  assert.equal(result.dbName, "original-stock-index-db");
-});
+  it("parses --remote flag", () => {
+    const result = parseCliArgs(["--remote"]);
+    expect(result.targetFlag).toBe("--remote");
+    expect(result.configPath).toBe("wrangler.local.jsonc");
+    expect(result.dbName).toBe("original-stock-index-db");
+  });
 
-test("parseCliArgs parses --config", () => {
-  const separated = parseCliArgs(["--config", "wrangler.jsonc"]);
-  assert.equal(separated.configPath, "wrangler.jsonc");
+  it("parses --config", () => {
+    const separated = parseCliArgs(["--config", "wrangler.jsonc"]);
+    expect(separated.configPath).toBe("wrangler.jsonc");
 
-  const inline = parseCliArgs(["--config=wrangler.jsonc"]);
-  assert.equal(inline.configPath, "wrangler.jsonc");
-});
+    const inline = parseCliArgs(["--config=wrangler.jsonc"]);
+    expect(inline.configPath).toBe("wrangler.jsonc");
+  });
 
-test("parseCliArgs parses --database and --db", () => {
-  const databaseFlag = parseCliArgs(["--database", "prod-db"]);
-  assert.equal(databaseFlag.dbName, "prod-db");
+  it("parses --database and --db", () => {
+    const databaseFlag = parseCliArgs(["--database", "prod-db"]);
+    expect(databaseFlag.dbName).toBe("prod-db");
 
-  const databaseInline = parseCliArgs(["--database=prod-db"]);
-  assert.equal(databaseInline.dbName, "prod-db");
+    const databaseInline = parseCliArgs(["--database=prod-db"]);
+    expect(databaseInline.dbName).toBe("prod-db");
 
-  const dbFlag = parseCliArgs(["--db", "custom-db"]);
-  assert.equal(dbFlag.dbName, "custom-db");
+    const dbFlag = parseCliArgs(["--db", "custom-db"]);
+    expect(dbFlag.dbName).toBe("custom-db");
 
-  const dbInline = parseCliArgs(["--db=custom-db"]);
-  assert.equal(dbInline.dbName, "custom-db");
-});
+    const dbInline = parseCliArgs(["--db=custom-db"]);
+    expect(dbInline.dbName).toBe("custom-db");
+  });
 
-test("parseCliArgs parses all arguments in arbitrary order", () => {
-  const result = parseCliArgs([
-    "--remote",
-    "--config",
-    "wrangler.jsonc",
-    "--db",
-    "my-production-db",
-  ]);
-  assert.deepEqual(result, {
-    targetFlag: "--remote",
-    configPath: "wrangler.jsonc",
-    dbName: "my-production-db",
+  it("parses all arguments in arbitrary order", () => {
+    const result = parseCliArgs([
+      "--remote",
+      "--config",
+      "wrangler.jsonc",
+      "--db",
+      "my-production-db",
+    ]);
+    expect(result).toEqual({
+      targetFlag: "--remote",
+      configPath: "wrangler.jsonc",
+      dbName: "my-production-db",
+    });
   });
 });

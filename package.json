@@ -24,7 +24,9 @@
     "typegen": "wrangler types",
     "check:first-paint": "node scripts/check-first-paint.mjs",
     "lint": "eslint . --max-warnings=0",
-    "test": "vitest run",
+    "check:test-coverage": "node scripts/check-test-coverage.mjs",
+    "check:meta-test-gate": "node scripts/check-meta-test-gate.mjs",
+    "test": "npm run check:test-coverage && npm run check:meta-test-gate && vitest run",
     "test:watch": "vitest"
   },
   "dependencies": {

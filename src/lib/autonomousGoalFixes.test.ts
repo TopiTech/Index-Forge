@@ -25,42 +25,34 @@ import { EditPasswordModal } from "../components/EditPasswordModal";
 import { ToastProvider } from "../components/Toast";
 import type { BasketItem, UserPasswordItem } from "../types";
 
-/** The subset of the `Response` contract the production code reads. */
-interface FetchResponseDouble {
-  ok: boolean;
-  status: number;
-  json: () => Promise<unknown>;
-}
-
 /**
  * Test double for the browser `fetch`.
  *
  * Only the two client-side endpoints used by the components under test are
  * answered; everything else (the Turnstile configuration) gets an empty but
- * successful payload.
+ * successful payload. The answers are faithful `Response` objects so the
+ * shared `readJsonBody` contract (text/headers) behaves as in production.
  */
 function createFetchMock() {
   return vi.fn(
-    async (input: RequestInfo | URL, _init?: RequestInit): Promise<FetchResponseDouble> => {
+    async (input: RequestInfo | URL, _init?: RequestInit): Promise<Response> => {
       const url = String(input);
       if (url.includes("/api/auth/verify")) {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({
+        return new Response(
+          JSON.stringify({
             ok: true,
             role: "user",
             name: "テストユーザー",
             maxStocks: null,
             maxIndices: null,
           }),
-        };
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
       }
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({ ok: true, siteKey: "1x00000000000000000000AA" }),
-      };
+      return new Response(
+        JSON.stringify({ ok: true, siteKey: "1x00000000000000000000AA" }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
     },
   );
 }

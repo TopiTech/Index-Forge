@@ -102,19 +102,21 @@ describe("Comprehensive Review Goal Fixes", () => {
       // Mock Yahoo Finance
       vi.stubGlobal(
         "fetch",
-        vi.fn().mockResolvedValue({
-          ok: true,
-          json: async () => ({
-            chart: {
-              result: [
-                {
-                  timestamp: [1700000000],
-                  indicators: { quote: [{ close: [2500] }] },
-                },
-              ],
-            },
-          }),
-        }),
+        vi.fn().mockResolvedValue(
+          new Response(
+            JSON.stringify({
+              chart: {
+                result: [
+                  {
+                    timestamp: [1700000000],
+                    indicators: { quote: [{ close: [2500] }] },
+                  },
+                ],
+              },
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        ),
       );
 
       try {

@@ -249,12 +249,13 @@ describe("comprehensiveCodeReviewFinalFixes", () => {
         vi.fn((input: RequestInfo | URL) => {
           const url = String(input);
           if (url.includes("/api/indices")) {
-            return Promise.resolve({
-              ok: true,
-              status: 200,
-              json: async () => [],
-              headers: { get: () => null },
-            } as unknown as Response);
+            // A faithful Response keeps the shared readJsonBody contract.
+            return Promise.resolve(
+              new Response(JSON.stringify([]), {
+                status: 200,
+                headers: { "Content-Type": "application/json" },
+              }),
+            );
           }
           return Promise.reject(new Error("network disabled in test"));
         }),

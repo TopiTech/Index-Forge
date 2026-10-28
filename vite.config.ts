@@ -80,10 +80,18 @@ export default defineConfig({
     env: {
       NODE_ENV: "test",
     },
-    // Include .tsx/.spec and worker tests as well: the toolchain
+    // Include .tsx/.spec, worker and scripts tests as well: the toolchain
     // (eslint + tsconfigs) already anticipates .tsx tests, and a .ts-only
-    // pattern would silently skip the first real DOM test.
-    include: ["src/**/*.{test,spec}.{ts,tsx}", "worker/**/*.{test,spec}.{ts,tsx}"],
+    // pattern would silently skip the first real DOM test. `scripts/**` keeps
+    // the Node CLI tests (previously a dead `node:test` file no runner ran --
+    // N-4) in the single standard runner. This array is mirrored by the
+    // runner registry in scripts/check-test-coverage.mjs; its test asserts the
+    // two stay identical so no test file can fall outside every runner.
+    include: [
+      "src/**/*.{test,spec}.{ts,tsx}",
+      "worker/**/*.{test,spec}.{ts,tsx}",
+      "scripts/**/*.{test,spec}.{ts,tsx,mjs}",
+    ],
     // Windows + vitest 4 default pools (forks/threads) load
     // "@vitest/runner" twice, so the module-scope `runner` is never set and
     // every suite dies with `Cannot read properties of undefined (reading

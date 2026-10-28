@@ -56,14 +56,12 @@ const CALENDAR_FIXTURE: CalendarEvent[] = [
   },
 ];
 
-/** Minimal `Response`-like payload for the stubbed `/api/market/calendar` call. */
-function jsonResponse(payload: unknown) {
-  return {
-    ok: true,
+/** Faithful `Response` for the stubbed `/api/market/calendar` call. */
+function jsonResponse(payload: unknown): Response {
+  return new Response(JSON.stringify(payload), {
     status: 200,
-    headers: { get: () => "application/json" },
-    json: async () => payload,
-  };
+    headers: { "Content-Type": "application/json" },
+  });
 }
 
 async function renderCalendar() {

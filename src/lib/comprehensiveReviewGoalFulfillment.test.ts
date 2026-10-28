@@ -178,19 +178,21 @@ describe("Comprehensive Review Goal Fulfillment Suite", () => {
       // Mock Yahoo Finance to prevent outbound network calls
       vi.stubGlobal(
         "fetch",
-        vi.fn().mockResolvedValue({
-          ok: true,
-          json: async () => ({
-            chart: {
-              result: [
-                {
-                  timestamp: [1700000000],
-                  indicators: { quote: [{ close: [38000] }] },
-                },
-              ],
-            },
-          }),
-        }),
+        vi.fn().mockResolvedValue(
+          new Response(
+            JSON.stringify({
+              chart: {
+                result: [
+                  {
+                    timestamp: [1700000000],
+                    indicators: { quote: [{ close: [38000] }] },
+                  },
+                ],
+              },
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        ),
       );
 
       const res = await worker.fetch(

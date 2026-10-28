@@ -989,6 +989,8 @@ export function isModernPasswordHash(storedHash: string): boolean {
 export let isPasswordTableEnsured = false;
 export const PROVISION_RETRY_INTERVAL_MS = 30_000;
 let passwordTableProvisionFailedAt = 0;
+/** N-8: 実行中のプロビジョニング。並行リクエストはこれを共有して二重実行を防ぐ。 */
+let passwordTableEnsuring: Promise<void> | null = null;
 
 export function getPasswordTableProvisionFailedAt(): number {
   return passwordTableProvisionFailedAt;
@@ -997,6 +999,7 @@ export function getPasswordTableProvisionFailedAt(): number {
 export function resetPasswordTableEnsured(): void {
   isPasswordTableEnsured = false;
   passwordTableProvisionFailedAt = 0;
+  passwordTableEnsuring = null;
 }
 
 export async function runStatement(env: Env, sql: string): Promise<void> {
@@ -1111,12 +1114,17 @@ async function backfillOwnerTokenIssuedAt(env: Env, probe: SchemaProbe | null): 
   }
 }
 
-export async function ensurePasswordTable(env: Env): Promise<void> {
-  if (isPasswordTableEnsured) return;
+export function ensurePasswordTable(env: Env): Promise<void> {
+  if (isPasswordTableEnsured) return Promise.resolve();
+  // N-8: in-flight 共有。コールドスタートで並行した複数リクエストがそれぞれ
+  // DDL 一式を実行していた (冪等なので破壊的ではないが D1 往返が二重化)。
+  // 実行中のプロビジョニングがあれば、同じ Promise を待つだけにする。
+  if (passwordTableEnsuring) return passwordTableEnsuring;
   const now = Date.now();
   if (passwordTableProvisionFailedAt > 0 && now - passwordTableProvisionFailedAt < PROVISION_RETRY_INTERVAL_MS) {
-    return;
+    return Promise.resolve();
   }
+  const started: Promise<void> = (async () => {
   let allRequiredStepsApplied = true;
 
   try {
@@ -1164,6 +1172,15 @@ export async function ensurePasswordTable(env: Env): Promise<void> {
     // and be classified as 503 by the caller's unavailable path.
     passwordTableProvisionFailedAt = Date.now();
   }
+  })();
+  passwordTableEnsuring = started;
+  // 完了 (成功・失敗を問わず) したら共有を解消する。次回呼び出しは成功なら
+  // ensured 短絡、失敗ならクールダウン明けの再試行になる。
+  const clearInFlight = () => {
+    if (passwordTableEnsuring === started) passwordTableEnsuring = null;
+  };
+  started.then(clearInFlight, clearInFlight);
+  return started;
 }
 
 export const ADMIN_LOGIN_MAX_ATTEMPTS = 5;
@@ -3318,16 +3335,23 @@ export async function fetchLiveMarketOverview(
       };
       if (Array.isArray(sJson.news) && sJson.news.length > 0) {
         newsList = sJson.news.map((item) => {
-          const date = new Date((item.providerPublishTime || Math.floor(Date.now() / 1000)) * 1000);
-          const jstDate = new Date(date.getTime() + 9 * 60 * 60 * 1000);
-          const hh = String(jstDate.getUTCHours()).padStart(2, "0");
-          const mm = String(jstDate.getUTCMinutes()).padStart(2, "0");
+          // N-1: 配信元が供給した時刻のみを使う。欠損時に「今」を代入すると
+          // 偽の鮮度になるため、その場合は時刻なし (publishedAt: "") とする。
+          const providerTimeMs =
+            typeof item.providerPublishTime === "number" && Number.isFinite(item.providerPublishTime)
+              ? item.providerPublishTime * 1000
+              : undefined;
+          const date = providerTimeMs !== undefined ? new Date(providerTimeMs) : undefined;
+          const jstDate = date ? new Date(date.getTime() + 9 * 60 * 60 * 1000) : undefined;
+          const hh = jstDate ? String(jstDate.getUTCHours()).padStart(2, "0") : "";
+          const mm = jstDate ? String(jstDate.getUTCMinutes()).padStart(2, "0") : "";
           return {
             id: item.uuid || `news-${Math.random()}`,
             title: item.title,
-            source: item.publisher || "市場速報",
-            publishedAt: `${hh}:${mm}`,
-            publishedTimestamp: date.toISOString(),
+            // 実在の配信元が不明でも媒体名を捏造せず「配信元不明」とする。
+            source: item.publisher || "配信元不明",
+            publishedAt: date ? `${hh}:${mm}` : "",
+            ...(date ? { publishedTimestamp: date.toISOString() } : {}),
             url: item.link,
             relatedTicker: item.relatedTickers?.[0],
           };
@@ -3339,48 +3363,40 @@ export async function fetchLiveMarketOverview(
   }
 
   if (newsList.length === 0) {
-    const nowMs = Date.now();
-    const nowJst = new Date(nowMs + 9 * 60 * 60 * 1000);
-    const getJstTimeStr = (offsetMinutes: number) => {
-      const d = new Date(nowJst.getTime() - offsetMinutes * 60 * 1000);
-      const hh = String(d.getUTCHours()).padStart(2, "0");
-      const mm = String(d.getUTCMinutes()).padStart(2, "0");
-      return `${hh}:${mm}`;
-    };
-    const getIsoTimestamp = (offsetMinutes: number) => {
-      return new Date(nowMs - offsetMinutes * 60 * 1000).toISOString();
-    };
+    // N-1: 実記事が取得できない場合のフォールバックは実在の記事ではない。
+    // 実在媒体名や「5分前」等の配信時刻を捏造せず、isSample でサンプルである
+    // ことを明示する (鮮度を偽らない: publishedAt は空、publishedTimestamp なし)。
     newsList = [
       {
-        id: "news-live-1",
+        id: "news-sample-1",
         title: "日経平均は高水準推移、主要ハイテク・半導体関連株に実需買い",
-        source: "市場速報",
-        publishedAt: getJstTimeStr(5),
-        publishedTimestamp: getIsoTimestamp(5),
+        source: "サンプル",
+        publishedAt: "",
+        isSample: true,
         relatedTicker: "8035",
       },
       {
-        id: "news-live-2",
+        id: "news-sample-2",
         title: "米ドル円は158円台で推移、日米金利動向と実需フローを見極め",
-        source: "為替市況",
-        publishedAt: getJstTimeStr(15),
-        publishedTimestamp: getIsoTimestamp(15),
+        source: "サンプル",
+        publishedAt: "",
+        isSample: true,
         relatedTicker: "USDJPY=X",
       },
       {
-        id: "news-live-3",
+        id: "news-sample-3",
         title: "米ハイテク株と主要指数が堅調推移、インフラ・生成AI需要が下支え",
-        source: "グローバル金融",
-        publishedAt: getJstTimeStr(45),
-        publishedTimestamp: getIsoTimestamp(45),
+        source: "サンプル",
+        publishedAt: "",
+        isSample: true,
         relatedTicker: "NVDA",
       },
       {
-        id: "news-live-4",
+        id: "news-sample-4",
         title: "東証プライム騰落レシオは良好、好業績バリュー銘柄に見直し買いが継続",
-        source: "株式ニュース",
-        publishedAt: getJstTimeStr(120),
-        publishedTimestamp: getIsoTimestamp(120),
+        source: "サンプル",
+        publishedAt: "",
+        isSample: true,
       },
     ];
   }
@@ -4531,7 +4547,14 @@ function generateUpcomingMacroEvents(refDate = new Date()): CalendarEvent[] {
   const events: CalendarEvent[] = [];
   const refTime = refDate.getTime() - 24 * 60 * 60 * 1000; // 過去24時間以内は当日分として保持
 
-  const fallbackMacro = (): Pick<CalendarEvent, "source"> => ({ source: "fallback" });
+  // N-3: イベント単位の source (日程の出所) とは別に、指標値 (previous /
+  // forecast) は MACRO_METRICS_DEFAULTS の静的デフォルトであることをフィールド
+  // 単位の来歴で明示する。イベントが "official" に昇格しても、この来歴は値と
+  // 共に保持され、静的値が実データに「洗浄」されることはない。
+  const fallbackMacro = (): Pick<CalendarEvent, "source" | "fieldProvenance"> => ({
+    source: "fallback",
+    fieldProvenance: { previous: "reference", forecast: "reference" },
+  });
 
   // 1. 日銀会合 (直近2回)
   for (const d of getNextScheduledMeetings(BOJ_MEETING_SCHEDULE, refDate, 2)) {
@@ -4926,15 +4949,20 @@ export async function fetchLiveMarketCalendarAsync(
           }
         }
 
-        // マクロ実勢金利が得られた場合、FOMCイベントをLIVE実データとして更新
+        // N-2: 3ヶ月 T-Bill 利回り (^IRX) からレンジ下限を推計した参考値であり、  // 公式の FF 誘導目標レンジではない。推計である旨を文言とフィールド来歴の
+        // 両方で明示する (PER の isEstimatedPer + 「推計」注記と同一の規律)。
         if (typeof liveFomcRate === "number") {
           for (const me of macroEvents) {
             if (me.id.startsWith("macro-fomc")) {
               const lower = (Math.floor(liveFomcRate * 4) / 4).toFixed(2);
               const upper = (Number(lower) + 0.25).toFixed(2);
-              me.previous = `${lower}% - ${upper}% (現行誘導目標)`;
+              me.previous = `${lower}% - ${upper}% (参考推計: 3ヶ月物利回りベース)`;
               me.forecast = "市場予想集計中";
-              me.source = undefined; // LIVE実データ扱い
+              me.fieldProvenance = {
+                ...me.fieldProvenance,
+                previous: "estimated",
+                forecast: "reference",
+              };
             }
           }
         }
@@ -5002,6 +5030,8 @@ export async function fetchLiveMarketCalendarAsync(
   const finalMacros = macroEvents;
 
   if (liveEarnings.length > 0 || liveFomcRate !== null) {
+    // 日程 (公定表) の official 昇格は正当な仕様。ここで触れるのはイベント
+    // 単位の source だけで、指標値の来歴 (fieldProvenance) は変更しない (N-3)。
     for (const me of finalMacros) {
       if (me.source === "fallback") {
         me.source = "official";

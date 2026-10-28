@@ -311,10 +311,25 @@ export function validateBasketItems(
  * imports: the Worker typecheck compiles this file too, and `Response` exists
  * in both runtime type worlds.
  */
-export async function readJsonBody<T = unknown>(res: Response): Promise<T | null> {
+/**
+ * Parse a JSON text body without throwing on a non-JSON body.
+ *
+ * 「非 JSON 本文 (HTML のエラーページや空ボディ) は例外にせず null」という規約の
+ * 唯一の実装。本文テキストを既に手にしている呼び出し側 (useBenchmark の 304
+ * リトライ経路など) も、このヘルパーを通して同じ規約に従う。
+ */
+export function parseJsonText(text: string): unknown {
   try {
-    const value = (await res.json()) as T;
-    return value;
+    return JSON.parse(text) as unknown;
+  } catch {
+    return null;
+  }
+}
+
+export async function readJsonBody<T = unknown>(res: Response): Promise<T | null> {
+  let text: string;
+  try {
+    text = await res.text();
   } catch (error) {
     // A deadline is not a malformed body: the caller's timeout branch must
     // run instead of the graceful "empty/non-JSON response" fallback. The
@@ -323,6 +338,7 @@ export async function readJsonBody<T = unknown>(res: Response): Promise<T | null
     if (isFetchTimeoutError(error)) throw error;
     return null;
   }
+  return parseJsonText(text) as T | null;
 }
 
 /**

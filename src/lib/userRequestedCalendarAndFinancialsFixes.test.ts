@@ -74,16 +74,22 @@ describe("User Requested Calendar & Financials Fixes Tests", () => {
         expect(m.source).not.toBe("fallback");
       }
 
-      // FOMC event must be LIVE (source undefined) with live interest rate target
+      // FOMC event: 日程は公定日程 (official)。前回値は 3ヶ月 T-Bill からの
+      // 参考推計であり、値はフィールド単位の来歴で estimated と明示される。
       const fomc = macros.find((m) => m.id.startsWith("macro-fomc"));
       expect(fomc).toBeDefined();
-      expect(fomc?.source).toBeUndefined(); // Live real data
+      expect(fomc?.source).toBe("official");
       expect(fomc?.previous).toContain("4.75% - 5.00%");
+      expect(fomc?.previous).toContain("参考推計");
+      expect(fomc?.fieldProvenance?.previous).toBe("estimated");
 
       // BOJ, Jobs, CPI must be marked as 'official' (公定日程), NOT fallback
       const boj = macros.find((m) => m.id.startsWith("macro-boj"));
       expect(boj).toBeDefined();
       expect(boj?.source).toBe("official");
+      // N-3: 日程の昇格でも指標値の静的デフォルトは実データに洗浄されない
+      expect(boj?.fieldProvenance?.previous).toBe("reference");
+      expect(boj?.fieldProvenance?.forecast).toBe("reference");
 
       const jobs = macros.find((m) => m.id.startsWith("macro-jobs"));
       expect(jobs).toBeDefined();

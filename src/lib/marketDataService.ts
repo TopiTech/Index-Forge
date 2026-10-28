@@ -76,11 +76,27 @@ export interface MarketOverviewData {
   news: Array<{
     id: string;
     title: string;
+    /**
+     * 配信元名。合成サンプルの場合は実在媒体を騙らず "サンプル" とする。
+     */
     source: string;
+    /**
+     * 表示用の時刻文字列。配信時刻が不明な実記事は "" (未取得) とし、偽の時刻で埋めない。
+     */
     publishedAt: string;
+    /**
+     * 配信元が供給した配信時刻 (ISO 8601)。鮮度表示の計算にのみ使う。
+     * 未設定の場合、UI は相対時刻を合成しない。
+     */
     publishedTimestamp?: string;
     url?: string;
     relatedTicker?: string;
+    /**
+     * true の場合、実在の記事ではなく表示確認用に自動生成したサンプルであることを示す
+     * (DATA-03 / N-1: 合成値には来歴を付ける)。true のアイテムは配信時刻を
+     * 持たず、UI はサンプルバッジを明示して時刻・記事リンクを表示しない。
+     */
+    isSample?: boolean;
   }>;
   /**
    * データ出所のメタデータ (後方互換のためオプショナル)。
@@ -139,6 +155,19 @@ export interface StockQuoteFundamentals {
   }>;
 }
 
+/** カレンダーの値フィールド (前回値・市場予想・発表結果) */
+export type CalendarValueField = "previous" | "forecast" | "actual";
+
+/**
+ * フィールド単位の来歴区分 (N-3)。
+ * - "reference": 静的デフォルト参考値 (MACRO_METRICS_DEFAULTS 等)。実データではない。
+ * - "estimated": 推計値 (例: 3ヶ月 T-Bill 利回りからの FOMC レンジ推計)。
+ *
+ * 未設定のフィールドは実データ (公式公表値) を意味する (N-1 の `isSample` /
+ * `stale` と同じく、実データでないときだけ来歴を出す)。
+ */
+export type CalendarValueProvenance = "reference" | "estimated";
+
 export interface CalendarEvent {
   id: string;
   date: string;
@@ -167,6 +196,14 @@ export interface CalendarEvent {
    * 未設定の場合は実データ (または従来どおりの生成データ) を意味する。
    */
   source?: string;
+  /**
+   * フィールド単位のデータ来歴 (N-3)。イベント単位の `source` は日程の出所を
+   * 指すのに対し、指標値 (previous / forecast / actual) はフィールドごとに出所が
+   * 異なる。実データでないフィールドのみ記録し (未設定 = 実データ)、イベント
+   * 単位の昇格 (fallback → official) で静的値が実データに「洗浄」されないように
+   * する。UI はこれを根拠に「参考値」「推計」バッジで実データと区別する。
+   */
+  fieldProvenance?: Partial<Record<CalendarValueField, CalendarValueProvenance>>;
 }
 
 function buildDefaultMarketQuotes(
@@ -245,38 +282,45 @@ export function formatDynamicRelativeTime(
   return `${Math.floor(diffDays / 7)}週間前`;
 }
 
-export function buildDefaultMarketNews(refDate = new Date()) {
+/**
+ * クライアント側フォールバック用のサンプルトピック。
+ *
+ * これは実在の記事ではないため、実在媒体名や「5分前」等の偽装鮮度を付与しない。
+ * 各アイテムは `isSample: true` で来歴を明示し、配信時刻は持たない
+ * (`publishedAt: ""`)。
+ */
+export function buildDefaultMarketNews() {
   return [
     {
       id: "news-1",
       title: "日経平均は高水準推移、主要半導体・ハイテク関連株に堅調な買い需要",
-      source: "市場速報",
-      publishedAt: formatDynamicRelativeTime(25, refDate),
-      publishedTimestamp: new Date(refDate.getTime() - 25 * 60 * 1000).toISOString(),
+      source: "サンプル",
+      publishedAt: "",
+      isSample: true as const,
       relatedTicker: "8035",
     },
     {
       id: "news-2",
       title: "米ハイテク株と主要指数が堅調、AIインフラ需要期待が下支え",
-      source: "グローバル金融",
-      publishedAt: formatDynamicRelativeTime(60, refDate),
-      publishedTimestamp: new Date(refDate.getTime() - 60 * 60 * 1000).toISOString(),
+      source: "サンプル",
+      publishedAt: "",
+      isSample: true as const,
       relatedTicker: "NVDA",
     },
     {
       id: "news-3",
       title: "ドル円は158円台前半で推移、日米金利差と金融政策動向を注視",
-      source: "為替市況",
-      publishedAt: formatDynamicRelativeTime(120, refDate),
-      publishedTimestamp: new Date(refDate.getTime() - 120 * 60 * 1000).toISOString(),
+      source: "サンプル",
+      publishedAt: "",
+      isSample: true as const,
       relatedTicker: "USDJPY=X",
     },
     {
       id: "news-4",
       title: "東証プライム騰落レシオは良好、好業績バリュー銘柄に見直し買いが継続",
-      source: "株式ニュース",
-      publishedAt: formatDynamicRelativeTime(180, refDate),
-      publishedTimestamp: new Date(refDate.getTime() - 180 * 60 * 1000).toISOString(),
+      source: "サンプル",
+      publishedAt: "",
+      isSample: true as const,
     },
   ];
 }
@@ -1751,12 +1795,16 @@ export function normalizeMarketOverview(raw: unknown): MarketOverviewData | null
           .map((item) => {
             const rawUrl = typeof item.url === "string" ? item.url : undefined;
             const safeUrl = rawUrl && /^https?:\/\//i.test(rawUrl) ? rawUrl : undefined;
+            // N-1: 合成サンプルは配信時刻を持たない。時刻が同梱されていても
+            // 捨てる (偽装鮮度を表示経路に流さない)。
+            const isSample = (item as { isSample?: unknown }).isSample === true;
             return {
               id: item.id as string,
               title: item.title as string,
               source: item.source as string,
-              publishedAt: item.publishedAt as string,
+              publishedAt: isSample ? "" : (item.publishedAt as string),
               publishedTimestamp:
+                !isSample &&
                 typeof (item as { publishedTimestamp?: unknown }).publishedTimestamp === "string"
                   ? ((item as { publishedTimestamp: string }).publishedTimestamp)
                   : undefined,
@@ -1765,6 +1813,7 @@ export function normalizeMarketOverview(raw: unknown): MarketOverviewData | null
                 typeof item.relatedTicker === "string" && item.relatedTicker
                   ? (item.relatedTicker as string)
                   : undefined,
+              ...(isSample ? { isSample: true as const } : {}),
             };
           })
       : fallback.news,
@@ -2538,6 +2587,26 @@ function isValidCalendarEvent(e: unknown): e is CalendarEvent {
   if (recAny.importance !== "HIGH" && recAny.importance !== "MEDIUM" && recAny.importance !== "LOW") {
     recAny.importance = "MEDIUM";
   }
+  // N-3: フィールド単位の来歴も境界で正規化する。既知のキー (previous /
+  // forecast / actual) と既知の区分 (reference / estimated) だけを通し、
+  // 不正な形状や未知の値は破棄する (未設定 = 実データなので、破棄は安全側)。
+  const rawProvenance = recAny.fieldProvenance;
+  if (rawProvenance && typeof rawProvenance === "object" && !Array.isArray(rawProvenance)) {
+    const normalized: Partial<Record<CalendarValueField, CalendarValueProvenance>> = {};
+    for (const key of ["previous", "forecast", "actual"] as const) {
+      const value = (rawProvenance as Record<string, unknown>)[key];
+      if (value === "reference" || value === "estimated") {
+        normalized[key] = value;
+      }
+    }
+    if (Object.keys(normalized).length > 0) {
+      recAny.fieldProvenance = normalized;
+    } else {
+      delete recAny.fieldProvenance;
+    }
+  } else if (rawProvenance !== undefined) {
+    delete recAny.fieldProvenance;
+  }
   return true;
 }
 
@@ -2690,6 +2759,8 @@ export function generateUpcomingEvents(referenceDate = new Date()): CalendarEven
     forecast: MACRO_METRICS_DEFAULTS.boj.forecast,
     description: MACRO_METRICS_DEFAULTS.boj.description,
     source: "fallback",
+    // N-3: 前回値・予想値は静的デフォルトであり実データではない
+    fieldProvenance: { previous: "reference", forecast: "reference" },
   });
 
   // マクロ: 米FOMC (公定日程スケジュールマスターから直近次回・次々回を特定)
@@ -2709,6 +2780,8 @@ export function generateUpcomingEvents(referenceDate = new Date()): CalendarEven
     forecast: MACRO_METRICS_DEFAULTS.fomc.forecast,
     description: MACRO_METRICS_DEFAULTS.fomc.description,
     source: "fallback",
+    // N-3: 前回値・予想値は静的デフォルトであり実データではない
+    fieldProvenance: { previous: "reference", forecast: "reference" },
   });
 
   // マクロ: 米雇用統計 (第1金曜日)
@@ -2740,6 +2813,8 @@ export function generateUpcomingEvents(referenceDate = new Date()): CalendarEven
     forecast: MACRO_METRICS_DEFAULTS.jobs.forecast,
     description: MACRO_METRICS_DEFAULTS.jobs.description,
     source: "fallback",
+    // N-3: 前回値・予想値は静的デフォルトであり実データではない
+    fieldProvenance: { previous: "reference", forecast: "reference" },
   });
 
   // マクロ: 米CPI (中旬平日)
@@ -2768,6 +2843,8 @@ export function generateUpcomingEvents(referenceDate = new Date()): CalendarEven
     forecast: MACRO_METRICS_DEFAULTS.cpi.forecast,
     description: MACRO_METRICS_DEFAULTS.cpi.description,
     source: "fallback",
+    // N-3: 前回値・予想値は静的デフォルトであり実データではない
+    fieldProvenance: { previous: "reference", forecast: "reference" },
   });
 
   // 主要企業決算 (平日に分散配置)
@@ -2897,6 +2974,8 @@ export function generateUpcomingEvents(referenceDate = new Date()): CalendarEven
     forecast: MACRO_METRICS_DEFAULTS.jpCpi.forecast,
     description: MACRO_METRICS_DEFAULTS.jpCpi.description,
     source: "fallback",
+    // N-3: 前回値・予想値は静的デフォルトであり実データではない
+    fieldProvenance: { previous: "reference", forecast: "reference" },
   });
 
   // 四半期実質GDP1次速報 (2, 5, 8, 11月中旬・内閣府公約基準)
@@ -2927,6 +3006,8 @@ export function generateUpcomingEvents(referenceDate = new Date()): CalendarEven
     forecast: "+0.3%",
     description: "内閣府発表。実質国内総生産（前期比・年率換算）。国内個人消費および設備投資の景気動向。",
     source: "fallback",
+    // N-3: 前回値・予想値は静的デフォルトであり実データではない
+    fieldProvenance: { previous: "reference", forecast: "reference" },
   });
 
   // 日付順にソート (fullDate 優先、または6ヶ月境界判定)

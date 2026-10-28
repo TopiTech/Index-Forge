@@ -431,15 +431,33 @@ export async function verifyPassword(
 /**
  * Generate a cryptographically secure random password.
  * Uses characters without visually ambiguous pairs (e.g. 0, O, 1, l, I).
+ *
+ * 各文字は拒否サンプリング (rejection sampling) で選ぶ。`2^32` は文字数 (55) で
+ * 割り切れない (`2^32 mod 55 = 26`) ため、単純な `%` では剰余 0〜25 の文字が
+ * わずかに選ばれやすく (モジュロバイアス)、一様性が崩れる。剰余の表す範囲を
+ * 満たす値だけを採用し、それ以外は棄却して引き直すことで、文字セット・長さ・
+ * 互換性を保ったまま一様分布を回復する。
  */
 export function generateSecurePassword(length = 10): string {
   const chars = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   const charsLength = chars.length;
-  const randomValues = new Uint32Array(length);
-  crypto.getRandomValues(randomValues);
+  if (!Number.isInteger(length) || length < 0) {
+    throw new RangeError("generateSecurePassword: length は 0 以上の整数で指定してください");
+  }
+  if (length === 0) return "";
+  // 2^32 を charsLength で割り切れる最大の値 (= charsLength * floor(2^32 / charsLength))。
+  // これ以上の乱数は剰余が偏るため棄却する。charsLength 55 のとき上限は
+  // 55 * 78,090,314 = 4,294,967,270 で、棄却率は約 6.1e-9 (実質的に無視できる)。
+  const uniformBound = Math.floor(0x1_0000_0000 / charsLength) * charsLength;
   let result = "";
-  for (let i = 0; i < length; i++) {
-    result += chars.charAt(randomValues[i] % charsLength);
+  while (result.length < length) {
+    const randomValues = new Uint32Array(length - result.length);
+    crypto.getRandomValues(randomValues);
+    for (const value of randomValues) {
+      if (value >= uniformBound) continue; // 偏りを生む上端の乱数は棄却して引き直す
+      result += chars.charAt(value % charsLength);
+      if (result.length === length) break;
+    }
   }
   return result;
 }

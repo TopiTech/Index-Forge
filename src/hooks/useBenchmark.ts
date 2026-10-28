@@ -4,6 +4,7 @@ import {
   extractApiErrorMessage,
   fetchWithNetworkMark,
   isFetchTimeoutError,
+  parseJsonText,
   readJsonBody,
   releaseResponse,
 } from "../lib/apiContract";
@@ -100,15 +101,6 @@ export function normalizeBenchmarkData(raw: unknown): BenchmarkData | null {
     data.stale = record.stale;
   }
   return data;
-}
-
-/** Parse a JSON body without throwing on a non-JSON error page. */
-function parseJsonBody(text: string): unknown {
-  try {
-    return JSON.parse(text) as unknown;
-  } catch {
-    return null;
-  }
 }
 
 /**
@@ -261,7 +253,8 @@ export function useBenchmark(initialSymbol: BenchmarkSymbol = "^N225", enabled =
           if (!freshText) {
             throw new Error(`${selectedBenchmark} データの取得に失敗しました（空のレスポンス）`);
           }
-          const freshData = normalizeBenchmarkData(parseJsonBody(freshText));
+          // 非 JSON 本文の規約 (null に落とす) は apiContract の共有ヘルパーに一元化済み (N-6)。
+          const freshData = normalizeBenchmarkData(parseJsonText(freshText));
           if (!freshData) {
             throw new Error(`${selectedBenchmark} データの形式が不正です`);
           }

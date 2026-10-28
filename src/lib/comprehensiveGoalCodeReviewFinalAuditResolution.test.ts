@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { readFileSync } from "fs";
 import { resolve } from "path";
 import { runStockScreener, type StockQuoteFundamentals } from "./marketDataService";
@@ -151,16 +151,58 @@ describe("Comprehensive Goal Code Review Final Audit Resolution Verification", (
 
   describe("Unit 4: News publishedTimestamp ISO Support", () => {
     it("returns ISO 8601 publishedTimestamp in /api/market/overview news items", async () => {
-      const req = new Request("http://localhost/api/market/overview");
-      const res = await worker.fetch(req, {} as any);
-      expect(res.status).toBe(200);
-      const data = (await res.json()) as any;
-      expect(Array.isArray(data.news)).toBe(true);
-      expect(data.news.length).toBeGreaterThan(0);
-      for (const item of data.news) {
-        expect(item.publishedTimestamp).toBeDefined();
-        expect(typeof item.publishedTimestamp).toBe("string");
-        expect(new Date(item.publishedTimestamp).getTime()).not.toBeNaN();
+      // N-1: 合成フォールバックは時刻を持たないので、publishedTimestamp の
+      // 契約は配信元供給の providerPublishTime がある実記事で検証する。
+      // Yahoo 呼び出しは決定的なテストダブルに差し替え。
+      const providerSecs = Date.UTC(2026, 9, 28, 5, 30, 0) / 1000;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL) => {
+          const url = String(input);
+          if (url.includes("/v1/finance/search")) {
+            return new Response(
+              JSON.stringify({
+                news: [
+                  {
+                    uuid: "uuid-iso-1",
+                    title: "実在の配信記事",
+                    publisher: "テスト通信",
+                    link: "https://example.com/article",
+                    providerPublishTime: providerSecs,
+                    relatedTickers: ["8035"],
+                  },
+                  {
+                    uuid: "uuid-iso-2",
+                    title: "別の実在記事",
+                    publisher: "テスト通信",
+                    link: "https://example.com/article-2",
+                    providerPublishTime: providerSecs + 3600,
+                  },
+                ],
+              }),
+              { status: 200, headers: { "content-type": "application/json" } },
+            );
+          }
+          return new Response(JSON.stringify({}), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }),
+      );
+      try {
+        const req = new Request("http://localhost/api/market/overview");
+        const res = await worker.fetch(req, {} as any);
+        expect(res.status).toBe(200);
+        const data = (await res.json()) as any;
+        expect(Array.isArray(data.news)).toBe(true);
+        expect(data.news.length).toBeGreaterThan(0);
+        for (const item of data.news) {
+          expect(item.publishedTimestamp).toBeDefined();
+          expect(typeof item.publishedTimestamp).toBe("string");
+          expect(new Date(item.publishedTimestamp).getTime()).not.toBeNaN();
+        }
+      } finally {
+        vi.unstubAllGlobals();
       }
     });
   });

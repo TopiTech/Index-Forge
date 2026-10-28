@@ -140,14 +140,12 @@ interface BatchBasketItem {
   weight: number;
 }
 
-/** Minimal `Response`-like payload for the stubbed `/api/stocks/screener` call. */
-function jsonResponse(payload: unknown) {
-  return {
-    ok: true,
+/** Faithful `Response` for the stubbed `/api/stocks/screener` call. */
+function jsonResponse(payload: unknown): Response {
+  return new Response(JSON.stringify(payload), {
     status: 200,
-    headers: { get: () => "application/json" },
-    json: async () => payload,
-  };
+    headers: { "Content-Type": "application/json" },
+  });
 }
 
 function renderScreener() {

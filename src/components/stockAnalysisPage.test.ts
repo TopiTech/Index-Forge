@@ -1,6 +1,11 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "fs";
 import { resolve } from "path";
+import { StockAnalysisPage, type StockAnalysisPageProps } from "./StockAnalysisPage";
+import type { PageView } from "../lib/navigation";
+
+/** Compile-time contract probe: `From extends To ? true : false`. */
+type IsAssignable<From, To> = From extends To ? true : false;
 
 describe("StockAnalysisPage & Navigation Refinement Tests", () => {
   const stockAnalysisPath = resolve(__dirname, "StockAnalysisPage.tsx");
@@ -15,12 +20,36 @@ describe("StockAnalysisPage & Navigation Refinement Tests", () => {
 
   describe("1. Dedicated Stock Analysis Hub Component", () => {
     it("exports StockAnalysisPage component with full interactive props", () => {
-      expect(stockAnalysisTsx).toContain("export function StockAnalysisPage(");
-      expect(stockAnalysisTsx).toContain("onNavigate: (view: PageView");
-      expect(stockAnalysisTsx).toContain("onOpenStockDetail: (ticker: string) => void");
-      expect(stockAnalysisTsx).toContain("onAddToIndex?:");
-      expect(stockAnalysisTsx).toContain("onAddToWatchlist?:");
-      expect(stockAnalysisTsx).toContain("onAddToPortfolio?:");
+      // N-7 転換: props 宣言のテキスト固定 (実装文字列ピン) を、実装テキストに
+      // 依存しない型契約の検証へ置き換えた。存在・シグネチャ・optionality は
+      // コンパイラ (npm run build の tsc) が保証する。
+      expect(typeof StockAnalysisPage).toBe("function");
+      const navContract: IsAssignable<
+        StockAnalysisPageProps["onNavigate"],
+        (view: PageView, searchParams?: string) => void
+      > = true;
+      const openContract: IsAssignable<
+        StockAnalysisPageProps["onOpenStockDetail"],
+        (ticker: string) => void
+      > = true;
+      const addIndexContract: IsAssignable<
+        NonNullable<StockAnalysisPageProps["onAddToIndex"]>,
+        (ticker: string, name: string, theme: string) => void
+      > = true;
+      const addWatchContract: IsAssignable<
+        NonNullable<StockAnalysisPageProps["onAddToWatchlist"]>,
+        (ticker: string) => void
+      > = true;
+      const addPortfolioContract: IsAssignable<
+        NonNullable<StockAnalysisPageProps["onAddToPortfolio"]>,
+        (ticker: string, currentPrice: number, stockName?: string) => void
+      > = true;
+      const optionalContract: undefined extends StockAnalysisPageProps["onAddToIndex"] ? true : false = true;
+      expect(
+        [navContract, openContract, addIndexContract, addWatchContract, addPortfolioContract, optionalContract].every(
+          Boolean,
+        ),
+      ).toBe(true);
     });
 
     it("includes rich interactive search input and quick popular chips", () => {
@@ -64,6 +93,10 @@ describe("StockAnalysisPage & Navigation Refinement Tests", () => {
   });
 
   describe("2. Navigation Routing & App.tsx Integration", () => {
+    // ソース構造ガード (N-7 明示的整理): 「StockAnalysisPage がコード分割
+    // (React.lazy + 動的 import) で遅延ロードされる」はバンドル構造の契約で
+    // あり、jsdom 上の振る舞いでは検証できない (静的バンドルが分割される
+    // こと自体の保証)。ここではソース構造ガードとして明示的に維持する。
     it("lazy-loads StockAnalysisPage alongside StockDetailPage", () => {
       expect(appTsx).toContain("const StockAnalysisPage = lazy(");
       expect(appTsx).toContain('import("./components/StockAnalysisPage")');

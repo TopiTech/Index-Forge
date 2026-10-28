@@ -1,0 +1,437 @@
+{
+  "scripts/check-meta-test-gate.test.mjs": {
+    "budget": 8,
+    "category": "impl-source",
+    "reason": "ゲート自体の検出器セルフテスト: ピン形状の文字列を fixture として埋め込むため検出されるが、実装ソースのピンではない（検出器の回帰防止用）。fixture 変更で件数が動く場合は budget を合わせて更新する。"
+  },
+  "scripts/check-test-coverage.test.mjs": {
+    "budget": 1,
+    "category": "config-contract",
+    "reason": "ゲート自体の検出器セルフテスト: ピン形状の文字列を fixture として埋め込むため検出されるが、実装ソースのピンではない（検出器の回帰防止用）。fixture 変更で件数が動く場合は budget を合わせて更新する。"
+  },
+  "src/components/changeTone.test.ts": {
+    "budget": 7,
+    "category": "mixed-contract",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/components/comprehensiveUiReviewFixes.test.ts": {
+    "budget": 33,
+    "category": "impl-source",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/components/globalSearchModalOverlay.test.ts": {
+    "budget": 18,
+    "category": "impl-source",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/components/indexBuilderEnhancements.test.ts": {
+    "budget": 8,
+    "category": "impl-source",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/components/portfolioEnhancements.test.ts": {
+    "budget": 14,
+    "category": "impl-source",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/components/screenerUiEnhancements.test.ts": {
+    "budget": 17,
+    "category": "impl-source",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/components/stockAnalysisPage.test.ts": {
+    "budget": 51,
+    "category": "mixed-contract",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/components/StockTechnicalChart.test.ts": {
+    "budget": 19,
+    "category": "impl-source",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/components/Tutorial3DCanvas.test.tsx": {
+    "budget": 2,
+    "category": "mixed-contract",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/components/uiAndResponsiveEnhancements.test.ts": {
+    "budget": 2,
+    "category": "mixed-contract",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/hooks/useCalculation.test.ts": {
+    "budget": 6,
+    "category": "impl-source",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/hooks/useIndices.test.ts": {
+    "budget": 4,
+    "category": "impl-source",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/lib/addStockFeedback.test.ts": {
+    "budget": 3,
+    "category": "mixed-contract",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/lib/batch3FixesComprehensiveVerification.test.ts": {
+    "budget": 14,
+    "category": "mixed-contract",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/lib/chartModalResponsive.test.ts": {
+    "budget": 13,
+    "category": "impl-source",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/lib/codeReviewGoalFulfillment.test.ts": {
+    "budget": 34,
+    "category": "impl-source",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/lib/codeReviewGoalResolution.test.ts": {
+    "budget": 8,
+    "category": "impl-source",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/lib/collapsibleSidebar.test.ts": {
+    "budget": 13,
+    "category": "impl-source",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/lib/comprehensiveAuditFixes.test.ts": {
+    "budget": 10,
+    "category": "mixed-contract",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/lib/comprehensiveAuditSessionVerification.test.ts": {
+    "budget": 23,
+    "category": "mixed-contract",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/lib/comprehensiveCodeReviewAuditFulfillment.test.ts": {
+    "budget": 23,
+    "category": "mixed-contract",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/lib/comprehensiveCodeReviewFinalFixesPass.test.ts": {
+    "budget": 18,
+    "category": "mixed-contract",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/lib/comprehensiveCodeReviewFixesFinal.test.ts": {
+    "budget": 6,
+    "category": "mixed-contract",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/lib/comprehensiveCodeReviewGoalVerification.test.ts": {
+    "budget": 1,
+    "category": "mixed-contract",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/lib/comprehensiveCodeReviewResolution.test.ts": {
+    "budget": 8,
+    "category": "impl-source",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/lib/comprehensiveCodeReviewResolutionRound3.test.ts": {
+    "budget": 17,
+    "category": "impl-source",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/lib/comprehensiveCodeReviewResolutionRound4.test.ts": {
+    "budget": 13,
+    "category": "impl-source",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/lib/comprehensiveCodeReviewResolutionRound5.test.ts": {
+    "budget": 11,
+    "category": "impl-source",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/lib/comprehensiveGoalAudit.test.ts": {
+    "budget": 18,
+    "category": "impl-source",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/lib/comprehensiveGoalAuditFixes2.test.ts": {
+    "budget": 32,
+    "category": "impl-source",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/lib/comprehensiveGoalAuditFixes3.test.ts": {
+    "budget": 29,
+    "category": "mixed-contract",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/lib/comprehensiveGoalAuditResolution.test.ts": {
+    "budget": 14,
+    "category": "mixed-contract",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/lib/comprehensiveGoalAuditResolutionRound3.test.ts": {
+    "budget": 9,
+    "category": "impl-source",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/lib/comprehensiveGoalCodeReviewAudit.test.ts": {
+    "budget": 2,
+    "category": "impl-source",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/lib/comprehensiveGoalCodeReviewExhaustiveVerification.test.ts": {
+    "budget": 7,
+    "category": "impl-source",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/lib/comprehensiveGoalCodeReviewFinalAuditPass.test.ts": {
+    "budget": 4,
+    "category": "mixed-contract",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/lib/comprehensiveGoalCodeReviewFinalAuditResolution.test.ts": {
+    "budget": 15,
+    "category": "impl-source",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/lib/comprehensiveGoalCodeReviewFinalAuditResolutionPass.test.ts": {
+    "budget": 9,
+    "category": "impl-source",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/lib/comprehensiveGoalCodeReviewFinalPass.test.ts": {
+    "budget": 11,
+    "category": "mixed-contract",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/lib/comprehensiveGoalCodeReviewFulfillmentRound4.test.ts": {
+    "budget": 10,
+    "category": "impl-source",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/lib/comprehensiveGoalCodeReviewUnit1And2Fixes.test.ts": {
+    "budget": 18,
+    "category": "impl-source",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/lib/comprehensiveGoalCodeReviewUnit3Fixes.test.ts": {
+    "budget": 1,
+    "category": "mixed-contract",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/lib/comprehensiveGoalCodeReviewVerificationFinalCycle.test.ts": {
+    "budget": 10,
+    "category": "mixed-contract",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/lib/comprehensiveGoalExhaustiveVerification.test.ts": {
+    "budget": 4,
+    "category": "impl-source",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/lib/comprehensiveGoalFinalReview.test.ts": {
+    "budget": 16,
+    "category": "impl-source",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/lib/comprehensiveProjectReviewFixes.test.ts": {
+    "budget": 18,
+    "category": "impl-source",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/lib/comprehensiveProjectReviewGoalTests.test.ts": {
+    "budget": 3,
+    "category": "mixed-contract",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/lib/comprehensiveReviewCurrentRound.test.ts": {
+    "budget": 9,
+    "category": "mixed-contract",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/lib/comprehensiveReviewResolution.test.ts": {
+    "budget": 15,
+    "category": "impl-source",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/lib/comprehensiveReviewRound3.test.ts": {
+    "budget": 9,
+    "category": "impl-source",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/lib/cssVariableCompleteness.test.ts": {
+    "budget": 3,
+    "category": "css-contract",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/lib/customIndexHeaderEnhancements.test.ts": {
+    "budget": 29,
+    "category": "impl-source",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/lib/developerProfileNavigation.test.ts": {
+    "budget": 15,
+    "category": "impl-source",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/lib/goalComprehensiveCodeReviewFinalAuditPass2.test.ts": {
+    "budget": 4,
+    "category": "impl-source",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/lib/goalPlatformIntegrationAndA11y.test.ts": {
+    "budget": 11,
+    "category": "impl-source",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/lib/goalRoundReviewFixes.test.ts": {
+    "budget": 30,
+    "category": "mixed-contract",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/lib/headerFooterLayoutBalance.test.ts": {
+    "budget": 13,
+    "category": "impl-source",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/lib/mobileAndVisualEnhancements.test.ts": {
+    "budget": 27,
+    "category": "impl-source",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/lib/mobileChromeFixes.test.ts": {
+    "budget": 9,
+    "category": "mixed-contract",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/lib/mobileOptimizationReview.test.ts": {
+    "budget": 34,
+    "category": "mixed-contract",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/lib/mobileUiEnhancements.test.ts": {
+    "budget": 43,
+    "category": "impl-source",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/lib/pageReload.test.ts": {
+    "budget": 13,
+    "category": "mixed-contract",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/lib/perAccuracyAndDisclosureFixes.test.ts": {
+    "budget": 7,
+    "category": "impl-source",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/lib/portfolioResponsive.test.ts": {
+    "budget": 16,
+    "category": "impl-source",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/lib/projectCodeReviewFulfillment.test.ts": {
+    "budget": 10,
+    "category": "impl-source",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/lib/projectReviewFixesRound.test.ts": {
+    "budget": 8,
+    "category": "impl-source",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/lib/regression.test.ts": {
+    "budget": 11,
+    "category": "impl-source",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/lib/responsiveAndNavigationEnhancements.test.ts": {
+    "budget": 35,
+    "category": "impl-source",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/lib/responsiveDrawerStyle.test.ts": {
+    "budget": 9,
+    "category": "css-contract",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/lib/reviewRegression.test.ts": {
+    "budget": 18,
+    "category": "impl-source",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/lib/reviewRoundFixes.test.ts": {
+    "budget": 9,
+    "category": "impl-source",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/lib/round2ReviewFixes.test.ts": {
+    "budget": 8,
+    "category": "mixed-contract",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/lib/schemaSingleSource.test.ts": {
+    "budget": 5,
+    "category": "sql-contract",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/lib/seedIdempotence.test.ts": {
+    "budget": 1,
+    "category": "sql-contract",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/lib/stockChartAndDrawerFixes.test.ts": {
+    "budget": 26,
+    "category": "impl-source",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/lib/tabDataFreshnessEnhancement.test.ts": {
+    "budget": 26,
+    "category": "mixed-contract",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/lib/tradingViewWidgetEnhancements.test.ts": {
+    "budget": 19,
+    "category": "mixed-contract",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/lib/uiEnhancementsReview.test.ts": {
+    "budget": 25,
+    "category": "impl-source",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/lib/uiResilienceAndA11yImprovements.test.ts": {
+    "budget": 8,
+    "category": "mixed-contract",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/lib/uiUxEnhancements.test.ts": {
+    "budget": 10,
+    "category": "css-contract",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/lib/userRequestedCalendarAndFinancialsFixes.test.ts": {
+    "budget": 9,
+    "category": "mixed-contract",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/lib/userRequestedEnhancements.test.ts": {
+    "budget": 51,
+    "category": "impl-source",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/lib/workerBugs.test.ts": {
+    "budget": 1,
+    "category": "mixed-contract",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/lib/workerEntryExportContract.test.ts": {
+    "budget": 9,
+    "category": "impl-source",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。"
+  },
+  "src/lib/adminSecondFactorGating.test.ts": {
+    "category": "mixed-contract",
+    "reason": "N-7 登録済みレガシーピン（S6 残量）。振る舞いアサーションまたは実装非依存検証へ転換した場合は budget を縮小（自動でPASS）。正当な契約ピン（CSS/SQL/設定）は category の通り明示的な構造ガードとして維持。",
+    "budget": 1
+  }
+}

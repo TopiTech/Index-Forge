@@ -84,30 +84,16 @@ describe("Batch 3 Comprehensive Fixes Verification", () => {
     });
   });
 
-  describe("ISSUE-13: Large search result clipping with MAX_SEARCH_RESULTS", () => {
-    it("clips presets in AddStockModal with MAX_SEARCH_RESULTS and shows guidance message", () => {
-      const source = readSrc("components/AddStockModal.tsx");
-      expect(source).toContain("const MAX_SEARCH_RESULTS = 80;");
-      expect(source).toContain("PRESET_STOCKS.slice(0, MAX_SEARCH_RESULTS)");
-      expect(source).toContain("他 {PRESET_STOCKS.length - MAX_SEARCH_RESULTS} 件... 検索条件を絞り込んでください");
-    });
-
-    it("clips results in GlobalSearchModal with MAX_SEARCH_RESULTS and shows guidance message", () => {
-      const source = readSrc("components/GlobalSearchModal.tsx");
-      expect(source).toContain("const MAX_SEARCH_RESULTS = 80;");
-      expect(source).toContain("filteredResults.slice(0, MAX_SEARCH_RESULTS)");
-      expect(source).toContain("他 {remainingCount} 件... 検索条件を絞り込んでください");
-    });
-  });
+  // ISSUE-13 (search result clipping) and the inline-style half of ISSUE-16
+  // (44px clear-button tap target) were verified here through source-string
+  // pins. They now have behavioural coverage on the rendered components in
+  // `src/components/searchResultClipping.test.tsx` (N-7 conversion).
 
   describe("ISSUE-16: SearchInput clear button 44px tap target", () => {
-    it("configures minWidth and minHeight to 44px on SearchInput clear button", () => {
-      const source = readSrc("components/ui.tsx");
-      expect(source).toContain("minWidth: 44,");
-      expect(source).toContain("minHeight: 44,");
-      expect(source).toContain("paddingRight: 44");
-    });
-
+    // ソース構造ガード (N-7): jsdom は外部スタイルシートの算出をしないため、
+    // index.css のタップターゲット規約は CSS 文字列で契約を固定する。
+    // 実 DOM 側の保証 (インラインスタイル 44px) は
+    // `src/components/searchResultClipping.test.tsx` が振る舞いで検証する。
     it("defines 44px tap target styles in index.css", () => {
       const css = readSrc("index.css");
       expect(css).toContain(".input-search-clear-btn");

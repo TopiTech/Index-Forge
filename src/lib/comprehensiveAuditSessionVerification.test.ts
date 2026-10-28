@@ -15,6 +15,7 @@ describe("Comprehensive Audit Session Verification", () => {
     setAllowMemoryCacheInTest(false);
     clearMemoryCache();
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   describe("1. Worker Stock Fundamentals Ticker Validation & News JST Offset", () => {
@@ -49,17 +50,54 @@ describe("Comprehensive Audit Session Verification", () => {
       }
     });
 
-    it("calculates JST (UTC+9) timestamps for simulated market news", async () => {
-      const req = new Request("https://example.com/api/market/overview");
-      const res = await worker.fetch(req, {} as any);
-      expect(res.status).toBe(200);
-      const data = (await res.json()) as any;
-      expect(data.news).toBeDefined();
-      expect(Array.isArray(data.news)).toBe(true);
-      expect(data.news.length).toBeGreaterThan(0);
-      for (const item of data.news) {
-        // publishedAt format should be "HH:mm" in JST
-        expect(item.publishedAt).toMatch(/^\d{2}:\d{2}$/);
+    it("calculates JST (UTC+9) timestamps for provider market news", async () => {
+      // N-1: 合成フォールバックは時刻を持たないため、JST 変換は配信元供給の
+      // providerPublishTime から検証する。Yahoo 呼び出しは決定的なテストダブルで
+      // 差し替え (2026-10-28T05:30:00Z = JST 14:30)。
+      const providerSecs = Date.UTC(2026, 9, 28, 5, 30, 0) / 1000;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL) => {
+          const url = String(input);
+          if (url.includes("/v1/finance/search")) {
+            return new Response(
+              JSON.stringify({
+                news: [
+                  {
+                    uuid: "uuid-jst-1",
+                    title: "実在の配信記事",
+                    publisher: "テスト通信",
+                    link: "https://example.com/article",
+                    providerPublishTime: providerSecs,
+                    relatedTickers: ["8035"],
+                  },
+                ],
+              }),
+              { status: 200, headers: { "content-type": "application/json" } },
+            );
+          }
+          return new Response(JSON.stringify({}), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }),
+      );
+      try {
+        const req = new Request("https://example.com/api/market/overview");
+        const res = await worker.fetch(req, {} as any);
+        expect(res.status).toBe(200);
+        const data = (await res.json()) as any;
+        expect(data.news).toBeDefined();
+        expect(Array.isArray(data.news)).toBe(true);
+        expect(data.news.length).toBeGreaterThan(0);
+        for (const item of data.news) {
+          // publishedAt format should be "HH:mm" in JST
+          expect(item.publishedAt).toMatch(/^\d{2}:\d{2}$/);
+        }
+        expect(data.news[0].publishedAt).toBe("14:30");
+        expect(data.news[0].publishedTimestamp).toBe("2026-10-28T05:30:00.000Z");
+      } finally {
+        vi.unstubAllGlobals();
       }
     });
   });

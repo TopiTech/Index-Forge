@@ -305,15 +305,18 @@ describe("General User Login Security: Prevention of Admin Login Bypass", () => 
 
     it("rejects when the server returns an admin role in verifyPassword and prevents session storage", async () => {
       const { sessionMap } = setupMockBrowserStorage();
-      // Mock fetch simulating an older API or misconfigured endpoint returning admin
-      globalThis.fetch = vi.fn().mockResolvedValue({
-        ok: true,
-        json: async () => ({
-          ok: true,
-          role: "admin",
-          name: "マスター管理者",
-        }),
-      } as unknown as Response);
+      // Mock fetch simulating an older API or misconfigured endpoint returning admin.
+      // A faithful Response keeps the shared readJsonBody contract (text/headers).
+      globalThis.fetch = vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            ok: true,
+            role: "admin",
+            name: "マスター管理者",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
 
       const result = await verifyPassword(TEST_ADMIN_PASSWORD);
       expect(result.ok).toBe(false);
@@ -327,17 +330,19 @@ describe("General User Login Security: Prevention of Admin Login Bypass", () => 
 
     it("stores and returns general user session when verified as user", async () => {
       setupMockBrowserStorage();
-      globalThis.fetch = vi.fn().mockResolvedValue({
-        ok: true,
-        json: async () => ({
-          ok: true,
-          role: "user",
-          name: "一般ユーザー",
-          maxStocks: 15,
-          maxIndices: 3,
-          id: "pwd-1234",
-        }),
-      } as unknown as Response);
+      globalThis.fetch = vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            ok: true,
+            role: "user",
+            name: "一般ユーザー",
+            maxStocks: 15,
+            maxIndices: 3,
+            id: "pwd-1234",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
 
       const result = await verifyPassword(TEST_USER_PASSWORD);
       expect(result.ok).toBe(true);

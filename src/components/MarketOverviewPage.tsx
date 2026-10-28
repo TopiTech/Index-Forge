@@ -757,10 +757,27 @@ export function MarketOverviewPage({
               >
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                    <span className="badge badge-default mono tiny" style={{ fontSize: "0.68rem" }}>
-                      {item.source}
-                    </span>
-                    {item.url && (
+                    {item.isSample ? (
+                      // N-1: 合成サンプルは実記事ではない。媒体名も偽の鮮度も
+                      // 提示せず、サンプルであることを明示する。
+                      <span
+                        className="badge mono tiny"
+                        title="実在の記事ではなく、表示確認用に自動生成したサンプルトピックです"
+                        style={{
+                          fontSize: "0.68rem",
+                          background: "rgba(245, 158, 11, 0.12)",
+                          border: "1px solid rgba(245, 158, 11, 0.35)",
+                          color: "var(--neon-amber)",
+                        }}
+                      >
+                        サンプル
+                      </span>
+                    ) : (
+                      <span className="badge badge-default mono tiny" style={{ fontSize: "0.68rem" }}>
+                        {item.source}
+                      </span>
+                    )}
+                    {item.url && !item.isSample && (
                       <a
                         href={item.url}
                         target="_blank"
@@ -774,11 +791,13 @@ export function MarketOverviewPage({
                       </a>
                     )}
                   </div>
-                  <span className="tiny muted mono">
-                    {item.publishedTimestamp
-                      ? formatDynamicRelativeTime(item.publishedTimestamp)
-                      : item.publishedAt}
-                  </span>
+                  {!item.isSample && (
+                    <span className="tiny muted mono">
+                      {item.publishedTimestamp
+                        ? formatDynamicRelativeTime(item.publishedTimestamp)
+                        : item.publishedAt || "配信時刻不明"}
+                    </span>
+                  )}
                 </div>
                 {item.relatedTicker ? (
                   <button

@@ -22,6 +22,7 @@ import {
   exportCalendarToIcs,
   exportCalendarToCsv,
   type CalendarEvent,
+  type CalendarValueProvenance,
 } from "../lib/marketDataService";
 import { normalizeSearchQuery, getUniverseStockByTicker } from "../data/stockUniverse";
 import { detectStockCurrency } from "../lib/currency";
@@ -31,6 +32,40 @@ import { ModalBase } from "./ModalBase";
 import { useToast } from "./Toast";
 import type { PageView } from "../lib/navigation";
 import { useRegisterFreshness } from "../contexts/FreshnessContext";
+
+/**
+ * N-3: フィールド単位の来歴バッジ。参考値 (静的デフォルト) や推計値を
+ * 実データ (公式公表値) と区別して表示する。来歴の無いフィールドは実データ
+ * なので何も描画しない。
+ */
+const FIELD_PROVENANCE_LABEL: Record<CalendarValueProvenance, string> = {
+  reference: "参考値",
+  estimated: "推計",
+};
+
+const FIELD_PROVENANCE_TOOLTIP: Record<CalendarValueProvenance, string> = {
+  reference: "実データではなく静的な参考デフォルト値です",
+  estimated: "公式実績ではなく推計値です",
+};
+
+function FieldValueBadge({ provenance }: { provenance?: CalendarValueProvenance }) {
+  if (!provenance) return null;
+  return (
+    <span
+      className="badge mono tiny"
+      title={FIELD_PROVENANCE_TOOLTIP[provenance]}
+      style={{
+        marginLeft: "4px",
+        verticalAlign: "middle",
+        background: "rgba(245, 158, 11, 0.12)",
+        border: "1px solid rgba(245, 158, 11, 0.35)",
+        color: "var(--neon-amber)",
+      }}
+    >
+      {FIELD_PROVENANCE_LABEL[provenance]}
+    </span>
+  );
+}
 
 interface CalendarPageProps {
   onNavigate: (view: PageView, searchParams?: string) => void;
@@ -883,16 +918,19 @@ export function CalendarPage({
                     {evt.previous && (
                       <div className="tiny muted">
                         前回: <strong className="mono">{evt.previous}</strong>
+                        <FieldValueBadge provenance={evt.fieldProvenance?.previous} />
                       </div>
                     )}
                     {evt.forecast && (
                       <div className="tiny muted">
                         市場予想: <strong className="mono" style={{ color: "var(--accent-text)" }}>{evt.forecast}</strong>
+                        <FieldValueBadge provenance={evt.fieldProvenance?.forecast} />
                       </div>
                     )}
                     {evt.actual && (
                       <div className="tiny muted">
                         結果: <strong className="mono" style={{ color: metricToneColor(metricTone(evt.actual)) }}>{evt.actual}</strong>
+                        <FieldValueBadge provenance={evt.fieldProvenance?.actual} />
                       </div>
                     )}
 
@@ -1236,18 +1274,27 @@ export function CalendarPage({
                   <div className="mono bold" style={{ fontSize: "1.1rem" }}>
                     {selectedEvent.previous || "--"}
                   </div>
+                  {selectedEvent.previous && (
+                    <FieldValueBadge provenance={selectedEvent.fieldProvenance?.previous} />
+                  )}
                 </div>
                 <div>
                   <span className="tiny muted mono block">市場予想</span>
                   <div className="mono bold" style={{ fontSize: "1.1rem", color: "var(--accent-text)" }}>
                     {selectedEvent.forecast || "--"}
                   </div>
+                  {selectedEvent.forecast && (
+                    <FieldValueBadge provenance={selectedEvent.fieldProvenance?.forecast} />
+                  )}
                 </div>
                 <div>
                   <span className="tiny muted mono block">発表結果</span>
                   <div className="mono bold" style={{ fontSize: "1.1rem", color: "#10b981" }}>
                     {selectedEvent.actual || "--"}
                   </div>
+                  {selectedEvent.actual && (
+                    <FieldValueBadge provenance={selectedEvent.fieldProvenance?.actual} />
+                  )}
                 </div>
               </div>
             )}

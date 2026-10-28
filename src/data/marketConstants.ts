@@ -188,10 +188,14 @@ export const DEFAULT_SECTOR_DEFINITIONS: readonly SectorDefinition[] = [
   { name: "鉱業・エネルギー", market: "TSE", tickers: ["1605.T", "5020.T"] },
 ] as const;
 
-/** フォールバック用の高品質市場ニューステンプレート */
+/** フォールバック用のサンプル市場ニューステンプレート (実在記事ではない) */
 export interface FallbackNewsItem {
   id: string;
   title: string;
+  /**
+   * 実在の配信元ではないため、実在媒体を騙る名称は使わず "サンプル" とする。
+   * 表示側でも `isSample` 相当のサンプル明示が必要 (N-1)。
+   */
   source: string;
   relatedTicker?: string;
 }
@@ -200,24 +204,24 @@ export const FALLBACK_MARKET_NEWS_TEMPLATES: readonly FallbackNewsItem[] = [
   {
     id: "news-baseline-1",
     title: "日経平均は高水準推移、主要ハイテク・半導体関連株に実需買い",
-    source: "市場速報",
+    source: "サンプル",
     relatedTicker: "8035",
   },
   {
     id: "news-baseline-2",
     title: "米ドル円は155円台で推移、日米金利動向と実需フローを見極め",
-    source: "為替市況",
+    source: "サンプル",
     relatedTicker: "USDJPY=X",
   },
   {
     id: "news-baseline-3",
     title: "米ハイテク株と主要指数が堅調推移、インフラ・生成AI需要が下支え",
-    source: "グローバル金融",
+    source: "サンプル",
     relatedTicker: "NVDA",
   },
   {
     id: "news-baseline-4",
     title: "東証プライム騰落レシオは良好、好業績バリュー銘柄に見直し買いが継続",
-    source: "株式ニュース",
+    source: "サンプル",
   },
 ] as const;

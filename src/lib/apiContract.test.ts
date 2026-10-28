@@ -21,6 +21,7 @@ import {
   isValidSortOrder,
   isValidTicker,
   isValidWeight,
+  parseJsonText,
   readJsonBody,
   readResponseErrorMessage,
   releaseResponse,
@@ -630,5 +631,34 @@ describe("apiContract: readJsonBody", () => {
 
   it("returns null for an empty body", async () => {
     expect(await readJsonBody(new Response(""))).toBeNull();
+  });
+});
+
+describe("apiContract: parseJsonText (非 JSON 本文規約の一元化, N-6)", () => {
+  it("parses well-formed JSON including primitives", () => {
+    expect(parseJsonText('{"ok":true}')).toEqual({ ok: true });
+    expect(parseJsonText("[1,2]")).toEqual([1, 2]);
+    expect(parseJsonText("42")).toBe(42);
+    expect(parseJsonText("null")).toBeNull();
+  });
+
+  it("maps every non-JSON body to null without throwing", () => {
+    expect(parseJsonText("")).toBeNull();
+    expect(parseJsonText("<html><body>502 Bad Gateway</body></html>")).toBeNull();
+    expect(parseJsonText("{broken")).toBeNull();
+    expect(parseJsonText('"unterminated')).toBeNull();
+  });
+
+  it("keeps readJsonBody and the text-level parser on the same convention", async () => {
+    // 同一の非 JSON 本文が Response 経由でもテキスト経由でも同じく null になる
+    // こと (旧 useBenchmark のローカル実装との差分が無いこと)。
+    const bodies = ["", "<html>err</html>", "{broken"];
+    for (const body of bodies) {
+      expect(parseJsonText(body)).toBeNull();
+      expect(await readJsonBody(new Response(body))).toBeNull();
+    }
+    const ok = '{"a":[1,2]}';
+    expect(parseJsonText(ok)).toEqual({ a: [1, 2] });
+    expect(await readJsonBody(new Response(ok))).toEqual({ a: [1, 2] });
   });
 });

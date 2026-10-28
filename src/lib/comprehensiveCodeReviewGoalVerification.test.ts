@@ -271,14 +271,17 @@ describe("Goal Code Review Comprehensive Audit & Fix Verification", () => {
       const originalFetch = globalThis.fetch;
       globalThis.fetch = vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
         capturedHeaders = (init?.headers as Record<string, string>) || {};
-        return Promise.resolve({
-          ok: true,
-          json: async () => ({
-            ok: true,
-            adminToken: "renewed-admin-token-12345",
-            adminTokenExpiresAt: Date.now() + 28800000,
-          }),
-        } as Response);
+        // A faithful Response keeps the shared readJsonBody contract (text/headers).
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              ok: true,
+              adminToken: "renewed-admin-token-12345",
+              adminTokenExpiresAt: Date.now() + 28800000,
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        );
       });
 
       try {
@@ -301,14 +304,15 @@ describe("Goal Code Review Comprehensive Audit & Fix Verification", () => {
       const originalFetch = globalThis.fetch;
       globalThis.fetch = vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
         capturedHeaders = (init?.headers as Record<string, string>) || {};
-        return Promise.resolve({
-          ok: false,
-          status: 401,
-          json: async () => ({
-            ok: false,
-            error: "管理者セッションが無効または期限切れです",
-          }),
-        } as Response);
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              ok: false,
+              error: "管理者セッションが無効または期限切れです",
+            }),
+            { status: 401, headers: { "Content-Type": "application/json" } },
+          ),
+        );
       });
 
       try {
@@ -326,10 +330,12 @@ describe("Goal Code Review Comprehensive Audit & Fix Verification", () => {
       const originalFetch = globalThis.fetch;
       globalThis.fetch = vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
         capturedHeaders = (init?.headers as Record<string, string>) || {};
-        return Promise.resolve({
-          ok: true,
-          json: async () => ({ ok: true, adminToken: "explicit-token-abc" }),
-        } as Response);
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({ ok: true, adminToken: "explicit-token-abc" }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        );
       });
 
       try {
