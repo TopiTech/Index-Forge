@@ -468,6 +468,7 @@ export function AdminDashboard({
     if (!isAdmin) {
       getTurnstileConfig()
         .then((cfg) => {
+          if (!isMountedRef.current) return;
           if (cfg.siteKey) setTurnstileSiteKey(cfg.siteKey);
           if (cfg.lockout?.locked) {
             syncLockout(true, cfg.lockout.remainingSeconds);
@@ -509,6 +510,7 @@ export function AdminDashboard({
       adminSecretCodeInput.normalize("NFC").trim(),
       turnstileToken.trim(),
     );
+    if (!isMountedRef.current) return;
     setLoggingIn(false);
 
     if (res.ok) {
@@ -563,6 +565,7 @@ export function AdminDashboard({
       normNew,
       getHeaders(),
     );
+    if (!isMountedRef.current) return;
     setUpdatingSecretCode(false);
 
     if (!res.ok) {
@@ -826,13 +829,17 @@ export function AdminDashboard({
         setIndexEditMessage({ type: "success", text: "指数と構成銘柄を保存しました！" });
         await onRefreshIndices();
       } else {
-        setIndexEditMessage({ type: "error", text: res.error || "保存に失敗しました" });
+        if (isMountedRef.current) {
+          setIndexEditMessage({ type: "error", text: res.error || "保存に失敗しました" });
+        }
       }
     } catch (err) {
-      setIndexEditMessage({
-        type: "error",
-        text: err instanceof Error ? err.message : "保存処理中にエラーが発生しました",
-      });
+      if (isMountedRef.current) {
+        setIndexEditMessage({
+          type: "error",
+          text: err instanceof Error ? err.message : "保存処理中にエラーが発生しました",
+        });
+      }
     } finally {
       setSavingIndex(false);
     }
@@ -845,10 +852,12 @@ export function AdminDashboard({
     try {
       const targetId = indexToDelete.id;
       const res = await deleteCustomIndex(targetId);
+      if (!isMountedRef.current) return;
       if (res.ok) {
         toastSuccess(`カスタム指数「${indexToDelete.name}」を削除しました`);
         setIndexToDelete(null);
         await onRefreshIndices();
+        if (!isMountedRef.current) return;
         const remaining = indices.filter((idx) => idx.id !== targetId);
         if (remaining.length > 0) {
           setSelectedEditIndexId(remaining[0].id);
@@ -857,9 +866,13 @@ export function AdminDashboard({
         toastError(res.error || "指数の削除に失敗しました");
       }
     } catch (err) {
-      toastError(err instanceof Error ? err.message : "指数の削除に失敗しました");
+      if (isMountedRef.current) {
+        toastError(err instanceof Error ? err.message : "指数の削除に失敗しました");
+      }
     } finally {
-      setDeletingIndex(false);
+      if (isMountedRef.current) {
+        setDeletingIndex(false);
+      }
     }
   };
 
@@ -885,9 +898,11 @@ export function AdminDashboard({
         ],
       };
       const res = await saveCustomIndex(newIndex);
+      if (!isMountedRef.current) return;
       if (res.ok) {
         toastSuccess(`新規指数「${newIndex.name}」を作成しました`);
         await onRefreshIndices();
+        if (!isMountedRef.current) return;
         setSelectedEditIndexId(newId);
         setIsCreateIndexModalOpen(false);
         setNewIndexName("");
@@ -897,7 +912,9 @@ export function AdminDashboard({
         toastError(res.error || "指数の作成に失敗しました");
       }
     } catch (err) {
-      toastError(err instanceof Error ? err.message : "指数の作成に失敗しました");
+      if (isMountedRef.current) {
+        toastError(err instanceof Error ? err.message : "指数の作成に失敗しました");
+      }
     } finally {
       setCreatingIndex(false);
     }
@@ -956,6 +973,7 @@ export function AdminDashboard({
       if (!res.ok || data.ok !== true) {
         throw new Error(reportAdminFailure(data, res.status, "管理者パスワードの更新に失敗しました"));
       }
+      if (!isMountedRef.current) return;
       setAdminPwdMessage({ type: "success", text: "管理者パスワードを正常に変更しました" });
       const updatedPassword = normalizedPassword;
       setNewAdminPassword("");
@@ -969,9 +987,13 @@ export function AdminDashboard({
         });
       }
     } catch (err) {
-      setAdminPwdMessage({ type: "error", text: err instanceof Error ? err.message : "更新に失敗しました" });
+      if (isMountedRef.current) {
+        setAdminPwdMessage({ type: "error", text: err instanceof Error ? err.message : "更新に失敗しました" });
+      }
     } finally {
-      setUpdatingAdminPwd(false);
+      if (isMountedRef.current) {
+        setUpdatingAdminPwd(false);
+      }
     }
   };
 

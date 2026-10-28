@@ -33,6 +33,14 @@ export function AddStockModal({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const tickerInputRef = useRef<HTMLInputElement>(null);
+  const isMountedRef = useRef(true);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (isOpen) {
@@ -106,6 +114,7 @@ export function AddStockModal({
       theme: theme.trim() || "カスタム",
       weight: numericWeight,
     });
+    if (!isMountedRef.current) return;
     setLoading(false);
 
     if (res.ok) {

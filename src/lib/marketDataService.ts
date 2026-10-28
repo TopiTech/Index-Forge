@@ -1908,6 +1908,17 @@ const stockFundamentalsClientCache = new Map<
 export const STOCK_FUNDAMENTALS_CACHE_TTL_MS = 5 * 60 * 1000;
 
 /**
+ * Maximum number of entries kept in `stockFundamentalsClientCache` to prevent
+ * memory leakage across long-lived browser sessions.
+ */
+export const MAX_STOCK_FUNDAMENTALS_CLIENT_CACHE_ENTRIES = 500;
+
+/**
+ * Maximum number of entries kept in `stockFundamentalsFailureCache`.
+ */
+export const MAX_STOCK_FUNDAMENTALS_FAILURE_CACHE_ENTRIES = 200;
+
+/**
  * 失敗した fundamentals 取得の記録 (ティッカー → 失敗時刻と返却したフォールバック)。
  * 取得失敗時に成功キャッシュへベースライン値を書き込むと、一時的な障害が
  * 「本物のデータ」として恒久キャッシュされ、復帰後も再取得されない。
@@ -1925,6 +1936,25 @@ const STOCK_FUNDAMENTALS_FAILURE_COOLDOWN_MS = 30_000;
 export function clearStockFundamentalsClientCache(): void {
   stockFundamentalsClientCache.clear();
   stockFundamentalsFailureCache.clear();
+}
+
+export function getStockFundamentalsClientCacheSize(): number {
+  return stockFundamentalsClientCache.size;
+}
+
+export function getStockFundamentalsFailureCacheSize(): number {
+  return stockFundamentalsFailureCache.size;
+}
+
+export function hasCachedStockFundamentals(ticker: string): boolean {
+  const norm = ticker.trim().toUpperCase();
+  const cached = stockFundamentalsClientCache.get(norm);
+  if (!cached) return false;
+  if (Date.now() - cached.fetchedAt >= STOCK_FUNDAMENTALS_CACHE_TTL_MS) {
+    stockFundamentalsClientCache.delete(norm);
+    return false;
+  }
+  return true;
 }
 
 /**
@@ -1949,7 +1979,24 @@ function cacheStockFundamentals(
   fetchedAt: number = Date.now(),
 ): StockQuoteFundamentals {
   const data = sanitizeStockFundamentals(raw, baseline, ticker);
-  stockFundamentalsClientCache.set(ticker.trim().toUpperCase(), { data, fetchedAt });
+  const norm = ticker.trim().toUpperCase();
+
+  stockFundamentalsClientCache.delete(norm);
+  if (stockFundamentalsClientCache.size >= MAX_STOCK_FUNDAMENTALS_CLIENT_CACHE_ENTRIES) {
+    const now = Date.now();
+    for (const [key, entry] of stockFundamentalsClientCache) {
+      if (now - entry.fetchedAt > STOCK_FUNDAMENTALS_CACHE_TTL_MS) {
+        stockFundamentalsClientCache.delete(key);
+      }
+    }
+    while (stockFundamentalsClientCache.size >= MAX_STOCK_FUNDAMENTALS_CLIENT_CACHE_ENTRIES) {
+      const oldestKey = stockFundamentalsClientCache.keys().next().value;
+      if (oldestKey === undefined) break;
+      stockFundamentalsClientCache.delete(oldestKey);
+    }
+  }
+
+  stockFundamentalsClientCache.set(norm, { data, fetchedAt });
   return data;
 }
 
@@ -2269,6 +2316,20 @@ export async function fetchStockFundamentals(
       ...getStockFundamentals(normTicker),
       isDemoData: true,
     };
+    stockFundamentalsFailureCache.delete(normTicker);
+    if (stockFundamentalsFailureCache.size >= MAX_STOCK_FUNDAMENTALS_FAILURE_CACHE_ENTRIES) {
+      const now = Date.now();
+      for (const [key, entry] of stockFundamentalsFailureCache) {
+        if (now - entry.failedAt > STOCK_FUNDAMENTALS_FAILURE_COOLDOWN_MS) {
+          stockFundamentalsFailureCache.delete(key);
+        }
+      }
+      while (stockFundamentalsFailureCache.size >= MAX_STOCK_FUNDAMENTALS_FAILURE_CACHE_ENTRIES) {
+        const oldestKey = stockFundamentalsFailureCache.keys().next().value;
+        if (oldestKey === undefined) break;
+        stockFundamentalsFailureCache.delete(oldestKey);
+      }
+    }
     stockFundamentalsFailureCache.set(normTicker, { failedAt: Date.now(), fallback });
     return fallback;
   }

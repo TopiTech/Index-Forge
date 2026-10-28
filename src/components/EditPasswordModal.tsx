@@ -36,6 +36,14 @@ export function EditPasswordModal({
   const dialogRef = useRef<HTMLDivElement>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
   const isBackdropMouseDownRef = useRef(false);
+  const isMountedRef = useRef(true);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
   const handleClose = () => {
     if (!loading) onClose();
   };
@@ -134,18 +142,24 @@ export function EditPasswordModal({
 
       if (res.ok) {
         releaseResponse(res);
+        if (!isMountedRef.current) return;
         onSuccess();
         onClose();
       } else {
         // UI-38: the body may be `{error}`, `{ok:false,error}` or a non-JSON
         // gateway/500 page; never let the last case throw away the message.
         const errorPayload: unknown = await readJsonBody(res);
+        if (!isMountedRef.current) return;
         setError(readApiErrorMessage(errorPayload, res.status, "パスワード設定を更新できませんでした"));
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "更新処理中にエラーが発生しました");
+      if (isMountedRef.current) {
+        setError(err instanceof Error ? err.message : "更新処理中にエラーが発生しました");
+      }
     } finally {
-      setLoading(false);
+      if (isMountedRef.current) {
+        setLoading(false);
+      }
     }
   };
 
