@@ -3157,9 +3157,15 @@ export function evaluateTechnicalSignal(
   sparkline?: number[],
   price?: number,
 ): { signal: "STRONG_BUY" | "BUY" | "NEUTRAL" | "SELL" | "STRONG_SELL"; reason: string } {
-  if (sparkline && sparkline.length >= 3 && price && Number.isFinite(price)) {
-    const shortSMA = sparkline.slice(-3).reduce((a, b) => a + b, 0) / 3;
-    const fullSMA = sparkline.reduce((a, b) => a + b, 0) / sparkline.length;
+  if (typeof changePct !== "number" || !Number.isFinite(changePct)) {
+    return { signal: "NEUTRAL", reason: "データ不足または中立" };
+  }
+  const validSparkline = Array.isArray(sparkline)
+    ? sparkline.filter((x): x is number => typeof x === "number" && Number.isFinite(x))
+    : [];
+  if (validSparkline.length >= 3 && typeof price === "number" && Number.isFinite(price)) {
+    const shortSMA = validSparkline.slice(-3).reduce((a, b) => a + b, 0) / 3;
+    const fullSMA = validSparkline.reduce((a, b) => a + b, 0) / validSparkline.length;
     if (price > shortSMA && shortSMA > fullSMA && changePct > 0.5) {
       return { signal: "STRONG_BUY", reason: "短期・中期移動平均線ゴールデンクロス & 上昇トレンド" };
     }
@@ -3233,6 +3239,24 @@ export function foldIcsLine(line: string): string {
 }
 
 /**
+ * フィールド単位の来歴 (reference / estimated) をラベルとして値に付加。
+ * 既に値の中に「参考」や「推計」が含まれている場合は二重付与を防止。
+ */
+export function formatCalendarFieldValueWithProvenance(
+  value?: string,
+  provenance?: CalendarValueProvenance,
+): string {
+  if (!value) return "";
+  if (provenance === "reference" && !value.includes("参考値") && !value.includes("参考推計")) {
+    return `${value} (参考値)`;
+  }
+  if (provenance === "estimated" && !value.includes("推計")) {
+    return `${value} (推計)`;
+  }
+  return value;
+}
+
+/**
  * カレンダーイベント一覧を iCalendar (RFC 5545, .ics) 形式にエクスポート
  */
 export function exportCalendarToIcs(events: CalendarEvent[]): string {
@@ -3259,7 +3283,7 @@ export function exportCalendarToIcs(events: CalendarEvent[]): string {
       if (parts.length === 2) {
         const mNum = parseInt(parts[0], 10);
         const dNum = parseInt(parts[1], 10);
-        if (!Number.isNaN(mNum) && !Number.isNaN(dNum)) {
+        if (!Number.isNaN(mNum) && !Number.isNaN(dNum) && mNum >= 1 && mNum <= 12 && dNum >= 1 && dNum <= 31) {
           let y = now.getFullYear();
           const currentMonth = now.getMonth() + 1;
           if (mNum < currentMonth && currentMonth - mNum >= 6) {
@@ -3279,6 +3303,10 @@ export function exportCalendarToIcs(events: CalendarEvent[]): string {
     const m = parseInt(dateStr.slice(4, 6), 10) - 1;
     const d = parseInt(dateStr.slice(6, 8), 10);
     if (Number.isNaN(y) || Number.isNaN(m) || Number.isNaN(d)) continue;
+    const eventDate = new Date(Date.UTC(y, m, d));
+    if (Number.isNaN(eventDate.getTime()) || eventDate.getUTCMonth() !== m || eventDate.getUTCDate() !== d) {
+      continue;
+    }
     const nextDay = new Date(Date.UTC(y, m, d + 1));
     if (Number.isNaN(nextDay.getTime())) continue;
     const nextDayStr = `${nextDay.getUTCFullYear()}${pad(nextDay.getUTCMonth() + 1)}${pad(nextDay.getUTCDate())}`;
@@ -3287,9 +3315,15 @@ export function exportCalendarToIcs(events: CalendarEvent[]): string {
     if (evt.time) descParts.push(`【発表時刻】${evt.time}`);
     if (evt.importance) descParts.push(`【重要度】${evt.importance}`);
     if (evt.market) descParts.push(`【市場】${evt.market === "US" ? "米国" : "国内東証"}`);
-    if (evt.forecast) descParts.push(`【市場予想】${evt.forecast}`);
-    if (evt.previous) descParts.push(`【前回値】${evt.previous}`);
-    if (evt.actual) descParts.push(`【発表結果】${evt.actual}`);
+    if (evt.forecast) {
+      descParts.push(`【市場予想】${formatCalendarFieldValueWithProvenance(evt.forecast, evt.fieldProvenance?.forecast)}`);
+    }
+    if (evt.previous) {
+      descParts.push(`【前回値】${formatCalendarFieldValueWithProvenance(evt.previous, evt.fieldProvenance?.previous)}`);
+    }
+    if (evt.actual) {
+      descParts.push(`【発表結果】${formatCalendarFieldValueWithProvenance(evt.actual, evt.fieldProvenance?.actual)}`);
+    }
     if (evt.description) descParts.push(evt.description);
 
     lines.push("BEGIN:VEVENT");
@@ -3344,9 +3378,9 @@ export function exportCalendarToCsv(events: CalendarEvent[]): string {
     escapeCsvCell(e.importance),
     escapeCsvCell(e.time || ""),
     escapeCsvCell(e.market === "US" ? "米国" : "国内東証"),
-    escapeCsvCell(e.previous || ""),
-    escapeCsvCell(e.forecast || ""),
-    escapeCsvCell(e.actual || ""),
+    escapeCsvCell(formatCalendarFieldValueWithProvenance(e.previous, e.fieldProvenance?.previous)),
+    escapeCsvCell(formatCalendarFieldValueWithProvenance(e.forecast, e.fieldProvenance?.forecast)),
+    escapeCsvCell(formatCalendarFieldValueWithProvenance(e.actual, e.fieldProvenance?.actual)),
     escapeCsvCell(e.source === "fallback" ? "参考値(推計)" : "実データ"),
     escapeCsvCell(e.description || ""),
   ]);
