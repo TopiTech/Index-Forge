@@ -58,7 +58,7 @@ export function ThemeControls() {
   };
 
   return (
-    <div className="theme-controls row" style={{ gap: 8, alignItems: "center" }}>
+    <div className="theme-controls row">
       {/* Dark / Light Mode Toggle */}
       <button
         type="button"
@@ -66,14 +66,6 @@ export function ThemeControls() {
         className="btn btn-sm btn-outline theme-toggle-btn"
         title={theme === "dark" ? "ライトモードに切り替え" : "ダークモードに切り替え"}
         aria-label={theme === "dark" ? "ライトモードに切り替え" : "ダークモードに切り替え"}
-        style={{
-          padding: "5px 9px",
-          display: "inline-flex",
-          alignItems: "center",
-          gap: 6,
-          fontSize: 12,
-          minHeight: 32,
-        }}
       >
         {theme === "dark" ? (
           <>
@@ -102,15 +94,6 @@ export function ThemeControls() {
           // `aria-haspopup="true"` (which maps to "menu") was a lie about the
           // content. aria-expanded + aria-controls describe it correctly.
           aria-controls={isOpen ? popoverId : undefined}
-          style={{
-            padding: "5px 8px",
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 6,
-            fontSize: 12,
-            minHeight: 32,
-            cursor: "pointer",
-          }}
         >
           <span
             style={{

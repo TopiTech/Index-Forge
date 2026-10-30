@@ -484,6 +484,9 @@ h3 {
    owns the single h1 in its outline; styling mirrors the h1 display
    treatment exactly to preserve the previous appearance. */
 .header-brand-name {
+  display: block;
+  width: 100%;
+  min-width: 0;
   font-family: var(--display-font);
   font-size: var(--fs-display);
   font-weight: 700;
@@ -560,7 +563,9 @@ h3 {
 }
 
 .header-brand-text {
+  flex: 1 1 auto;
   min-width: 0;
+  overflow: hidden;
 }
 
 /* ==========================================================================
@@ -600,6 +605,28 @@ h3 {
   align-items: center;
   gap: 6px;
   flex-wrap: nowrap;
+}
+
+.theme-controls.row {
+  gap: 8px;
+}
+
+.theme-controls .theme-toggle-btn,
+.theme-controls .theme-palette-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  min-height: 32px;
+  cursor: pointer;
+}
+
+.theme-controls .theme-toggle-btn {
+  padding: 5px 9px;
+}
+
+.theme-controls .theme-palette-toggle-btn {
+  padding: 5px 8px;
 }
 
 .header-status-desktop {
@@ -701,6 +728,11 @@ h3 {
   .header-inner-row {
     flex-wrap: wrap;
     row-gap: 8px;
+  }
+
+  .header-login-btn,
+  .btn.header-login-btn {
+    min-height: 42px;
   }
 }
 
@@ -2191,6 +2223,86 @@ h3 {
   .btn.header-mobile-menu-btn {
     padding: 8px;
     gap: 0;
+  }
+}
+
+@media (max-width: 768px) {
+  .btn.header-mobile-menu-btn {
+    min-height: 42px;
+    min-width: 42px;
+  }
+
+  .header-login-btn,
+  .btn.header-login-btn {
+    min-height: 42px;
+  }
+
+  .header-status-mobile .theme-controls .theme-toggle-btn,
+  .header-status-mobile .theme-controls .theme-palette-toggle-btn {
+    min-height: 36px;
+  }
+}
+
+@media (max-width: 480px) {
+  .header-status-mobile .theme-controls .theme-toggle-btn {
+    min-width: 36px;
+  }
+}
+
+@media (max-width: 400px) {
+  .header-meta {
+    gap: 4px;
+  }
+
+  .header-meta-actions {
+    gap: 4px;
+  }
+
+  .header-status-mobile .theme-controls {
+    gap: 4px;
+  }
+
+  .header-status-mobile .theme-controls .theme-toggle-btn,
+  .header-status-mobile .theme-controls .theme-palette-toggle-btn {
+    min-height: 40px;
+    padding-right: 6px;
+    padding-left: 6px;
+  }
+
+  .header-status-mobile .theme-controls .theme-palette-toggle-btn {
+    min-width: 40px;
+  }
+
+  .header-status-mobile .theme-controls .theme-palette-toggle-btn > svg:last-child {
+    display: none;
+  }
+}
+
+@media (max-width: 360px) {
+  .header-inner-row {
+    gap: 4px;
+  }
+
+  .header-brand {
+    min-width: 40px;
+    min-height: 42px;
+  }
+
+  .header-brand-mark {
+    display: none;
+  }
+
+  .header-login-btn,
+  .btn.header-login-btn {
+    min-width: 36px;
+  }
+
+  .header-status-mobile .theme-controls .theme-palette-toggle-btn {
+    min-width: 36px;
+  }
+
+  .header-status-mobile .theme-controls .theme-palette-toggle-btn > span[aria-hidden="true"] {
+    display: none !important;
   }
 }
 
@@ -5342,13 +5454,13 @@ a.footer-creator-note:hover .footer-icon-accent {
 
 @media (max-width: 640px) {
   .tv-ticker-overlay-right {
-    padding: 0 6px 0 10px;
+    padding: 0 6px 0 22px;
     gap: 4px;
-    background: linear-gradient(90deg, transparent, rgba(10, 15, 25, 0.95) 15%);
+    background: linear-gradient(90deg, transparent 0, rgba(10, 15, 25, 0.95) 20px);
   }
 
   [data-theme="light"] .tv-ticker-overlay-right {
-    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.96) 15%);
+    background: linear-gradient(90deg, transparent 0, rgba(255, 255, 255, 0.96) 20px);
   }
 
   .tv-live-badge {
@@ -6857,7 +6969,7 @@ a.footer-creator-note:hover .footer-icon-accent {
     display: none !important;
   }
   .header-brand-text .header-brand-name {
-    font-size: 1.12rem !important;
+    font-size: clamp(0.75rem, 3.4vw, 1.12rem) !important;
   }
   .top-header {
     padding: 8px 12px !important;
@@ -7540,6 +7652,11 @@ a.footer-creator-note:hover .footer-icon-accent {
     padding-bottom: 8px;
     -webkit-overflow-scrolling: touch;
     width: 100%;
+  }
+
+  .screener-presets-group > span {
+    flex-shrink: 0;
+    white-space: nowrap;
   }
 
   .screener-presets-group .btn {
