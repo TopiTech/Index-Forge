@@ -10,7 +10,10 @@ import { normalizeTicker } from "./yahooSymbol";
 export function normalizeWeights(items: BasketItem[]): BasketItem[] {
   const safeItems = items.map((item) => ({
     ...item,
-    weight: typeof item.weight === "number" && Number.isFinite(item.weight) && item.weight > 0 ? item.weight : 0,
+    weight:
+      typeof item.weight === "number" && Number.isFinite(item.weight) && item.weight > 0
+        ? item.weight
+        : 0,
   }));
   const total = safeItems.reduce((sum, item) => sum + item.weight, 0);
   if (total <= 0) return safeItems;
@@ -61,7 +64,10 @@ export function equalizeWeightsExact<T extends { weight: number }>(items: T[], d
  * a 400. One unit (0.01%) is therefore reserved per entry before the
  * remainder is distributed.
  */
-export function redistributeWeightsExact<T extends { weight: number }>(items: T[], decimals = 2): T[] {
+export function redistributeWeightsExact<T extends { weight: number }>(
+  items: T[],
+  decimals = 2,
+): T[] {
   if (items.length === 0) return [];
   let safeDecimals = Math.max(0, Math.floor(decimals));
   while (items.length > 100 * 10 ** safeDecimals) {
@@ -70,7 +76,9 @@ export function redistributeWeightsExact<T extends { weight: number }>(items: T[
   const factor = 10 ** safeDecimals;
   const totalUnits = 100 * factor;
   const safeWeights = items.map((item) =>
-    typeof item.weight === "number" && Number.isFinite(item.weight) && item.weight > 0 ? item.weight : 0,
+    typeof item.weight === "number" && Number.isFinite(item.weight) && item.weight > 0
+      ? item.weight
+      : 0,
   );
   const currentTotal = safeWeights.reduce((sum, w) => sum + w, 0);
   if (currentTotal <= 0) {
@@ -119,7 +127,6 @@ export function redistributeWeightsExact<T extends { weight: number }>(items: T[
     weight: Number((allocated[i] / factor).toFixed(safeDecimals)),
   }));
 }
-
 
 export interface BasketWeightRepair {
   ticker: string;
@@ -227,7 +234,12 @@ export function sanitizeBasketForRequest(
     // index stays computable instead of being rejected or silently empty.
     return {
       basket: equalizeWeightsExact(
-        repaired.map((item) => ({ ticker: item.ticker, name: item.name, theme: item.theme, weight: 100 })),
+        repaired.map((item) => ({
+          ticker: item.ticker,
+          name: item.name,
+          theme: item.theme,
+          weight: 100,
+        })),
       ),
       dropped,
       repaired: [],
@@ -313,7 +325,9 @@ export function buildIndexPriceMatrix(
   stockUniverse: StockSeries[],
 ): IndexPriceMatrix {
   const normalized = normalizeWeights(basket);
-  const stockByTicker = new Map(stockUniverse.map((stock) => [normalizeTicker(stock.ticker), stock]));
+  const stockByTicker = new Map(
+    stockUniverse.map((stock) => [normalizeTicker(stock.ticker), stock]),
+  );
   const consolidated = new Map<string, StockSeries & { weight: number }>();
   for (const item of normalized) {
     const norm = normalizeTicker(item.ticker);
@@ -337,18 +351,16 @@ export function buildIndexPriceMatrix(
     return first ? (first.close as number) : 0;
   });
 
-  const validIndices = initialBasePrices
-    .map((bp, i) => (bp > 0 ? i : -1))
-    .filter((i) => i >= 0);
+  const validIndices = initialBasePrices.map((bp, i) => (bp > 0 ? i : -1)).filter((i) => i >= 0);
   if (validIndices.length === 0) return empty;
 
   const validStocks = validIndices.map((i) => selected[i]);
   const basePrices = validIndices.map((i) => initialBasePrices[i]);
   const tickerIndexMap = new Map(validStocks.map((s, i) => [normalizeTicker(s.ticker), i]));
 
-  const allDates = Array.from(new Set(
-    validStocks.flatMap((stock) => stock.series.map((p) => p.date)),
-  )).sort();
+  const allDates = Array.from(
+    new Set(validStocks.flatMap((stock) => stock.series.map((p) => p.date))),
+  ).sort();
   if (allDates.length === 0) return empty;
 
   const rows: IndexMatrixRow[] = validStocks.map((stock, stockIndex) => {
@@ -357,7 +369,8 @@ export function buildIndexPriceMatrix(
       .sort((a, b) => a.date.localeCompare(b.date))
       .filter((p) => isUsableClose(p.close));
     const firstRealDate = sortedCloses.length > 0 ? sortedCloses[0].date : null;
-    const lastRealDate = sortedCloses.length > 0 ? sortedCloses[sortedCloses.length - 1].date : null;
+    const lastRealDate =
+      sortedCloses.length > 0 ? sortedCloses[sortedCloses.length - 1].date : null;
     const firstPrice = basePrices[stockIndex];
     let lastPrice = firstPrice;
 
@@ -391,7 +404,8 @@ export function calculateCustomIndex(
   stockUniverse: StockSeries[],
   baseValue = 1000,
 ): PricePoint[] {
-  const safeBase = typeof baseValue === "number" && Number.isFinite(baseValue) && baseValue > 0 ? baseValue : 1000;
+  const safeBase =
+    typeof baseValue === "number" && Number.isFinite(baseValue) && baseValue > 0 ? baseValue : 1000;
   // Values and coverage read one shared matrix: the fill behavior can no
   // longer drift between the two.
   const { dates: allDates, rows } = buildIndexPriceMatrix(basket, stockUniverse);
@@ -401,9 +415,7 @@ export function calculateCustomIndex(
     // この日付で有効なデータ（価格 > 0 かつ 基準価格が存在する）を持つ銘柄を抽出
     // Matrix cells are always positive (a real close, or the base price
     // carried forward), so every row participates exactly as before.
-    const availableRows = rows.filter(
-      (row) => row.values[dateIndex] > 0 && row.basePrice > 0,
-    );
+    const availableRows = rows.filter((row) => row.values[dateIndex] > 0 && row.basePrice > 0);
 
     if (availableRows.length === 0) {
       return { date, value: safeBase, close: safeBase };
@@ -414,9 +426,8 @@ export function calculateCustomIndex(
 
     const weightedRelative = availableRows.reduce((sum, row) => {
       // ウェイトを再正規化して適用 (合計ウェイトが0の場合は均等配分)
-      const normalizedWeight = totalWeightOfAvailable > 0
-        ? row.weight / totalWeightOfAvailable
-        : 1 / availableRows.length;
+      const normalizedWeight =
+        totalWeightOfAvailable > 0 ? row.weight / totalWeightOfAvailable : 1 / availableRows.length;
       return sum + (row.values[dateIndex] / row.basePrice) * normalizedWeight;
     }, 0);
 
@@ -445,6 +456,8 @@ export interface IndexCoverage {
   filledCellRatio: number;
   /** Tickers carried forward on the latest date (the displayed value is stale for them). */
   trailingFilledTickers: string[];
+  /** Tickers carried forward on gap days prior to the latest date. */
+  gapFilledTickers: string[];
 }
 
 /**
@@ -469,6 +482,7 @@ export function computeIndexCoverage(
     latestDate: "",
     filledCellRatio: 0,
     trailingFilledTickers: [],
+    gapFilledTickers: [],
   };
   const { dates, rows } = buildIndexPriceMatrix(basket, stockUniverse);
   if (dates.length === 0 || rows.length === 0) return empty;
@@ -489,21 +503,35 @@ export function computeIndexCoverage(
     return { date, total: rows.length, available, filledTickers };
   });
   const latestPoint = points[points.length - 1];
+  const latestDate = latestPoint ? latestPoint.date : "";
+  const gapPoints = points.filter(
+    (point) => point.date !== latestDate && point.filledTickers.length > 0,
+  );
+  const gapFilledTickers = Array.from(new Set(gapPoints.flatMap((point) => point.filledTickers)));
+
   return {
     points,
-    latestDate: latestPoint ? latestPoint.date : "",
-    filledCellRatio: rows.length > 0 && dates.length > 0 ? filledCells / (rows.length * dates.length) : 0,
+    latestDate,
+    filledCellRatio:
+      rows.length > 0 && dates.length > 0 ? filledCells / (rows.length * dates.length) : 0,
     trailingFilledTickers: latestPoint ? [...latestPoint.filledTickers] : [],
+    gapFilledTickers,
   };
 }
 
 /** Maximum tickers named inline before a warning compacts the rest. */
 const COVERAGE_WARNING_TICKER_LIMIT = 5;
 
-function formatTickerList(tickers: string[]): string {
-  if (tickers.length <= COVERAGE_WARNING_TICKER_LIMIT) return tickers.join("、");
-  const head = tickers.slice(0, COVERAGE_WARNING_TICKER_LIMIT).join("、");
-  return `${head}（他${tickers.length - COVERAGE_WARNING_TICKER_LIMIT}件）`;
+function formatTickerList(tickers: string[], basket?: BasketItem[]): string {
+  const formatItem = (t: string) => {
+    if (!basket) return t;
+    const b = basket.find((item) => normalizeTicker(item.ticker) === normalizeTicker(t));
+    return b && b.name && b.name !== t ? `${t} (${b.name})` : t;
+  };
+  const items = tickers.map(formatItem);
+  if (items.length <= COVERAGE_WARNING_TICKER_LIMIT) return items.join("、");
+  const head = items.slice(0, COVERAGE_WARNING_TICKER_LIMIT).join("、");
+  return `${head}（他${items.length - COVERAGE_WARNING_TICKER_LIMIT}件）`;
 }
 
 /**
@@ -522,7 +550,7 @@ export function getIndexCoverageWarnings(
   const warnings: string[] = [];
   if (coverage.trailingFilledTickers.length > 0) {
     warnings.push(
-      `最新日（${coverage.latestDate}）時点で次の${coverage.trailingFilledTickers.length}銘柄の価格が欠測のため、直近の価格で補完して計算しています：${formatTickerList(coverage.trailingFilledTickers)}`,
+      `最新日（${coverage.latestDate}）時点で次の${coverage.trailingFilledTickers.length}銘柄の価格が欠測のため、直近の価格で補完して計算しています：${formatTickerList(coverage.trailingFilledTickers, basket)}`,
     );
   }
   const gapDays = coverage.points.filter(
@@ -530,8 +558,12 @@ export function getIndexCoverageWarnings(
   ).length;
   if (gapDays > 0) {
     const percent = Number((coverage.filledCellRatio * 100).toFixed(1));
+    const targetText =
+      coverage.gapFilledTickers.length > 0
+        ? `（${formatTickerList(coverage.gapFilledTickers, basket)}）`
+        : "";
     warnings.push(
-      `期間中に価格の欠測を補完した日が${gapDays}日あります（補完セル率 ${percent}%）。対象銘柄はチャート上で直近値のまま推移します`,
+      `期間中に価格の欠測を補完した日が${gapDays}日あります（補完セル率 ${percent}%）。対象銘柄${targetText}はチャート上で直近値のまま推移します`,
     );
   }
   return warnings;

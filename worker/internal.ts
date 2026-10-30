@@ -116,6 +116,7 @@ export {
   fetchLiveScreenerUniverse,
   fetchLiveMarketCalendar,
   fetchLiveMarketCalendarAsync,
+  fetchLiveMacroEventsFromApiAsync,
   lastKnownCalendarEvents,
   getLastKnownCalendarEvents,
   resetLastKnownCalendarEvents,

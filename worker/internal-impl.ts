@@ -4867,15 +4867,222 @@ export function fetchLiveMarketCalendar(
 }
 
 /**
+ * 外部API (biquote.io / MQL5) から主要国 (日米) の実マクロ経済カレンダーを取得。
+ * 毎月12日/19日等の固定推計日程ではなく、外部機関公表の正確な公表予定日時・前回値・予想値を返す。
+ */
+export async function fetchLiveMacroEventsFromApiAsync(refDate = new Date()): Promise<CalendarEvent[]> {
+  try {
+    const fromDate = new Date(refDate.getTime() - 14 * 24 * 60 * 60 * 1000);
+    const toDate = new Date(refDate.getTime() + 90 * 24 * 60 * 60 * 1000);
+    const mStr = (m: number) => String(m).padStart(2, "0");
+    const dStr = (d: number) => String(d).padStart(2, "0");
+    const fromStr = `${fromDate.getFullYear()}-${mStr(fromDate.getMonth() + 1)}-${dStr(fromDate.getDate())}`;
+    const toStr = `${toDate.getFullYear()}-${mStr(toDate.getMonth() + 1)}-${dStr(toDate.getDate())}`;
+    const url = `https://biquote.io/api/calendar?importance=high&countries=US,JP&from=${fromStr}&to=${toStr}`;
+
+    const res = await fetch(url, {
+      signal: AbortSignal.timeout(3000),
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        Accept: "application/json",
+      },
+    });
+    if (!res.ok) return [];
+    const items = (await res.json()) as Array<{
+      time?: string;
+      countryCode?: string;
+      name?: string;
+      importance?: string;
+      actual?: number | null;
+      forecast?: number | null;
+      previous?: number | null;
+    }>;
+    if (!Array.isArray(items) || items.length === 0) return [];
+
+    const events: CalendarEvent[] = [];
+    const counts = new Map<string, number>();
+    const inc = (k: string) => {
+      const c = (counts.get(k) || 0) + 1;
+      counts.set(k, c);
+      return c;
+    };
+
+    for (const item of items) {
+      if (!item.time || !item.name || !item.countryCode) continue;
+      const evDate = new Date(item.time);
+      if (isNaN(evDate.getTime())) continue;
+      const jstDate = new Date(evDate.getTime() + 9 * 60 * 60 * 1000);
+      const dateStr = `${mStr(jstDate.getUTCMonth() + 1)}/${dStr(jstDate.getUTCDate())}`;
+      const fullDateStr = `${jstDate.getUTCFullYear()}-${mStr(jstDate.getUTCMonth() + 1)}-${dStr(jstDate.getUTCDate())}`;
+      const timeJst = `${mStr(jstDate.getUTCHours())}:${mStr(jstDate.getUTCMinutes())} JST`;
+
+      const prevStr =
+        item.previous !== null && item.previous !== undefined ? `${item.previous}%` : undefined;
+      const forecastStr =
+        item.forecast !== null && item.forecast !== undefined ? `${item.forecast}%` : undefined;
+
+      const n = item.name.toLowerCase();
+
+      // 米国CPI
+      if (item.countryCode === "US" && (n === "cpi y/y" || n.includes("consumer price index") || n === "core cpi y/y")) {
+        if (inc("cpi") <= 2) {
+          events.push({
+            id: `macro-api-cpi-${fullDateStr}`,
+            date: dateStr,
+            fullDate: fullDateStr,
+            type: "MACRO",
+            title: "米消費者物価指数 (CPI) 発表",
+            importance: "HIGH",
+            market: "US",
+            time: timeJst,
+            previous: prevStr || MACRO_METRICS_DEFAULTS.cpi.previous,
+            forecast: forecastStr || MACRO_METRICS_DEFAULTS.cpi.forecast,
+            description: MACRO_METRICS_DEFAULTS.cpi.description,
+            source: "official",
+            fieldProvenance: {
+              previous: item.previous !== null && item.previous !== undefined ? "official" : "reference",
+              forecast: item.forecast !== null && item.forecast !== undefined ? "official" : "reference",
+            },
+          });
+        }
+      } else if (item.countryCode === "US" && n.includes("nonfarm payrolls")) {
+        // 米雇用統計
+        if (inc("jobs") <= 2) {
+          const pJobs =
+            item.previous !== null && item.previous !== undefined ? `${item.previous}万人` : MACRO_METRICS_DEFAULTS.jobs.previous;
+          const fJobs =
+            item.forecast !== null && item.forecast !== undefined ? `${item.forecast}万人` : MACRO_METRICS_DEFAULTS.jobs.forecast;
+          events.push({
+            id: `macro-api-jobs-${fullDateStr}`,
+            date: dateStr,
+            fullDate: fullDateStr,
+            type: "MACRO",
+            title: "米雇用統計 (非農業部門雇用者数・失業率)",
+            importance: "HIGH",
+            market: "US",
+            time: timeJst,
+            previous: pJobs,
+            forecast: fJobs,
+            description: MACRO_METRICS_DEFAULTS.jobs.description,
+            source: "official",
+            fieldProvenance: {
+              previous: item.previous !== null && item.previous !== undefined ? "official" : "reference",
+              forecast: item.forecast !== null && item.forecast !== undefined ? "official" : "reference",
+            },
+          });
+        }
+      } else if (item.countryCode === "US" && (n.includes("fed interest rate") || n.includes("fomc"))) {
+        // 米FOMC
+        if (inc("fomc") <= 2) {
+          events.push({
+            id: `macro-api-fomc-${fullDateStr}`,
+            date: dateStr,
+            fullDate: fullDateStr,
+            type: "MACRO",
+            title: "米FOMC 政策金利発表 & パウエル議長記者会見",
+            importance: "HIGH",
+            market: "US",
+            time: timeJst,
+            previous: prevStr || MACRO_METRICS_DEFAULTS.fomc.previous,
+            forecast: forecastStr || (item.actual !== null && item.actual !== undefined ? `${item.actual}%` : MACRO_METRICS_DEFAULTS.fomc.forecast),
+            description: MACRO_METRICS_DEFAULTS.fomc.description,
+            source: "official",
+            fieldProvenance: {
+              previous: item.previous !== null && item.previous !== undefined ? "official" : "reference",
+              forecast: item.forecast !== null && item.forecast !== undefined ? "official" : "reference",
+            },
+          });
+        }
+      } else if (item.countryCode === "JP" && (n.includes("boj interest rate") || n.includes("bank of japan"))) {
+        // 日銀会合
+        if (inc("boj") <= 2) {
+          events.push({
+            id: `macro-api-boj-${fullDateStr}`,
+            date: dateStr,
+            fullDate: fullDateStr,
+            type: "MACRO",
+            title: "日銀金融政策決定会合・総裁記者会見",
+            importance: "HIGH",
+            market: "TSE",
+            time: timeJst || "15:30 JST",
+            previous: prevStr || MACRO_METRICS_DEFAULTS.boj.previous,
+            forecast: forecastStr || MACRO_METRICS_DEFAULTS.boj.forecast,
+            description: MACRO_METRICS_DEFAULTS.boj.description,
+            source: "official",
+            fieldProvenance: {
+              previous: item.previous !== null && item.previous !== undefined ? "official" : "reference",
+              forecast: item.forecast !== null && item.forecast !== undefined ? "official" : "reference",
+            },
+          });
+        }
+      } else if (item.countryCode === "JP" && n.includes("cpi")) {
+        // 日本CPI
+        if (inc("jpcpi") <= 2) {
+          events.push({
+            id: `macro-api-jpcpi-${fullDateStr}`,
+            date: dateStr,
+            fullDate: fullDateStr,
+            type: "MACRO",
+            title: item.name.includes("Tokyo") ? "東京都区部消費者物価指数 (東京CPI)" : "日本 全国消費者物価指数 (全国CPI)",
+            importance: "HIGH",
+            market: "TSE",
+            time: timeJst || "08:30 JST",
+            previous: prevStr || MACRO_METRICS_DEFAULTS.jpCpi.previous,
+            forecast: forecastStr || MACRO_METRICS_DEFAULTS.jpCpi.forecast,
+            description: MACRO_METRICS_DEFAULTS.jpCpi.description,
+            source: "official",
+            fieldProvenance: {
+              previous: item.previous !== null && item.previous !== undefined ? "official" : "reference",
+              forecast: item.forecast !== null && item.forecast !== undefined ? "official" : "reference",
+            },
+          });
+        }
+      }
+    }
+
+    return events;
+  } catch {
+    return [];
+  }
+}
+
+/**
  * リアルタイムカレンダー取得（非同期）。
  * Yahoo Finance から主要企業の最新決算予定日時をライブ取得し、
- * 公定スケジュールと統合する。通信失敗時は動的フォールバックを返却。
+ * 外部APIおよび公定スケジュールと統合する。通信失敗時は動的フォールバックを返却。
  */
 export async function fetchLiveMarketCalendarAsync(
   universe?: StockQuoteFundamentals[],
   refDate = new Date(),
 ): Promise<CalendarEvent[]> {
-  const macroEvents = generateUpcomingMacroEvents(refDate);
+  const fallbackMacros = generateUpcomingMacroEvents(refDate);
+  const liveMacroEvents = await fetchLiveMacroEventsFromApiAsync(refDate);
+
+  let macroEvents: CalendarEvent[] = [];
+  if (liveMacroEvents.length > 0) {
+    const apiTypes = new Set<string>();
+    for (const me of liveMacroEvents) {
+      if (me.id.includes("-cpi-")) apiTypes.add("cpi");
+      if (me.id.includes("-jobs-")) apiTypes.add("jobs");
+      if (me.id.includes("-fomc-")) apiTypes.add("fomc");
+      if (me.id.includes("-boj-")) apiTypes.add("boj");
+      if (me.id.includes("-jpcpi-")) apiTypes.add("jpcpi");
+    }
+    macroEvents = [
+      ...liveMacroEvents,
+      ...fallbackMacros.filter((fe) => {
+        if (fe.id.startsWith("macro-cpi") && apiTypes.has("cpi")) return false;
+        if (fe.id.startsWith("macro-jobs") && apiTypes.has("jobs")) return false;
+        if (fe.id.startsWith("macro-fomc") && apiTypes.has("fomc")) return false;
+        if (fe.id.startsWith("macro-boj") && apiTypes.has("boj")) return false;
+        if (fe.id.startsWith("macro-jp-cpi") && apiTypes.has("jpcpi")) return false;
+        return true;
+      }),
+    ];
+  } else {
+    macroEvents = fallbackMacros;
+  }
 
   const liveEarnings: CalendarEvent[] = [];
   const fallbackCorporateTickers = [
@@ -4903,6 +5110,11 @@ export async function fetchLiveMarketCalendarAsync(
   );
 
   let liveFomcRate: number | null = null;
+  const mStr = (m: number) => String(m).padStart(2, "0");
+  const dStr = (d: number) => String(d).padStart(2, "0");
+  const refTime = refDate.getTime() - 45 * 24 * 60 * 60 * 1000; // 直近45日以内〜未来
+  const maxTime = refDate.getTime() + 90 * 24 * 60 * 60 * 1000; // 向こう90日以内
+
   try {
     const auth = await getYahooCrumb();
     if (auth) {
@@ -4934,10 +5146,6 @@ export async function fetchLiveMarketCalendarAsync(
         };
 
         const results = qData.quoteResponse?.result || [];
-        const mStr = (m: number) => String(m).padStart(2, "0");
-        const dStr = (d: number) => String(d).padStart(2, "0");
-        const refTime = refDate.getTime() - 7 * 24 * 60 * 60 * 1000; // 直近7日以内〜未来
-        const maxTime = refDate.getTime() + 90 * 24 * 60 * 60 * 1000; // 向こう90日以内
 
         let liveUs10yYield: number | null = null;
         for (const q of results) {
@@ -4949,11 +5157,10 @@ export async function fetchLiveMarketCalendarAsync(
           }
         }
 
-        // N-2: 3ヶ月 T-Bill 利回り (^IRX) からレンジ下限を推計した参考値であり、  // 公式の FF 誘導目標レンジではない。推計である旨を文言とフィールド来歴の
-        // 両方で明示する (PER の isEstimatedPer + 「推計」注記と同一の規律)。
+        // N-2: 3ヶ月 T-Bill 利回り (^IRX) からレンジ下限を推計した参考値であり、公式の FF 誘導目標レンジではない。
         if (typeof liveFomcRate === "number") {
           for (const me of macroEvents) {
-            if (me.id.startsWith("macro-fomc")) {
+            if (me.id.startsWith("macro-fomc") || me.id.startsWith("macro-api-fomc")) {
               const lower = (Math.floor(liveFomcRate * 4) / 4).toFixed(2);
               const upper = (Number(lower) + 0.25).toFixed(2);
               me.previous = `${lower}% - ${upper}% (参考推計: 3ヶ月物利回りベース)`;
@@ -4969,7 +5176,7 @@ export async function fetchLiveMarketCalendarAsync(
 
         if (typeof liveUs10yYield === "number") {
           for (const me of macroEvents) {
-            if (me.id.startsWith("macro-cpi") && !me.description?.includes("米10年債")) {
+            if ((me.id.startsWith("macro-cpi") || me.id.startsWith("macro-api-cpi")) && !me.description?.includes("米10年債")) {
               me.description = `${me.description || ""} (参考指標: 米10年債利回り ${liveUs10yYield.toFixed(2)}%)`;
             }
           }
@@ -5016,6 +5223,56 @@ export async function fetchLiveMarketCalendarAsync(
             }
           }
         }
+
+        // 主要企業（ファナック等）で quote API から決算日時が取れなかった場合の quoteSummary 補完
+        const missingCorporate = fallbackCorporateTickers.filter(
+          (t) => !liveEarnings.some((le) => le.ticker === t),
+        );
+        for (const t of missingCorporate) {
+          try {
+            const sym = toYahooSymbol(t);
+            const sumUrl = `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(sym)}?modules=calendarEvents,price&crumb=${encodeURIComponent(auth.crumb)}`;
+            const sumRes = await fetch(sumUrl, {
+              signal: AbortSignal.timeout(3000),
+              headers: {
+                "User-Agent":
+                  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                Cookie: auth.cookie,
+              },
+            });
+            if (sumRes.ok) {
+              const sumData = (await sumRes.json()) as any;
+              const cal = sumData?.quoteSummary?.result?.[0]?.calendarEvents;
+              const earnDates = cal?.earnings?.earningsDate;
+              const rawTs = Array.isArray(earnDates) && earnDates.length > 0 ? earnDates[0]?.raw : undefined;
+              if (typeof rawTs === "number" && rawTs > 0) {
+                const earnTime = rawTs * 1000;
+                if (earnTime >= refTime && earnTime <= maxTime) {
+                  const jstDate = new Date(earnTime + 9 * 60 * 60 * 1000);
+                  const matchedPreset = POPULAR_STOCKS.find((s) => s.ticker === t);
+                  const shortName = sumData?.quoteSummary?.result?.[0]?.price?.shortName;
+                  const companyName = matchedPreset?.name || shortName || t;
+                  const isUS = !/^\d{4}/.test(t) && !sym.endsWith(".T");
+                  liveEarnings.push({
+                    id: `earn-live-${t.toLowerCase()}`,
+                    date: `${mStr(jstDate.getUTCMonth() + 1)}/${dStr(jstDate.getUTCDate())}`,
+                    fullDate: `${jstDate.getUTCFullYear()}-${mStr(jstDate.getUTCMonth() + 1)}-${dStr(jstDate.getUTCDate())}`,
+                    type: "EARNINGS",
+                    title: `${companyName} (${t}) 決算発表`,
+                    ticker: t,
+                    companyName,
+                    importance: "HIGH",
+                    market: isUS ? "US" : "TSE",
+                    time: isUS ? "06:30 JST (米引け後)" : "15:00 JST (東証引け後)",
+                    description: `${companyName} (${t}) 決算発表`,
+                  });
+                }
+              }
+            }
+          } catch {
+            // quoteSummary 補完のエラーは無視
+          }
+        }
       } else if (qRes.status === 401 || qRes.status === 403) {
         resetYahooCrumbCache();
       }
@@ -5029,7 +5286,7 @@ export async function fetchLiveMarketCalendarAsync(
   let finalEarnings: CalendarEvent[] = [];
   const finalMacros = macroEvents;
 
-  if (liveEarnings.length > 0 || liveFomcRate !== null) {
+  if (liveEarnings.length > 0 || liveFomcRate !== null || liveMacroEvents.length > 0) {
     // 日程 (公定表) の official 昇格は正当な仕様。ここで触れるのはイベント
     // 単位の source だけで、指標値の来歴 (fieldProvenance) は変更しない (N-3)。
     for (const me of finalMacros) {
@@ -5062,7 +5319,7 @@ export async function fetchLiveMarketCalendarAsync(
 
   const combined = sortCalendarEvents([...finalMacros, ...finalEarnings], refDate);
 
-  const hasLive = liveEarnings.length > 0 || finalMacros.some((m) => m.source !== "fallback");
+  const hasLive = liveEarnings.length > 0 || liveMacroEvents.length > 0 || finalMacros.some((m) => m.source !== "fallback");
   if (hasLive || !lastKnownCalendarEvents) {
     lastKnownCalendarEvents = combined;
   }
