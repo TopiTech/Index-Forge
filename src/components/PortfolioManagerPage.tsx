@@ -489,9 +489,19 @@ export function PortfolioManagerPage({
         return tableSortAsc ? cmp : -cmp;
       });
     } else if (tableSortField === "marketValue") {
-      list.sort((a, b) => (tableSortAsc ? a.marketValue - b.marketValue : b.marketValue - a.marketValue));
+      list.sort((a, b) => {
+        const valA = Number.isFinite(a.marketValueJpy) ? (a.marketValueJpy as number) : a.marketValue;
+        const valB = Number.isFinite(b.marketValueJpy) ? (b.marketValueJpy as number) : b.marketValue;
+        const safeA = Number.isFinite(valA) ? valA : 0;
+        const safeB = Number.isFinite(valB) ? valB : 0;
+        return tableSortAsc ? safeA - safeB : safeB - safeA;
+      });
     } else if (tableSortField === "unrealizedProfitPercent") {
-      list.sort((a, b) => (tableSortAsc ? a.unrealizedProfitPercent - b.unrealizedProfitPercent : b.unrealizedProfitPercent - a.unrealizedProfitPercent));
+      list.sort((a, b) => {
+        const pA = Number.isFinite(a.unrealizedProfitPercent) ? a.unrealizedProfitPercent : 0;
+        const pB = Number.isFinite(b.unrealizedProfitPercent) ? b.unrealizedProfitPercent : 0;
+        return tableSortAsc ? pA - pB : pB - pA;
+      });
     }
     return list;
   }, [summary.positions, tableSortField, tableSortAsc]);

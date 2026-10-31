@@ -4,6 +4,7 @@ import {
   fetchWithNetworkMark,
   isRecord,
   readJsonBody,
+  releaseResponse,
 } from "./apiContract";
 
 const AUTH_STORAGE_KEY = "custom_stock_index_auth";
@@ -470,7 +471,7 @@ export function generateSecurePassword(length = 10): string {
 }
 
 /** Turnstile test site key; used whenever the Worker cannot be reached. */
-const DEFAULT_TURNSTILE_SITE_KEY = "1x00000000000000000000AA";
+export const DEFAULT_TURNSTILE_SITE_KEY = "1x00000000000000000000AA";
 
 /**
  * Validate the lockout block of `/api/auth/turnstile-config`.
@@ -509,6 +510,7 @@ export async function getTurnstileConfig(): Promise<{
   try {
     const res = await fetchWithNetworkMark("/api/auth/turnstile-config");
     if (!res.ok) {
+      releaseResponse(res);
       return { siteKey: DEFAULT_TURNSTILE_SITE_KEY };
     }
     // UI-38: a non-JSON body must not throw (the catch below would hide the

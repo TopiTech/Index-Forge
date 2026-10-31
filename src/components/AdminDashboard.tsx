@@ -45,7 +45,7 @@ import { ConfirmModal } from "./ConfirmModal";
 import { ModalBase } from "./ModalBase";
 import { useToast } from "./Toast";
 import { equalizeWeightsExact, normalizeTicker } from "../lib/indexEngine";
-import { fetchWithNetworkMark, isRecord, isValidTicker, readJsonBody, releaseResponse } from "../lib/apiContract";
+import { clampBaseValue, fetchWithNetworkMark, isRecord, isValidTicker, readJsonBody, releaseResponse } from "../lib/apiContract";
 import { safeRandomId } from "../lib/randomId";
 import { TurnstileWidget, type TurnstileWidgetRef } from "./TurnstileWidget";
 
@@ -774,7 +774,7 @@ export function AdminDashboard({
         ticker: cleanTicker,
         name: addName.trim(),
         theme: addTheme.trim() || "カスタム",
-        weight: Math.max(0.1, Number(addWeight) || 10),
+        weight: Math.min(100, Math.max(0.1, toFiniteNumberOr(addWeight, 10))),
       },
     ]);
     setAddTicker("");
@@ -890,7 +890,7 @@ export function AdminDashboard({
         id: newId,
         name: newIndexName.trim(),
         description: newIndexDesc.trim() || "管理者作成のカスタムインデックス",
-        baseValue: Number(newIndexBaseValue) || 1000,
+        baseValue: clampBaseValue(toFiniteNumberOr(newIndexBaseValue, 1000)),
         basket: [
           { ticker: "7203", name: "トヨタ自動車", theme: "モビリティ", weight: 33.3 },
           { ticker: "6758", name: "ソニーグループ", theme: "エンタメ・技術", weight: 33.3 },
@@ -2928,7 +2928,7 @@ export function AdminDashboard({
               id="create-index-base-val"
               type="number"
               value={newIndexBaseValue}
-              onChange={(e) => setNewIndexBaseValue(Number(e.target.value) || 1000)}
+              onChange={(e) => setNewIndexBaseValue(toFiniteNumberOr(e.target.value, 1000))}
               min={1}
               max={1000000}
               style={{

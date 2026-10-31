@@ -547,6 +547,7 @@ export function useIndices() {
         if (!res.ok) {
           throw new Error(await readResponseErrorMessage(res, "指数の削除に失敗しました"));
         }
+        releaseResponse(res);
 
         removeIndexOwnerToken(id);
         try {
@@ -602,6 +603,7 @@ export function useIndices() {
         if (!res.ok) {
           throw new Error(await readResponseErrorMessage(res, "銘柄の追加に失敗しました"));
         }
+        releaseResponse(res);
         try {
           localStorage.removeItem(INDICES_ETAG_KEY);
         } catch {
@@ -644,6 +646,7 @@ export function useIndices() {
         if (!res.ok) {
           throw new Error(await readResponseErrorMessage(res, "銘柄の削除に失敗しました"));
         }
+        releaseResponse(res);
         try {
           localStorage.removeItem(INDICES_ETAG_KEY);
         } catch {

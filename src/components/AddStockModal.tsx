@@ -101,7 +101,7 @@ export function AddStockModal({
     }
 
     const numericWeight = Number(weight);
-    if (!Number.isFinite(numericWeight) || numericWeight <= 0 || numericWeight > 100) {
+    if (!Number.isFinite(numericWeight) || numericWeight < 0.1 || numericWeight > 100) {
       setError("構成比率は0.1%から100%の間で入力してください");
       return;
     }

@@ -1840,8 +1840,14 @@ export async function fetchMarketOverview(forceRefresh = false): Promise<MarketO
   const isCooldown = now < overviewEndpointMissingUntil;
   if (isBrowser && (!overviewEndpointConfirmedMissing || !isCooldown || forceRefresh)) {
     try {
-      const res = await fetchWithNetworkMark("/api/market/overview", {
-        headers: { accept: "application/json" },
+      const url = forceRefresh
+        ? `/api/market/overview?refresh=${Date.now()}`
+        : "/api/market/overview";
+      const res = await fetchWithNetworkMark(url, {
+        headers: {
+          accept: "application/json",
+          ...(forceRefresh ? { "cache-control": "no-cache" } : {}),
+        },
         cache: forceRefresh ? "no-cache" : "default",
         timeoutMs: DEFAULT_REQUEST_TIMEOUT_MS,
       });
@@ -2531,8 +2537,14 @@ export async function fetchScreenerStocks(
   const isBrowser = typeof globalThis !== "undefined" && "window" in globalThis;
   if (isBrowser) {
     try {
-      const res = await fetchWithNetworkMark("/api/stocks/screener", {
-        headers: { accept: "application/json" },
+      const url = forceRefresh
+        ? `/api/stocks/screener?refresh=${Date.now()}`
+        : "/api/stocks/screener";
+      const res = await fetchWithNetworkMark(url, {
+        headers: {
+          accept: "application/json",
+          ...(forceRefresh ? { "cache-control": "no-cache" } : {}),
+        },
         cache: forceRefresh ? "no-cache" : "default",
         timeoutMs: DEFAULT_REQUEST_TIMEOUT_MS,
       });

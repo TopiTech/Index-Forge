@@ -46,7 +46,7 @@ export function toSafeDownloadFileName(raw: string, fallback = "download"): stri
  * saved baskets, quota settings, and index calculations, so every numeric
  * input handler funnels through this helper.
  */
-export function toFiniteNumberOr(raw: string, fallback: number): number {
+export function toFiniteNumberOr(raw: unknown, fallback: number): number {
   if (raw === null || raw === undefined) return fallback;
   const trimmed = String(raw).trim();
   if (trimmed === "") return fallback;
