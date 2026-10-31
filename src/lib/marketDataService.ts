@@ -2631,27 +2631,43 @@ function saveCalendarCache(events: CalendarEvent[]): void {
  * a stale or hand-edited cache entry with a malformed shape would render blank
  * or broken rows instead of falling back to the generated calendar.
  */
-function isValidCalendarEvent(e: unknown): e is CalendarEvent {
-  if (!e || typeof e !== "object") return false;
-  const record = e as { id?: unknown; date?: unknown; title?: unknown; type?: unknown; importance?: unknown };
+export function sanitizeCalendarEvent(e: unknown): CalendarEvent | null {
+  if (!e || typeof e !== "object") return null;
+  const record = e as {
+    id?: unknown;
+    date?: unknown;
+    title?: unknown;
+    type?: unknown;
+    importance?: unknown;
+    fieldProvenance?: unknown;
+    [key: string]: unknown;
+  };
   if (
     typeof record.id !== "string" ||
     typeof record.date !== "string" ||
     typeof record.title !== "string"
   ) {
-    return false;
+    return null;
   }
-  const recAny = e as Record<string, unknown>;
-  if (recAny.type !== "MACRO" && recAny.type !== "EARNINGS") {
-    recAny.type = "EARNINGS";
-  }
-  if (recAny.importance !== "HIGH" && recAny.importance !== "MEDIUM" && recAny.importance !== "LOW") {
-    recAny.importance = "MEDIUM";
-  }
+  const type = record.type === "MACRO" || record.type === "EARNINGS" ? record.type : "EARNINGS";
+  const importance =
+    record.importance === "HIGH" || record.importance === "MEDIUM" || record.importance === "LOW"
+      ? record.importance
+      : "MEDIUM";
+
+  const sanitized: CalendarEvent = {
+    ...(record as unknown as CalendarEvent),
+    id: record.id,
+    date: record.date,
+    title: record.title,
+    type,
+    importance,
+  };
+
   // N-3: フィールド単位の来歴も境界で正規化する。既知のキー (previous /
   // forecast / actual) と既知の区分 (reference / estimated) だけを通し、
   // 不正な形状や未知の値は破棄する (未設定 = 実データなので、破棄は安全側)。
-  const rawProvenance = recAny.fieldProvenance;
+  const rawProvenance = record.fieldProvenance;
   if (rawProvenance && typeof rawProvenance === "object" && !Array.isArray(rawProvenance)) {
     const normalized: Partial<Record<CalendarValueField, CalendarValueProvenance>> = {};
     for (const key of ["previous", "forecast", "actual"] as const) {
@@ -2661,14 +2677,18 @@ function isValidCalendarEvent(e: unknown): e is CalendarEvent {
       }
     }
     if (Object.keys(normalized).length > 0) {
-      recAny.fieldProvenance = normalized;
+      sanitized.fieldProvenance = normalized;
     } else {
-      delete recAny.fieldProvenance;
+      delete sanitized.fieldProvenance;
     }
-  } else if (rawProvenance !== undefined) {
-    delete recAny.fieldProvenance;
+  } else {
+    delete sanitized.fieldProvenance;
   }
-  return true;
+  return sanitized;
+}
+
+export function isValidCalendarEvent(e: unknown): e is CalendarEvent {
+  return sanitizeCalendarEvent(e) !== null;
 }
 
 function loadCalendarCache(): CalendarEvent[] | null {
@@ -2700,7 +2720,7 @@ function loadCalendarCache(): CalendarEvent[] | null {
           eventsArray = (parsed as { events: unknown }).events;
         }
         if (Array.isArray(eventsArray)) {
-          const valid = eventsArray.filter(isValidCalendarEvent);
+          const valid = eventsArray.map(sanitizeCalendarEvent).filter((e): e is CalendarEvent => e !== null);
           if (valid.length > 0) {
             return valid;
           }
@@ -2740,7 +2760,7 @@ export async function fetchUpcomingEvents(forceRefresh = false): Promise<Calenda
         if (contentType.includes("json")) {
           const raw: unknown = await readJsonBody(res);
           if (Array.isArray(raw) && raw.length > 0) {
-            const valid = raw.filter(isValidCalendarEvent);
+            const valid = raw.map(sanitizeCalendarEvent).filter((e): e is CalendarEvent => e !== null);
             if (valid.length > 0) {
               saveCalendarCache(valid);
               return valid;

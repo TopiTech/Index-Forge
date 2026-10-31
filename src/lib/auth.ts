@@ -423,6 +423,13 @@ export async function verifyPassword(
     storeAuth(session);
     return { ok: true, session };
   } catch (err) {
+    if (
+      signal?.aborted ||
+      (err instanceof DOMException && err.name === "AbortError") ||
+      (err instanceof Error && err.name === "AbortError")
+    ) {
+      return { ok: false, error: "認証がキャンセルされました" };
+    }
     const msg = err instanceof Error ? err.message : "認証通信エラーが発生しました";
     return { ok: false, error: msg };
   }
@@ -607,6 +614,13 @@ export async function adminLogin(
     storeAuth(session);
     return { ok: true, session };
   } catch (err) {
+    if (
+      signal?.aborted ||
+      (err instanceof DOMException && err.name === "AbortError") ||
+      (err instanceof Error && err.name === "AbortError")
+    ) {
+      return { ok: false, error: "認証がキャンセルされました" };
+    }
     const msg = err instanceof Error ? err.message : "管理者認証通信エラーが発生しました";
     return { ok: false, error: msg };
   }

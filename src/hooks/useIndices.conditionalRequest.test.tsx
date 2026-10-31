@@ -134,4 +134,45 @@ describe("useIndices conditional requests", () => {
 
     expect(getCapturedSignal()?.aborted).toBe(true);
   });
+
+  it("handles 304 Not Modified without breaking state and keeps cached indices", async () => {
+    // Prime cache
+    const initialList = indexPayload();
+    window.localStorage.setItem(CACHE_KEY, JSON.stringify(initialList));
+    window.localStorage.setItem(ETAG_KEY, '"cached-etag"');
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(null, {
+            status: 304,
+            headers: { etag: '"cached-etag"' },
+          }),
+      ),
+    );
+
+    let refreshFn: (() => Promise<void>) | null = null;
+    function Harness() {
+      const { indices, refreshIndices } = useIndices();
+      refreshFn = refreshIndices;
+      return <span data-testid="count">{indices.length}</span>;
+    }
+
+    const { getByTestId } = render(<Harness />);
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(getByTestId("count").textContent).toBe("1");
+
+    // Explicit refresh on 304 must resolve cleanly without throw or undefined
+    await act(async () => {
+      await expect(refreshFn?.()).resolves.toBeUndefined();
+    });
+
+    expect(getByTestId("count").textContent).toBe("1");
+  });
 });

@@ -90,9 +90,9 @@ export function getEventDayOfWeek(dateStr: string, fullDate?: string): string {
         d >= 1 &&
         d <= 31
       ) {
-        const dObj = new Date(y, m - 1, d);
-        if (!isNaN(dObj.getTime()) && dObj.getMonth() === m - 1) {
-          return days[dObj.getDay()] || "";
+        const dObj = new Date(Date.UTC(y, m - 1, d));
+        if (!isNaN(dObj.getTime()) && dObj.getUTCMonth() === m - 1) {
+          return days[dObj.getUTCDay()] || "";
         }
       }
     }
@@ -111,9 +111,9 @@ export function getEventDayOfWeek(dateStr: string, fullDate?: string): string {
       } else if (m > currentMonth && m - currentMonth >= 6) {
         year = currentYear - 1;
       }
-      const dateObj = new Date(year, m - 1, d);
-      if (!isNaN(dateObj.getTime()) && dateObj.getMonth() === m - 1) {
-        return days[dateObj.getDay()] || "";
+      const dateObj = new Date(Date.UTC(year, m - 1, d));
+      if (!isNaN(dateObj.getTime()) && dateObj.getUTCMonth() === m - 1) {
+        return days[dateObj.getUTCDay()] || "";
       }
     }
   }

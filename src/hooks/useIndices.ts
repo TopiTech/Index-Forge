@@ -288,7 +288,7 @@ export function useIndices() {
     indicesRef.current = indices;
   }, [indices]);
 
-  const fetchIndices = useCallback(async () => {
+  const fetchIndices = useCallback(async (): Promise<CustomIndex[]> => {
     const requestId = ++requestIdRef.current;
     const isCurrentRequest = () => requestId === requestIdRef.current && mountedRef.current;
     const cachedIndices = getLocalIndicesCache();
@@ -322,7 +322,7 @@ export function useIndices() {
         // This should be unreachable without a matching local cache because
         // getIndicesRequestHeaders omits the ETag in that situation.
         releaseResponse(res);
-        return;
+        return cachedIndices ?? indicesRef.current ?? DEFAULT_INDICES;
       }
 
       if (!res.ok) {
@@ -340,7 +340,7 @@ export function useIndices() {
       // the stored ETag paired with a different body, so the next request
       // answered 304 and the UI silently kept the stale list.
       if (!isCurrentRequest()) {
-        return sanitizeIndexList(data);
+        return sanitizeIndexList(data) ?? cachedIndices ?? indicesRef.current ?? DEFAULT_INDICES;
       }
 
       const newEtag = res.headers.get("etag");
@@ -382,7 +382,7 @@ export function useIndices() {
         // timed out) or a newer request superseded it. An aborted request
         // must not publish an error, a fallback list or a selection: the
         // in-memory state stays as it is and the user can retry explicitly.
-        return getLocalIndicesCache() ?? DEFAULT_INDICES;
+        return cachedIndices ?? indicesRef.current ?? DEFAULT_INDICES;
       }
       const message =
         err instanceof Error && err.message
@@ -395,7 +395,7 @@ export function useIndices() {
       if (!cached) {
         setIndices(DEFAULT_INDICES);
         setSelectedIndex((prev) => resolveSelectedIndex(prev, DEFAULT_INDICES));
-        return DEFAULT_INDICES;
+        return indicesRef.current.length > 0 ? indicesRef.current : DEFAULT_INDICES;
       }
       return cached;
     } finally {

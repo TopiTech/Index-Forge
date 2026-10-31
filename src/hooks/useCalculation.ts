@@ -312,7 +312,7 @@ export function useCalculation(selectedIndex: CustomIndex | null, enabled = true
           }
         }
 
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted || activeCalculationKeyRef.current !== basketKey) return;
 
         const res = await fetchWithNetworkMark(`${API_BASE}/calculate`, {
           method: "POST",
@@ -328,7 +328,7 @@ export function useCalculation(selectedIndex: CustomIndex | null, enabled = true
           signal: controller.signal,
         });
 
-        if (controller.signal.aborted) {
+        if (controller.signal.aborted || activeCalculationKeyRef.current !== basketKey) {
           releaseResponse(res);
           return;
         }
@@ -340,7 +340,7 @@ export function useCalculation(selectedIndex: CustomIndex | null, enabled = true
         // 生の SyntaxError として利用者に見えていたため、契約モジュールの
         // ヘルパーで一括して「応答なし」に落とす。
         const data = await readJsonBody<{ series?: unknown; stockUniverse?: unknown }>(res);
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted || activeCalculationKeyRef.current !== basketKey) return;
         if (!data) {
           throw new Error("サーバーから無効な応答が返されました");
         }
