@@ -4907,6 +4907,12 @@ export async function fetchLiveMacroEventsFromApiAsync(refDate = new Date()): Pr
       counts.set(k, c);
       return c;
     };
+    const buildFieldProvenance = (hasPrev: boolean, hasForecast: boolean): CalendarEvent["fieldProvenance"] => {
+      const prov: NonNullable<CalendarEvent["fieldProvenance"]> = {};
+      if (!hasPrev) prov.previous = "reference";
+      if (!hasForecast) prov.forecast = "reference";
+      return Object.keys(prov).length > 0 ? prov : undefined;
+    };
 
     for (const item of items) {
       if (!item.time || !item.name || !item.countryCode) continue;
@@ -4940,10 +4946,10 @@ export async function fetchLiveMacroEventsFromApiAsync(refDate = new Date()): Pr
             forecast: forecastStr || MACRO_METRICS_DEFAULTS.cpi.forecast,
             description: MACRO_METRICS_DEFAULTS.cpi.description,
             source: "official",
-            fieldProvenance: {
-              previous: item.previous !== null && item.previous !== undefined ? "official" : "reference",
-              forecast: item.forecast !== null && item.forecast !== undefined ? "official" : "reference",
-            },
+            fieldProvenance: buildFieldProvenance(
+              item.previous !== null && item.previous !== undefined,
+              item.forecast !== null && item.forecast !== undefined,
+            ),
           });
         }
       } else if (item.countryCode === "US" && n.includes("nonfarm payrolls")) {
@@ -4966,10 +4972,10 @@ export async function fetchLiveMacroEventsFromApiAsync(refDate = new Date()): Pr
             forecast: fJobs,
             description: MACRO_METRICS_DEFAULTS.jobs.description,
             source: "official",
-            fieldProvenance: {
-              previous: item.previous !== null && item.previous !== undefined ? "official" : "reference",
-              forecast: item.forecast !== null && item.forecast !== undefined ? "official" : "reference",
-            },
+            fieldProvenance: buildFieldProvenance(
+              item.previous !== null && item.previous !== undefined,
+              item.forecast !== null && item.forecast !== undefined,
+            ),
           });
         }
       } else if (item.countryCode === "US" && (n.includes("fed interest rate") || n.includes("fomc"))) {
@@ -4988,10 +4994,10 @@ export async function fetchLiveMacroEventsFromApiAsync(refDate = new Date()): Pr
             forecast: forecastStr || (item.actual !== null && item.actual !== undefined ? `${item.actual}%` : MACRO_METRICS_DEFAULTS.fomc.forecast),
             description: MACRO_METRICS_DEFAULTS.fomc.description,
             source: "official",
-            fieldProvenance: {
-              previous: item.previous !== null && item.previous !== undefined ? "official" : "reference",
-              forecast: item.forecast !== null && item.forecast !== undefined ? "official" : "reference",
-            },
+            fieldProvenance: buildFieldProvenance(
+              item.previous !== null && item.previous !== undefined,
+              item.forecast !== null && item.forecast !== undefined,
+            ),
           });
         }
       } else if (item.countryCode === "JP" && (n.includes("boj interest rate") || n.includes("bank of japan"))) {
@@ -5010,10 +5016,10 @@ export async function fetchLiveMacroEventsFromApiAsync(refDate = new Date()): Pr
             forecast: forecastStr || MACRO_METRICS_DEFAULTS.boj.forecast,
             description: MACRO_METRICS_DEFAULTS.boj.description,
             source: "official",
-            fieldProvenance: {
-              previous: item.previous !== null && item.previous !== undefined ? "official" : "reference",
-              forecast: item.forecast !== null && item.forecast !== undefined ? "official" : "reference",
-            },
+            fieldProvenance: buildFieldProvenance(
+              item.previous !== null && item.previous !== undefined,
+              item.forecast !== null && item.forecast !== undefined,
+            ),
           });
         }
       } else if (item.countryCode === "JP" && n.includes("cpi")) {
@@ -5032,10 +5038,10 @@ export async function fetchLiveMacroEventsFromApiAsync(refDate = new Date()): Pr
             forecast: forecastStr || MACRO_METRICS_DEFAULTS.jpCpi.forecast,
             description: MACRO_METRICS_DEFAULTS.jpCpi.description,
             source: "official",
-            fieldProvenance: {
-              previous: item.previous !== null && item.previous !== undefined ? "official" : "reference",
-              forecast: item.forecast !== null && item.forecast !== undefined ? "official" : "reference",
-            },
+            fieldProvenance: buildFieldProvenance(
+              item.previous !== null && item.previous !== undefined,
+              item.forecast !== null && item.forecast !== undefined,
+            ),
           });
         }
       }
@@ -5241,7 +5247,20 @@ export async function fetchLiveMarketCalendarAsync(
               },
             });
             if (sumRes.ok) {
-              const sumData = (await sumRes.json()) as any;
+              const sumData = (await sumRes.json()) as {
+                quoteSummary?: {
+                  result?: Array<{
+                    calendarEvents?: {
+                      earnings?: {
+                        earningsDate?: Array<{ raw?: number }>;
+                      };
+                    };
+                    price?: {
+                      shortName?: string;
+                    };
+                  }>;
+                };
+              };
               const cal = sumData?.quoteSummary?.result?.[0]?.calendarEvents;
               const earnDates = cal?.earnings?.earningsDate;
               const rawTs = Array.isArray(earnDates) && earnDates.length > 0 ? earnDates[0]?.raw : undefined;

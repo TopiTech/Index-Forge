@@ -69,7 +69,7 @@ describe("User Requested Fixes: 3 Issues Resolution", () => {
       const fanucEarningsTimestamp = Math.floor(new Date("2026-10-23T06:30:00Z").getTime() / 1000);
 
       const origFetch = globalThis.fetch;
-      globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      globalThis.fetch = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
         const urlStr = String(input);
         if (urlStr.includes("fc.yahoo.com")) {
           return new Response("", {
@@ -128,7 +128,7 @@ describe("User Requested Fixes: 3 Issues Resolution", () => {
       const fanucEarningsTimestamp = Math.floor(new Date("2026-10-23T06:30:00Z").getTime() / 1000);
 
       const origFetch = globalThis.fetch;
-      globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      globalThis.fetch = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
         const urlStr = String(input);
         if (urlStr.includes("fc.yahoo.com")) {
           return new Response("", {
@@ -200,7 +200,7 @@ describe("User Requested Fixes: 3 Issues Resolution", () => {
       const refDate = new Date("2026-10-30T12:00:00Z");
 
       const origFetch = globalThis.fetch;
-      globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      globalThis.fetch = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
         const urlStr = String(input);
         if (urlStr.includes("biquote.io/api/calendar")) {
           return new Response(
@@ -260,7 +260,7 @@ describe("User Requested Fixes: 3 Issues Resolution", () => {
         expect(cpi?.forecast).toBe("2.5%");
         expect(cpi?.previous).toBe("2.4%");
         expect(cpi?.source).toBe("official");
-        expect(cpi?.fieldProvenance?.forecast).toBe("official");
+        expect(cpi?.fieldProvenance?.forecast).toBeUndefined();
 
         // Nonfarm Payrolls
         const jobs = macroEvents.find((e) => e.title.includes("雇用統計"));
@@ -282,7 +282,7 @@ describe("User Requested Fixes: 3 Issues Resolution", () => {
       const refDate = new Date("2026-10-30T12:00:00Z");
 
       const origFetch = globalThis.fetch;
-      globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      globalThis.fetch = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
         const urlStr = String(input);
         if (urlStr.includes("biquote.io/api/calendar")) {
           return new Response(
