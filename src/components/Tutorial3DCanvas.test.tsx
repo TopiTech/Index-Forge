@@ -159,6 +159,46 @@ describe("Tutorial3DCanvas", () => {
     expect(FakeScene.instances).toHaveLength(1);
   });
 
+  it("releases the restored scene instance when unmounted after context recovery", () => {
+    const { container, unmount } = renderCanvas();
+    const canvas = getCanvas(container);
+    expect(FakeScene.instances).toHaveLength(1);
+    const initialScene = FakeScene.instances[0];
+
+    act(() => {
+      canvas.dispatchEvent(new Event("webglcontextlost", { cancelable: true }));
+    });
+    expect(initialScene.destroyed).toBe(true);
+
+    act(() => {
+      canvas.dispatchEvent(new Event("webglcontextrestored"));
+    });
+    expect(FakeScene.instances).toHaveLength(2);
+    const restoredScene = FakeScene.instances[1];
+    expect(restoredScene.destroyed).toBe(false);
+
+    unmount();
+
+    expect(restoredScene.destroyed).toBe(true);
+  });
+
+  it("destroys previous scene instance defensively before recreating on duplicate restore", () => {
+    const { container, unmount } = renderCanvas();
+    const canvas = getCanvas(container);
+    expect(FakeScene.instances).toHaveLength(1);
+    const firstScene = FakeScene.instances[0];
+
+    // Duplicate restore event without prior context loss
+    act(() => {
+      canvas.dispatchEvent(new Event("webglcontextrestored"));
+    });
+    expect(FakeScene.instances).toHaveLength(2);
+    expect(firstScene.destroyed).toBe(true);
+
+    unmount();
+    expect(FakeScene.instances[1].destroyed).toBe(true);
+  });
+
   it("mounts without silencing exhaustive-deps (props flow through latestPropsRef)", () => {
     // U-8 P-6: the mount effect reads currentStep/isReducedMotion/
     // isAutoRotatePaused through latestPropsRef (which the always-running

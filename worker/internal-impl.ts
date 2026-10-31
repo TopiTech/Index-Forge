@@ -9334,7 +9334,9 @@ export default {
             }
 
             // Fallback to legacy stock_prices for any tickers not found in stock_series
-            const missingTickers = chunk.filter((t) => !pricesByTicker.has(t));
+            const missingTickers = chunk.filter(
+              (t) => !pricesByTicker.has(t.trim().toUpperCase()),
+            );
             if (missingTickers.length > 0) {
               try {
                 const { results: dbPrices } = await env.DB.prepare(

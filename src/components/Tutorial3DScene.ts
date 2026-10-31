@@ -722,6 +722,7 @@ export class Tutorial3DScene {
    * Switches active step view with smooth transition.
    */
   public setStep(step: number, immediate: boolean = false): void {
+    if (this.isDestroyed) return;
     this.currentStep = Math.max(1, Math.min(4, step));
 
     this.stepGroups.forEach((group, id) => {
@@ -770,6 +771,7 @@ export class Tutorial3DScene {
    * Keyboard / Mouse Camera Orbit Controls.
    */
   public rotateCamera(deltaTheta: number, deltaPhi: number): void {
+    if (this.isDestroyed) return;
     this.targetTheta += deltaTheta;
     this.targetPhi = Math.max(0.1, Math.min(Math.PI * 0.48, this.targetPhi + deltaPhi));
     if (this.isReducedMotion) {
@@ -780,6 +782,7 @@ export class Tutorial3DScene {
   }
 
   public zoomCamera(deltaRadius: number): void {
+    if (this.isDestroyed) return;
     this.targetRadius = Math.max(7, Math.min(22, this.targetRadius + deltaRadius));
     if (this.isReducedMotion) {
       this.currentRadius = this.targetRadius;
@@ -788,6 +791,7 @@ export class Tutorial3DScene {
   }
 
   public resetCamera(): void {
+    if (this.isDestroyed) return;
     this.targetRadius = this.defaultRadius;
     this.targetTheta = this.defaultTheta;
     this.targetPhi = this.defaultPhi;
@@ -803,11 +807,13 @@ export class Tutorial3DScene {
   }
 
   public toggleAutoRotate(paused?: boolean): boolean {
+    if (this.isDestroyed) return false;
     this.isAutoRotatePaused = paused !== undefined ? paused : !this.isAutoRotatePaused;
     return this.isAutoRotatePaused;
   }
 
   public setReducedMotion(enabled: boolean): void {
+    if (this.isDestroyed) return;
     this.isReducedMotion = enabled;
     if (enabled) {
       this.isAutoRotatePaused = true;

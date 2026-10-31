@@ -716,6 +716,47 @@ describe("worker fetch handlers", () => {
     expect(data.series[1].value).toBe(1100);
   });
 
+  it("POST /api/calculate normalizes mixed-case tickers when looking up stock_series and legacy fallback", async () => {
+    const seriesJson = JSON.stringify([
+      { date: "2026-04-01", close: 100 },
+      { date: "2026-04-02", close: 120 },
+    ]);
+
+    const env = createMockEnv({
+      DB: {
+        prepare: vi.fn().mockImplementation((query: string) => ({
+          bind: vi.fn().mockReturnThis(),
+          all: vi.fn().mockImplementation(() => {
+            if (query.includes("stock_series")) {
+              // DB stores ticker in upper-case: "AAPL"
+              return { results: [{ ticker: "AAPL", prices: seriesJson }] };
+            }
+            return { results: [] };
+          }),
+          run: vi.fn().mockResolvedValue({ success: true }),
+        })),
+        batch: vi.fn().mockResolvedValue([]),
+      },
+    });
+
+    const req = new Request("http://localhost/api/calculate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        basket: [{ ticker: "aapl", name: "Apple", theme: "Tech", weight: 100 }],
+        baseValue: 1000,
+      }),
+    });
+
+    const res = await worker.fetch(req, env as any);
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.ok).toBe(true);
+    expect(data.series.length).toBe(2);
+    expect(data.series[0].value).toBe(1000);
+    expect(data.series[1].value).toBe(1200);
+  });
+
   it("POST /api/indices returns 429 when rate limit is exceeded", async () => {
     const env = createMockEnv({
       DB: {

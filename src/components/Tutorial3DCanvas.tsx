@@ -110,6 +110,10 @@ export const Tutorial3DCanvas = forwardRef<Tutorial3DCanvasHandle, Tutorial3DCan
       const handleContextRestored = () => {
         setIsContextLost(false);
         try {
+          if (sceneRef.current) {
+            sceneRef.current.destroy();
+            sceneRef.current = null;
+          }
           const r = container.getBoundingClientRect();
           const w = Math.max(300, r.width);
           const h = Math.max(260, r.height);
@@ -147,10 +151,9 @@ export const Tutorial3DCanvas = forwardRef<Tutorial3DCanvasHandle, Tutorial3DCan
         canvas.removeEventListener("webglcontextlost", handleContextLost);
         canvas.removeEventListener("webglcontextrestored", handleContextRestored);
         resizeObserver.disconnect();
-        if (sceneInstance) {
-          sceneInstance.destroy();
-          sceneRef.current = null;
-        }
+        sceneRef.current?.destroy();
+        sceneRef.current = null;
+        sceneInstance = null;
       };
     }, []);
 
