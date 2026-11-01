@@ -18,6 +18,7 @@ import type { Timeframe } from "../types";
 import { calculateSMA } from "../lib/analytics";
 import { filterByTimeframe } from "../lib/timeframe";
 import { downsampleLTTB } from "../lib/chartData";
+import { changeTone, formatSignedPercent } from "./changeTone";
 
 const fmt = new Intl.NumberFormat("ja-JP", { maximumFractionDigits: 2 });
 const pct = new Intl.NumberFormat("ja-JP", {
@@ -71,13 +72,13 @@ function ChartLegendIndicator({
   );
 }
 
-interface ChartPoint {
+export interface ChartPoint {
   date: string;
   value: number;
   nikkei: number;
 }
 
-interface PerformanceChartProps {
+export interface PerformanceChartProps {
   data: ChartPoint[];
   loading: boolean;
   syncing: boolean;
@@ -162,15 +163,38 @@ export function PerformanceChart({
       });
     }
 
-    // Baseline normalized to first point of timeframe
+    // Baseline normalized to first point of timeframe with valid positive numbers
+    const safeBase =
+      typeof baseValue === "number" && Number.isFinite(baseValue) && baseValue > 0
+        ? baseValue
+        : 1000;
+
     const firstPoint = filteredData[0];
-    const firstVal = firstPoint.value || baseValue;
-    const firstNikkei = firstPoint.nikkei || baseValue;
+    const firstVal =
+      typeof firstPoint?.value === "number" && Number.isFinite(firstPoint.value) && firstPoint.value > 0
+        ? firstPoint.value
+        : safeBase;
+    const firstNikkei =
+      typeof firstPoint?.nikkei === "number" && Number.isFinite(firstPoint.nikkei) && firstPoint.nikkei > 0
+        ? firstPoint.nikkei
+        : safeBase;
 
     if (viewMode === "spread") {
-      return filteredData.map((d) => {
-        const customPct = firstVal > 0 ? ((d.value - firstVal) / firstVal) * 100 : 0;
-        const benchPct = firstNikkei > 0 ? ((d.nikkei - firstNikkei) / firstNikkei) * 100 : 0;
+      return filteredData.map((d, idx) => {
+        const rawCustom = typeof d.value === "number" && Number.isFinite(d.value) ? d.value : 0;
+        const rawNikkei = typeof d.nikkei === "number" && Number.isFinite(d.nikkei) ? d.nikkei : 0;
+        const customPct =
+          idx === 0
+            ? 0
+            : firstVal > 0 && rawCustom > 0
+              ? ((rawCustom - firstVal) / firstVal) * 100
+              : 0;
+        const benchPct =
+          idx === 0
+            ? 0
+            : firstNikkei > 0 && rawNikkei > 0
+              ? ((rawNikkei - firstNikkei) / firstNikkei) * 100
+              : 0;
         const spread = customPct - benchPct;
         return {
           date: d.date,
@@ -185,15 +209,35 @@ export function PerformanceChart({
       });
     }
 
-    return filteredData.map((d) => {
+    return filteredData.map((d, idx) => {
       const s5 = fullSma5Map.get(d.date);
       const s25 = fullSma25Map.get(d.date);
+      const rawCustom = typeof d.value === "number" && Number.isFinite(d.value) ? d.value : 0;
+      const rawNikkei = typeof d.nikkei === "number" && Number.isFinite(d.nikkei) ? d.nikkei : 0;
+      const customPct =
+        idx === 0
+          ? 0
+          : firstVal > 0 && rawCustom > 0
+            ? ((rawCustom - firstVal) / firstVal) * 100
+            : 0;
+      const benchPct =
+        idx === 0
+          ? 0
+          : firstNikkei > 0 && rawNikkei > 0
+            ? ((rawNikkei - firstNikkei) / firstNikkei) * 100
+            : 0;
       return {
         date: d.date,
-        value: firstVal > 0 ? ((d.value - firstVal) / firstVal) * 100 : 0,
-        nikkei: firstNikkei > 0 ? ((d.nikkei - firstNikkei) / firstNikkei) * 100 : 0,
-        sma5: s5 !== null && s5 !== undefined && firstVal > 0 ? ((s5 - firstVal) / firstVal) * 100 : undefined,
-        sma25: s25 !== null && s25 !== undefined && firstVal > 0 ? ((s25 - firstVal) / firstVal) * 100 : undefined,
+        value: customPct,
+        nikkei: benchPct,
+        sma5:
+          s5 !== null && s5 !== undefined && firstVal > 0
+            ? ((s5 - firstVal) / firstVal) * 100
+            : undefined,
+        sma25:
+          s25 !== null && s25 !== undefined && firstVal > 0
+            ? ((s25 - firstVal) / firstVal) * 100
+            : undefined,
         rawCustom: d.value,
         rawNikkei: d.nikkei,
       };
@@ -213,13 +257,27 @@ export function PerformanceChart({
     if (rawValues.length === 0) return null;
     const minVal = Math.min(...rawValues);
     const maxVal = Math.max(...rawValues);
-    const startVal = Number.isFinite(filteredData[0]?.value) ? filteredData[0].value : 0;
-    const endVal = Number.isFinite(filteredData[filteredData.length - 1]?.value) ? filteredData[filteredData.length - 1].value : 0;
-    const periodReturn = startVal > 0 ? ((endVal - startVal) / startVal) * 100 : 0;
 
-    const startNikkei = Number.isFinite(filteredData[0]?.nikkei) ? filteredData[0].nikkei : 0;
-    const lastNikkei = Number.isFinite(filteredData[filteredData.length - 1]?.nikkei) ? filteredData[filteredData.length - 1].nikkei : 0;
-    const nikkeiReturn = startNikkei > 0 ? ((lastNikkei - startNikkei) / startNikkei) * 100 : 0;
+    const firstCustomPoint = filteredData.find(
+      (d) => typeof d.value === "number" && Number.isFinite(d.value) && d.value > 0,
+    );
+    const lastCustomPoint = [...filteredData]
+      .reverse()
+      .find((d) => typeof d.value === "number" && Number.isFinite(d.value) && d.value > 0);
+    const startVal = firstCustomPoint?.value ?? 0;
+    const endVal = lastCustomPoint?.value ?? 0;
+    const periodReturn = startVal > 0 && endVal > 0 ? ((endVal - startVal) / startVal) * 100 : 0;
+
+    const firstNikkeiPoint = filteredData.find(
+      (d) => typeof d.nikkei === "number" && Number.isFinite(d.nikkei) && d.nikkei > 0,
+    );
+    const lastNikkeiPoint = [...filteredData]
+      .reverse()
+      .find((d) => typeof d.nikkei === "number" && Number.isFinite(d.nikkei) && d.nikkei > 0);
+    const startNikkei = firstNikkeiPoint?.nikkei ?? 0;
+    const lastNikkei = lastNikkeiPoint?.nikkei ?? 0;
+    const nikkeiReturn =
+      startNikkei > 0 && lastNikkei > 0 ? ((lastNikkei - startNikkei) / startNikkei) * 100 : 0;
     const alpha = periodReturn - nikkeiReturn;
 
     const displayValues = displayData.map((d) => d.value).filter((v) => typeof v === "number" && Number.isFinite(v));
@@ -414,11 +472,16 @@ export function PerformanceChart({
                 tick={{ fill: "var(--text-secondary)", fontSize: 11, fontFamily: "var(--mono-font)" }}
                 tickFormatter={(v) => {
                   if (typeof v !== "number" || !Number.isFinite(v)) return "--";
-                  return viewMode === "percent"
-                    ? `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`
-                    : viewMode === "spread"
-                      ? `${v >= 0 ? "+" : ""}${v.toFixed(1)}%pt`
-                      : fmt.format(v);
+                  if (viewMode === "percent") {
+                    return formatSignedPercent(v, 1);
+                  }
+                  if (viewMode === "spread") {
+                    const tone = changeTone(v, 1);
+                    return tone === "neutral"
+                      ? "0.0%pt"
+                      : `${tone === "positive" ? "+" : ""}${v.toFixed(1)}%pt`;
+                  }
+                  return fmt.format(v);
                 }}
                 domain={["auto", "auto"]}
               />
@@ -434,22 +497,29 @@ export function PerformanceChart({
                   const cVal = typeof customItem?.value === "number" && Number.isFinite(customItem.value) ? customItem.value : undefined;
                   const bVal = typeof benchItem?.value === "number" && Number.isFinite(benchItem.value) ? benchItem.value : undefined;
                   const spread = cVal !== undefined && bVal !== undefined ? (viewMode === "spread" ? cVal : cVal - bVal) : null;
+                  const spreadTone = spread !== null ? changeTone(spread, 2) : "neutral";
+                  const spreadColor =
+                    spreadTone === "positive"
+                      ? "var(--neon-green)"
+                      : spreadTone === "negative"
+                        ? "var(--neon-red)"
+                        : "var(--text-secondary)";
 
                   return (
                     <div className="custom-tooltip">
                       <div className="tooltip-date">{label}</div>
                       {viewMode === "spread" ? (
                         <div className="tooltip-row">
-                          <span style={{ color: spread !== null && spread >= 0 ? "var(--neon-green)" : "var(--neon-red)" }}>
+                          <span style={{ color: spreadColor }}>
                             市場超過リターン (α):
                           </span>
                           <span
                             style={{
                               fontWeight: 700,
-                              color: spread !== null && spread >= 0 ? "var(--neon-green)" : "var(--neon-red)",
+                              color: spreadColor,
                             }}
                           >
-                            {spread !== null ? `${spread > 0 ? "+" : ""}${pct.format(spread)}%pt` : "---"}
+                            {spread !== null ? `${formatSignedPercent(spread, 2)}pt` : "---"}
                           </span>
                         </div>
                       ) : (
@@ -459,7 +529,7 @@ export function PerformanceChart({
                             <span style={{ fontWeight: 700 }}>
                               {cVal !== undefined
                                 ? viewMode === "percent"
-                                  ? `${cVal >= 0 ? "+" : ""}${pct.format(cVal)}%`
+                                  ? formatSignedPercent(cVal, 2)
                                   : fmt.format(cVal)
                                 : "---"}
                             </span>
@@ -469,7 +539,7 @@ export function PerformanceChart({
                             <span>
                               {bVal !== undefined
                                 ? viewMode === "percent"
-                                  ? `${bVal >= 0 ? "+" : ""}${pct.format(bVal)}%`
+                                  ? formatSignedPercent(bVal, 2)
                                   : fmt.format(bVal)
                                 : "---"}
                             </span>
@@ -511,18 +581,18 @@ export function PerformanceChart({
                             borderTop: "1px dashed var(--border-neutral)",
                           }}
                         >
-                          <span style={{ color: spread >= 0 ? "var(--neon-green)" : "var(--neon-red)" }}>
+                          <span style={{ color: spreadColor }}>
                             対市場乖離:
                           </span>
                           <span
                             style={{
                               fontWeight: 700,
-                              color: spread >= 0 ? "var(--neon-green)" : "var(--neon-red)",
+                              color: spreadColor,
                             }}
                           >
-                            {spread > 0 ? "+" : ""}
-                            {pct.format(spread)}
-                            {viewMode === "percent" ? "%pt" : "pts"}
+                            {viewMode === "percent"
+                              ? `${formatSignedPercent(spread, 2)}pt`
+                              : `${spreadTone === "positive" ? "+" : ""}${pct.format(spread)}pts`}
                           </span>
                         </div>
                       )}
@@ -664,17 +734,17 @@ export function PerformanceChart({
                 color:
                   viewMode === "value"
                     ? "var(--neon-green)"
-                    : stats.displayMax > 0
+                    : changeTone(stats.displayMax, 2) === "positive"
                       ? "var(--neon-green)"
-                      : stats.displayMax < 0
+                      : changeTone(stats.displayMax, 2) === "negative"
                         ? "var(--neon-red)"
                         : "inherit",
               }}
             >
               {viewMode === "percent"
-                ? `${stats.displayMax >= 0 ? "+" : ""}${pct.format(stats.displayMax)}%`
+                ? formatSignedPercent(stats.displayMax, 2)
                 : viewMode === "spread"
-                  ? `${stats.displayMax >= 0 ? "+" : ""}${pct.format(stats.displayMax)}%pt`
+                  ? `${formatSignedPercent(stats.displayMax, 2)}pt`
                   : fmt.format(stats.max)}
             </span>
           </div>
@@ -693,17 +763,17 @@ export function PerformanceChart({
                 color:
                   viewMode === "value"
                     ? "var(--neon-red)"
-                    : stats.displayMin > 0
+                    : changeTone(stats.displayMin, 2) === "positive"
                       ? "var(--neon-green)"
-                      : stats.displayMin < 0
+                      : changeTone(stats.displayMin, 2) === "negative"
                         ? "var(--neon-red)"
                         : "inherit",
               }}
             >
               {viewMode === "percent"
-                ? `${stats.displayMin >= 0 ? "+" : ""}${pct.format(stats.displayMin)}%`
+                ? formatSignedPercent(stats.displayMin, 2)
                 : viewMode === "spread"
-                  ? `${stats.displayMin >= 0 ? "+" : ""}${pct.format(stats.displayMin)}%pt`
+                  ? `${formatSignedPercent(stats.displayMin, 2)}pt`
                   : fmt.format(stats.min)}
             </span>
           </div>
@@ -714,15 +784,14 @@ export function PerformanceChart({
               className="chart-stat-val"
               style={{
                 color:
-                  stats.periodReturn > 0
+                  changeTone(stats.periodReturn, 2) === "positive"
                     ? "var(--neon-green)"
-                    : stats.periodReturn < 0
+                    : changeTone(stats.periodReturn, 2) === "negative"
                       ? "var(--neon-red)"
                       : "inherit",
               }}
             >
-              {stats.periodReturn >= 0 ? "+" : ""}
-              {pct.format(stats.periodReturn)}%
+              {formatSignedPercent(stats.periodReturn, 2)}
             </span>
           </div>
 
@@ -732,15 +801,14 @@ export function PerformanceChart({
               className="chart-stat-val"
               style={{
                 color:
-                  stats.alpha > 0
+                  changeTone(stats.alpha, 2) === "positive"
                     ? "var(--accent-text)"
-                    : stats.alpha < 0
+                    : changeTone(stats.alpha, 2) === "negative"
                       ? "var(--neon-red)"
                       : "inherit",
               }}
             >
-              {stats.alpha >= 0 ? "+" : ""}
-              {pct.format(stats.alpha)}%
+              {formatSignedPercent(stats.alpha, 2)}
             </span>
           </div>
         </div>

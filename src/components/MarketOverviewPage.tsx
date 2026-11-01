@@ -340,10 +340,15 @@ export function MarketOverviewPage({
               <span className="tiny muted mono" title="データ生成時刻">
                 DATA AS OF: {(() => {
                   try {
-                    const parsed = new Date(data.dataAsOf);
-                    return isNaN(parsed.getTime()) ? data.dataAsOf : parsed.toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" });
+                    const raw = data.dataAsOf;
+                    const num = typeof raw === "number" ? raw : Number(raw);
+                    const parsed =
+                      Number.isFinite(num) && num > 0 ? new Date(num) : new Date(raw);
+                    return isNaN(parsed.getTime())
+                      ? String(raw)
+                      : parsed.toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" });
                   } catch {
-                    return data.dataAsOf;
+                    return String(data.dataAsOf);
                   }
                 })()}
               </span>

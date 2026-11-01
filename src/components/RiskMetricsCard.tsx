@@ -4,6 +4,7 @@ import { Card, Tag } from "./ui";
 import { ShieldAlert, Activity, Target, ArrowDownRight, Award, Zap, TrendingUp } from "lucide-react";
 import type { PricePoint } from "../types";
 import { calculateRiskMetrics } from "../lib/analytics";
+import { changeTone } from "./changeTone";
 
 interface RiskMetricsCardProps {
   customSeries: PricePoint[];
@@ -29,6 +30,14 @@ export function RiskMetricsCard({
 
   if (loading || customSeries.length < 2) return null;
 
+  const returnTone = changeTone(metrics.annualReturn, 2);
+  const returnColor =
+    returnTone === "positive"
+      ? "var(--neon-green)"
+      : returnTone === "negative"
+        ? "var(--neon-red)"
+        : "var(--text-primary)";
+
   const items = [
     {
       label: "年率期待リターン (CAGR)",
@@ -36,11 +45,13 @@ export function RiskMetricsCard({
       sub:
         metrics.annualReturn > 15
           ? "優れた資本成長ペース"
-          : metrics.annualReturn > 0
+          : returnTone === "positive"
             ? "プラスリターン推移"
-            : "マイナス成長推移",
-      icon: <TrendingUp size={15} style={{ color: metrics.annualReturn >= 0 ? "var(--neon-green)" : "var(--neon-red)" }} />,
-      color: metrics.annualReturn >= 0 ? "var(--neon-green)" : "var(--neon-red)",
+            : returnTone === "negative"
+              ? "マイナス成長推移"
+              : "横ばい推移",
+      icon: <TrendingUp size={15} style={{ color: returnColor }} />,
+      color: returnColor,
     },
     {
       label: "シャープレシオ (Sharpe)",

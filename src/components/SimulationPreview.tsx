@@ -614,32 +614,30 @@ export function SimulationPreview({
                         padding: "6px 8px",
                         textAlign: "right",
                         color:
-                          item.periodReturnPct > 0
+                          changeTone(item.periodReturnPct, 2) === "positive"
                             ? "var(--neon-green)"
-                            : item.periodReturnPct < 0
+                            : changeTone(item.periodReturnPct, 2) === "negative"
                               ? "var(--neon-red)"
                               : "var(--text-primary)",
                       }}
                       className="mono bold"
                     >
-                      {item.periodReturnPct > 0 ? "+" : ""}
-                      {item.periodReturnPct}%
+                      {formatSignedPercent(item.periodReturnPct, 2)}
                     </td>
                     <td
                       style={{
                         padding: "6px 8px",
                         textAlign: "right",
                         color:
-                          item.contributionPct > 0
+                          changeTone(item.contributionPct, 2) === "positive"
                             ? "var(--neon-green)"
-                            : item.contributionPct < 0
+                            : changeTone(item.contributionPct, 2) === "negative"
                               ? "var(--neon-red)"
                               : "var(--text-primary)",
                       }}
                       className="mono bold"
                     >
-                      {item.contributionPct > 0 ? "+" : ""}
-                      {item.contributionPct}%
+                      {formatSignedPercent(item.contributionPct, 2)}
                     </td>
                   </tr>
                 ))}
