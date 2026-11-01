@@ -677,4 +677,107 @@ describe("W-04: ミューテーション系の認証失敗分類 (429/503/401)",
       "強制同期にはパスワード認証が必要です",
     );
   });
+
+  it("optional-admin routes: D1 failure during admin-session verification is 503, never 403", async () => {
+    const passwordHash = await hashPassword("route-user-password-2026");
+    const userRow = {
+      id: "user-1",
+      name: "一般ユーザー",
+      role: "user",
+      max_stocks: null,
+      max_indices: null,
+      is_active: 1,
+      password_hash: passwordHash,
+    };
+
+    const routes: { name: string; request: () => Request }[] = [
+      {
+        name: "POST /api/indices (system id)",
+        request: () =>
+          new Request("http://localhost/api/indices", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-admin-session": "s".repeat(64),
+            },
+            body: JSON.stringify({
+              id: "nikkei-175",
+              name: "システム指数",
+              basket: [{ ticker: "7203", name: "トヨタ自動車", theme: "輸送用機器", weight: 100 }],
+              password: "route-user-password-2026",
+            }),
+          }),
+      },
+      {
+        name: "POST /api/indices/stock (system id)",
+        request: () =>
+          new Request("http://localhost/api/indices/stock", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-admin-session": "s".repeat(64),
+            },
+            body: JSON.stringify({
+              indexId: "nikkei-175",
+              stock: { ticker: "7203", name: "トヨタ自動車", theme: "輸送用機器", weight: 10 },
+              password: "route-user-password-2026",
+            }),
+          }),
+      },
+      {
+        name: "DELETE /api/indices/stock (system id)",
+        request: () =>
+          new Request("http://localhost/api/indices/stock?indexId=nikkei-175&ticker=7203", {
+            method: "DELETE",
+            headers: {
+              "x-auth-password": "route-user-password-2026",
+              "x-admin-session": "s".repeat(64),
+            },
+          }),
+      },
+      {
+        name: "DELETE /api/indices (protected custom id)",
+        request: () =>
+          new Request("http://localhost/api/indices?id=custom-1", {
+            method: "DELETE",
+            headers: { "x-admin-session": "s".repeat(64) },
+          }),
+      },
+    ];
+
+    for (const route of routes) {
+      clearAuthCache();
+      clearMemoryRateLimits();
+      resetPasswordTableEnsured();
+
+      const { db } = createMockDb((sql) => {
+        if (sql.includes("FROM access_passwords WHERE is_active = 1")) {
+          return { kind: "all", results: [userRow] };
+        }
+        if (sql.includes("FROM admin_sessions")) {
+          return { kind: "throw", error: new Error("D1_STORAGE_UNAVAILABLE") };
+        }
+        if (sql.includes("SELECT id, owner_token_hash, owner_token_issued_at, creator_id FROM indices")) {
+          return {
+            kind: "all",
+            results: [
+              {
+                id: "custom-1",
+                owner_token_hash: null,
+                owner_token_issued_at: null,
+                creator_id: null,
+              },
+            ],
+          };
+        }
+        return undefined;
+      });
+
+      const res = await worker.fetch(route.request(), createEnv(db));
+      expect(res.status, route.name).toBe(503);
+      expect(((await res.json()) as { error: string }).error, route.name).toBe(
+        AUTH_SERVICE_UNAVAILABLE_MESSAGE,
+      );
+    }
+  });
 });

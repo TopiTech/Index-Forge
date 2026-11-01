@@ -1,0 +1,134 @@
+{
+  "endpointRows": [
+    {
+      "time": "2026-10-02T12:30:00Z",
+      "countryCode": "US",
+      "name": "Nonfarm Payrolls",
+      "unit": "job",
+      "multiplier": "thousands",
+      "digits": 0,
+      "actual": 29,
+      "forecast": 52,
+      "previous": 162,
+      "revisedPrevious": 133,
+      "revision": 1
+    },
+    {
+      "time": "2026-10-14T12:30:00Z",
+      "countryCode": "US",
+      "name": "CPI y/y",
+      "unit": "percent",
+      "multiplier": "none",
+      "digits": 1,
+      "actual": 3.7,
+      "forecast": 3.5,
+      "previous": 3.4,
+      "revisedPrevious": 3.3,
+      "revision": 0
+    }
+  ],
+  "formatCases": [
+    {
+      "label": "payrolls in thousands",
+      "value": 162,
+      "unit": "job",
+      "multiplier": "thousands",
+      "digits": 0,
+      "expected": "16.2万人"
+    },
+    {
+      "label": "payrolls in millions",
+      "value": 2.05,
+      "unit": "job",
+      "multiplier": "millions",
+      "digits": 2,
+      "expected": "205万人"
+    },
+    {
+      "label": "payrolls without a multiplier",
+      "value": 162,
+      "unit": "job",
+      "multiplier": "none",
+      "digits": 0,
+      "expected": "162人"
+    },
+    {
+      "label": "generic thousands",
+      "value": 162.5,
+      "unit": "none",
+      "multiplier": "thousands",
+      "digits": 1,
+      "expected": "162.5千人"
+    },
+    {
+      "label": "generic millions",
+      "value": 2.5,
+      "unit": "none",
+      "multiplier": "millions",
+      "digits": 1,
+      "expected": "2.5百万"
+    },
+    {
+      "label": "percent",
+      "value": 3.7,
+      "unit": "percent",
+      "multiplier": "none",
+      "digits": 1,
+      "expected": "3.7%"
+    },
+    {
+      "label": "percent keeps value precision beyond provider digits",
+      "value": 1.25,
+      "unit": "percent",
+      "multiplier": "none",
+      "digits": 1,
+      "expected": "1.25%"
+    },
+    {
+      "label": "negative percent",
+      "value": -0.2,
+      "unit": "percent",
+      "multiplier": "none",
+      "digits": 1,
+      "expected": "-0.2%"
+    }
+  ],
+  "parserCases": [
+    {
+      "label": "revised previous and integer revision",
+      "input": { "revisedPrevious": 133, "revision": 1 },
+      "expectedRevisedPrevious": 133,
+      "expectedRevision": 1
+    },
+    {
+      "label": "revision zero is a real value",
+      "input": { "revisedPrevious": 162, "revision": 0 },
+      "expectedRevisedPrevious": 162,
+      "expectedRevision": 0
+    },
+    {
+      "label": "negative revision is rejected",
+      "input": { "revisedPrevious": 133, "revision": -1 },
+      "expectedRevisedPrevious": 133,
+      "expectedRevision": null
+    },
+    {
+      "label": "fractional revision is rejected",
+      "input": { "revisedPrevious": 133, "revision": 1.5 },
+      "expectedRevisedPrevious": 133,
+      "expectedRevision": null
+    },
+    {
+      "label": "string revised previous is rejected",
+      "input": { "revisedPrevious": "133", "revision": 1 },
+      "expectedRevisedPrevious": null,
+      "expectedRevision": 1
+    },
+    {
+      "label": "null revised previous is not a revision",
+      "input": { "revisedPrevious": null, "revision": null },
+      "expectedRevisedPrevious": null,
+      "expectedRevision": null
+    }
+  ]
+}

@@ -133,7 +133,12 @@ export function PortfolioManagerPage({
   const watchlistPersistedRef = useRef(hasPersistedWatchlist());
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const { success, info, error: notifySaveError } = useToast();
+  // G-5: CSV reads are owned by this component. A new selection aborts the
+  // previous FileReader and advances the sequence, so a slow earlier read can
+  // never overwrite the latest file or call setState after unmount.
+  const csvReaderRef = useRef<FileReader | null>(null);
+  const csvImportSequenceRef = useRef(0);
+  const { success, info, warning, error: notifySaveError } = useToast();
   // 自動保存失敗は同一エラーの連打を避けるため1回だけ通知し、
   // 次の成功保存で再通知を許可する。
   const positionsSaveFailureNotifiedRef = useRef(false);
@@ -171,6 +176,9 @@ export function PortfolioManagerPage({
     return () => {
       mountedRef.current = false;
       requestIdRef.current += 1;
+      csvImportSequenceRef.current += 1;
+      csvReaderRef.current?.abort();
+      csvReaderRef.current = null;
     };
   }, []);
 
@@ -610,16 +618,33 @@ export function PortfolioManagerPage({
   const handleImportCsv = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    // Clear the input as soon as the file is captured. Waiting until the read
+    // settles left the same path selected, so re-picking that file while a
+    // large read was in flight did not fire `change` at all. The later reset
+    // remains for the normal completion path and is sequence-guarded.
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    const sequence = csvImportSequenceRef.current + 1;
+    csvImportSequenceRef.current = sequence;
+    const isCurrent = () =>
+      csvImportSequenceRef.current === sequence && mountedRef.current;
+    // Abort before constructing the replacement so an older reader's late
+    // onload/onerror cannot act after the user chose a different file.
+    csvReaderRef.current?.abort();
     const reader = new FileReader();
+    csvReaderRef.current = reader;
     // The input must be cleared on every outcome: otherwise a failed read
     // leaves the same file selected and re-picking it fires no change event.
+    // Only the current sequence may clear it; a stale abort must not wipe the
+    // newly selected file from the input.
     const resetInput = () => {
-      if (fileInputRef.current) {
+      if (isCurrent() && fileInputRef.current) {
         fileInputRef.current.value = "";
       }
     };
     reader.onload = (event) => {
-      const content = event.target?.result as string;
+      if (!isCurrent()) return;
+      const result = event.target?.result;
+      const content = typeof result === "string" ? result : "";
       if (!content) {
         resetInput();
         return;
@@ -636,18 +661,33 @@ export function PortfolioManagerPage({
         }
         positionsPersistedRef.current = true;
         setPositions(res.data);
+        if (res.error) warning(res.error);
         success(`${res.data.length}件の保有銘柄をCSVからインポートしました`);
       } catch {
         info("CSVファイルの読み込みまたは解析に失敗しました");
       } finally {
         resetInput();
+        if (isCurrent()) csvReaderRef.current = null;
       }
     };
     reader.onerror = () => {
+      if (!isCurrent()) return;
       resetInput();
       info("CSVファイルの読み込みに失敗しました");
+      csvReaderRef.current = null;
     };
-    reader.readAsText(file, "UTF-8");
+    reader.onabort = () => {
+      if (isCurrent()) resetInput();
+    };
+    try {
+      reader.readAsText(file, "UTF-8");
+    } catch {
+      if (isCurrent()) {
+        resetInput();
+        csvReaderRef.current = null;
+        info("CSVファイルの読み込みに失敗しました");
+      }
+    }
   };
 
   const sectorAllocation = useMemo(() => {

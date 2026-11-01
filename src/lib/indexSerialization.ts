@@ -265,19 +265,95 @@ export function serializeBasketToCsv(basket: readonly BasketItem[]): string {
 }
 
 /**
- * 数値文字列をパースします（全角数字、全角小数点、全角カンマ、負記号、通貨記号、3桁区切りカンマに対応）。
+ * Optional trailing units for a numeric cell.
+ *
+ * The generic CSV parser accepts bare numbers plus currency prefixes and
+ * separators, but deliberately rejects arbitrary trailing text. Portfolio
+ * fields opt into an explicit, field-specific set of units so a hand-edited
+ * file can still say `100株` or `2,500円`, while `100株abc` and `約100` remain
+ * invalid.
  */
-export function parseNumericValue(val: unknown): number {
-  if (typeof val === "number") return val;
-  if (typeof val !== "string") return NaN;
-  const cleaned = val
+export interface NumericParseOptions {
+  readonly allowedSuffixes?: readonly string[];
+}
+
+/** Units accepted for portfolio share counts. */
+const PORTFOLIO_SHARE_SUFFIXES = ["株"] as const;
+
+/** Units accepted for portfolio acquisition prices. */
+const PORTFOLIO_COST_SUFFIXES = ["円", "JPY", "ドル", "USD", "米ドル"] as const;
+
+/** Text used by both the all-rows-invalid and partial-import messages. */
+const PORTFOLIO_NUMERIC_HINT =
+  "保有株数は正の数（例: 100 / 100株）、取得単価は正の数（例: 2500 / 2,500円）である必要があります";
+
+/**
+ * 数値文字列をパースします（全角数字、全角小数点、全角カンマ、負記号、通貨記号、3桁区切りカンマに対応）。
+ *
+ * `allowedSuffixes` is intentionally opt-in: basket weights and other generic
+ * fields stay strict, while portfolio importers can declare the units their
+ * own UI documents. A suffix is stripped only once and only from the end, so
+ * repeated or embedded unit text is still rejected.
+ */
+// A currency prefix may be preceded or followed by the sign: `-¥5,000`
+// and `¥-5,000` are the same value. The sign is captured and reattached so
+// stripping the symbol never silently changes a negative into a positive.
+const SIGNED_CURRENCY_PREFIX_RE = /^([+-]?)\s*[¥$€£]\s*/;
+const SIGNED_NUMBER_RE = /^[+-]?(?:(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
+
+function normalizeNumericText(value: string): string {
+  return value
     .replace(/[０-９]/g, (s) => String.fromCharCode(s.charCodeAt(0) - 0xfee0))
     .replace(/[．。]/g, ".")
+    .replace(/[，、]/g, ",")
     .replace(/[－ー―\u2212\u2013\u2014]/g, "-")
-    .replace(/[￥¥$＄€£￡%％\s]/g, "")
-    .replace(/[,，、]/g, "")
+    .replace(/[￥]/g, "¥")
+    .replace(/[＄]/g, "$")
+    .replace(/[％]/g, "%")
     .trim();
-  return parseFloat(cleaned);
+}
+
+export function parseNumericValue(val: unknown, options: NumericParseOptions = {}): number {
+  const normalizeZero = (value: number): number => (Object.is(value, -0) ? 0 : value);
+  if (typeof val === "number") return Number.isFinite(val) ? normalizeZero(val) : NaN;
+  if (typeof val !== "string") return NaN;
+
+  let cleaned = normalizeNumericText(val);
+
+  const suffixes = options.allowedSuffixes;
+  if (suffixes && suffixes.length > 0) {
+    const lower = cleaned.toLowerCase();
+    let matchedSuffix = "";
+    for (const suffix of suffixes) {
+      const normalizedSuffix = normalizeNumericText(suffix).toLowerCase();
+      if (
+        normalizedSuffix.length > matchedSuffix.length &&
+        lower.endsWith(normalizedSuffix)
+      ) {
+        matchedSuffix = normalizedSuffix;
+      }
+    }
+    if (matchedSuffix) {
+      cleaned = cleaned.slice(0, cleaned.length - matchedSuffix.length).trimEnd();
+    }
+  }
+
+  // A currency symbol is a prefix, never an arbitrary character to delete:
+  // otherwise `1$2` became 12. Separators are validated as thousands grouping
+  // below instead of being stripped, so `1,2,3` and `1.000,5` are rejected.
+  cleaned = cleaned.replace(SIGNED_CURRENCY_PREFIX_RE, "$1");
+
+  // `parseFloat` would accept a valid prefix (`"12abc"` -> 12) and silently
+  // import a number the file never contained. Require the whole cleaned cell
+  // to be numeric; malformed, Infinity and overflowing values become NaN so
+  // CSV importers can reject the row instead of inventing a value.
+  if (!SIGNED_NUMBER_RE.test(cleaned)) {
+    return NaN;
+  }
+  // The regex above has already validated that every comma is a thousands
+  // separator; `Number("1,000")` would otherwise be NaN.
+  const parsed = Number(cleaned.replace(/,/g, ""));
+  return Number.isFinite(parsed) ? normalizeZero(parsed) : NaN;
 }
 
 
@@ -346,7 +422,10 @@ export function deserializeBasketFromCsv(csvStr: string): SerializationResult<Ba
     const theme = (
       (themeIdx !== -1 && themeIdx < fields.length ? fields[themeIdx] : "") || "カスタム"
     ).slice(0, MAX_THEME_LENGTH);
-    const rawWeight = weightIdx !== -1 && weightIdx < fields.length ? parseNumericValue(fields[weightIdx]) : NaN;
+    const rawWeight =
+      weightIdx !== -1 && weightIdx < fields.length
+        ? parseNumericValue(fields[weightIdx], { allowedSuffixes: ["%"] })
+        : NaN;
     // 重みはパース忠実度を保つ (既存仕様: "1,000" → 1000)。Worker 契約 (>0 かつ <=100) は
     // リクエスト境界 (sanitizeBasketForRequest) で検証・補正する。
     const weight = Number.isFinite(rawWeight) && rawWeight > 0 ? rawWeight : 1;
@@ -460,19 +539,47 @@ export function deserializePortfolioFromCsv(
   }
 
   const positions: PortfolioPosition[] = [];
+  const skippedRows: number[] = [];
 
   for (let rowIdx = 1; rowIdx < rows.length; rowIdx++) {
+    const skip = () => skippedRows.push(rowIdx + 1);
     const fields = rows[rowIdx];
-    if (fields.length <= tickerIdx) continue;
+    if (fields.length <= tickerIdx) {
+      skip();
+      continue;
+    }
     const ticker = normalizeTicker(fields[tickerIdx] ?? "");
-    if (!isValidTicker(ticker)) continue;
+    if (!isValidTicker(ticker)) {
+      skip();
+      continue;
+    }
 
     const name = ((nameIdx !== -1 && nameIdx < fields.length ? fields[nameIdx] : "") || ticker).slice(0, 100);
-    const rawShares = sharesIdx !== -1 && sharesIdx < fields.length ? parseNumericValue(fields[sharesIdx]) : NaN;
-    const shares = Number.isFinite(rawShares) && rawShares > 0 ? rawShares : 100;
+    const rawShares =
+      sharesIdx !== -1 && sharesIdx < fields.length
+        ? parseNumericValue(fields[sharesIdx], { allowedSuffixes: PORTFOLIO_SHARE_SUFFIXES })
+        : NaN;
+    // A missing/malformed/zero/negative share count is not a defaultable
+    // value: substituting 100 created fake holdings and fake P&L. Reject the
+    // row and report it instead.
+    if (!Number.isFinite(rawShares) || rawShares <= 0) {
+      skip();
+      continue;
+    }
+    const shares = rawShares;
 
-    const rawCost = costIdx !== -1 && costIdx < fields.length ? parseNumericValue(fields[costIdx]) : NaN;
-    const averageCost = Number.isFinite(rawCost) && rawCost > 0 ? rawCost : 1000;
+    const rawCost =
+      costIdx !== -1 && costIdx < fields.length
+        ? parseNumericValue(fields[costIdx], { allowedSuffixes: PORTFOLIO_COST_SUFFIXES })
+        : NaN;
+    // averageCost must satisfy the same invariant as sanitizePosition. A zero
+    // cost row used to become a fabricated 1000 cost basis, which is a false
+    // tax/P&L figure; skip it and surface the row number.
+    if (!Number.isFinite(rawCost) || rawCost <= 0) {
+      skip();
+      continue;
+    }
+    const averageCost = rawCost;
 
     const acquiredAt = dateIdx !== -1 && dateIdx < fields.length ? fields[dateIdx] : undefined;
     const notes = (notesIdx !== -1 && notesIdx < fields.length ? fields[notesIdx] : undefined)?.slice(0, 500);
@@ -494,8 +601,26 @@ export function deserializePortfolioFromCsv(
     );
   }
 
+  const skippedSummary = () => {
+    const shown = skippedRows.slice(0, 10).join(", ");
+    const omitted = skippedRows.length > 10 ? ` ほか${skippedRows.length - 10}行` : "";
+    return `スキップした行: ${shown}${omitted}`;
+  };
+
   if (positions.length === 0) {
-    return { ok: false, error: "有効な保有銘柄行が見つかりませんでした" };
+    const detail = skippedRows.length > 0 ? `（${skippedSummary()}）` : "";
+    return {
+      ok: false,
+      error: `有効な保有銘柄行が見つかりませんでした${detail}。${PORTFOLIO_NUMERIC_HINT}`,
+    };
+  }
+
+  if (skippedRows.length > 0) {
+    return {
+      ok: true,
+      data: positions,
+      error: `${skippedRows.length}行をスキップしました（${skippedSummary()}）。${PORTFOLIO_NUMERIC_HINT}`,
+    };
   }
 
   return { ok: true, data: positions };

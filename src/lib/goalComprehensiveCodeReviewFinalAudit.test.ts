@@ -97,7 +97,7 @@ describe("Goal Comprehensive Code Review: Portfolio CSV Import 0-Cost Edge Case"
     vi.unstubAllGlobals();
   });
 
-  it("deserializes CSV with 0 cost safely and ensures compatibility with sanitizePosition", () => {
+  it("skips zero-cost rows instead of fabricating a 1000 cost basis", () => {
     const csvWithZeroCost = [
       "コード,銘柄名,保有株数,取得単価,取得日,メモ",
       "7203,トヨタ自動車,100,0,2024-01-15,無償譲渡株",
@@ -107,20 +107,19 @@ describe("Goal Comprehensive Code Review: Portfolio CSV Import 0-Cost Edge Case"
     const result = deserializePortfolioFromCsv(csvWithZeroCost);
     expect(result.ok).toBe(true);
     expect(result.data).toBeDefined();
-    expect(result.data?.length).toBe(2);
+    // The zero-cost row cannot satisfy sanitizePosition's positive-cost
+    // invariant. It must be reported and skipped, not rewritten to 1000.
+    expect(result.data).toHaveLength(1);
+    expect(result.data?.[0].ticker).toBe("9984");
+    expect(result.error).toContain("1行をスキップしました");
 
-    const toyota = result.data?.find((p) => p.ticker === "7203");
-    expect(toyota).toBeDefined();
-    // 0 cost should fallback to positive baseline (1000) so sanitizePosition does not drop it
-    expect(toyota!.averageCost).toBe(1000);
-    expect(toyota!.shares).toBe(100);
-
-    // Save and reload to verify persistence pipeline compatibility
+    // Save and reload: only the valid row survives, and no fabricated cost is
+    // introduced by the persistence pipeline.
     savePortfolioPositions(result.data!);
     const loaded = loadPortfolioPositions();
-    expect(loaded.length).toBe(2);
-    expect(loaded.some((p) => p.ticker === "7203")).toBe(true);
-    expect(loaded.some((p) => p.ticker === "9984")).toBe(true);
+    expect(loaded).toHaveLength(1);
+    expect(loaded[0].ticker).toBe("9984");
+    expect(loaded[0].averageCost).toBe(8500);
   });
 });
 

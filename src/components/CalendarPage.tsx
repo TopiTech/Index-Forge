@@ -67,6 +67,32 @@ function FieldValueBadge({ provenance }: { provenance?: CalendarValueProvenance 
   );
 }
 
+/**
+ * N-10: provider の改定後前回値ラベル。改定前の `previous` はそのまま残し、
+ * 改定後は追加情報として表示する。`revision` が 0/未設定の場合は回数を
+ * 捏造せず、改定後値だけを出す。
+ */
+function revisedPreviousLabel(event: CalendarEvent): string | null {
+  if (!event.revisedPrevious) return null;
+  const revisionCount =
+    typeof event.revision === "number" && event.revision > 0 ? `（${event.revision}回改定）` : "";
+  return `改定後 ${event.revisedPrevious}${revisionCount}`;
+}
+
+function RevisedPreviousNote({ event, block = false }: { event: CalendarEvent; block?: boolean }) {
+  const label = revisedPreviousLabel(event);
+  if (!label) return null;
+  return (
+    <span
+      className={block ? "tiny muted mono block" : "tiny mono"}
+      title="provider が前回値を改定しています"
+      style={{ marginLeft: block ? 0 : "6px", color: "var(--text-secondary)" }}
+    >
+      {label}
+    </span>
+  );
+}
+
 interface CalendarPageProps {
   onNavigate: (view: PageView, searchParams?: string) => void;
   onOpenStockDetail: (ticker: string) => void;
@@ -915,10 +941,15 @@ export function CalendarPage({
                   </div>
 
                   <div style={{ display: "flex", alignItems: "center", gap: "14px", flexWrap: "wrap" }}>
-                    {evt.previous && (
+                    {(evt.previous || evt.revisedPrevious) && (
                       <div className="tiny muted">
-                        前回: <strong className="mono">{evt.previous}</strong>
-                        <FieldValueBadge provenance={evt.fieldProvenance?.previous} />
+                        {evt.previous && (
+                          <>
+                            前回: <strong className="mono">{evt.previous}</strong>
+                            <FieldValueBadge provenance={evt.fieldProvenance?.previous} />
+                          </>
+                        )}
+                        <RevisedPreviousNote event={evt} />
                       </div>
                     )}
                     {evt.forecast && (
@@ -1257,7 +1288,10 @@ export function CalendarPage({
             </div>
 
             {/* Estimates & Forecasts */}
-            {(selectedEvent.forecast || selectedEvent.previous || selectedEvent.actual) && (
+            {(selectedEvent.forecast ||
+              selectedEvent.previous ||
+              selectedEvent.revisedPrevious ||
+              selectedEvent.actual) && (
               <div
                 style={{
                   display: "grid",
@@ -1277,6 +1311,7 @@ export function CalendarPage({
                   {selectedEvent.previous && (
                     <FieldValueBadge provenance={selectedEvent.fieldProvenance?.previous} />
                   )}
+                  <RevisedPreviousNote event={selectedEvent} block />
                 </div>
                 <div>
                   <span className="tiny muted mono block">市場予想</span>

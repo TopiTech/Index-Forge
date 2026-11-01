@@ -98,6 +98,22 @@ describe("portfolio position ids", () => {
     expect(positions).toHaveLength(2);
     expect(positions[0].id).not.toBe(positions[1].id);
   });
+
+  it("repairs duplicate persisted ids so delete-by-id cannot remove both lots", () => {
+    store[STORAGE_KEY_PORTFOLIO] = JSON.stringify([
+      { id: "same", ticker: "7203", name: "トヨタ自動車", shares: 10, averageCost: 2500 },
+      { id: "same", ticker: "6758", name: "ソニーグループ", shares: 20, averageCost: 3000 },
+    ]);
+
+    const positions = loadPortfolioPositions();
+
+    expect(positions).toHaveLength(2);
+    expect(positions[0].ticker).toBe("7203");
+    expect(positions[1].ticker).toBe("6758");
+    expect(new Set(positions.map((position) => position.id)).size).toBe(2);
+    // The UI deletes by id; after the repair a single delete removes one lot.
+    expect(positions.filter((position) => position.id !== positions[0].id)).toHaveLength(1);
+  });
 });
 
 describe("allocateIntegerWeights", () => {

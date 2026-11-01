@@ -50,6 +50,11 @@ import {
 } from "../src/lib/apiContract";
 import type { BasketItemInput } from "../src/lib/apiContract";
 import type { BasketItem, PricePoint, StockSeries } from "../src/types";
+import {
+  formatMacroCalendarValue,
+  parseMacroCalendarApiItem,
+  type MacroCalendarApiItem,
+} from "./macroCalendarProvider";
 
 import {
   OWNER_TOKEN_ISSUED_AT_BACKFILL_SQL,
@@ -4889,16 +4894,12 @@ export async function fetchLiveMacroEventsFromApiAsync(refDate = new Date()): Pr
       },
     });
     if (!res.ok) return [];
-    const items = (await res.json()) as Array<{
-      time?: string;
-      countryCode?: string;
-      name?: string;
-      importance?: string;
-      actual?: number | null;
-      forecast?: number | null;
-      previous?: number | null;
-    }>;
-    if (!Array.isArray(items) || items.length === 0) return [];
+    const body: unknown = await res.json();
+    if (!Array.isArray(body) || body.length === 0) return [];
+    const items = body
+      .map(parseMacroCalendarApiItem)
+      .filter((item): item is MacroCalendarApiItem => item !== null);
+    if (items.length === 0) return [];
 
     const events: CalendarEvent[] = [];
     const counts = new Map<string, number>();
@@ -4923,12 +4924,36 @@ export async function fetchLiveMacroEventsFromApiAsync(refDate = new Date()): Pr
       const fullDateStr = `${jstDate.getUTCFullYear()}-${mStr(jstDate.getUTCMonth() + 1)}-${dStr(jstDate.getUTCDate())}`;
       const timeJst = `${mStr(jstDate.getUTCHours())}:${mStr(jstDate.getUTCMinutes())} JST`;
 
-      const prevStr =
-        item.previous !== null && item.previous !== undefined ? `${item.previous}%` : undefined;
-      const forecastStr =
-        item.forecast !== null && item.forecast !== undefined ? `${item.forecast}%` : undefined;
-
       const n = item.name.toLowerCase();
+      // The provider emits a separate press-conference row with the same FOMC
+      // date but no values. Treating it as a second decision event created a
+      // duplicate "policy rate" entry with placeholder values.
+      if (n.includes("press conference")) continue;
+
+      const hasPrevious = item.previous !== null;
+      const hasForecast = item.forecast !== null;
+      const formatValue = (value: number | null, fallback: string): string =>
+        value === null ? fallback : formatMacroCalendarValue(value, item);
+      const previousValue = (fallback: string) => formatValue(item.previous, fallback);
+      const forecastValue = (fallback: string) => formatValue(item.forecast, fallback);
+      const actualValue = item.actual === null ? undefined : formatMacroCalendarValue(item.actual, item);
+      // N-10: keep `previous` as the provider's original value. A revised
+      // previous reading is additional information, so consumers that only
+      // know `previous` keep their existing output.
+      const revisedPreviousValue =
+        item.previous !== null && item.revisedPrevious !== null
+          ? formatMacroCalendarValue(item.revisedPrevious, item)
+          : undefined;
+      const revisionValue = item.revision === null ? undefined : item.revision;
+      // G-6: a revision count only describes the revised previous value. Do
+      // not emit a count without the value it belongs to.
+      const revisionFields: Pick<CalendarEvent, "revisedPrevious" | "revision"> =
+        revisedPreviousValue !== undefined
+          ? {
+              revisedPrevious: revisedPreviousValue,
+              ...(revisionValue !== undefined ? { revision: revisionValue } : {}),
+            }
+          : {};
 
       // 米国CPI
       if (item.countryCode === "US" && (n === "cpi y/y" || n.includes("consumer price index") || n === "core cpi y/y")) {
@@ -4942,23 +4967,18 @@ export async function fetchLiveMacroEventsFromApiAsync(refDate = new Date()): Pr
             importance: "HIGH",
             market: "US",
             time: timeJst,
-            previous: prevStr || MACRO_METRICS_DEFAULTS.cpi.previous,
-            forecast: forecastStr || MACRO_METRICS_DEFAULTS.cpi.forecast,
+            previous: previousValue(MACRO_METRICS_DEFAULTS.cpi.previous),
+            ...revisionFields,
+            forecast: forecastValue(MACRO_METRICS_DEFAULTS.cpi.forecast),
+            actual: actualValue,
             description: MACRO_METRICS_DEFAULTS.cpi.description,
             source: "official",
-            fieldProvenance: buildFieldProvenance(
-              item.previous !== null && item.previous !== undefined,
-              item.forecast !== null && item.forecast !== undefined,
-            ),
+            fieldProvenance: buildFieldProvenance(hasPrevious, hasForecast),
           });
         }
       } else if (item.countryCode === "US" && n.includes("nonfarm payrolls")) {
         // 米雇用統計
         if (inc("jobs") <= 2) {
-          const pJobs =
-            item.previous !== null && item.previous !== undefined ? `${item.previous}万人` : MACRO_METRICS_DEFAULTS.jobs.previous;
-          const fJobs =
-            item.forecast !== null && item.forecast !== undefined ? `${item.forecast}万人` : MACRO_METRICS_DEFAULTS.jobs.forecast;
           events.push({
             id: `macro-api-jobs-${fullDateStr}`,
             date: dateStr,
@@ -4968,14 +4988,13 @@ export async function fetchLiveMacroEventsFromApiAsync(refDate = new Date()): Pr
             importance: "HIGH",
             market: "US",
             time: timeJst,
-            previous: pJobs,
-            forecast: fJobs,
+            previous: previousValue(MACRO_METRICS_DEFAULTS.jobs.previous),
+            ...revisionFields,
+            forecast: forecastValue(MACRO_METRICS_DEFAULTS.jobs.forecast),
+            actual: actualValue,
             description: MACRO_METRICS_DEFAULTS.jobs.description,
             source: "official",
-            fieldProvenance: buildFieldProvenance(
-              item.previous !== null && item.previous !== undefined,
-              item.forecast !== null && item.forecast !== undefined,
-            ),
+            fieldProvenance: buildFieldProvenance(hasPrevious, hasForecast),
           });
         }
       } else if (item.countryCode === "US" && (n.includes("fed interest rate") || n.includes("fomc"))) {
@@ -4990,14 +5009,13 @@ export async function fetchLiveMacroEventsFromApiAsync(refDate = new Date()): Pr
             importance: "HIGH",
             market: "US",
             time: timeJst,
-            previous: prevStr || MACRO_METRICS_DEFAULTS.fomc.previous,
-            forecast: forecastStr || (item.actual !== null && item.actual !== undefined ? `${item.actual}%` : MACRO_METRICS_DEFAULTS.fomc.forecast),
+            previous: previousValue(MACRO_METRICS_DEFAULTS.fomc.previous),
+            ...revisionFields,
+            forecast: forecastValue(MACRO_METRICS_DEFAULTS.fomc.forecast),
+            actual: actualValue,
             description: MACRO_METRICS_DEFAULTS.fomc.description,
             source: "official",
-            fieldProvenance: buildFieldProvenance(
-              item.previous !== null && item.previous !== undefined,
-              item.forecast !== null && item.forecast !== undefined,
-            ),
+            fieldProvenance: buildFieldProvenance(hasPrevious, hasForecast),
           });
         }
       } else if (item.countryCode === "JP" && (n.includes("boj interest rate") || n.includes("bank of japan"))) {
@@ -5012,14 +5030,13 @@ export async function fetchLiveMacroEventsFromApiAsync(refDate = new Date()): Pr
             importance: "HIGH",
             market: "TSE",
             time: timeJst || "15:30 JST",
-            previous: prevStr || MACRO_METRICS_DEFAULTS.boj.previous,
-            forecast: forecastStr || MACRO_METRICS_DEFAULTS.boj.forecast,
+            previous: previousValue(MACRO_METRICS_DEFAULTS.boj.previous),
+            ...revisionFields,
+            forecast: forecastValue(MACRO_METRICS_DEFAULTS.boj.forecast),
+            actual: actualValue,
             description: MACRO_METRICS_DEFAULTS.boj.description,
             source: "official",
-            fieldProvenance: buildFieldProvenance(
-              item.previous !== null && item.previous !== undefined,
-              item.forecast !== null && item.forecast !== undefined,
-            ),
+            fieldProvenance: buildFieldProvenance(hasPrevious, hasForecast),
           });
         }
       } else if (item.countryCode === "JP" && n.includes("cpi")) {
@@ -5034,14 +5051,13 @@ export async function fetchLiveMacroEventsFromApiAsync(refDate = new Date()): Pr
             importance: "HIGH",
             market: "TSE",
             time: timeJst || "08:30 JST",
-            previous: prevStr || MACRO_METRICS_DEFAULTS.jpCpi.previous,
-            forecast: forecastStr || MACRO_METRICS_DEFAULTS.jpCpi.forecast,
+            previous: previousValue(MACRO_METRICS_DEFAULTS.jpCpi.previous),
+            ...revisionFields,
+            forecast: forecastValue(MACRO_METRICS_DEFAULTS.jpCpi.forecast),
+            actual: actualValue,
             description: MACRO_METRICS_DEFAULTS.jpCpi.description,
             source: "official",
-            fieldProvenance: buildFieldProvenance(
-              item.previous !== null && item.previous !== undefined,
-              item.forecast !== null && item.forecast !== undefined,
-            ),
+            fieldProvenance: buildFieldProvenance(hasPrevious, hasForecast),
           });
         }
       }
@@ -5165,17 +5181,33 @@ export async function fetchLiveMarketCalendarAsync(
 
         // N-2: 3ヶ月 T-Bill 利回り (^IRX) からレンジ下限を推計した参考値であり、公式の FF 誘導目標レンジではない。
         if (typeof liveFomcRate === "number") {
+          const lower = (Math.floor(liveFomcRate * 4) / 4).toFixed(2);
+          const upper = (Number(lower) + 0.25).toFixed(2);
           for (const me of macroEvents) {
-            if (me.id.startsWith("macro-fomc") || me.id.startsWith("macro-api-fomc")) {
-              const lower = (Math.floor(liveFomcRate * 4) / 4).toFixed(2);
-              const upper = (Number(lower) + 0.25).toFixed(2);
+            if (!me.id.startsWith("macro-fomc") && !me.id.startsWith("macro-api-fomc")) {
+              continue;
+            }
+            // A completed meeting has an official result. Replacing its
+            // provider values with a 3-month-bill proxy destroyed the actual
+            // rate and relabelled it as a forecast.
+            if (typeof me.actual === "string" && me.actual.trim() !== "") continue;
+
+            const hasProviderPrevious =
+              typeof me.previous === "string" &&
+              me.previous.trim() !== "" &&
+              me.fieldProvenance?.previous === undefined;
+            const hasProviderForecast =
+              typeof me.forecast === "string" &&
+              me.forecast.trim() !== "" &&
+              me.fieldProvenance?.forecast === undefined;
+
+            if (!hasProviderPrevious) {
               me.previous = `${lower}% - ${upper}% (参考推計: 3ヶ月物利回りベース)`;
+              me.fieldProvenance = { ...me.fieldProvenance, previous: "estimated" };
+            }
+            if (!hasProviderForecast) {
               me.forecast = "市場予想集計中";
-              me.fieldProvenance = {
-                ...me.fieldProvenance,
-                previous: "estimated",
-                forecast: "reference",
-              };
+              me.fieldProvenance = { ...me.fieldProvenance, forecast: "reference" };
             }
           }
         }
@@ -6974,7 +7006,7 @@ export default {
           // master password: a password-only admin must not be able to mutate a
           // system index.
           const adminAuth = await authenticateAdmin(request, env, ctx);
-          if (adminAuth.rateLimited) {
+          if (adminAuth.rateLimited || adminAuth.unavailable) {
             return adminAuthFailureResponse(adminAuth, request);
           }
           const isAdmin = adminAuth.authenticated;
@@ -7277,7 +7309,7 @@ export default {
           if (authFailure) return authFailure;
 
           const adminAuth = await authenticateAdmin(request, env, ctx);
-          if (adminAuth.rateLimited) {
+          if (adminAuth.rateLimited || adminAuth.unavailable) {
             return adminAuthFailureResponse(adminAuth, request);
           }
           const isAdmin = adminAuth.authenticated;
@@ -8251,7 +8283,7 @@ export default {
           const explicitPwd = typeof body.password === "string" ? body.password : null;
           const auth = await authenticatePassword(request, env, explicitPwd, "auth-api", ctx);
           const adminAuth = await authenticateAdmin(request, env, ctx);
-          if (adminAuth.rateLimited) {
+          if (adminAuth.rateLimited || adminAuth.unavailable) {
             return adminAuthFailureResponse(adminAuth, request);
           }
           const isAdmin = adminAuth.authenticated;
@@ -8777,7 +8809,7 @@ export default {
           // Administrators must present a valid `x-admin-session`; the master
           // password alone is not an authorization.
           const auth = await authenticateAdmin(request, env, ctx);
-          if (auth.rateLimited) {
+          if (auth.rateLimited || auth.unavailable) {
             return adminAuthFailureResponse(auth, request);
           }
           const isAdmin = auth.authenticated;

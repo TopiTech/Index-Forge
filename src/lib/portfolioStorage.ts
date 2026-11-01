@@ -246,6 +246,53 @@ function sanitizePosition(raw: unknown): PortfolioPosition | null {
   );
 }
 
+/**
+ * Upper bound for random id repair. A deterministic or broken id source must
+ * not turn loading the portfolio into an infinite loop; after this many
+ * collisions the repair falls back to a suffix on the stored id.
+ */
+const MAX_POSITION_ID_REPAIR_ATTEMPTS = 8;
+
+/**
+ * Sanitize a persisted position list and repair duplicate ids.
+ *
+ * Legacy data (the old timestamp+counter id scheme) can contain two positions
+ * with the same id. React treats duplicate keys as one list identity and
+ * `filter(p => p.id !== id)` deletes both lots, so the load boundary must make
+ * ids unique just like it already does for missing ids.
+ *
+ * Random minting is attempted a bounded number of times. If the generator is
+ * deterministic and keeps returning a seen id, the fallback is
+ * `${storedId}-2`, `${storedId}-3`, ... — deterministic, based only on the
+ * finite set of ids already loaded, so it cannot loop forever.
+ */
+function sanitizeStoredPositions(parsed: unknown[]): PortfolioPosition[] {
+  const seenIds = new Set<string>();
+  const positions: PortfolioPosition[] = [];
+  for (const raw of parsed) {
+    const position = sanitizePosition(raw);
+    if (!position) continue;
+    let id = position.id;
+    let attempts = 0;
+    while (seenIds.has(id) && attempts < MAX_POSITION_ID_REPAIR_ATTEMPTS) {
+      id = createPortfolioPositionId(position.ticker, position.shares);
+      attempts += 1;
+    }
+    if (seenIds.has(id)) {
+      let suffix = 2;
+      let fallback = `${position.id}-${suffix}`;
+      while (seenIds.has(fallback)) {
+        suffix += 1;
+        fallback = `${position.id}-${suffix}`;
+      }
+      id = fallback;
+    }
+    seenIds.add(id);
+    positions.push(id === position.id ? position : { ...position, id });
+  }
+  return positions;
+}
+
 /** Normalizes a raw watchlist array to unique, non-empty ticker strings. */
 export function sanitizeWatchlist(raw: unknown): string[] {
   if (!Array.isArray(raw)) return [];
@@ -300,9 +347,7 @@ export function loadPortfolioPositions(): PortfolioPosition[] {
         // An explicit empty list is an intended user action (cleared positions).
         if (parsed.length === 0) return [];
 
-        const positions = parsed
-          .map(sanitizePosition)
-          .filter((position): position is PortfolioPosition => position !== null);
+        const positions = sanitizeStoredPositions(parsed);
         // A fully corrupt non-empty list falls back to presets.
         if (positions.length > 0) return positions;
       }
@@ -358,9 +403,7 @@ function parsePersistedPositions(raw: string | null): PortfolioPosition[] {
   try {
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed)) {
-      return parsed
-        .map(sanitizePosition)
-        .filter((position): position is PortfolioPosition => position !== null);
+      return sanitizeStoredPositions(parsed);
     }
   } catch {
     // Ignore storage parse error

@@ -210,6 +210,9 @@ describe("User Requested Fixes: 3 Issues Resolution", () => {
                 countryCode: "US",
                 name: "CPI y/y",
                 importance: "high",
+                unit: "percent",
+                multiplier: "none",
+                digits: 1,
                 actual: null,
                 forecast: 2.5,
                 previous: 2.4,
@@ -219,15 +222,21 @@ describe("User Requested Fixes: 3 Issues Resolution", () => {
                 countryCode: "US",
                 name: "Nonfarm Payrolls",
                 importance: "high",
+                unit: "job",
+                multiplier: "thousands",
+                digits: 0,
                 actual: null,
-                forecast: 15.0,
-                previous: 14.2,
+                forecast: 55,
+                previous: 162,
               },
               {
                 time: "2026-12-09T19:00:00Z",
                 countryCode: "US",
                 name: "Fed Interest Rate Decision",
                 importance: "high",
+                unit: "percent",
+                multiplier: "none",
+                digits: 2,
                 actual: null,
                 forecast: 4.5,
                 previous: 4.75,
@@ -237,6 +246,9 @@ describe("User Requested Fixes: 3 Issues Resolution", () => {
                 countryCode: "JP",
                 name: "BoJ Interest Rate Decision",
                 importance: "high",
+                unit: "percent",
+                multiplier: "none",
+                digits: 1,
                 actual: null,
                 forecast: 0.5,
                 previous: 0.25,
@@ -266,8 +278,9 @@ describe("User Requested Fixes: 3 Issues Resolution", () => {
         const jobs = macroEvents.find((e) => e.title.includes("雇用統計"));
         expect(jobs).toBeDefined();
         expect(jobs?.fullDate).toBe("2026-11-06");
-        expect(jobs?.forecast).toBe("15万人");
-        expect(jobs?.previous).toBe("14.2万人");
+        // The provider reports payrolls in thousands; 55 -> 5.5万人.
+        expect(jobs?.forecast).toBe("5.5万人");
+        expect(jobs?.previous).toBe("16.2万人");
 
         // BoJ
         const boj = macroEvents.find((e) => e.title.includes("日銀"));
@@ -292,6 +305,9 @@ describe("User Requested Fixes: 3 Issues Resolution", () => {
                 countryCode: "US",
                 name: "CPI y/y",
                 importance: "high",
+                unit: "percent",
+                multiplier: "none",
+                digits: 1,
                 actual: null,
                 forecast: 2.5,
                 previous: 2.4,

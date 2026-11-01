@@ -181,6 +181,16 @@ export interface CalendarEvent {
   consensus?: string;
   actual?: string;
   previous?: string;
+  /**
+   * provider が前回値を改定している場合の改定後値 (N-10)。`previous` は改定前の
+   * 値を維持する (このフィールドを無視する既存 consumer の後方互換)。
+   */
+  revisedPrevious?: string;
+  /**
+   * 前回値の改定回数。0 は「改定なし」を意味し、未設定は provider が回数を返していない。
+   * `revisedPrevious` が無い場合は意味を持たないため、境界で破棄する。
+   */
+  revision?: number;
   forecast?: string;
   importance: "HIGH" | "MEDIUM" | "LOW";
   /** 発表予定時刻 (例: "15:00 JST", "21:30 JST", "03:00 JST") */
@@ -2639,42 +2649,109 @@ function saveCalendarCache(events: CalendarEvent[]): void {
 
 /**
  * Per-item validation for calendar events. Applied to both API responses and
- * cached JSON: CalendarPage reads `importance`, `type` and `date` directly, so
- * a stale or hand-edited cache entry with a malformed shape would render blank
- * or broken rows instead of falling back to the generated calendar.
+ * cached JSON.
+ *
+ * The boundary owns the full shape: CalendarPage reads `ticker` / `companyName` /
+ * `description` with string methods and renders `previous` / `forecast` /
+ * `actual` / `time` directly. A malformed cache/API object therefore used to
+ * reach React and throw (`Objects are not valid as a React child`). Only the
+ * known CalendarEvent fields are copied, and each optional field is accepted
+ * only when it has the expected runtime type.
  */
+const CALENDAR_TEXT_LIMITS = {
+  id: 200,
+  date: 20,
+  fullDate: 10,
+  title: 500,
+  ticker: 32,
+  companyName: 200,
+  value: 200,
+  time: 40,
+  description: 5000,
+  source: 64,
+} as const;
+
+function optionalCalendarText(value: unknown, maxLength: number): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  return trimmed.slice(0, maxLength);
+}
+
 export function sanitizeCalendarEvent(e: unknown): CalendarEvent | null {
-  if (!e || typeof e !== "object") return null;
-  const record = e as {
-    id?: unknown;
-    date?: unknown;
-    title?: unknown;
-    type?: unknown;
-    importance?: unknown;
-    fieldProvenance?: unknown;
-    [key: string]: unknown;
-  };
-  if (
-    typeof record.id !== "string" ||
-    typeof record.date !== "string" ||
-    typeof record.title !== "string"
-  ) {
-    return null;
-  }
+  if (!e || typeof e !== "object" || Array.isArray(e)) return null;
+  const record = e as Record<string, unknown>;
+
+  const id = optionalCalendarText(record.id, CALENDAR_TEXT_LIMITS.id);
+  const date = optionalCalendarText(record.date, CALENDAR_TEXT_LIMITS.date);
+  const title = optionalCalendarText(record.title, CALENDAR_TEXT_LIMITS.title);
+  if (!id || !date || !title) return null;
+
   const type = record.type === "MACRO" || record.type === "EARNINGS" ? record.type : "EARNINGS";
   const importance =
     record.importance === "HIGH" || record.importance === "MEDIUM" || record.importance === "LOW"
       ? record.importance
       : "MEDIUM";
 
-  const sanitized: CalendarEvent = {
-    ...(record as unknown as CalendarEvent),
-    id: record.id,
-    date: record.date,
-    title: record.title,
-    type,
-    importance,
-  };
+  const sanitized: CalendarEvent = { id, date, title, type, importance };
+
+  const fullDate = optionalCalendarText(record.fullDate, CALENDAR_TEXT_LIMITS.fullDate);
+  if (fullDate && /^\d{4}-\d{2}-\d{2}$/.test(fullDate)) sanitized.fullDate = fullDate;
+
+  const ticker = optionalCalendarText(record.ticker, CALENDAR_TEXT_LIMITS.ticker);
+  if (ticker) sanitized.ticker = ticker;
+
+  const companyName = optionalCalendarText(record.companyName, CALENDAR_TEXT_LIMITS.companyName);
+  if (companyName) sanitized.companyName = companyName;
+
+  if (
+    typeof record.marketCap === "number" &&
+    Number.isFinite(record.marketCap) &&
+    record.marketCap >= 0
+  ) {
+    sanitized.marketCap = record.marketCap;
+  }
+
+  for (const key of ["consensus", "actual", "previous", "forecast"] as const) {
+    const value = optionalCalendarText(record[key], CALENDAR_TEXT_LIMITS.value);
+    if (value) sanitized[key] = value;
+  }
+
+  // N-10: the revised value and its revision count describe one fact. A count
+  // without a revised value is meaningless and must not leak into the UI/API.
+  const revisedPrevious = optionalCalendarText(
+    record.revisedPrevious,
+    CALENDAR_TEXT_LIMITS.value,
+  );
+  if (revisedPrevious) {
+    sanitized.revisedPrevious = revisedPrevious;
+    const rawRevision = record.revision;
+    if (
+      typeof rawRevision === "number" &&
+      Number.isSafeInteger(rawRevision) &&
+      rawRevision >= 0
+    ) {
+      sanitized.revision = rawRevision;
+    }
+  }
+
+  const time = optionalCalendarText(record.time, CALENDAR_TEXT_LIMITS.time);
+  if (time) sanitized.time = time;
+
+  if (record.market === "TSE" || record.market === "US") sanitized.market = record.market;
+  if (
+    record.surprise === "BEAT" ||
+    record.surprise === "MISS" ||
+    record.surprise === "IN_LINE"
+  ) {
+    sanitized.surprise = record.surprise;
+  }
+
+  const description = optionalCalendarText(record.description, CALENDAR_TEXT_LIMITS.description);
+  if (description) sanitized.description = description;
+
+  const source = optionalCalendarText(record.source, CALENDAR_TEXT_LIMITS.source);
+  if (source) sanitized.source = source;
 
   // N-3: フィールド単位の来歴も境界で正規化する。既知のキー (previous /
   // forecast / actual) と既知の区分 (reference / estimated) だけを通し、
@@ -2690,12 +2767,9 @@ export function sanitizeCalendarEvent(e: unknown): CalendarEvent | null {
     }
     if (Object.keys(normalized).length > 0) {
       sanitized.fieldProvenance = normalized;
-    } else {
-      delete sanitized.fieldProvenance;
     }
-  } else {
-    delete sanitized.fieldProvenance;
   }
+
   return sanitized;
 }
 
@@ -3353,6 +3427,11 @@ export function exportCalendarToIcs(events: CalendarEvent[]): string {
     if (evt.previous) {
       descParts.push(`【前回値】${formatCalendarFieldValueWithProvenance(evt.previous, evt.fieldProvenance?.previous)}`);
     }
+    if (evt.revisedPrevious) {
+      const revision =
+        typeof evt.revision === "number" && evt.revision > 0 ? `（${evt.revision}回改定）` : "";
+      descParts.push(`【改定後前回値】${evt.revisedPrevious}${revision}`);
+    }
     if (evt.actual) {
       descParts.push(`【発表結果】${formatCalendarFieldValueWithProvenance(evt.actual, evt.fieldProvenance?.actual)}`);
     }
@@ -3398,6 +3477,11 @@ export function exportCalendarToCsv(events: CalendarEvent[]): string {
     "発表結果",
     "出所",
     "詳細",
+    // G-7: appended after the historical columns so consumers that read the
+    // first 14 columns by position keep working. The original 前回値 remains
+    // the canonical value; these carry the provider's revision additively.
+    "改定後前回値",
+    "改定回数",
   ];
 
   const rows = events.map((e) => [
@@ -3415,6 +3499,8 @@ export function exportCalendarToCsv(events: CalendarEvent[]): string {
     escapeCsvCell(formatCalendarFieldValueWithProvenance(e.actual, e.fieldProvenance?.actual)),
     escapeCsvCell(e.source === "fallback" ? "参考値(推計)" : "実データ"),
     escapeCsvCell(e.description || ""),
+    escapeCsvCell(e.revisedPrevious || ""),
+    escapeCsvCell(typeof e.revision === "number" ? String(e.revision) : ""),
   ]);
 
   return "\uFEFF" + [headers.join(","), ...rows.map((r) => r.join(","))].join("\r\n");
