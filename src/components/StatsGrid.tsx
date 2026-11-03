@@ -5,10 +5,9 @@ import type { Snapshot } from "../types";
 import type { Timeframe } from "../types";
 import type { CustomIndex } from "../data/indices";
 import { TIMEFRAME_LABELS } from "../lib/timeframe";
-import { changeTone } from "./changeTone";
+import { changeTone, formatSignedAmount, formatSignedPercent } from "./changeTone";
 
 const fmt = new Intl.NumberFormat("ja-JP", { maximumFractionDigits: 2 });
-const pct = new Intl.NumberFormat("ja-JP", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 interface StatsGridProps {
   benchmarkData: { snapshot: Snapshot } | null;
@@ -53,6 +52,7 @@ export function StatsGrid({
   const hasAlpha = hasBenchmark && hasCustom && hasPeriodMetrics;
   const rawBenchmarkDiff = hasAlpha ? (periodAlphaPct ?? customReturnPct! - benchmarkReturnPct!) : 0;
   const benchmarkDiff = Math.abs(rawBenchmarkDiff) < 0.005 ? 0 : rawBenchmarkDiff;
+  const alphaTone = changeTone(benchmarkDiff, 2);
   const safeCustomReturnPct =
     typeof customReturnPct === "number" && Math.abs(customReturnPct) >= 0.005 ? customReturnPct : 0;
   const safeBenchmarkReturnPct =
@@ -71,7 +71,7 @@ export function StatsGrid({
       trend: !hasCustom || typeof customReturnPct !== "number"
         ? undefined
         : {
-            text: `${changeTone(safeCustomReturnPct, 2) === "positive" ? "+" : ""}${pct.format(safeCustomReturnPct)}%`,
+            text: formatSignedPercent(safeCustomReturnPct, 2),
             type: changeTone(safeCustomReturnPct, 2),
           },
       sub: selectedIndex ? `基準値 ${fmt.format(baseValue)}` : undefined,
@@ -83,12 +83,12 @@ export function StatsGrid({
       value: benchmarkLoading ? "読込中..." : benchmarkData ? fmt.format(benchmarkData.snapshot.current) : "---",
       trend: hasBenchmark && typeof benchmarkReturnPct === "number"
         ? {
-            text: `${changeTone(safeBenchmarkReturnPct, 2) === "positive" ? "+" : ""}${pct.format(safeBenchmarkReturnPct)}%`,
+            text: formatSignedPercent(safeBenchmarkReturnPct, 2),
             type: changeTone(safeBenchmarkReturnPct, 2),
           }
         : undefined,
       sub: benchmarkData
-        ? `前日比 ${changeTone(benchmarkData.snapshot.change, 2) === "positive" ? "+" : ""}${fmt.format(benchmarkData.snapshot.change)}${Number.isFinite(benchmarkData.snapshot.changePct) ? ` (${changeTone(benchmarkData.snapshot.changePct, 2) === "positive" ? "+" : ""}${pct.format(benchmarkData.snapshot.changePct)}%)` : ""}`
+        ? `前日比 ${formatSignedAmount(benchmarkData.snapshot.change, (n) => fmt.format(n))}${Number.isFinite(benchmarkData.snapshot.changePct) ? ` (${formatSignedPercent(benchmarkData.snapshot.changePct, 2)})` : ""}`
         : undefined,
       icon: <Gauge size={16} />,
     },
@@ -99,18 +99,18 @@ export function StatsGrid({
         : benchmarkLoading
           ? "読込中..."
           : hasAlpha
-            ? `${benchmarkDiff > 0 ? "+" : ""}${pct.format(benchmarkDiff)}%`
+            ? formatSignedPercent(benchmarkDiff, 2)
             : "---",
       trend: hasAlpha
         ? {
-            text: benchmarkDiff > 0 ? "OUTPERFORM" : benchmarkDiff < 0 ? "UNDERPERFORM" : "NEUTRAL",
-            type: (benchmarkDiff > 0 ? "positive" : benchmarkDiff < 0 ? "negative" : "neutral") as "positive" | "negative" | "neutral",
+            text: alphaTone === "positive" ? "OUTPERFORM" : alphaTone === "negative" ? "UNDERPERFORM" : "NEUTRAL",
+            type: alphaTone,
           }
         : undefined,
       sub: hasAlpha
-        ? benchmarkDiff > 0
+        ? alphaTone === "positive"
           ? `${benchmarkLabel}をアウトパフォーム`
-          : benchmarkDiff < 0
+          : alphaTone === "negative"
             ? `${benchmarkLabel}をアンダーパフォーム`
             : `${benchmarkLabel}と同等`
         : undefined,

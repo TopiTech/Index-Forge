@@ -956,8 +956,7 @@ export function StockAnalysisPage({
                         {formatStockPrice(stock.price, stock.ticker, { market: stock.market })}
                       </div>
                       {(() => {
-                        const isZero =
-                          Math.abs(stock.changePercent) < 0.005 || stock.changePercent === 0;
+                        const isZero = cardTone === "neutral";
                         return (
                           <div
                             className={`stock-card-change ${
@@ -966,8 +965,7 @@ export function StockAnalysisPage({
                             style={isZero ? { color: "var(--text-muted)" } : undefined}
                           >
                             {formatStockChange(stock.change, stock.ticker, { market: stock.market })}{" "}
-                            ({!isZero && isPositive ? "+" : ""}
-                            {stock.changePercent.toFixed(2)}%)
+                            ({formatSignedPercent(stock.changePercent, 2)})
                           </div>
                         );
                       })()}

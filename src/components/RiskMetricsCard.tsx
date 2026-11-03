@@ -4,7 +4,7 @@ import { Card, Tag } from "./ui";
 import { ShieldAlert, Activity, Target, ArrowDownRight, Award, Zap, TrendingUp } from "lucide-react";
 import type { PricePoint } from "../types";
 import { calculateRiskMetrics } from "../lib/analytics";
-import { changeTone } from "./changeTone";
+import { changeTone, formatSignedPercent } from "./changeTone";
 
 interface RiskMetricsCardProps {
   customSeries: PricePoint[];
@@ -41,7 +41,7 @@ export function RiskMetricsCard({
   const items = [
     {
       label: "年率期待リターン (CAGR)",
-      value: `${metrics.annualReturn > 0 ? "+" : ""}${pctFmt.format(metrics.annualReturn)}%`,
+      value: formatSignedPercent(metrics.annualReturn, 2),
       sub:
         metrics.annualReturn > 15
           ? "優れた資本成長ペース"
@@ -104,7 +104,7 @@ export function RiskMetricsCard({
     {
       label: "日次勝率 (Win Rate)",
       value: `${metrics.winRate.toFixed(1)}%`,
-      sub: `最良: ${metrics.bestDay > 0 ? "+" : ""}${pctFmt.format(metrics.bestDay)}% / 最悪: ${metrics.worstDay > 0 ? "+" : ""}${pctFmt.format(metrics.worstDay)}%`,
+      sub: `最良: ${formatSignedPercent(metrics.bestDay, 2)} / 最悪: ${formatSignedPercent(metrics.worstDay, 2)}`,
       icon: <Award size={15} style={{ color: "var(--neon-green)" }} />,
       color: metrics.winRate >= 50 ? "var(--neon-green)" : "var(--neon-red)",
     },

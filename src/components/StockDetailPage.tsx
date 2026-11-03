@@ -29,6 +29,7 @@ import {
   formatUsdWithJpyEstimate,
   getCurrencyMeta,
 } from "../lib/currency";
+import { changeTone, formatSignedPercent } from "./changeTone";
 import { DEFAULT_USD_JPY_RATE } from "../data/marketConstants";
 import { StockTechnicalChart } from "./StockTechnicalChart";
 import { getTradingViewWebUrl } from "../lib/tradingView";
@@ -187,7 +188,6 @@ export function StockDetailPage({
     void loadStockData(ticker);
   }, [ticker, loadStockData]);
 
-  const isPositive = stock.changePercent >= 0;
   const isMacro = isMacroAsset(stock.ticker);
   const currencyMeta = getCurrencyMeta(stock.ticker, stock.market);
 
@@ -472,15 +472,13 @@ export function StockDetailPage({
             )}
 
             {(() => {
-              const isZero =
-                Math.abs(stock.changePercent) < 0.005 ||
-                Object.is(stock.changePercent, -0) ||
-                stock.changePercent === 0;
-              const changeColor = isZero
-                ? "var(--text-muted)"
-                : isPositive
-                ? "var(--color-positive)"
-                : "var(--color-negative)";
+              const tone = changeTone(stock.changePercent, 2);
+              const changeColor =
+                tone === "positive"
+                  ? "var(--color-positive)"
+                  : tone === "negative"
+                    ? "var(--color-negative)"
+                    : "var(--text-muted)";
 
               return (
                 <div
@@ -494,11 +492,11 @@ export function StockDetailPage({
                   }}
                   className="mono"
                 >
-                  {!isZero && (isPositive ? <TrendingUp size={16} /> : <TrendingDown size={16} />)}
+                  {tone === "positive" && <TrendingUp size={16} />}
+                  {tone === "negative" && <TrendingDown size={16} />}
                   <span>
                     {formatStockChange(stock.change, stock.ticker, { market: stock.market })} (
-                    {!isZero && isPositive ? "+" : ""}
-                    {stock.changePercent.toFixed(2)}%)
+                    {formatSignedPercent(stock.changePercent, 2)})
                   </span>
                   <span className="tiny muted" style={{ fontWeight: 400, marginLeft: 4 }}>
                     前日終値: {formatStockPrice(stock.previousClose, stock.ticker, { market: stock.market })}

@@ -511,8 +511,9 @@ export function SimulationPreview({
                           {indexName || "独自指数"}:
                         </span>
                         <span className="mono bold">
-                          {Number(custom?.value) > 0 ? "+" : ""}
-                          {custom?.value}%
+                          {custom?.value !== undefined && custom?.value !== null && Number.isFinite(Number(custom.value))
+                            ? formatSignedPercent(Number(custom.value), 2)
+                            : "--"}
                         </span>
                       </div>
                       {bm && bm.value !== null && bm.value !== undefined && (
@@ -521,8 +522,9 @@ export function SimulationPreview({
                             {currentBenchmarkLabel}:
                           </span>
                           <span className="mono bold">
-                            {Number(bm.value) > 0 ? "+" : ""}
-                            {bm.value}%
+                            {bm.value !== undefined && bm.value !== null && Number.isFinite(Number(bm.value))
+                              ? formatSignedPercent(Number(bm.value), 2)
+                              : "--"}
                           </span>
                         </div>
                       )}

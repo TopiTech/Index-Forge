@@ -1709,8 +1709,10 @@ export function PortfolioManagerPage({
                 </thead>
                 <tbody>
                   {sortedPositions.map((p) => {
-                    const isProfit = p.unrealizedProfit >= 0;
                     const curr = getStockCurrency(p.ticker);
+                    const profitDigits = curr === "$" ? 2 : 0;
+                    const profitTone = changeTone(p.unrealizedProfit, profitDigits);
+                    const profitPercentTone = changeTone(p.unrealizedProfitPercent, 2);
                     return (
                       <tr key={p.id}>
                         <td className="table-sticky-col">
@@ -1774,26 +1776,25 @@ export function PortfolioManagerPage({
                         <td
                           style={{
                             textAlign: "right",
-                            color: isProfit ? "var(--color-positive)" : "var(--color-negative)",
+                            color: profitColor(profitTone),
                           }}
                           className="mono bold tabular-nums"
                         >
-                          {isProfit ? "+" : ""}
-                          {curr}
-                          {p.unrealizedProfit.toLocaleString("en-US", {
-                            minimumFractionDigits: curr === "$" ? 2 : 0,
-                            maximumFractionDigits: 2,
-                          })}
+                          {formatSignedAmount(p.unrealizedProfit, (n) =>
+                            `${curr}${n.toLocaleString("en-US", {
+                              minimumFractionDigits: profitDigits,
+                              maximumFractionDigits: 2,
+                            })}`,
+                          )}
                         </td>
                         <td
                           style={{
                             textAlign: "right",
-                            color: isProfit ? "var(--color-positive)" : "var(--color-negative)",
+                            color: profitColor(profitPercentTone),
                           }}
                           className="mono bold tabular-nums"
                         >
-                          {isProfit ? "+" : ""}
-                          {p.unrealizedProfitPercent.toFixed(2)}%
+                          {formatSignedPercent(p.unrealizedProfitPercent, 2)}
                         </td>
                         <td style={{ textAlign: "right" }} className="mono tabular-nums">
                           <span className="badge badge-default tiny">{p.weightPercent}%</span>
@@ -1821,8 +1822,9 @@ export function PortfolioManagerPage({
                 (`aria-label` is prohibited on a role-less generic element). */}
             <div className="portfolio-mobile-list" role="list" aria-label="保有銘柄一覧カードリスト">
               {sortedPositions.map((p) => {
-                const isProfit = p.unrealizedProfit >= 0;
                 const curr = getStockCurrency(p.ticker);
+                const profitDigits = curr === "$" ? 2 : 0;
+                const profitTone = changeTone(p.unrealizedProfit, profitDigits);
                 return (
                   <article key={p.id} role="listitem" className="portfolio-mobile-card">
                     <div className="portfolio-mobile-card-header">
@@ -1903,16 +1905,15 @@ export function PortfolioManagerPage({
                         <span className="portfolio-mobile-stat-label">含み損益 (損益率)</span>
                         <span
                           className="portfolio-mobile-stat-val mono bold tabular-nums"
-                          style={{ color: isProfit ? "var(--color-positive)" : "var(--color-negative)" }}
+                          style={{ color: profitColor(profitTone) }}
                         >
-                          {isProfit ? "+" : ""}
-                          {curr}
-                          {p.unrealizedProfit.toLocaleString("en-US", {
-                            minimumFractionDigits: curr === "$" ? 2 : 0,
-                            maximumFractionDigits: 2,
-                          })}{" "}
-                          ({isProfit ? "+" : ""}
-                          {p.unrealizedProfitPercent.toFixed(2)}%)
+                          {formatSignedAmount(p.unrealizedProfit, (n) =>
+                            `${curr}${n.toLocaleString("en-US", {
+                              minimumFractionDigits: profitDigits,
+                              maximumFractionDigits: 2,
+                            })}`,
+                          )}{" "}
+                          ({formatSignedPercent(p.unrealizedProfitPercent, 2)})
                         </span>
                       </div>
                     </div>
