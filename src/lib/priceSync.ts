@@ -16,7 +16,13 @@
  * fetch/JSON logic (no DOM, no storage) so the Worker typecheck can compile it.
  */
 
-import { fetchWithNetworkMark, isRecord, readJsonBody, releaseResponse } from "./apiContract";
+import {
+  fetchWithNetworkMark,
+  isFetchTimeoutError,
+  isRecord,
+  readJsonBody,
+  releaseResponse,
+} from "./apiContract";
 
 /** Worker API prefix shared by every client request. */
 const API_BASE = "/api";
@@ -30,12 +36,26 @@ const API_BASE = "/api";
  */
 export const SYNC_BATCH_SIZE = 12;
 
+/**
+ * Deadline for one `/api/sync-prices` batch.
+ *
+ * Each batch can trigger up to 12 upstream Yahoo requests, so it needs more
+ * time than a metadata GET, but a hung batch previously had no deadline at
+ * all: the caller stayed in `syncing` forever and never reached the calculate
+ * step. A timed-out batch is reported as a warning and the calculation
+ * continues with the prices already stored.
+ */
+export const SYNC_REQUEST_TIMEOUT_MS = 20_000;
+
 /** Warning shown when the server's daily sync quota rejects a batch (HTTP 429). */
 export const SYNC_RATE_LIMIT_WARNING =
   "価格同期が本日の上限に達しました。取得済みのデータで計算を続行します";
 
 /** Warning shown when the sync request itself could not be sent. */
 export const SYNC_NETWORK_ERROR_WARNING = "価格同期で通信エラーが発生しました";
+
+/** Warning shown when a sync batch exceeded its own deadline. */
+export const SYNC_TIMEOUT_WARNING = "価格同期がタイムアウトしました";
 
 /** Warning shown when a sync batch is answered with a non-2xx status. */
 export function formatSyncBatchFailureWarning(batchNumber: number): string {
@@ -174,6 +194,7 @@ export async function syncPricesInBatches(options: PriceSyncOptions): Promise<Pr
         headers,
         body: JSON.stringify({ tickers: batch, force }),
         signal,
+        timeoutMs: SYNC_REQUEST_TIMEOUT_MS,
       });
       if (wasAborted()) {
         releaseResponse(res);
@@ -222,7 +243,9 @@ export async function syncPricesInBatches(options: PriceSyncOptions): Promise<Pr
       if (wasAborted() || (err instanceof DOMException && err.name === "AbortError")) {
         return abortedResult();
       }
-      warnings.push(SYNC_NETWORK_ERROR_WARNING);
+      warnings.push(
+        isFetchTimeoutError(err) ? SYNC_TIMEOUT_WARNING : SYNC_NETWORK_ERROR_WARNING,
+      );
     }
 
     if (wasAborted()) return abortedResult();

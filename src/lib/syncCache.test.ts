@@ -80,6 +80,15 @@ describe("parseLocalSyncCache", () => {
     expect(parseLocalSyncCache("[]")).toEqual({});
     expect(parseLocalSyncCache("not-json")).toEqual({});
   });
+
+  it("rejects keys outside the ticker character and length contract", () => {
+    const now = Date.now();
+    expect(
+      parseLocalSyncCache(
+        JSON.stringify({ "BAD TICKER!": now, ["X".repeat(21)]: now, OK: now }),
+      ),
+    ).toEqual({ OK: now });
+  });
 });
 
 describe("readSyncCache", () => {
@@ -139,6 +148,23 @@ describe("mergeSyncCache", () => {
     installThrowingStorage();
     expect(() => mergeSyncCache([{ ticker: "7203" }])).not.toThrow();
   });
+
+  it("does not persist keys that the read path would reject", () => {
+    const now = Date.now();
+    mergeSyncCache([
+      { ticker: "BAD TICKER!" },
+      { ticker: "X".repeat(21) },
+      { ticker: " 7203 " },
+    ]);
+
+    const stored = JSON.parse(store[SYNC_STORAGE_KEY]);
+    expect(stored["BAD TICKER!"]).toBeUndefined();
+    expect(stored["X".repeat(21)]).toBeUndefined();
+    expect(stored["7203"]).toBe(now);
+    // The write and the read agree: a key that cannot be parsed is never
+    // written, so the cache cannot silently accumulate dead entries.
+    expect(readSyncCache()).toEqual({ "7203": now });
+  });
 });
 
 describe("removeFromSyncCache", () => {
@@ -155,6 +181,13 @@ describe("removeFromSyncCache", () => {
     mergeSyncCache([{ ticker: "7203" }]);
     const before = store[SYNC_STORAGE_KEY];
     removeFromSyncCache(["NOPE"]);
+    expect(store[SYNC_STORAGE_KEY]).toBe(before);
+  });
+
+  it("ignores malformed ticker arguments instead of treating them as keys", () => {
+    mergeSyncCache([{ ticker: "7203" }]);
+    const before = store[SYNC_STORAGE_KEY];
+    removeFromSyncCache(["BAD TICKER!", "X".repeat(21), "   "]);
     expect(store[SYNC_STORAGE_KEY]).toBe(before);
   });
 });

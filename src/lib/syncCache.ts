@@ -15,11 +15,30 @@
  * turned that into a misdiagnosed "server unreachable" error and demo data.
  */
 
+import { MAX_TICKER_LENGTH, TICKER_PATTERN } from "./apiContract";
+
 /** localStorage key holding the per-ticker "last synced" timestamps. */
 export const SYNC_STORAGE_KEY = "osi_stock_sync_cache";
 
 /** Entries older than this are dropped so the cache cannot grow forever. */
 export const SYNC_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * Normalize a ticker for the shared cache, or return null when it cannot be a
+ * ticker.
+ *
+ * The read path already rejected malformed keys, but the write path accepted
+ * any non-empty string. A caller bug (or a hand-edited value) therefore wrote
+ * entries that every later read ignored, wasting localStorage quota and making
+ * the cache disagree with itself. Both paths use this one rule so a key that
+ * can be written can always be read back.
+ */
+function normalizeSyncCacheTicker(value: string): string | null {
+  const normalized = value.trim().toUpperCase();
+  if (!normalized || normalized.length > MAX_TICKER_LENGTH) return null;
+  if (!TICKER_PATTERN.test(normalized)) return null;
+  return normalized;
+}
 
 export interface SyncCacheUpdateEntry {
   ticker: string;
@@ -38,10 +57,9 @@ export function parseLocalSyncCache(raw: string | null): Record<string, number> 
 
     const cache: Record<string, number> = {};
     for (const [ticker, timestamp] of Object.entries(parsed)) {
-      const normalizedTicker = ticker.trim().toUpperCase();
+      const normalizedTicker = normalizeSyncCacheTicker(ticker);
       if (
-        /^[A-Z0-9.^=_-]+$/.test(normalizedTicker) &&
-        normalizedTicker.length <= 20 &&
+        normalizedTicker !== null &&
         typeof timestamp === "number" &&
         Number.isFinite(timestamp) &&
         timestamp > 0
@@ -93,11 +111,11 @@ export function mergeSyncCache(entries: (string | SyncCacheUpdateEntry)[]): void
     const now = Date.now();
     for (const item of entries) {
       if (typeof item === "string") {
-        const normalizedTicker = item.trim().toUpperCase();
-        if (normalizedTicker) cache[normalizedTicker] = now;
+        const normalizedTicker = normalizeSyncCacheTicker(item);
+        if (normalizedTicker !== null) cache[normalizedTicker] = now;
       } else if (item && typeof item.ticker === "string") {
-        const normalizedTicker = item.ticker.trim().toUpperCase();
-        if (normalizedTicker) {
+        const normalizedTicker = normalizeSyncCacheTicker(item.ticker);
+        if (normalizedTicker !== null) {
           cache[normalizedTicker] =
             typeof item.lastSynced === "number" &&
             Number.isFinite(item.lastSynced) &&
@@ -151,8 +169,8 @@ export function removeFromSyncCache(tickers: readonly string[]): void {
     const cache = readSyncCache();
     let changed = false;
     for (const ticker of tickers) {
-      const normalizedTicker = ticker.trim().toUpperCase();
-      if (normalizedTicker && cache[normalizedTicker] !== undefined) {
+      const normalizedTicker = normalizeSyncCacheTicker(ticker);
+      if (normalizedTicker !== null && cache[normalizedTicker] !== undefined) {
         delete cache[normalizedTicker];
         changed = true;
       }

@@ -15,7 +15,13 @@ import {
   sanitizeBasketForRequest,
 } from "../lib/indexEngine";
 import { calculateRiskMetrics } from "../lib/analytics";
-import { extractApiErrorMessage, fetchWithNetworkMark, readJsonBody } from "../lib/apiContract";
+import {
+  CALCULATION_REQUEST_TIMEOUT_MS,
+  extractApiErrorMessage,
+  fetchWithNetworkMark,
+  isFetchTimeoutError,
+  readJsonBody,
+} from "../lib/apiContract";
 import { filterByTimeframe } from "../lib/timeframe";
 import { isPriceCacheFresh } from "../lib/marketCache";
 import { mergeSyncCache, readSyncCache, removeFromSyncCache } from "../lib/syncCache";
@@ -375,6 +381,7 @@ export function useSimulation(
             baseValue,
           }),
           signal: controller.signal,
+          timeoutMs: CALCULATION_REQUEST_TIMEOUT_MS,
         });
 
         let universe: StockSeries[] = [];
@@ -468,8 +475,13 @@ export function useSimulation(
         knownTickersRef.current = currentTickersKey;
         // A network/API failure silently swapped in pseudo-random demo prices
         // before; keep the preview usable but flag it as demo data instead of
-        // hiding the failure behind setError(null).
-        setError("サーバーに接続できないため、デモデータで表示しています。数値は参考値です");
+        // hiding the failure behind setError(null). A deadline is not the same
+        // failure as an unreachable server, so it gets its own reason.
+        setError(
+          isFetchTimeoutError(err)
+            ? "計算がタイムアウトしたため、デモデータで表示しています。数値は参考値です"
+            : "サーバーに接続できないため、デモデータで表示しています。数値は参考値です",
+        );
         setUsingDemoData(true);
       } finally {
         // Only the current request may clear the flag: a superseded request

@@ -437,6 +437,17 @@ export const REQUEST_TIMEOUT_MESSAGE =
  */
 export const DEFAULT_REQUEST_TIMEOUT_MS = 8000;
 
+/**
+ * Deadline for `POST /api/calculate`.
+ *
+ * Calculating an index over a large basket legitimately takes longer than a
+ * metadata GET, but it still needs a bound: without one, a stalled Worker left
+ * the dashboard and the builder preview in their loading state forever, with a
+ * reload as the only recovery. Chosen to give a large basket room to finish
+ * while still releasing the UI from an indefinitely stalled request.
+ */
+export const CALCULATION_REQUEST_TIMEOUT_MS = 30_000;
+
 /** Marker for a request aborted by the client's own deadline. */
 export class FetchTimeoutError extends Error {
   constructor(options?: { cause?: unknown }) {

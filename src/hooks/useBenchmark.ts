@@ -209,6 +209,13 @@ export function useBenchmark(initialSymbol: BenchmarkSymbol = "^N225", enabled =
      */
     const publish = (data: BenchmarkData, etag: string | null) => {
       if (!isCurrentRequest() || controller.signal.aborted) return;
+      // The cache key is the *requested* symbol, so a payload for another
+      // symbol must never be stored under it: a proxy/cache mix-up would then
+      // poison every later read for the full TTL, while the UI silently fell
+      // back to the default benchmark with no error.
+      if (!isBenchmarkDataForSymbol(data, selectedBenchmark)) {
+        throw new Error(`${selectedBenchmark} データの形式が不正です`);
+      }
       const timestamp = Date.now();
       benchmarkSessionCache.set(selectedBenchmark, { data, timestamp, etag });
       setBenchmarkData(data);

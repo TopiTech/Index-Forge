@@ -3,6 +3,7 @@ import type { CustomIndex } from "../data/indices";
 import type { BasketItem, PricePoint, StockDetail, StockSeries } from "../types";
 import { calculateStockDetails } from "../lib/analytics";
 import {
+  CALCULATION_REQUEST_TIMEOUT_MS,
   fetchWithNetworkMark,
   readJsonBody,
   readResponseErrorMessage,
@@ -191,9 +192,12 @@ export function useCalculation(selectedIndex: CustomIndex | null, enabled = true
       activeCalculationKeyRef.current = basketKey;
 
       // SWR pattern: immediately populate from client memory cache if available
-      // (a hit refreshes the LRU order, so the entry survives longer)
-      const cachedResult = getClientCalcCache(basketKey);
-      if (cachedResult && !force) {
+      // (a hit refreshes the LRU order, so the entry survives longer). A forced
+      // recalculation must not read the cache at all: keeping the hit suppressed
+      // `setLoading(true)` below, so the old series was cleared while the UI
+      // showed neither data nor a loading state.
+      const cachedResult = force ? undefined : getClientCalcCache(basketKey);
+      if (cachedResult) {
         setCustomSeries(cachedResult.series);
         setStockUniverse(cachedResult.stockUniverse);
         setLastUpdatedAt(cachedResult.timestamp);
@@ -326,6 +330,7 @@ export function useCalculation(selectedIndex: CustomIndex | null, enabled = true
             baseValue: selectedIndex.baseValue,
           }),
           signal: controller.signal,
+          timeoutMs: CALCULATION_REQUEST_TIMEOUT_MS,
         });
 
         if (controller.signal.aborted || activeCalculationKeyRef.current !== basketKey) {
