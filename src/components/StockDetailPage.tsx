@@ -99,6 +99,7 @@ export function getDividendEvaluation(
 
 interface StockDetailPageProps {
   ticker?: string;
+  from?: PageView | string;
   onNavigate: (view: PageView, searchParams?: string) => void;
   onAddToIndex?: (ticker: string, name: string, theme: string) => void;
   onAddToWatchlist?: (ticker: string) => void;
@@ -107,6 +108,7 @@ interface StockDetailPageProps {
 
 export function StockDetailPage({
   ticker = "7203",
+  from,
   onNavigate,
   onAddToIndex,
   onAddToWatchlist,
@@ -118,6 +120,20 @@ export function StockDetailPage({
   );
   const [loading, setLoading] = useState(false);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(null);
+
+  const resolvedFrom: string = (() => {
+    if (from && typeof from === "string" && from.trim().length > 0) {
+      return from.trim();
+    }
+    if (typeof window !== "undefined" && window.location.search) {
+      const sp = new URLSearchParams(window.location.search);
+      const queryFrom = sp.get("from");
+      if (queryFrom && queryFrom.trim().length > 0) {
+        return queryFrom.trim();
+      }
+    }
+    return "stock";
+  })();
   const [activeTab, setActiveTab] = useState<"CHART" | "FINANCIALS">("CHART");
 
   useRegisterFreshness("stock", {
@@ -272,35 +288,57 @@ export function StockDetailPage({
             </button>
           </li>
           <li className="stock-breadcrumb-separator" aria-hidden="true">/</li>
-          <li className="stock-breadcrumb-item">
-            <button
-              type="button"
-              className="stock-breadcrumb-link"
-              onClick={() => onNavigate("stock")}
-            >
-              銘柄分析
-            </button>
-          </li>
-          <li className="stock-breadcrumb-separator" aria-hidden="true">/</li>
-          <li className="stock-breadcrumb-item">
-            <button
-              type="button"
-              className="stock-breadcrumb-link"
-              onClick={() => onNavigate("market")}
-            >
-              マーケット
-            </button>
-          </li>
-          <li className="stock-breadcrumb-separator" aria-hidden="true">/</li>
-          <li className="stock-breadcrumb-item">
-            <button
-              type="button"
-              className="stock-breadcrumb-link"
-              onClick={() => onNavigate("screener")}
-            >
-              スクリーナー
-            </button>
-          </li>
+          {resolvedFrom === "screener" ? (
+            <li className="stock-breadcrumb-item">
+              <button
+                type="button"
+                className="stock-breadcrumb-link"
+                onClick={() => onNavigate("screener")}
+              >
+                スクリーナー
+              </button>
+            </li>
+          ) : resolvedFrom === "market" ? (
+            <li className="stock-breadcrumb-item">
+              <button
+                type="button"
+                className="stock-breadcrumb-link"
+                onClick={() => onNavigate("market")}
+              >
+                マーケット
+              </button>
+            </li>
+          ) : resolvedFrom === "portfolio" ? (
+            <li className="stock-breadcrumb-item">
+              <button
+                type="button"
+                className="stock-breadcrumb-link"
+                onClick={() => onNavigate("portfolio")}
+              >
+                ポートフォリオ
+              </button>
+            </li>
+          ) : resolvedFrom === "calendar" ? (
+            <li className="stock-breadcrumb-item">
+              <button
+                type="button"
+                className="stock-breadcrumb-link"
+                onClick={() => onNavigate("calendar")}
+              >
+                経済指標カレンダー
+              </button>
+            </li>
+          ) : (
+            <li className="stock-breadcrumb-item">
+              <button
+                type="button"
+                className="stock-breadcrumb-link"
+                onClick={() => onNavigate("stock")}
+              >
+                銘柄分析
+              </button>
+            </li>
+          )}
           <li className="stock-breadcrumb-separator" aria-hidden="true">/</li>
           <li className="stock-breadcrumb-item current" aria-current="page">
             <span className="stock-breadcrumb-current-text">{stock.name} ({stock.ticker})</span>

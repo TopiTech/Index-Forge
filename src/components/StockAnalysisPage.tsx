@@ -159,9 +159,18 @@ export function StockAnalysisPage({
     const handleReposition = () => measureSearchDropdown();
     window.addEventListener("resize", handleReposition);
     window.addEventListener("scroll", handleReposition, true);
+    const vv = typeof window !== "undefined" ? window.visualViewport : null;
+    if (vv) {
+      vv.addEventListener("resize", handleReposition);
+      vv.addEventListener("scroll", handleReposition);
+    }
     return () => {
       window.removeEventListener("resize", handleReposition);
       window.removeEventListener("scroll", handleReposition, true);
+      if (vv) {
+        vv.removeEventListener("resize", handleReposition);
+        vv.removeEventListener("scroll", handleReposition);
+      }
     };
   }, [isSearchDropdownOpen, measureSearchDropdown]);
 

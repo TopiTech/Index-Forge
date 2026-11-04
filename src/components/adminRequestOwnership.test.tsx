@@ -146,7 +146,7 @@ describe("EditPasswordModal backdrop safety (behavioral)", () => {
 
   it("closes when pressed and released on the backdrop", () => {
     const onClose = vi.fn();
-    const { container } = render(
+    const { baseElement } = render(
       <EditPasswordModal
         isOpen
         onClose={onClose}
@@ -155,7 +155,7 @@ describe("EditPasswordModal backdrop safety (behavioral)", () => {
         getHeaders={() => ({})}
       />,
     );
-    const overlay = container.querySelector(".modal-overlay") as HTMLElement;
+    const overlay = baseElement.querySelector(".modal-overlay") as HTMLElement;
     fireEvent.mouseDown(overlay);
     fireEvent.click(overlay);
     expect(onClose).toHaveBeenCalledTimes(1);
@@ -163,7 +163,7 @@ describe("EditPasswordModal backdrop safety (behavioral)", () => {
 
   it("ignores a drag that starts inside the dialog and ends on the backdrop", () => {
     const onClose = vi.fn();
-    const { container } = render(
+    const { baseElement } = render(
       <EditPasswordModal
         isOpen
         onClose={onClose}
@@ -172,8 +172,8 @@ describe("EditPasswordModal backdrop safety (behavioral)", () => {
         getHeaders={() => ({})}
       />,
     );
-    const overlay = container.querySelector(".modal-overlay") as HTMLElement;
-    const dialog = container.querySelector("[data-modal-dialog]") as HTMLElement;
+    const overlay = baseElement.querySelector(".modal-overlay") as HTMLElement;
+    const dialog = baseElement.querySelector("[data-modal-dialog]") as HTMLElement;
     // The dialog stops mousedown propagation, so the backdrop never arms.
     fireEvent.mouseDown(dialog);
     fireEvent.click(overlay);

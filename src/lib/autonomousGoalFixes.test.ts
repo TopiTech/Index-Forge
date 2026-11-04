@@ -90,7 +90,7 @@ describe("Autonomous Goal Review Fixes: Quota Bounds & Clamping", () => {
   }
 
   function renderEditPasswordModal(item: UserPasswordItem = USER_PASSWORD) {
-    return render(
+    const rendered = render(
       createElement(EditPasswordModal, {
         isOpen: true,
         onClose: vi.fn(),
@@ -99,6 +99,7 @@ describe("Autonomous Goal Review Fixes: Quota Bounds & Clamping", () => {
         getHeaders: () => ({}),
       }),
     );
+    return { ...rendered, container: rendered.baseElement as HTMLElement };
   }
 
   /**
@@ -143,7 +144,8 @@ describe("Autonomous Goal Review Fixes: Quota Bounds & Clamping", () => {
 
     for (const [index, [input, expected]] of cases.entries()) {
       fireEvent.change(maxStocks, { target: { value: input } });
-      // The production input handler clamps the value it keeps in state.
+      fireEvent.blur(maxStocks);
+      // The production input handler clamps the value on blur / submit.
       expect(maxStocks.value).toBe(String(expected));
 
       const payload = await submitQuotaForm(container, fetchMock, index + 1);
@@ -170,6 +172,7 @@ describe("Autonomous Goal Review Fixes: Quota Bounds & Clamping", () => {
 
     for (const [index, [input, expected]] of cases.entries()) {
       fireEvent.change(maxIndices, { target: { value: input } });
+      fireEvent.blur(maxIndices);
       expect(maxIndices.value).toBe(String(expected));
 
       const payload = await submitQuotaForm(container, fetchMock, index + 1);

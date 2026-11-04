@@ -5129,7 +5129,7 @@ a.footer-creator-note:hover .footer-icon-accent {
 .index-builder-page.is-fullscreen {
   position: fixed !important;
   inset: 0 !important;
-  z-index: 10000 !important;
+  z-index: var(--z-page-fullscreen, 15000) !important;
   width: 100vw !important;
   height: 100vh !important;
   max-width: none !important;

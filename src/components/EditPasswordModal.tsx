@@ -1,8 +1,10 @@
 import React, { useRef, useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { motion } from "framer-motion";
 import { Sliders, X, AlertCircle, Sparkles } from "lucide-react";
 import type { UserPasswordItem } from "../types";
 import { useModalFocus } from "../hooks/useModalFocus";
+import { useOverlayRoot } from "./ModalBase";
 import { generateSecurePassword } from "../lib/auth";
 import { readApiErrorMessage } from "../lib/auth";
 import { fetchWithNetworkMark, readJsonBody, releaseResponse } from "../lib/apiContract";
@@ -25,9 +27,9 @@ export function EditPasswordModal({
   const [name, setName] = useState("");
   const [role, setRole] = useState<"user" | "admin">("user");
   const [unlimitedStocks, setUnlimitedStocks] = useState(false);
-  const [maxStocks, setMaxStocks] = useState<number>(10);
+  const [maxStocksDraft, setMaxStocksDraft] = useState<string>("10");
   const [unlimitedIndices, setUnlimitedIndices] = useState(true);
-  const [maxIndices, setMaxIndices] = useState<number>(5);
+  const [maxIndicesDraft, setMaxIndicesDraft] = useState<string>("5");
   const [newPassword, setNewPassword] = useState("");
   const [isActive, setIsActive] = useState(true);
   const [loading, setLoading] = useState(false);
@@ -37,6 +39,17 @@ export function EditPasswordModal({
   const nameInputRef = useRef<HTMLInputElement>(null);
   const isBackdropMouseDownRef = useRef(false);
   const isMountedRef = useRef(true);
+  const overlayRoot = useOverlayRoot();
+
+  const clampStocks = (val: string | number): number => {
+    const parsed = typeof val === "number" ? val : parseInt(val, 10);
+    return Math.min(500, Math.max(1, Number.isFinite(parsed) ? Math.floor(parsed) : 1));
+  };
+
+  const clampIndices = (val: string | number): number => {
+    const parsed = typeof val === "number" ? val : parseInt(val, 10);
+    return Math.min(100, Math.max(1, Number.isFinite(parsed) ? Math.floor(parsed) : 1));
+  };
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -55,17 +68,17 @@ export function EditPasswordModal({
       setRole(item.role === "admin" ? "admin" : "user");
       if (item.max_stocks !== null && item.max_stocks !== undefined) {
         setUnlimitedStocks(false);
-        setMaxStocks(item.max_stocks);
+        setMaxStocksDraft(String(item.max_stocks));
       } else {
         setUnlimitedStocks(true);
-        setMaxStocks(10);
+        setMaxStocksDraft("10");
       }
       if (item.max_indices !== null && item.max_indices !== undefined) {
         setUnlimitedIndices(false);
-        setMaxIndices(item.max_indices);
+        setMaxIndicesDraft(String(item.max_indices));
       } else {
         setUnlimitedIndices(true);
-        setMaxIndices(5);
+        setMaxIndicesDraft("5");
       }
       setNewPassword("");
       setIsActive(item.is_active === 1);
@@ -109,14 +122,19 @@ export function EditPasswordModal({
     setError(null);
 
     const isAdminRole = role === "admin";
+    const clampedStocks = clampStocks(maxStocksDraft);
+    setMaxStocksDraft(String(clampedStocks));
     const sanitizedMaxStocks =
       isAdminRole || unlimitedStocks
         ? null
-        : Math.min(500, Math.max(1, Math.floor(Number(maxStocks)) || 1));
+        : clampedStocks;
+
+    const clampedIndices = clampIndices(maxIndicesDraft);
+    setMaxIndicesDraft(String(clampedIndices));
     const sanitizedMaxIndices =
       isAdminRole || unlimitedIndices
         ? null
-        : Math.min(100, Math.max(1, Math.floor(Number(maxIndices)) || 1));
+        : clampedIndices;
 
     try {
       const payload: Record<string, unknown> = {
@@ -172,7 +190,7 @@ export function EditPasswordModal({
     isBackdropMouseDownRef.current = false;
   };
 
-  return (
+  const modalContent = (
     <div
       className="modal-overlay"
       onMouseDown={handleBackdropMouseDown}
@@ -368,10 +386,12 @@ export function EditPasswordModal({
                 type="number"
                 min={1}
                 max={500}
-                value={maxStocks}
-                onChange={(e) =>
-                  setMaxStocks(Math.min(500, Math.max(1, parseInt(e.target.value, 10) || 1)))
-                }
+                value={maxStocksDraft}
+                onChange={(e) => setMaxStocksDraft(e.target.value)}
+                onBlur={() => {
+                  const clamped = clampStocks(maxStocksDraft);
+                  setMaxStocksDraft(String(clamped));
+                }}
                 style={{
                   width: "100%",
                   padding: "8px 12px",
@@ -425,10 +445,12 @@ export function EditPasswordModal({
                 type="number"
                 min={1}
                 max={100}
-                value={maxIndices}
-                onChange={(e) =>
-                  setMaxIndices(Math.min(100, Math.max(1, parseInt(e.target.value, 10) || 1)))
-                }
+                value={maxIndicesDraft}
+                onChange={(e) => setMaxIndicesDraft(e.target.value)}
+                onBlur={() => {
+                  const clamped = clampIndices(maxIndicesDraft);
+                  setMaxIndicesDraft(String(clamped));
+                }}
                 style={{
                   width: "100%",
                   padding: "8px 12px",
@@ -550,4 +572,6 @@ export function EditPasswordModal({
       </motion.div>
     </div>
   );
+
+  return overlayRoot ? createPortal(modalContent, overlayRoot) : modalContent;
 }

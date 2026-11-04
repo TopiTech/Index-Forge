@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { motion } from "framer-motion";
 import {
   ResponsiveContainer,
@@ -25,6 +25,21 @@ const pct = new Intl.NumberFormat("ja-JP", {
   minimumFractionDigits: 2,
   maximumFractionDigits: 2,
 });
+
+/**
+ * Detects whether the user/system prefers reduced motion.
+ * Safely guards for SSR and environments lacking window.matchMedia.
+ */
+export function getSystemPrefersReducedMotion(): boolean {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+    return false;
+  }
+  try {
+    return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  } catch {
+    return false;
+  }
+}
 
 function ChartLegendIndicator({
   color,
@@ -120,6 +135,29 @@ export function PerformanceChart({
   const [viewMode, setViewMode] = useState<ViewMode>("value");
   const [showSMA5, setShowSMA5] = useState(false);
   const [showSMA25, setShowSMA25] = useState(false);
+
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(() =>
+    getSystemPrefersReducedMotion(),
+  );
+
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+      return;
+    }
+    try {
+      const mediaQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+      setPrefersReducedMotion(mediaQuery.matches);
+      const handleChange = (e: MediaQueryListEvent) => {
+        setPrefersReducedMotion(e.matches);
+      };
+      if (typeof mediaQuery.addEventListener === "function") {
+        mediaQuery.addEventListener("change", handleChange);
+        return () => mediaQuery.removeEventListener("change", handleChange);
+      }
+    } catch {
+      // Fallback for environments lacking full matchMedia support
+    }
+  }, []);
 
   // Filter data by timeframe
   const filteredData = useMemo(() => filterByTimeframe(data, timeframe), [data, timeframe]);
@@ -634,6 +672,7 @@ export function PerformanceChart({
               )}
 
               {/* Benchmark Line */}
+              {/* Preserves reload suppression contract (isAnimationActive={!isReloadSuppressed}) while respecting prefers-reduced-motion */}
               <Line
                 type="monotone"
                 dataKey="nikkei"
@@ -642,7 +681,7 @@ export function PerformanceChart({
                 dot={false}
                 strokeDasharray="4 4"
                 name="nikkei"
-                isAnimationActive={!isReloadSuppressed}
+                isAnimationActive={!isReloadSuppressed && !prefersReducedMotion}
               />
 
               {/* SMA 5 Line */}
@@ -654,7 +693,7 @@ export function PerformanceChart({
                   strokeWidth={1.5}
                   dot={false}
                   name="sma5"
-                  isAnimationActive={!isReloadSuppressed}
+                  isAnimationActive={!isReloadSuppressed && !prefersReducedMotion}
                 />
               )}
 
@@ -667,7 +706,7 @@ export function PerformanceChart({
                   strokeWidth={1.5}
                   dot={false}
                   name="sma25"
-                  isAnimationActive={!isReloadSuppressed}
+                  isAnimationActive={!isReloadSuppressed && !prefersReducedMotion}
                 />
               )}
 
@@ -687,7 +726,7 @@ export function PerformanceChart({
                   strokeWidth: 2,
                 }}
                 name="value"
-                isAnimationActive={!isReloadSuppressed}
+                isAnimationActive={!isReloadSuppressed && !prefersReducedMotion}
               />
             </ComposedChart>
           </ResponsiveContainer>

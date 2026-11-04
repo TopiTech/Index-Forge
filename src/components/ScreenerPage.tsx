@@ -422,10 +422,11 @@ export function ScreenerPage({
 
     if (onBatchCreateCustomIndex) {
       onBatchCreateCustomIndex(basket);
+      success(`スクリーニング${chosenStocks.length}銘柄でカスタム指数を即時作成しました！`);
     } else {
       onNavigate("builder");
+      info("指数ビルダー画面へ移動しました。銘柄構成を調整して指数を作成してください。");
     }
-    success(`スクリーニング${chosenStocks.length}銘柄でカスタム指数を即時作成しました！`);
   };
 
   // CSV Export

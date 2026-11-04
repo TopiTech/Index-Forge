@@ -60,6 +60,22 @@ describe("macro calendar provider module", () => {
     }
   });
 
+  it("formats thousands with a specific unit as 千{unit} while keeping unit: none as 千人", () => {
+    const customItem = baseItem({
+      unit: "barrel",
+      multiplier: "thousands",
+      digits: 1,
+    });
+    expect(formatMacroCalendarValue(162.5, customItem)).toBe("162.5千barrel");
+
+    const noneItem = baseItem({
+      unit: "none",
+      multiplier: "thousands",
+      digits: 1,
+    });
+    expect(formatMacroCalendarValue(162.5, noneItem)).toBe("162.5千人");
+  });
+
   it("parses revised previous and revision without inventing values", () => {
     for (const fixture of providerFixtures.parserCases) {
       const parsed = parseMacroCalendarApiItem({

@@ -354,6 +354,7 @@
     --z-header: 100;
     --z-sidebar-backdrop: 10000;
     --z-sidebar: 10001;
+    --z-page-fullscreen: 15000;
     --z-modal-overlay: 20000;
     --z-toast: 30000;
     --z-tooltip: 40000;

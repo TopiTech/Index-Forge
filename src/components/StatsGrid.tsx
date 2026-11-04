@@ -37,9 +37,18 @@ export function StatsGrid({
   periodAlphaPct,
 }: StatsGridProps) {
   const baseValue = selectedIndex?.baseValue ?? 1000;
-  const hasCustom = !loading && typeof latestCustomValue === "number" && latestCustomValue > 0 && selectedIndex !== null;
+  const isFiniteNumber = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
+
+  const hasCustom =
+    !loading &&
+    isFiniteNumber(latestCustomValue) &&
+    latestCustomValue > 0 &&
+    selectedIndex !== null;
   const hasPeriodMetrics =
-    typeof periodCustomReturnPct === "number" && typeof periodBenchmarkReturnPct === "number";
+    typeof periodCustomReturnPct === "number" &&
+    Number.isFinite(periodCustomReturnPct) &&
+    typeof periodBenchmarkReturnPct === "number" &&
+    Number.isFinite(periodBenchmarkReturnPct);
   // Period metrics are undefined when the filtered range has <2 points (e.g.
   // an early-January YTD). Show "---" with the period label instead of
   // silently substituting a since-inception return under that label.
@@ -47,16 +56,24 @@ export function StatsGrid({
   const benchmarkReturnPct = periodBenchmarkReturnPct;
   const hasBenchmark =
     typeof periodBenchmarkReturnPct === "number"
-      ? !benchmarkLoading
-      : typeof benchmarkNormalizedValue === "number" && benchmarkNormalizedValue > 0 && !loading;
-  const hasAlpha = hasBenchmark && hasCustom && hasPeriodMetrics;
-  const rawBenchmarkDiff = hasAlpha ? (periodAlphaPct ?? customReturnPct! - benchmarkReturnPct!) : 0;
-  const benchmarkDiff = Math.abs(rawBenchmarkDiff) < 0.005 ? 0 : rawBenchmarkDiff;
+      ? !benchmarkLoading && Number.isFinite(periodBenchmarkReturnPct)
+      : isFiniteNumber(benchmarkNormalizedValue) && benchmarkNormalizedValue > 0 && !loading;
+  const safeAlphaPct = isFiniteNumber(periodAlphaPct) ? periodAlphaPct : undefined;
+  const hasAlpha =
+    hasBenchmark &&
+    hasCustom &&
+    hasPeriodMetrics &&
+    (safeAlphaPct !== undefined ||
+      (isFiniteNumber(customReturnPct) && isFiniteNumber(benchmarkReturnPct)));
+  const rawBenchmarkDiff = hasAlpha ? (safeAlphaPct ?? customReturnPct! - benchmarkReturnPct!) : 0;
+  const isRawDiffFinite = isFiniteNumber(rawBenchmarkDiff);
+  const normalizedBenchmarkDiff = Math.abs(rawBenchmarkDiff) < 0.005 ? 0 : rawBenchmarkDiff;
+  const benchmarkDiff = isRawDiffFinite ? normalizedBenchmarkDiff : 0;
   const alphaTone = changeTone(benchmarkDiff, 2);
   const safeCustomReturnPct =
-    typeof customReturnPct === "number" && Math.abs(customReturnPct) >= 0.005 ? customReturnPct : 0;
+    isFiniteNumber(customReturnPct) && Math.abs(customReturnPct) >= 0.005 ? customReturnPct : 0;
   const safeBenchmarkReturnPct =
-    typeof benchmarkReturnPct === "number" && Math.abs(benchmarkReturnPct) >= 0.005
+    isFiniteNumber(benchmarkReturnPct) && Math.abs(benchmarkReturnPct) >= 0.005
       ? benchmarkReturnPct
       : 0;
   const periodLabel = TIMEFRAME_LABELS[timeframe];
@@ -67,29 +84,45 @@ export function StatsGrid({
   const items = [
     {
       label: selectedIndex ? `${selectedIndex.name}（${periodLabel}）` : "選択中指数",
-      value: loading ? "計算中..." : latestCustomValue > 0 ? fmt.format(latestCustomValue) : "---",
-      trend: !hasCustom || typeof customReturnPct !== "number"
-        ? undefined
-        : {
-            text: formatSignedPercent(safeCustomReturnPct, 2),
-            type: changeTone(safeCustomReturnPct, 2),
-          },
-      sub: selectedIndex ? `基準値 ${fmt.format(baseValue)}` : undefined,
+      value:
+        loading
+          ? "計算中..."
+          : isFiniteNumber(latestCustomValue) && latestCustomValue > 0
+            ? fmt.format(latestCustomValue)
+            : "---",
+      trend:
+        !hasCustom || typeof customReturnPct !== "number" || !Number.isFinite(customReturnPct)
+          ? undefined
+          : {
+              text: formatSignedPercent(safeCustomReturnPct, 2),
+              type: changeTone(safeCustomReturnPct, 2),
+            },
+      sub:
+        selectedIndex && isFiniteNumber(baseValue)
+          ? `基準値 ${fmt.format(baseValue)}`
+          : undefined,
       icon: <Activity size={16} />,
       active: true,
     },
     {
       label: `${benchmarkLabel}（${periodLabel}）`,
-      value: benchmarkLoading ? "読込中..." : benchmarkData ? fmt.format(benchmarkData.snapshot.current) : "---",
-      trend: hasBenchmark && typeof benchmarkReturnPct === "number"
-        ? {
-            text: formatSignedPercent(safeBenchmarkReturnPct, 2),
-            type: changeTone(safeBenchmarkReturnPct, 2),
-          }
-        : undefined,
-      sub: benchmarkData
-        ? `前日比 ${formatSignedAmount(benchmarkData.snapshot.change, (n) => fmt.format(n))}${Number.isFinite(benchmarkData.snapshot.changePct) ? ` (${formatSignedPercent(benchmarkData.snapshot.changePct, 2)})` : ""}`
-        : undefined,
+      value:
+        benchmarkLoading
+          ? "読込中..."
+          : benchmarkData && isFiniteNumber(benchmarkData.snapshot.current)
+            ? fmt.format(benchmarkData.snapshot.current)
+            : "---",
+      trend:
+        hasBenchmark && typeof benchmarkReturnPct === "number" && Number.isFinite(benchmarkReturnPct)
+          ? {
+              text: formatSignedPercent(safeBenchmarkReturnPct, 2),
+              type: changeTone(safeBenchmarkReturnPct, 2),
+            }
+          : undefined,
+      sub:
+        benchmarkData && isFiniteNumber(benchmarkData.snapshot.change)
+          ? `前日比 ${formatSignedAmount(benchmarkData.snapshot.change, (n) => fmt.format(n))}${isFiniteNumber(benchmarkData.snapshot.changePct) ? ` (${formatSignedPercent(benchmarkData.snapshot.changePct, 2)})` : ""}`
+          : undefined,
       icon: <Gauge size={16} />,
     },
     {
@@ -98,22 +131,24 @@ export function StatsGrid({
         ? "計算中..."
         : benchmarkLoading
           ? "読込中..."
-          : hasAlpha
+          : hasAlpha && isRawDiffFinite
             ? formatSignedPercent(benchmarkDiff, 2)
             : "---",
-      trend: hasAlpha
-        ? {
-            text: alphaTone === "positive" ? "OUTPERFORM" : alphaTone === "negative" ? "UNDERPERFORM" : "NEUTRAL",
-            type: alphaTone,
-          }
-        : undefined,
-      sub: hasAlpha
-        ? alphaTone === "positive"
-          ? `${benchmarkLabel}をアウトパフォーム`
-          : alphaTone === "negative"
-            ? `${benchmarkLabel}をアンダーパフォーム`
-            : `${benchmarkLabel}と同等`
-        : undefined,
+      trend:
+        hasAlpha && isRawDiffFinite
+          ? {
+              text: alphaTone === "positive" ? "OUTPERFORM" : alphaTone === "negative" ? "UNDERPERFORM" : "NEUTRAL",
+              type: alphaTone,
+            }
+          : undefined,
+      sub:
+        hasAlpha && isRawDiffFinite
+          ? alphaTone === "positive"
+            ? `${benchmarkLabel}をアウトパフォーム`
+            : alphaTone === "negative"
+              ? `${benchmarkLabel}をアンダーパフォーム`
+              : `${benchmarkLabel}と同等`
+          : undefined,
       icon: <TrendingUp size={16} />,
     },
     {
@@ -122,7 +157,7 @@ export function StatsGrid({
       sub: selectedIndex ? `${uniqueThemes.size} テーマカテゴリ` : undefined,
       trend: selectedIndex
         ? {
-            text: `BASE ${selectedIndex.baseValue}`,
+            text: `BASE ${isFiniteNumber(selectedIndex.baseValue) ? selectedIndex.baseValue : "---"}`,
             type: "neutral" as const,
           }
         : undefined,

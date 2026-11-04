@@ -113,7 +113,7 @@ export function formatMacroCalendarValue(value: number, item: MacroCalendarApiIt
       suffix = "人";
     }
   } else if (multiplier === "thousands") {
-    suffix = "千人";
+    suffix = unit !== "none" && unit !== "job" ? `千${unit}` : "千人";
   } else if (multiplier === "millions") {
     suffix = "百万";
   }
