@@ -56,6 +56,8 @@ describe("sanitizeRecentSearchItem", () => {
     expect(sanitizeRecentSearchItem({ ...validItem, type: "etf" })).toBeNull();
     expect(sanitizeRecentSearchItem({ ...validItem, market: "" })).toBeNull();
     expect(sanitizeRecentSearchItem({ ...validItem, market: 123 })).toBeNull();
+    // A hand-edited/older payload must not be asserted into the StockMarket union.
+    expect(sanitizeRecentSearchItem({ ...validItem, market: "BOGUS" })).toBeNull();
     expect(sanitizeRecentSearchItem({ ...validItem, timestamp: Number.NaN })).toBeNull();
     expect(sanitizeRecentSearchItem({ ...validItem, timestamp: "now" })).toBeNull();
   });

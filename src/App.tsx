@@ -7,7 +7,7 @@ import { isBenchmarkDataForSymbol, useBenchmark, AVAILABLE_BENCHMARKS } from "./
 import { useCalculation } from "./hooks/useCalculation";
 import { useAuth } from "./hooks/useAuth";
 import { useToast } from "./components/Toast";
-import { addWatchlistTicker, addPortfolioPosition, todayJstDateString } from "./lib/portfolioStorage";
+import { addWatchlistTickerDetailed, addPortfolioPosition, todayJstDateString } from "./lib/portfolioStorage";
 import { reportAddStockResult } from "./lib/addStockFeedback";
 import { safeRandomId } from "./lib/randomId";
 import { POPULAR_STOCKS } from "./data/popularStocksData";
@@ -865,13 +865,20 @@ function AppContent({
 
   const handleAddToWatchlist = useCallback(
     (ticker: string) => {
-      if (addWatchlistTicker(ticker)) {
+      // A storage failure (quota exceeded, blocked storage) used to be shown
+      // as "already registered", so the user never learned the add was lost.
+      const result = addWatchlistTickerDetailed(ticker);
+      if (result.ok) {
         toastSuccess(`「${ticker}」をウォッチリストに登録しました`);
-      } else {
+      } else if (result.reason === "exists") {
         toastInfo(`「${ticker}」は既にウォッチリストに登録済みです`);
+      } else if (result.reason === "invalid") {
+        toastError(`「${ticker}」は有効な銘柄コードではありません`);
+      } else {
+        toastError(`「${ticker}」をウォッチリストに登録できませんでした`);
       }
     },
-    [toastSuccess, toastInfo],
+    [toastSuccess, toastInfo, toastError],
   );
 
   const handleAddToPortfolio = useCallback(

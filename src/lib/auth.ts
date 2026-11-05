@@ -1,5 +1,6 @@
 import type { AuthSession, UserPasswordItem } from "../types";
 import {
+  DEFAULT_REQUEST_TIMEOUT_MS,
   extractApiErrorMessage,
   fetchWithNetworkMark,
   isRecord,
@@ -508,7 +509,11 @@ export async function getTurnstileConfig(): Promise<{
   lockout?: { locked: boolean; remainingSeconds: number; remainingAttempts: number };
 }> {
   try {
-    const res = await fetchWithNetworkMark("/api/auth/turnstile-config");
+    // The login form renders with the default test site key until this
+    // resolves, so a stalled config request must not stay pending forever.
+    const res = await fetchWithNetworkMark("/api/auth/turnstile-config", {
+      timeoutMs: DEFAULT_REQUEST_TIMEOUT_MS,
+    });
     if (!res.ok) {
       releaseResponse(res);
       return { siteKey: DEFAULT_TURNSTILE_SITE_KEY };

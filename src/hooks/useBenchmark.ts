@@ -5,6 +5,7 @@ import {
   fetchWithNetworkMark,
   isFetchTimeoutError,
   parseJsonText,
+  PRICE_DATE_PATTERN,
   readJsonBody,
   releaseResponse,
 } from "../lib/apiContract";
@@ -70,7 +71,9 @@ export function normalizeBenchmarkData(raw: unknown): BenchmarkData | null {
   const current = snapshotRecord.current;
   const change = snapshotRecord.change;
   const changePct = snapshotRecord.changePct;
-  if (typeof current !== "number" || !Number.isFinite(current)) return null;
+  // A benchmark level is a positive price/rate; zero or negative values make
+  // the percentage scale and the chart divide by zero.
+  if (typeof current !== "number" || !Number.isFinite(current) || current <= 0) return null;
   if (typeof change !== "number" || !Number.isFinite(change)) return null;
   if (typeof changePct !== "number" || !Number.isFinite(changePct)) return null;
 
@@ -80,8 +83,14 @@ export function normalizeBenchmarkData(raw: unknown): BenchmarkData | null {
   for (const point of rawSeries) {
     if (!point || typeof point !== "object" || Array.isArray(point)) continue;
     const entry = point as Record<string, unknown>;
-    if (typeof entry.date !== "string" || !entry.date.trim()) continue;
-    if (typeof entry.close !== "number" || !Number.isFinite(entry.close)) continue;
+    if (typeof entry.date !== "string" || !PRICE_DATE_PATTERN.test(entry.date)) continue;
+    if (
+      typeof entry.close !== "number" ||
+      !Number.isFinite(entry.close) ||
+      entry.close <= 0
+    ) {
+      continue;
+    }
     series.push({ date: entry.date, close: entry.close });
   }
   if (series.length === 0) return null;

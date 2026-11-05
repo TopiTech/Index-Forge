@@ -41,14 +41,22 @@ import {
   MAX_DESCRIPTION_LENGTH,
   MAX_OWNER_TOKEN_LENGTH,
   MAX_STOCK_NAME_LENGTH,
+  PRICE_DATE_PATTERN,
+  isPricePoint,
   isValidBaseValue,
   isValidIndexId,
   isValidSortOrder,
   isValidTicker,
+  sanitizePriceSeries,
   validateBasketItems,
   validateSingleStockItem,
 } from "../src/lib/apiContract";
 import type { BasketItemInput } from "../src/lib/apiContract";
+
+// Re-exported so the Worker's internal test surface keeps importing the price
+// validation from here, while the rule itself lives in the shared API
+// contract (also used by the browser to validate calculation responses).
+export { PRICE_DATE_PATTERN, isPricePoint, sanitizePriceSeries };
 import type { BasketItem, PricePoint, StockSeries } from "../src/types";
 import {
   formatMacroCalendarValue,
@@ -151,36 +159,6 @@ export interface YahooChartResponse {
 
 export interface D1Row {
   [key: string]: unknown;
-}
-
-export const PRICE_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
-
-export function isPricePoint(value: unknown): value is PricePoint {
-  if (!value || typeof value !== "object") return false;
-  const point = value as Record<string, unknown>;
-  return (
-    typeof point.date === "string" &&
-    PRICE_DATE_PATTERN.test(point.date) &&
-    typeof point.close === "number" &&
-    Number.isFinite(point.close) &&
-    point.close > 0 &&
-    (point.volume === undefined ||
-      (typeof point.volume === "number" && Number.isFinite(point.volume) && point.volume >= 0))
-  );
-}
-
-export function sanitizePriceSeries(value: unknown): PricePoint[] {
-  if (!Array.isArray(value)) return [];
-  const byDate = new Map<string, PricePoint>();
-  for (const point of value) {
-    if (!isPricePoint(point)) continue;
-    byDate.set(point.date, {
-      date: point.date,
-      close: point.close,
-      ...(typeof point.volume === "number" ? { volume: point.volume } : {}),
-    });
-  }
-  return Array.from(byDate.values()).sort((a, b) => a.date.localeCompare(b.date));
 }
 
 export interface SnapshotResponseData {

@@ -37,6 +37,11 @@ export function escapeCsvCell(value: unknown): string {
  * - Strips UTF-8 BOM if present
  * - Un-escapes spreadsheet formula injection guards (leading apostrophe)
  * - Safely handles edge cases like trailing commas and trailing newlines
+ *
+ * An unterminated quoted field is malformed input, not a valid trailing field:
+ * silently returning the truncated text would import data the file does not
+ * contain. It throws, and the CSV import layer converts that into its normal
+ * `SerializationResult` error.
  */
 export function parseCsv(text: string): string[][] {
   const stripped = typeof text === "string" ? text.replace(/^\uFEFF/, "") : "";
@@ -91,6 +96,10 @@ export function parseCsv(text: string): string[][] {
         currentField += char;
       }
     }
+  }
+
+  if (insideQuotes) {
+    throw new Error("CSVの引用符が閉じられていません");
   }
 
   // Push final field / row if pending

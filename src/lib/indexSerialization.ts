@@ -361,7 +361,12 @@ export function parseNumericValue(val: unknown, options: NumericParseOptions = {
  * CSV文字列から構成銘柄バスケットを読み込みパースします。
  */
 export function deserializeBasketFromCsv(csvStr: string): SerializationResult<BasketItem[]> {
-  const rows = parseCsv(csvStr);
+  let rows: string[][];
+  try {
+    rows = parseCsv(csvStr);
+  } catch {
+    return { ok: false, error: "CSVの引用符が閉じられていません" };
+  }
   if (rows.length === 0) {
     return { ok: false, error: "CSVデータが空です" };
   }
@@ -493,7 +498,12 @@ export function serializePortfolioToCsv(positions: readonly PortfolioPosition[])
 export function deserializePortfolioFromCsv(
   csvStr: string,
 ): SerializationResult<PortfolioPosition[]> {
-  const rows = parseCsv(csvStr);
+  let rows: string[][];
+  try {
+    rows = parseCsv(csvStr);
+  } catch {
+    return { ok: false, error: "CSVの引用符が閉じられていません" };
+  }
   if (rows.length === 0) {
     return { ok: false, error: "CSVデータが空です" };
   }

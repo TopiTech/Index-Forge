@@ -35,6 +35,31 @@ export interface RecentSearchItem {
 
 export const RECENT_SEARCHES_STORAGE_KEY = "indexforge:recent_searches";
 
+/**
+ * The closed set of persisted market values.
+ *
+ * The record's keys are checked against the `StockMarket` union by the
+ * compiler (`satisfies`), so adding a market without updating this guard is a
+ * type error rather than a value that is silently rejected on read.
+ */
+const STOCK_MARKET_VALUES = {
+  PRIME: true,
+  STANDARD: true,
+  GROWTH: true,
+  ETF: true,
+  REIT: true,
+  PRO: true,
+  US: true,
+  INDEX: true,
+  FX: true,
+  COMMODITY: true,
+  CRYPTO: true,
+} as const satisfies Record<StockMarket, true>;
+
+function isStockMarket(value: string): value is StockMarket {
+  return Object.prototype.hasOwnProperty.call(STOCK_MARKET_VALUES, value);
+}
+
 /** The subset of the Storage API the recent-search list needs. */
 type RecentSearchStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 
@@ -75,14 +100,14 @@ export function sanitizeRecentSearchItem(raw: unknown): RecentSearchItem | null 
   if (!id || !title) return null;
   if (record.type !== "stock" && record.type !== "index") return null;
   const market = typeof record.market === "string" ? record.market.trim() : "";
-  if (!market) return null;
+  if (!isStockMarket(market)) return null;
   if (typeof record.timestamp !== "number" || !Number.isFinite(record.timestamp)) return null;
   return {
     id,
     title,
     subtitle: typeof record.subtitle === "string" ? record.subtitle : "",
     type: record.type,
-    market: market as RecentSearchItem["market"],
+    market,
     timestamp: record.timestamp,
   };
 }

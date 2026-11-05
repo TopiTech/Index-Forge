@@ -21,6 +21,8 @@ import {
   fetchWithNetworkMark,
   isFetchTimeoutError,
   readJsonBody,
+  sanitizeIndexSeries,
+  sanitizeStockUniverse,
 } from "../lib/apiContract";
 import { filterByTimeframe } from "../lib/timeframe";
 import { isPriceCacheFresh } from "../lib/marketCache";
@@ -399,8 +401,11 @@ export function useSimulation(
             // ネットワークエラー扱いにすると原因が消えてしまう。
             serverErrorMessage = `指数の計算に失敗しました (HTTP ${calcRes.status})`;
           } else {
-            universe = Array.isArray(data.stockUniverse) ? data.stockUniverse : [];
-            series = Array.isArray(data.series) ? data.series : [];
+            // Same untrusted-200 rule as the dashboard hook: a malformed
+            // entry must fall back to demo data instead of throwing inside
+            // calculateCustomIndex.
+            universe = sanitizeStockUniverse(data.stockUniverse);
+            series = sanitizeIndexSeries(data.series);
           }
 
           if (requestBasket.length > 0 && universe.length > 0) {

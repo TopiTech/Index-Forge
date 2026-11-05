@@ -16,6 +16,7 @@
  */
 
 import { normalizeTicker } from "./yahooSymbol";
+import type { PricePoint, StockSeries } from "../types";
 
 /** Maximum length of a ticker symbol. */
 export const MAX_TICKER_LENGTH = 20;
@@ -366,6 +367,131 @@ export function isApiErrorBody(value: unknown): value is { error: string } {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const error = (value as Record<string, unknown>).error;
   return typeof error === "string";
+}
+
+/** Shape of a price date, as stored by the Worker (`YYYY-MM-DD`). */
+export const PRICE_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * Whether one entry of a stored price series is usable.
+ *
+ * The rule is shared by the Worker (when it reads D1 rows) and the browser
+ * (when it reads a calculation response): a point without a real calendar
+ * date or with a non-positive, non-finite close is not market data and must
+ * not reach the chart or the index calculation.
+ */
+export function isPricePoint(value: unknown): value is PricePoint {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const point = value as Record<string, unknown>;
+  return (
+    typeof point.date === "string" &&
+    PRICE_DATE_PATTERN.test(point.date) &&
+    typeof point.close === "number" &&
+    Number.isFinite(point.close) &&
+    point.close > 0 &&
+    (point.volume === undefined ||
+      (typeof point.volume === "number" && Number.isFinite(point.volume) && point.volume >= 0))
+  );
+}
+
+/**
+ * Validate and canonicalize a stored price series.
+ *
+ * Duplicate dates keep the last entry and the result is sorted ascending, so
+ * downstream code can rely on date order instead of re-checking each point.
+ * Invalid entries are dropped rather than allowed to poison the calculation.
+ */
+export function sanitizePriceSeries(value: unknown): PricePoint[] {
+  if (!Array.isArray(value)) return [];
+  const byDate = new Map<string, PricePoint>();
+  for (const point of value) {
+    if (!isPricePoint(point)) continue;
+    byDate.set(point.date, {
+      date: point.date,
+      close: point.close,
+      ...(typeof point.volume === "number" ? { volume: point.volume } : {}),
+    });
+  }
+  return Array.from(byDate.values()).sort((a, b) => a.date.localeCompare(b.date));
+}
+
+/**
+ * Validate a calculated index series (`/api/calculate.series`).
+ *
+ * Calculated points carry the index value in both `value` and `close`, but
+ * older payloads may carry only one of them. A point is usable when the date
+ * is valid and at least one of the two numbers is finite and positive.
+ */
+export function sanitizeIndexSeries(value: unknown): PricePoint[] {
+  if (!Array.isArray(value)) return [];
+  const byDate = new Map<string, PricePoint>();
+  for (const point of value) {
+    if (!point || typeof point !== "object" || Array.isArray(point)) continue;
+    const entry = point as Record<string, unknown>;
+    const date =
+      typeof entry.date === "string" && PRICE_DATE_PATTERN.test(entry.date) ? entry.date : "";
+    if (!date) continue;
+    const close =
+      typeof entry.close === "number" && Number.isFinite(entry.close) && entry.close > 0
+        ? entry.close
+        : undefined;
+    const indexValue =
+      typeof entry.value === "number" && Number.isFinite(entry.value) && entry.value > 0
+        ? entry.value
+        : undefined;
+    const fallback = close ?? indexValue;
+    if (fallback === undefined) continue;
+    byDate.set(date, {
+      date,
+      close: fallback,
+      ...(indexValue !== undefined ? { value: indexValue } : {}),
+      ...(typeof entry.volume === "number" &&
+      Number.isFinite(entry.volume) &&
+      entry.volume >= 0
+        ? { volume: entry.volume }
+        : {}),
+    });
+  }
+  return Array.from(byDate.values()).sort((a, b) => a.date.localeCompare(b.date));
+}
+
+/**
+ * Validate `/api/calculate.stockUniverse`.
+ *
+ * The hook used to store whatever array the server returned, so a single
+ * `null` entry (or an entry without a ticker) made `calculateStockDetails`
+ * throw during render and crashed the dashboard. Entries are now validated
+ * one by one; malformed entries are dropped and a missing display field gets
+ * a safe default. An empty series is kept on purpose: it is how the Worker
+ * reports a ticker with no cached prices, which the coverage warnings must
+ * still disclose.
+ */
+export function sanitizeStockUniverse(value: unknown): StockSeries[] {
+  if (!Array.isArray(value)) return [];
+  const universe: StockSeries[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+    const stock = item as Record<string, unknown>;
+    const ticker = typeof stock.ticker === "string" ? normalizeTicker(stock.ticker) : "";
+    if (!isValidTicker(ticker)) continue;
+    const series = sanitizePriceSeries(stock.series);
+    const latestPrice =
+      typeof stock.latestPrice === "number" &&
+      Number.isFinite(stock.latestPrice) &&
+      stock.latestPrice >= 0
+        ? stock.latestPrice
+        : (series[series.length - 1]?.close ?? 0);
+    universe.push({
+      ticker,
+      name: typeof stock.name === "string" ? stock.name : "",
+      theme: typeof stock.theme === "string" ? stock.theme : "",
+      sector: typeof stock.sector === "string" ? stock.sector : "",
+      latestPrice,
+      series,
+      ...(typeof stock.isDemoData === "boolean" ? { isDemoData: stock.isDemoData } : {}),
+    });
+  }
+  return universe;
 }
 
 /**

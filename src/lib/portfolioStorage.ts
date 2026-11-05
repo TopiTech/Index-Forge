@@ -489,35 +489,57 @@ export function loadWatchlist(): string[] {
   return DEFAULT_PRESET_WATCHLIST;
 }
 
+/** Why an `addWatchlistTickerDetailed` call did not change the list. */
+export type AddWatchlistFailureReason = "invalid" | "exists" | "failed";
+
+/** Outcome of an add, with enough detail to report the real reason. */
+export type AddWatchlistResult =
+  | { ok: true; ticker: string }
+  | { ok: false; reason: AddWatchlistFailureReason };
+
 /**
- * Appends a ticker to the watchlist. Returns `true` when the list changed and was saved,
- * `false` when it was already present or storage failed, so callers can report the difference
- * instead of always claiming success.
+ * Appends a ticker to the watchlist and explains the outcome.
+ *
+ * The boolean wrapper below conflates "already present" with "storage
+ * failed", which made the UI tell the user a quota/blocked-storage failure
+ * was a duplicate registration. Callers that show a message use this variant
+ * so each outcome has its own message.
  *
  * DATA-23: same merge-retry contract as addPortfolioPosition — the persisted
  * list is re-read immediately before the write and the ticker is merged by
  * value, so a concurrent tab's addition is not overwritten.
  */
-export function addWatchlistTicker(ticker: string): boolean {
+export function addWatchlistTickerDetailed(ticker: string): AddWatchlistResult {
   const normalized = sanitizeWatchlist([ticker]);
-  if (normalized.length === 0) return false;
+  if (normalized.length === 0) return { ok: false, reason: "invalid" };
   const target = normalized[0];
 
   for (let attempt = 0; attempt < MAX_ADD_ATTEMPTS; attempt++) {
     const before = readPersistedJson(STORAGE_KEY_WATCHLIST);
     const watchlist = parsePersistedWatchlist(before);
-    if (watchlist.includes(target)) return false;
+    if (watchlist.includes(target)) return { ok: false, reason: "exists" };
 
     if (readPersistedJson(STORAGE_KEY_WATCHLIST) !== before) continue;
 
-    if (!saveWatchlist([...watchlist, target])) return false;
+    if (!saveWatchlist([...watchlist, target])) return { ok: false, reason: "failed" };
 
     const persisted = parsePersistedWatchlist(readPersistedJson(STORAGE_KEY_WATCHLIST));
-    if (persisted.includes(target)) return true;
+    if (persisted.includes(target)) return { ok: true, ticker: target };
   }
 
   lastSaveFailed = true;
-  return false;
+  return { ok: false, reason: "failed" };
+}
+
+/**
+ * Appends a ticker to the watchlist. Returns `true` when the list changed and
+ * was saved, `false` when it was invalid, already present or storage failed.
+ *
+ * Use {@link addWatchlistTickerDetailed} when the caller needs to tell those
+ * outcomes apart.
+ */
+export function addWatchlistTicker(ticker: string): boolean {
+  return addWatchlistTickerDetailed(ticker).ok;
 }
 
 // Save watchlist to localStorage

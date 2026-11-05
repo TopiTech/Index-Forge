@@ -8,6 +8,8 @@ import {
   readJsonBody,
   readResponseErrorMessage,
   releaseResponse,
+  sanitizeIndexSeries,
+  sanitizeStockUniverse,
 } from "../lib/apiContract";
 import { getIndexCoverageWarnings, sanitizeBasketForRequest } from "../lib/indexEngine";
 import { getAuthHeaders } from "../lib/auth";
@@ -349,9 +351,13 @@ export function useCalculation(selectedIndex: CustomIndex | null, enabled = true
         if (!data) {
           throw new Error("サーバーから無効な応答が返されました");
         }
-        const calculatedSeries = Array.isArray(data.series) ? data.series : [];
+        // The response is untrusted even at HTTP 200 (a proxy or a buggy
+        // deployment can return an unrelated JSON shape). Sanitizing here is
+        // what keeps one malformed entry from crashing calculateStockDetails
+        // during the next render.
+        const calculatedSeries = sanitizeIndexSeries(data.series);
         setCustomSeries(calculatedSeries);
-        const universe = Array.isArray(data.stockUniverse) ? data.stockUniverse : [];
+        const universe = sanitizeStockUniverse(data.stockUniverse);
         setStockUniverse(universe);
 
         if (requestBasket.length > 0) {
