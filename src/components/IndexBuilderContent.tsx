@@ -202,6 +202,22 @@ export function IndexBuilderContent({
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [baseValue, setBaseValue] = useState(1000);
+  const [baseValueDraft, setBaseValueDraft] = useState("1000");
+  const [isBaseValueFocused, setIsBaseValueFocused] = useState(false);
+
+  useEffect(() => {
+    if (!isBaseValueFocused) {
+      setBaseValueDraft(String(baseValue));
+    }
+  }, [baseValue, isBaseValueFocused]);
+
+  const commitBaseValue = (): number => {
+    const parsed = toFiniteNumberOr(baseValueDraft, 1000);
+    const clamped = Math.min(1000000, Math.max(1, parsed));
+    setBaseValue(clamped);
+    setBaseValueDraft(String(clamped));
+    return clamped;
+  };
   const [basket, setBasket] = useState<BasketItem[]>([
     { ticker: "9984", name: "ソフトバンクグループ", theme: "AI・投資", weight: 30 },
     { ticker: "8035", name: "東京エレクトロン", theme: "半導体", weight: 30 },
@@ -463,15 +479,19 @@ export function IndexBuilderContent({
       return;
     }
 
+    const rawVal = baseValueDraft.trim() === "" ? 1000 : parseFloat(baseValueDraft);
     if (
-      typeof baseValue !== "number" ||
-      !Number.isFinite(baseValue) ||
-      baseValue <= 0 ||
-      baseValue > 1000000
+      typeof rawVal !== "number" ||
+      !Number.isFinite(rawVal) ||
+      rawVal <= 0 ||
+      rawVal > 1000000
     ) {
       setError("基準値は1〜1,000,000の正の数値を入力してください");
       return;
     }
+    const finalBaseValue = Math.min(1000000, Math.max(1, rawVal));
+    setBaseValue(finalBaseValue);
+    setBaseValueDraft(String(finalBaseValue));
 
     if (isUser && maxStocks !== null && maxStocks > 0 && basket.length > maxStocks) {
       setError(
@@ -489,7 +509,7 @@ export function IndexBuilderContent({
         name: name.trim(),
         description:
           description.trim().slice(0, 500) || `${basket.length}銘柄で構成されたカスタム指数`,
-        baseValue,
+        baseValue: finalBaseValue,
         basket,
       };
 
@@ -797,8 +817,20 @@ export function IndexBuilderContent({
                 className="input-search"
                 style={{ paddingLeft: 10, height: 34 }}
                 placeholder="1000"
-                value={baseValue}
-                onChange={(e) => setBaseValue(toFiniteNumberOr(e.target.value, 1000))}
+                value={baseValueDraft}
+                onFocus={() => setIsBaseValueFocused(true)}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  setBaseValueDraft(next);
+                  const parsed = parseFloat(next);
+                  if (Number.isFinite(parsed) && parsed >= 1 && parsed <= 1000000) {
+                    setBaseValue(parsed);
+                  }
+                }}
+                onBlur={() => {
+                  setIsBaseValueFocused(false);
+                  commitBaseValue();
+                }}
               />
             </div>
           </div>

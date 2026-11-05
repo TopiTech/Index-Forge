@@ -8707,6 +8707,13 @@ export default {
             sortOrder: true,
           };
           for (;;) {
+            if (userIndexLimit !== null && !indexWriteColumns.creatorId) {
+              return json(
+                { error: "指数作成数制限を適用するにはデータベースのマイグレーションが必要です" },
+                503,
+                request,
+              );
+            }
             try {
               const batchResults = await env.DB.batch(buildIndexStatements(indexWriteColumns));
               if (userIndexLimit !== null) {

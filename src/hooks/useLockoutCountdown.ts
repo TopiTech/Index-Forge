@@ -33,6 +33,7 @@ export function useLockoutCountdown(options?: LockoutCountdownOptions): LockoutC
   const [remainingSeconds, setRemainingSeconds] = useState(0);
   const [isLocked, setIsLocked] = useState(false);
   const onExpireRef = useRef(options?.onExpire);
+  const expiresAtRef = useRef<number | null>(null);
 
   useEffect(() => {
     onExpireRef.current = options?.onExpire;
@@ -40,26 +41,54 @@ export function useLockoutCountdown(options?: LockoutCountdownOptions): LockoutC
 
   useEffect(() => {
     if (!isLocked) return;
-    // Pure updater: the unlock lives in the effect below, so React's purity
-    // contract holds under StrictMode double-invocation.
-    const timer = setInterval(() => {
-      setRemainingSeconds((prev) => (prev <= 1 ? 0 : prev - 1));
-    }, 1000);
-    return () => clearInterval(timer);
+
+    const tick = () => {
+      if (expiresAtRef.current === null) return;
+      const remaining = Math.max(0, Math.ceil((expiresAtRef.current - Date.now()) / 1000));
+      setRemainingSeconds(remaining);
+    };
+
+    const handleVisibilityChange = () => {
+      if (typeof document !== "undefined" && document.visibilityState && document.visibilityState !== "visible") {
+        return;
+      }
+      tick();
+    };
+
+    const timer = setInterval(tick, 1000);
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", handleVisibilityChange);
+    }
+    return () => {
+      clearInterval(timer);
+      if (typeof document !== "undefined") {
+        document.removeEventListener("visibilitychange", handleVisibilityChange);
+      }
+    };
   }, [isLocked]);
 
   useEffect(() => {
     if (!isLocked || remainingSeconds > 0) return;
+    expiresAtRef.current = null;
     setIsLocked(false);
     onExpireRef.current?.();
   }, [isLocked, remainingSeconds]);
 
   const syncLockout = useCallback((locked: boolean, seconds: number) => {
-    setRemainingSeconds(normalizeSeconds(seconds));
-    setIsLocked(locked);
+    const norm = normalizeSeconds(seconds);
+    if (locked && norm > 0) {
+      expiresAtRef.current = Date.now() + norm * 1000;
+      setRemainingSeconds(norm);
+      setIsLocked(true);
+    } else {
+      expiresAtRef.current = null;
+      setRemainingSeconds(0);
+      setIsLocked(false);
+    }
   }, []);
 
   const clearLockout = useCallback(() => {
+    expiresAtRef.current = null;
     setIsLocked(false);
     setRemainingSeconds(0);
   }, []);

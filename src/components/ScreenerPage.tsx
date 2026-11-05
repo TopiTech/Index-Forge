@@ -1060,6 +1060,7 @@ export function ScreenerPage({
                       aria-label={`${stock.name} (${stock.ticker}) の詳細を見る`}
                       onClick={() => onOpenStockDetail(stock.ticker)}
                       onKeyDown={(e) => {
+                        if (e.target !== e.currentTarget) return;
                         if (e.key === "Enter" || e.key === " ") {
                           e.preventDefault();
                           onOpenStockDetail(stock.ticker);
@@ -1248,6 +1249,7 @@ export function ScreenerPage({
                   role="button"
                   aria-label={`${stock.name} (${stock.ticker}) の詳細を見る`}
                   onKeyDown={(e) => {
+                    if (e.target !== e.currentTarget) return;
                     if (e.key === "Enter" || e.key === " ") {
                       e.preventDefault();
                       onOpenStockDetail(stock.ticker);

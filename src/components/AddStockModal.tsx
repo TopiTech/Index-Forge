@@ -30,10 +30,20 @@ export function AddStockModal({
   const [name, setName] = useState("");
   const [theme, setTheme] = useState("");
   const [weight, setWeight] = useState(10);
+  const [weightDraft, setWeightDraft] = useState("10");
+  const [isWeightFocused, setIsWeightFocused] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const tickerInputRef = useRef<HTMLInputElement>(null);
   const isMountedRef = useRef(true);
+
+  const commitWeight = (): number => {
+    const parsed = toFiniteNumberOr(weightDraft, 10);
+    const clamped = Math.min(100, Math.max(0.1, Number(parsed.toFixed(1))));
+    setWeight(clamped);
+    setWeightDraft(String(clamped));
+    return clamped;
+  };
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -48,9 +58,17 @@ export function AddStockModal({
       setName("");
       setTheme("");
       setWeight(10);
+      setWeightDraft("10");
+      setIsWeightFocused(false);
       setError(null);
     }
   }, [isOpen]);
+
+  useEffect(() => {
+    if (!isWeightFocused) {
+      setWeightDraft(String(weight));
+    }
+  }, [weight, isWeightFocused]);
 
   const handleClose = () => {
     if (!loading) onClose();
@@ -100,11 +118,14 @@ export function AddStockModal({
       return;
     }
 
-    const numericWeight = Number(weight);
-    if (!Number.isFinite(numericWeight) || numericWeight < 0.1 || numericWeight > 100) {
+    const rawWeight = weightDraft.trim() === "" ? 10 : parseFloat(weightDraft);
+    if (!Number.isFinite(rawWeight) || rawWeight < 0.1 || rawWeight > 100) {
       setError("構成比率は0.1%から100%の間で入力してください");
       return;
     }
+    const numericWeight = Number(rawWeight.toFixed(1));
+    setWeight(numericWeight);
+    setWeightDraft(String(numericWeight));
 
     setLoading(true);
     setError(null);
@@ -122,6 +143,7 @@ export function AddStockModal({
       setName("");
       setTheme("");
       setWeight(10);
+      setWeightDraft("10");
       onClose();
     } else {
       setError(res.error || "銘柄の追加に失敗しました");
@@ -373,8 +395,20 @@ export function AddStockModal({
                   min="0.1"
                   max="100"
                   step="0.5"
-                  value={weight}
-                  onChange={(e) => setWeight(toFiniteNumberOr(e.target.value, 10))}
+                  value={weightDraft}
+                  onFocus={() => setIsWeightFocused(true)}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    setWeightDraft(next);
+                    const parsed = parseFloat(next);
+                    if (Number.isFinite(parsed) && parsed >= 0.1 && parsed <= 100) {
+                      setWeight(Number(parsed.toFixed(1)));
+                    }
+                  }}
+                  onBlur={() => {
+                    setIsWeightFocused(false);
+                    commitWeight();
+                  }}
                   disabled={isLimitReached}
                   style={{
                     width: "100%",

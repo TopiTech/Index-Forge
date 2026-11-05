@@ -1277,6 +1277,49 @@ describe("Security and Admin Regression Tests", () => {
       const idx1UpdateRes = await worker.fetch(idx1UpdateReq, env as any);
       expect(idx1UpdateRes.status).toBe(200);
     });
+
+    it("returns 503 migration required when user with index limit attempts to create index in legacy schema lacking creator_id column", async () => {
+      const { env } = createSecurityTestEnv();
+
+      // Create user password with maxIndices: 2
+      const createPwdReq = new Request("http://localhost/api/admin/passwords", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-auth-password": TEST_ADMIN_PASSWORD,
+        },
+        body: JSON.stringify({
+          name: "Quota User",
+          password: "user-password-quota",
+          maxStocks: 10,
+          maxIndices: 2,
+          role: "user",
+        }),
+      });
+      await worker.fetch(createPwdReq, env as any);
+
+      // Simulate a legacy environment where indices table batch write fails due to missing creator_id
+      env.DB.batch = vi.fn().mockImplementation(async () => {
+        throw new Error("no such column: creator_id");
+      });
+
+      const idxReq = new Request("http://localhost/api/indices", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-auth-password": "user-password-quota",
+        },
+        body: JSON.stringify({
+          id: "custom-idx-quota-legacy",
+          name: "Quota Index",
+          basket: [{ ticker: "7203", name: "Toyota", weight: 100 }],
+        }),
+      });
+      const idxRes = await worker.fetch(idxReq, env as any);
+      expect(idxRes.status).toBe(503);
+      const data = await idxRes.json();
+      expect(data.error).toContain("マイグレーションが必要です");
+    });
   });
 
   it("rejects authentication with passwords exceeding maximum length (DoS prevention)", async () => {

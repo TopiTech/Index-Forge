@@ -100,4 +100,55 @@ describe("useLockoutCountdown", () => {
     expect(getByTestId("locked").textContent).toBe("false");
     expect(getByTestId("remaining").textContent).toBe("0");
   });
+
+  it("syncs remaining seconds against wall clock on visibilitychange tab return", () => {
+    vi.useFakeTimers();
+    const onExpire = vi.fn();
+    const { getByText, getByTestId } = render(<Harness seconds={60} onExpire={onExpire} />);
+
+    fireEvent.click(getByText("lock"));
+    expect(getByTestId("locked").textContent).toBe("true");
+    expect(getByTestId("remaining").textContent).toBe("60");
+
+    // Simulate tab in background where setInterval was throttled:
+    // advance wall clock by 25 seconds
+    vi.setSystemTime(Date.now() + 25000);
+
+    // Tab returns to foreground (visibilitychange)
+    act(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+
+    expect(getByTestId("remaining").textContent).toBe("35");
+    expect(getByTestId("locked").textContent).toBe("true");
+    expect(onExpire).not.toHaveBeenCalled();
+
+    // Advance wall clock past expiration while in background
+    vi.setSystemTime(Date.now() + 40000);
+
+    // Tab returns to foreground again
+    act(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+
+    expect(getByTestId("remaining").textContent).toBe("0");
+    expect(getByTestId("locked").textContent).toBe("false");
+    expect(onExpire).toHaveBeenCalledTimes(1);
+  });
+
+  it("cleans up visibilitychange listener on early clear and unmount", () => {
+    vi.useFakeTimers();
+    const addEventListenerSpy = vi.spyOn(document, "addEventListener");
+    const removeEventListenerSpy = vi.spyOn(document, "removeEventListener");
+
+    const { getByText, unmount } = render(<Harness seconds={10} />);
+
+    fireEvent.click(getByText("lock"));
+    expect(addEventListenerSpy).toHaveBeenCalledWith("visibilitychange", expect.any(Function));
+
+    fireEvent.click(getByText("clear"));
+    expect(removeEventListenerSpy).toHaveBeenCalledWith("visibilitychange", expect.any(Function));
+
+    unmount();
+  });
 });

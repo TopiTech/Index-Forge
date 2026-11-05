@@ -9,6 +9,7 @@ import { useAuth } from "./hooks/useAuth";
 import { useToast } from "./components/Toast";
 import { addWatchlistTickerDetailed, addPortfolioPosition, todayJstDateString } from "./lib/portfolioStorage";
 import { reportAddStockResult } from "./lib/addStockFeedback";
+import { normalizeTicker } from "./lib/yahooSymbol";
 import { safeRandomId } from "./lib/randomId";
 import { POPULAR_STOCKS } from "./data/popularStocksData";
 import { Header, type HeaderProps } from "./components/Header";
@@ -826,6 +827,8 @@ function AppContent({
     [selectIndex, navigateTo],
   );
 
+  const isAddingStockRef = useRef(false);
+
   // Shared "add this stock to my index" action for the detail page and the
   // global search. The result is reported here rather than by the callers,
   // because the fallback path (no editable index -> open the builder) is not
@@ -836,15 +839,39 @@ function AppContent({
         setIsAuthModalOpen(true);
         return;
       }
+      if (isAddingStockRef.current) {
+        return;
+      }
       if (selectedIndex && canEditSelectedIndex) {
+        const constituents =
+          selectedIndex.basket ??
+          (selectedIndex as unknown as { stocks?: { ticker: string }[] }).stocks ??
+          [];
+        const cleanTicker = normalizeTicker(ticker);
+        const alreadyPresent =
+          cleanTicker !== "" &&
+          constituents.some((stock) => normalizeTicker(stock.ticker) === cleanTicker);
+        if (alreadyPresent) {
+          toastInfo(`「${name}」は既にこの指数に含まれています`);
+          return;
+        }
+
+        isAddingStockRef.current = true;
         // 挿入は非同期で失敗し得る(レート制限・クォータ・サーバ障害など)。
         // 結果を確認せずに成功トーストを出すと、実際は指数に入っていない銘柄を
         // 追加済みと誤認させるため、Worker の応答を待って報告する。
-        reportAddStockResult(
-          addStockToIndex(selectedIndex.id, { ticker, name, theme, weight: 10 }),
-          name,
-          { success: toastSuccess, error: toastError },
-        );
+        try {
+          reportAddStockResult(
+            addStockToIndex(selectedIndex.id, { ticker, name, theme, weight: 10 }).finally(() => {
+              isAddingStockRef.current = false;
+            }),
+            name,
+            { success: toastSuccess, error: toastError },
+          );
+        } catch (err) {
+          isAddingStockRef.current = false;
+          throw err;
+        }
       } else {
         handleOpenBuilder();
         toastInfo("編集可能な指数が無いため指数ビルダーを開きました");

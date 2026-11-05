@@ -98,7 +98,7 @@ describe("Comprehensive Goal Final Review Tests", () => {
       expect(Object.is(stock.contributionPt, -0)).toBe(false);
       expect(Object.is(stock.contributionPct, -0)).toBe(false);
       expect(stock.contributionPt).toBe(0);
-      expect(stock.contributionPct).toBe(0);
+      expect(stock.contributionPct).toBe(-0.01);
     });
   });
 

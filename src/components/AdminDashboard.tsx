@@ -253,6 +253,8 @@ export function AdminDashboard({
   const [editName, setEditName] = useState("");
   const [editDescription, setEditDescription] = useState("");
   const [editBaseValue, setEditBaseValue] = useState(1000);
+  const [editBaseValueDraft, setEditBaseValueDraft] = useState("1000");
+  const [isEditBaseValueFocused, setIsEditBaseValueFocused] = useState(false);
   const [editBasket, setEditBasket] = useState<BasketItem[]>([]);
   const [savingIndex, setSavingIndex] = useState(false);
   const [indexEditMessage, setIndexEditMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
@@ -264,13 +266,59 @@ export function AdminDashboard({
   const [addName, setAddName] = useState("");
   const [addTheme, setAddTheme] = useState("");
   const [addWeight, setAddWeight] = useState(10);
+  const [addWeightDraft, setAddWeightDraft] = useState("10");
+  const [isAddWeightFocused, setIsAddWeightFocused] = useState(false);
 
   // Create new index modal state
   const [isCreateIndexModalOpen, setIsCreateIndexModalOpen] = useState(false);
   const [newIndexName, setNewIndexName] = useState("");
   const [newIndexDesc, setNewIndexDesc] = useState("");
   const [newIndexBaseValue, setNewIndexBaseValue] = useState(1000);
+  const [newIndexBaseValueDraft, setNewIndexBaseValueDraft] = useState("1000");
+  const [isNewIndexBaseValueFocused, setIsNewIndexBaseValueFocused] = useState(false);
   const [creatingIndex, setCreatingIndex] = useState(false);
+
+  useEffect(() => {
+    if (!isEditBaseValueFocused) {
+      setEditBaseValueDraft(String(editBaseValue));
+    }
+  }, [editBaseValue, isEditBaseValueFocused]);
+
+  useEffect(() => {
+    if (!isAddWeightFocused) {
+      setAddWeightDraft(String(addWeight));
+    }
+  }, [addWeight, isAddWeightFocused]);
+
+  useEffect(() => {
+    if (!isNewIndexBaseValueFocused) {
+      setNewIndexBaseValueDraft(String(newIndexBaseValue));
+    }
+  }, [newIndexBaseValue, isNewIndexBaseValueFocused]);
+
+  const commitEditBaseValue = (): number => {
+    const parsed = toFiniteNumberOr(editBaseValueDraft, 1000);
+    const clamped = clampBaseValue(parsed, 1000);
+    setEditBaseValue(clamped);
+    setEditBaseValueDraft(String(clamped));
+    return clamped;
+  };
+
+  const commitAddWeight = (): number => {
+    const parsed = toFiniteNumberOr(addWeightDraft, 10);
+    const clamped = Math.min(100, Math.max(0.1, Number(parsed.toFixed(1))));
+    setAddWeight(clamped);
+    setAddWeightDraft(String(clamped));
+    return clamped;
+  };
+
+  const commitNewIndexBaseValue = (): number => {
+    const parsed = toFiniteNumberOr(newIndexBaseValueDraft, 1000);
+    const clamped = clampBaseValue(parsed, 1000);
+    setNewIndexBaseValue(clamped);
+    setNewIndexBaseValueDraft(String(clamped));
+    return clamped;
+  };
 
   // Change admin password state
   const [currentAdminPassword, setCurrentAdminPassword] = useState("");
@@ -768,13 +816,14 @@ export function AdminDashboard({
       setIndexEditMessage({ type: "error", text: `銘柄コード ${cleanTicker} は既に追加されています` });
       return;
     }
+    const finalWeight = commitAddWeight();
     setEditBasket([
       ...editBasket,
       {
         ticker: cleanTicker,
         name: addName.trim(),
         theme: addTheme.trim() || "カスタム",
-        weight: Math.min(100, Math.max(0.1, toFiniteNumberOr(addWeight, 10))),
+        weight: finalWeight,
       },
     ]);
     setAddTicker("");
@@ -797,10 +846,14 @@ export function AdminDashboard({
       setIndexEditMessage({ type: "error", text: "指数説明は500文字以内で入力してください" });
       return;
     }
-    if (isNaN(editBaseValue) || editBaseValue <= 0 || editBaseValue > 1000000) {
+    const rawVal = editBaseValueDraft.trim() === "" ? 1000 : parseFloat(editBaseValueDraft);
+    if (isNaN(rawVal) || rawVal <= 0 || rawVal > 1000000) {
       setIndexEditMessage({ type: "error", text: "基準値は0より大きく1,000,000以下の数値を入力してください" });
       return;
     }
+    const finalBaseValue = clampBaseValue(rawVal, 1000);
+    setEditBaseValue(finalBaseValue);
+    setEditBaseValueDraft(String(finalBaseValue));
     if (editBasket.length === 0) {
       setIndexEditMessage({ type: "error", text: "最低1銘柄の構成銘柄が必要です" });
       return;
@@ -819,7 +872,7 @@ export function AdminDashboard({
         id: effectiveIndexId,
         name: editName.trim(),
         description: editDescription.trim(),
-        baseValue: editBaseValue,
+        baseValue: finalBaseValue,
         basket: editBasket,
         sortOrder: currentIndex?.sortOrder,
       };
@@ -885,12 +938,13 @@ export function AdminDashboard({
     }
     setCreatingIndex(true);
     try {
+      const finalBaseValue = commitNewIndexBaseValue();
       const newId = `idx-admin-${Date.now()}-${safeRandomId(6)}`;
       const newIndex: CustomIndex = {
         id: newId,
         name: newIndexName.trim(),
         description: newIndexDesc.trim() || "管理者作成のカスタムインデックス",
-        baseValue: clampBaseValue(toFiniteNumberOr(newIndexBaseValue, 1000)),
+        baseValue: finalBaseValue,
         basket: [
           { ticker: "7203", name: "トヨタ自動車", theme: "モビリティ", weight: 33.3 },
           { ticker: "6758", name: "ソニーグループ", theme: "エンタメ・技術", weight: 33.3 },
@@ -908,6 +962,7 @@ export function AdminDashboard({
         setNewIndexName("");
         setNewIndexDesc("");
         setNewIndexBaseValue(1000);
+        setNewIndexBaseValueDraft("1000");
       } else {
         toastError(res.error || "指数の作成に失敗しました");
       }
@@ -2008,8 +2063,20 @@ export function AdminDashboard({
                   min="1"
                   max="1000000"
                   step="any"
-                  value={editBaseValue}
-                  onChange={(e) => setEditBaseValue(toFiniteNumberOr(e.target.value, 1000))}
+                  value={editBaseValueDraft}
+                  onFocus={() => setIsEditBaseValueFocused(true)}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    setEditBaseValueDraft(next);
+                    const parsed = parseFloat(next);
+                    if (Number.isFinite(parsed) && parsed > 0 && parsed <= 1000000) {
+                      setEditBaseValue(parsed);
+                    }
+                  }}
+                  onBlur={() => {
+                    setIsEditBaseValueFocused(false);
+                    commitEditBaseValue();
+                  }}
                   style={{
                     width: "100%",
                     padding: "8px 10px",
@@ -2192,8 +2259,20 @@ export function AdminDashboard({
                   aria-label="比率"
                   placeholder="比率"
                   className="admin-add-weight-input"
-                  value={addWeight}
-                  onChange={(e) => setAddWeight(toFiniteNumberOr(e.target.value, 10))}
+                  value={addWeightDraft}
+                  onFocus={() => setIsAddWeightFocused(true)}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    setAddWeightDraft(next);
+                    const parsed = parseFloat(next);
+                    if (Number.isFinite(parsed) && parsed >= 0.1 && parsed <= 100) {
+                      setAddWeight(Number(parsed.toFixed(1)));
+                    }
+                  }}
+                  onBlur={() => {
+                    setIsAddWeightFocused(false);
+                    commitAddWeight();
+                  }}
                   style={{
                     padding: "6px 8px",
                     background: "var(--bg-input)",
@@ -2927,8 +3006,20 @@ export function AdminDashboard({
             <input
               id="create-index-base-val"
               type="number"
-              value={newIndexBaseValue}
-              onChange={(e) => setNewIndexBaseValue(toFiniteNumberOr(e.target.value, 1000))}
+              value={newIndexBaseValueDraft}
+              onFocus={() => setIsNewIndexBaseValueFocused(true)}
+              onChange={(e) => {
+                const next = e.target.value;
+                setNewIndexBaseValueDraft(next);
+                const parsed = parseFloat(next);
+                if (Number.isFinite(parsed) && parsed > 0 && parsed <= 1000000) {
+                  setNewIndexBaseValue(parsed);
+                }
+              }}
+              onBlur={() => {
+                setIsNewIndexBaseValueFocused(false);
+                commitNewIndexBaseValue();
+              }}
               min={1}
               max={1000000}
               style={{

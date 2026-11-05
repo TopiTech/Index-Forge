@@ -378,6 +378,54 @@ describe("analytics library", () => {
       expect(metaplanet?.currentPrice).toBe(267);
     });
 
+    it("preserves contributionPct for micro-fluctuation stocks where contributionPt is below 0.005pt", () => {
+      // Setup a low-value index where rawContributionPt < 0.005pt but contributionPct >= 0.005%
+      const basket: BasketItem[] = [
+        { ticker: "MICRO_STOCK", name: "Micro Corp", weight: 50, theme: "Tech" },
+        { ticker: "STABLE_STOCK", name: "Stable Corp", weight: 50, theme: "Finance" },
+      ];
+      const stockUniverse: StockSeries[] = [
+        {
+          ticker: "MICRO_STOCK",
+          name: "Micro Corp",
+          theme: "Tech",
+          sector: "Tech",
+          latestPrice: 100.08,
+          series: [
+            { date: "2026-01-01", close: 100 },
+            { date: "2026-01-02", close: 100.08 },
+          ],
+        },
+        {
+          ticker: "STABLE_STOCK",
+          name: "Stable Corp",
+          theme: "Finance",
+          sector: "Finance",
+          latestPrice: 100,
+          series: [
+            { date: "2026-01-01", close: 100 },
+            { date: "2026-01-02", close: 100 },
+          ],
+        },
+      ];
+      const customSeries: PricePoint[] = [
+        { date: "2026-01-01", close: 10 },
+        { date: "2026-01-02", close: 10.004 },
+      ];
+
+      const details = calculateStockDetails(basket, stockUniverse, 10, customSeries);
+      const microStock = details.find((d) => d.ticker === "MICRO_STOCK");
+
+      expect(microStock).toBeDefined();
+      // changePct is 0.08%
+      expect(microStock?.changePct).toBe(0.08);
+      // rawContributionPt is (0.08/100) * 0.5 * 10 = 0.004pt, which rounds to 0pt (< 0.005pt)
+      expect(microStock?.contributionPt).toBe(0);
+      // contributionPct is calculated from rawContributionPt / prevIndexVal: (0.004 / 10) * 100 = 0.04%
+      // and must not be dropped to 0% due to contributionPt rounding
+      expect(microStock?.contributionPct).toBe(0.04);
+    });
+
     it("safely handles non-finite prices, weights, and baseValue without producing NaN or -0", () => {
       const details = calculateStockDetails(
         [

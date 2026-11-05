@@ -332,9 +332,7 @@ export function calculateStockDetails(
         ? 0
         : roundSafe(rawContributionPt, 2);
     const rawContributionPct =
-      prevIndexVal > 0 && Math.abs(contributionPt) >= 0.005
-        ? (contributionPt / prevIndexVal) * 100
-        : 0;
+      prevIndexVal > 0 ? (rawContributionPt / prevIndexVal) * 100 : 0;
     const contributionPct =
       Math.abs(rawContributionPct) < 0.005 || Object.is(rawContributionPct, -0)
         ? 0
