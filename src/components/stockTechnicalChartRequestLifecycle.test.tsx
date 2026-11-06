@@ -71,6 +71,60 @@ describe("StockTechnicalChart request lifecycle (S5)", () => {
     await Promise.resolve();
   });
 
+  it("clears the previous ticker's series while the replacement loads", async () => {
+    const replacementResolvers: Array<(value: Response) => void> = [];
+    let calculateCalls = 0;
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const url = typeof input === "string" ? input : String(input);
+        if (url.includes("/api/sync-prices")) return Promise.resolve(jsonResponse({ ok: true }));
+        if (url.includes("/api/calculate")) {
+          calculateCalls += 1;
+          if (calculateCalls === 1) {
+            return Promise.resolve(
+              jsonResponse({
+                stockUniverse: [{ ticker: "7203", series: [{ date: "2026-10-20", close: 2850 }] }],
+              }),
+            );
+          }
+          return new Promise<Response>((resolve) => {
+            replacementResolvers.push(resolve);
+          });
+        }
+        return Promise.resolve(jsonResponse({}));
+      }),
+    );
+
+    const { rerender } = render(
+      <StockTechnicalChart stock={createStockQuote()} theme="dark" />,
+    );
+    await waitFor(() => expect(document.querySelector(".spin.animate-spin")).toBeNull());
+
+    rerender(
+      <StockTechnicalChart
+        stock={createStockQuote({ ticker: "9984", name: "ソフトバンクグループ" })}
+        theme="dark"
+      />,
+    );
+
+    // While 9984 is loading, the chart must not keep painting 7203's series
+    // under the new heading: the local series is cleared, so the loading state
+    // is the only thing shown.
+    await waitFor(() =>
+      expect(document.querySelector(".spin.animate-spin")).not.toBeNull(),
+    );
+    await waitFor(() => expect(replacementResolvers).toHaveLength(1));
+
+    replacementResolvers[0](
+      jsonResponse({
+        stockUniverse: [{ ticker: "9984", series: realSeries }],
+      }),
+    );
+    await waitFor(() => expect(document.querySelector(".spin.animate-spin")).toBeNull());
+  });
+
   it("does not publish a superseded response over the current ticker's series", async () => {
     const calculateSignals: AbortSignal[] = [];
     let rejectFirst: ((error: unknown) => void) | null = null;

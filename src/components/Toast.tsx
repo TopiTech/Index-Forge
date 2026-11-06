@@ -120,7 +120,15 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         if (reasons.size > 0) return;
         pauseReasonsRef.current.delete(id);
       }
-      if (timer.handle || timer.remaining <= 0) return;
+      if (timer.remaining <= 0) {
+        // A hover can land after the deadline has elapsed but before the timer
+        // callback runs: pausing then leaves `remaining` at 0 with no timer.
+        // Resuming must dismiss the already-expired toast, not keep it
+        // displayed forever.
+        removeToast(id);
+        return;
+      }
+      if (timer.handle) return;
       timer.startedAt = Date.now();
       timer.handle = setTimeout(() => {
         removeToast(id);

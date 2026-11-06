@@ -390,14 +390,20 @@ export function useIndices() {
           : "指数一覧の取得に失敗しました";
       setError(message);
       console.warn("API server unavailable, using cached/default indices:", err);
-      // Fallback to local cached or built-in default indices so UI renders without failure
+      // Fall back to the persisted copy when there is one; otherwise keep what
+      // this tab already loaded. A successful fetch can leave no persisted
+      // copy (storage write rejected, quota, or another tab cleared it), so
+      // replacing the in-memory list with the built-in defaults would discard
+      // indices the user is still viewing or editing. The persisted copy wins
+      // when it exists because it is the last confirmed server response.
       const cached = getLocalIndicesCache();
-      if (!cached) {
-        setIndices(DEFAULT_INDICES);
-        setSelectedIndex((prev) => resolveSelectedIndex(prev, DEFAULT_INDICES));
-        return indicesRef.current.length > 0 ? indicesRef.current : DEFAULT_INDICES;
+      const fallback =
+        cached ?? (indicesRef.current.length > 0 ? indicesRef.current : DEFAULT_INDICES);
+      if (fallback !== indicesRef.current) {
+        setIndices(fallback);
+        setSelectedIndex((prev) => resolveSelectedIndex(prev, fallback));
       }
-      return cached;
+      return fallback;
     } finally {
       if (isCurrentRequest()) {
         // The loading flag is released here (and not in the catch) so an

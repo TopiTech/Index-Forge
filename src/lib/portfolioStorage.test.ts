@@ -310,6 +310,33 @@ describe("PortfolioStorage & Engine", () => {
       expect(summary.totalAnnualDividend).toBe(0);
     });
 
+    it("does not leak non-finite live change or dps into position totals", () => {
+      const position: PortfolioPosition = {
+        id: "p-non-finite",
+        ticker: "7203",
+        name: "トヨタ自動車",
+        shares: 100,
+        averageCost: 2000,
+      };
+      const quotes = new Map([
+        [
+          "7203",
+          {
+            price: 2500,
+            change: Number.NaN,
+            dps: Number.POSITIVE_INFINITY,
+            name: "トヨタ",
+          },
+        ],
+      ]);
+
+      const summary = calculatePortfolioSummary([position], quotes);
+      expect(Number.isFinite(summary.positions[0].dailyChange)).toBe(true);
+      expect(Number.isFinite(summary.positions[0].annualDividend)).toBe(true);
+      expect(Number.isFinite(summary.dailyTotalChange)).toBe(true);
+      expect(Number.isFinite(summary.totalAnnualDividend)).toBe(true);
+    });
+
     it("accepts a unified options object for liveQuotes and usdJpyRate", () => {
       const usdPosition: PortfolioPosition = {
         id: "usd-opt",

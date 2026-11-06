@@ -104,6 +104,41 @@ describe("useIndices list fetch: network failure vs HTTP error (M-7 second half)
     expect(result.current.indices).toEqual([CACHED_INDEX]);
   });
 
+  it("keeps the in-memory list when a failed refresh has no persisted cache", async () => {
+    let fail = false;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        if (fail) throw new TypeError("Load failed");
+        return new Response(JSON.stringify([CACHED_INDEX]), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }),
+    );
+    // Simulate a rejected localStorage write (quota exceeded / private mode):
+    // the successful response reaches state but never becomes a persisted
+    // cache, so the next failed refresh must not replace it with defaults.
+    const setItemSpy = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("QuotaExceededError");
+    });
+
+    try {
+      const { result } = renderHook(() => useIndices());
+      await waitFor(() => expect(result.current.indices).toEqual([CACHED_INDEX]));
+
+      fail = true;
+      await act(async () => {
+        await result.current.refreshIndices();
+      });
+
+      expect(result.current.indices).toEqual([CACHED_INDEX]);
+      expect(result.current.error).not.toBeNull();
+    } finally {
+      setItemSpy.mockRestore();
+    }
+  });
+
   it("stays silent when the in-hook timeout aborts the hanging request", async () => {
     vi.useFakeTimers();
     try {

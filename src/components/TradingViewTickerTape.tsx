@@ -156,17 +156,35 @@ interface TickerQuotesResponse {
 }
 
 /**
- * DATA-29: a payload is only usable when it carries a quotes array.
+ * DATA-29: a payload is only usable when it carries a quotes array whose rows
+ * satisfy the response contract.
  *
- * The ETag is committed only after this check succeeds, so a truncated or
- * unexpected body cannot make the next poll answer `304` for quotes that were
- * never applied.
+ * Checking only `Array.isArray` let a malformed body (`[{}]`, `["quote"]`)
+ * through: `resolveLiveQuotes` treated every truthy row as fresh, the apply
+ * loop skipped the missing fields, and the tape advertised LIVE with no live
+ * price at all. The ETag is committed only after this check succeeds, so a
+ * malformed body also cannot make the next poll answer `304` for quotes that
+ * were never applied.
  */
+function isTickerQuoteRow(value: unknown): value is TickerQuoteRow {
+  if (!isRecord(value)) return false;
+  return (
+    typeof value.proName === "string" &&
+    value.proName.length > 0 &&
+    typeof value.formattedPrice === "string" &&
+    value.formattedPrice.length > 0 &&
+    typeof value.formattedChange === "string" &&
+    typeof value.formattedChangePercent === "string" &&
+    typeof value.isPositive === "boolean" &&
+    (value.stale === undefined || typeof value.stale === "boolean")
+  );
+}
+
 function isUsableQuotesPayload(
   data: unknown,
 ): data is TickerQuotesResponse & { quotes: TickerQuoteRow[] } {
   if (!isRecord(data)) return false;
-  return Array.isArray(data.quotes);
+  return Array.isArray(data.quotes) && data.quotes.every(isTickerQuoteRow);
 }
 
 export function determineTickFlashDirection(
@@ -300,14 +318,37 @@ export function TradingViewTickerTape() {
       // Keep them out of the live map so the tape stays in 参考値 mode and
       // the badge never claims LIVE on fully-stale data.
       const { isLive: quotesAreLive, freshQuotes } = resolveLiveQuotes(data);
+      const prev = liveQuotesRef.current;
       if (!quotesAreLive) {
+        // No quote in this payload is fresh. Keeping the previous live map
+        // would leave stale prices looking like market data under a 参考値
+        // badge (and would still feed them to the chart popover). Drop the
+        // map at its owner instead of merely changing the badge.
         setIsLive(false);
+        if (Object.keys(prev).length > 0) {
+          const empty: Record<string, LiveQuoteItem> = {};
+          liveQuotesRef.current = empty;
+          setLiveQuotes(empty);
+        }
+        setFlashItems({});
+        if (flashTimerRef.current) {
+          clearTimeout(flashTimerRef.current);
+          flashTimerRef.current = null;
+        }
         return;
       }
       const quotesToApply = freshQuotes;
-      const prev = liveQuotesRef.current;
       const next = { ...prev };
       const newFlashes: Record<string, "up" | "down"> = {};
+
+      // A quote that this payload marks stale is a static/previous fallback,
+      // even while another symbol is still fresh. Remove just that symbol's
+      // old live value so the row falls back to its disclosed reference value.
+      for (const q of data.quotes) {
+        if (q && q.stale && q.proName) {
+          delete next[q.proName];
+        }
+      }
 
       for (const q of quotesToApply) {
         if (q.proName && q.formattedPrice) {

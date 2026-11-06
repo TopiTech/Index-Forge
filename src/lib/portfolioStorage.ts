@@ -671,16 +671,26 @@ export function calculatePortfolioSummary(
       : marketValue - totalCost;
     const unrealizedProfitPercent =
       totalCost > 0 ? Number(((unrealizedProfit / totalCost) * 100).toFixed(2)) : 0;
-    const change = live?.change !== undefined ? live.change : fund.change;
+    // `change` and `dps` come from an untrusted quote map: a NaN/Infinity
+    // would propagate into the per-position daily P&L and dividend totals
+    // (the JPY totals coerce it to 0, hiding the corruption). Validate them
+    // the same way as every other numeric quote field above.
+    const liveChange = live?.change;
+    const fallbackChange = Number.isFinite(fund.change) ? fund.change : 0;
+    const change =
+      typeof liveChange === "number" && Number.isFinite(liveChange) ? liveChange : fallbackChange;
     const dailyChange = isUSD
       ? Number((pos.shares * change).toFixed(2))
       : Math.round(pos.shares * change);
+    const liveDps = live?.dps;
     const dps =
-      live?.dps !== undefined && live.dps !== null
-        ? live.dps
+      typeof liveDps === "number" && Number.isFinite(liveDps)
+        ? liveDps
         : live?.dividendYield === 0
           ? 0
-          : (fund.dps ?? 0);
+          : typeof fund.dps === "number" && Number.isFinite(fund.dps)
+            ? fund.dps
+            : 0;
     const annualDividend = isUSD
       ? Number((pos.shares * dps).toFixed(2))
       : Math.round(pos.shares * dps);

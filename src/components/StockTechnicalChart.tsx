@@ -472,6 +472,15 @@ export function StockTechnicalChart({
   const lastSyncedTickerRef = useRef<string | null>(null);
 
   /**
+   * Ticker whose series is currently stored in `localSeries`.
+   *
+   * A new ticker must not inherit the previous ticker's series while its own
+   * request is in flight: the old prices would be drawn under the new name.
+   * Keeping the owner next to the state makes that boundary explicit.
+   */
+  const localSeriesTickerRef = useRef<string | null>(null);
+
+  /**
    * Signature of everything the chart actually derives from the quote.
    *
    * The quote object is replaced on every refresh, so depending on the object
@@ -531,6 +540,16 @@ export function StockTechnicalChart({
     // The quote the run is based on. Reading it through the ref keeps the
     // effect's dependencies aligned with its content signature.
     const quote = stockRef.current;
+    const quoteTicker = normalizeTicker(quote.ticker) || quote.ticker;
+
+    // Switching instruments invalidates the rendered series immediately. The
+    // same ticker keeps its chart during a quote refresh, but another ticker
+    // must show a loading state instead of the previous instrument's prices.
+    if (localSeriesTickerRef.current !== quoteTicker) {
+      localSeriesTickerRef.current = quoteTicker;
+      setLocalSeries([]);
+      setLocalSeriesIsSynthetic(false);
+    }
 
     let isCancelled = false;
     const controller = new AbortController();
