@@ -21,6 +21,25 @@
 | first-paint gate | `npm run check:first-paint` | **0** | PASS — 782,676 B raw / 219,807 B gzip（予算 900,000 / 250,000） |
 | worker bundle | `npx wrangler deploy --dry-run --config wrangler.local.jsonc` | **0** | PASS — 910.93 KiB raw / 148.06 KiB gzip、D1/ASSETS バインド解決 |
 
+### 0.9 全ファイル網羅コードレビュー・根本原因解決（2026-11-06、S15–S18）
+
+| チェック | コマンド | 終了コード | 結果 |
+|---|---|---|---|
+| lint | `npm run lint`（`eslint . --max-warnings=0`） | **0** | PASS（警告 0） |
+| test | `npm test`（`vitest run`） | **0** | PASS — **302 files / 2,720 tests**（11.72s） |
+| meta-test gate | `npm run check:meta-test-gate` | **0** | PASS — ソースピン 1,221 件 / 87 ファイル |
+| test-coverage gate | `npm run check:test-coverage` | **0** | PASS — 302 個のテストファイルすべてが runner 対象（orphan 0 件） |
+| typecheck app / worker / test | `npm run build` 内の 3 × `tsc --noEmit` | **0** | PASS |
+| build | `npm run build`（3 × tsc + `vite build`） | **0** | PASS（vite 4.61s） |
+| first-paint gate | `npm run check:first-paint` | **0** | PASS — 795,755 B raw / 223,617 B gzip（予算 900,000 / 250,000） |
+| worker bundle | `npx wrangler deploy --dry-run --config wrangler.local.jsonc` | **0** | PASS — 937.56 KiB raw / 152.26 KiB gzip、D1/ASSETS バインド解決 |
+
+補足:
+- S15: Worker の `requestEnvScope`（`WeakMap<Request, Env>`）新設により、260箇所以上の `json()` 呼び出しおよび `notModified()` 呼び出しにおいて `env.ALLOWED_ORIGINS` の CORS チェックを完全に貫通・解決（メモリリークゼロ）。
+- S16: `useIndices` の mutating メソッド（`saveCustomIndex`, `deleteCustomIndex`, `addStockToIndex`, `removeStockFromIndex`）に `INDICES_REQUEST_TIMEOUT_MS` を適用し、通信ハング時の無期限待機を解消。またアンマウント後の `setSelectedIndex` 状態更新ガードを追加。
+- S17: `analytics.ts` の `safeWeight` 戻り値適用と、`changeTone.ts`（`formatSignedPoints`, `formatWeightPercent`）による `ThemeHeatmap` / `ConstituentsTable` の非有限数・NaN・-0・不正ウェイトの完全無害化・安全表示。
+- S18: `ThemeHeatmap` タイルにおける Escape キーのツールチップ破棄処理の追加（既存テスト契約 `defaultPrevented: false` を完全維持）。
+
 ### 0.5 Unit D（スキーマ単一ソース）後の再検証（2026-10-25）
 
 | チェック | コマンド | 終了コード | 結果 |

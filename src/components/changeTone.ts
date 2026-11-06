@@ -59,3 +59,38 @@ export function formatDrawdownPercent(magnitude: number, digits = 1): string {
   if (changeTone(safe, digits) === "neutral") return `${(0).toFixed(digits)}%`;
   return `-${safe.toFixed(digits)}%`;
 }
+
+/**
+ * Format an index contribution point figure with a tone-aware `+` prefix
+ * and proper decimal rounding.
+ *
+ * Neutral values (near zero, -0, or non-finite) are rendered as "0.00 pt"
+ * without a sign, avoiding misleading "+0.00 pt" or "NaN pt" artefacts.
+ */
+export function formatSignedPoints(
+  value: number | null | undefined,
+  digits = 2,
+): string {
+  const safeDigits = Math.max(0, Math.trunc(digits));
+  const tone = changeTone(value, safeDigits);
+  if (tone === "neutral") return `${(0).toFixed(safeDigits)} pt`;
+  const safeVal = typeof value === "number" && Number.isFinite(value) ? value : 0;
+  return `${tone === "positive" ? "+" : ""}${safeVal.toFixed(safeDigits)} pt`;
+}
+
+/**
+ * Format a stock or basket weight as a percentage with safe zero/finite guards.
+ *
+ * Non-finite (NaN, undefined, null) or negative weights are clamped to 0.0%
+ * to protect against broken payload artefacts in UI headers, tables, and tooltips.
+ */
+export function formatWeightPercent(
+  value: number | null | undefined,
+  digits = 1,
+): string {
+  const safeDigits = Math.max(0, Math.trunc(digits));
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    return `${(0).toFixed(safeDigits)}%`;
+  }
+  return `${value.toFixed(safeDigits)}%`;
+}

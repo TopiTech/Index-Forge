@@ -6,7 +6,12 @@ import { LayoutGrid, TrendingUp, TrendingDown, Layers, Grid } from "lucide-react
 import type { StockDetail } from "../types";
 import { createTreemapLayout, type TreemapLayout } from "../lib/treemap";
 import { formatStockPrice, formatStockChange } from "../lib/currency";
-import { changeTone, formatSignedPercent } from "./changeTone";
+import {
+  changeTone,
+  formatSignedPercent,
+  formatSignedPoints,
+  formatWeightPercent,
+} from "./changeTone";
 
 interface ThemeHeatmapProps {
   stockDetails: StockDetail[];
@@ -126,12 +131,14 @@ export function ThemeHeatmap({ stockDetails, selectedTheme, onSelectTheme }: The
         tabIndex={0}
         aria-pressed={selectedTheme === stockTheme}
         aria-describedby={hoveredStock?.stock.ticker === stock.ticker ? tooltipId : undefined}
-        aria-label={`${stock.name} (${stock.ticker}) 騰落率: ${formatSignedPercent(stock.changePct, 1)}、構成比: ${stock.weight.toFixed(1)}%`}
+        aria-label={`${stock.name} (${stock.ticker}) 騰落率: ${formatSignedPercent(stock.changePct, 1)}、構成比: ${formatWeightPercent(stock.weight, 1)}`}
         onClick={() => onSelectTheme(selectedTheme === stockTheme ? null : stockTheme)}
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") {
             e.preventDefault();
             onSelectTheme(selectedTheme === stockTheme ? null : stockTheme);
+          } else if (e.key === "Escape") {
+            setHoveredStock(null);
           }
         }}
         onMouseEnter={(e) => handleMouseMove(e, stock)}
@@ -157,7 +164,7 @@ export function ThemeHeatmap({ stockDetails, selectedTheme, onSelectTheme }: The
         <div className="row space-between heatmap-tile-header" style={{ gap: 2 }}>
           <span className="heatmap-tile-code">{stock.ticker}</span>
           {isWeightVisible && (
-            <span className="heatmap-tile-weight">{stock.weight.toFixed(1)}%</span>
+            <span className="heatmap-tile-weight">{formatWeightPercent(stock.weight, 1)}</span>
           )}
         </div>
 
@@ -395,7 +402,7 @@ export function ThemeHeatmap({ stockDetails, selectedTheme, onSelectTheme }: The
                   <span className="muted" style={{ fontSize: 10 }}>
                     構成比率
                   </span>
-                  <span style={{ fontSize: 11 }}>{hoveredStock.stock.weight.toFixed(2)}%</span>
+                  <span style={{ fontSize: 11 }}>{formatWeightPercent(hoveredStock.stock.weight, 2)}</span>
                 </div>
 
                 <div className="tooltip-row">
@@ -407,18 +414,14 @@ export function ThemeHeatmap({ stockDetails, selectedTheme, onSelectTheme }: The
                       fontSize: 11,
                       fontWeight: 600,
                       color:
-                        hoveredStock.stock.contributionPt >= 0.005
+                        changeTone(hoveredStock.stock.contributionPt, 2) === "positive"
                           ? "var(--neon-green)"
-                          : hoveredStock.stock.contributionPt <= -0.005
+                          : changeTone(hoveredStock.stock.contributionPt, 2) === "negative"
                             ? "var(--neon-red)"
                             : "inherit",
                     }}
                   >
-                    {hoveredStock.stock.contributionPt >= 0.005 ? "+" : ""}
-                    {Math.abs(hoveredStock.stock.contributionPt) < 0.005
-                      ? "0.00"
-                      : hoveredStock.stock.contributionPt.toFixed(2)}{" "}
-                    pt
+                    {formatSignedPoints(hoveredStock.stock.contributionPt, 2)}
                   </span>
                 </div>
               </motion.div>

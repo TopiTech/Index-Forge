@@ -6,6 +6,8 @@ import {
   formatDrawdownPercent,
   formatSignedAmount,
   formatSignedPercent,
+  formatSignedPoints,
+  formatWeightPercent,
 } from "./changeTone";
 
 describe("changeTone: a flat move is neither a gain nor a loss", () => {
@@ -58,6 +60,29 @@ describe("changeTone: the sign follows the tone", () => {
     expect(formatDrawdownPercent(0)).toBe("0.0%");
     expect(formatDrawdownPercent(-0.01, 1)).toBe("0.0%");
     expect(formatDrawdownPercent(3.21, 1)).toBe("-3.2%");
+  });
+
+  it("prints index contribution points with safe tone, sign, and NaN protection", () => {
+    expect(formatSignedPoints(0)).toBe("0.00 pt");
+    expect(formatSignedPoints(-0)).toBe("0.00 pt");
+    expect(formatSignedPoints(0.002)).toBe("0.00 pt");
+    expect(formatSignedPoints(-0.002)).toBe("0.00 pt");
+    expect(formatSignedPoints(1.234)).toBe("+1.23 pt");
+    expect(formatSignedPoints(-1.234)).toBe("-1.23 pt");
+    expect(formatSignedPoints(Number.NaN)).toBe("0.00 pt");
+    expect(formatSignedPoints(Number.POSITIVE_INFINITY)).toBe("0.00 pt");
+    expect(formatSignedPoints(undefined)).toBe("0.00 pt");
+    expect(formatSignedPoints(null)).toBe("0.00 pt");
+  });
+
+  it("prints weight percentages with non-negative, finite, and zero guards", () => {
+    expect(formatWeightPercent(0)).toBe("0.0%");
+    expect(formatWeightPercent(-5)).toBe("0.0%");
+    expect(formatWeightPercent(15.5)).toBe("15.5%");
+    expect(formatWeightPercent(15.56, 2)).toBe("15.56%");
+    expect(formatWeightPercent(Number.NaN)).toBe("0.0%");
+    expect(formatWeightPercent(undefined)).toBe("0.0%");
+    expect(formatWeightPercent(null)).toBe("0.0%");
   });
 });
 

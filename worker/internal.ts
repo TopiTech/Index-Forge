@@ -146,6 +146,7 @@ export {
   memoryRateLimits,
   json,
   notModified,
+  requestEnvScope,
   getClientIp,
   REQUIRED_SCHEMA_STEPS,
   purgeExpiredSecurityRows,

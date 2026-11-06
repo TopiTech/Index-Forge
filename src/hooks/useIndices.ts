@@ -28,7 +28,7 @@ import { safeRandomId } from "../lib/randomId";
 const API_BASE = "/api";
 const INDICES_CACHE_KEY = "osi_indices_cache";
 const INDICES_ETAG_KEY = "osi_indices_etag";
-const INDICES_REQUEST_TIMEOUT_MS = 10_000;
+export const INDICES_REQUEST_TIMEOUT_MS = 10_000;
 
 /**
  * Validate one index received from the API or read back from browser storage.
@@ -490,6 +490,7 @@ export function useIndices() {
           method: "POST",
           headers,
           body,
+          timeoutMs: INDICES_REQUEST_TIMEOUT_MS,
         });
         if (!res.ok) {
           throw new Error(await readResponseErrorMessage(res, "指数の保存に失敗しました"));
@@ -527,7 +528,9 @@ export function useIndices() {
         const refreshedList = await fetchIndices();
         const found = refreshedList?.find((d) => d.id === savedId);
         const savedIndex = found || { ...newIndex, id: savedId };
-        setSelectedIndex(savedIndex);
+        if (mountedRef.current) {
+          setSelectedIndex(savedIndex);
+        }
         return { ok: true, ownerToken: finalToken || undefined, id: savedId };
       } catch (err) {
         const msg = err instanceof Error ? err.message : "指数の保存に失敗しました";
@@ -549,6 +552,7 @@ export function useIndices() {
         const res = await fetchWithNetworkMark(url, {
           method: "DELETE",
           headers,
+          timeoutMs: INDICES_REQUEST_TIMEOUT_MS,
         });
         if (!res.ok) {
           throw new Error(await readResponseErrorMessage(res, "指数の削除に失敗しました"));
@@ -605,6 +609,7 @@ export function useIndices() {
           method: "POST",
           headers,
           body: JSON.stringify({ indexId, stock: sanitizedStock, password }),
+          timeoutMs: INDICES_REQUEST_TIMEOUT_MS,
         });
         if (!res.ok) {
           throw new Error(await readResponseErrorMessage(res, "銘柄の追加に失敗しました"));
@@ -648,6 +653,7 @@ export function useIndices() {
         const res = await fetchWithNetworkMark(url, {
           method: "DELETE",
           headers: deleteHeaders,
+          timeoutMs: INDICES_REQUEST_TIMEOUT_MS,
         });
         if (!res.ok) {
           throw new Error(await readResponseErrorMessage(res, "銘柄の削除に失敗しました"));

@@ -455,6 +455,8 @@ describe("analytics library", () => {
       );
 
       for (const item of details) {
+        expect(Number.isFinite(item.weight)).toBe(true);
+        expect(item.weight).toBeGreaterThanOrEqual(0);
         expect(Number.isFinite(item.change)).toBe(true);
         expect(Number.isFinite(item.changePct)).toBe(true);
         expect(Number.isFinite(item.contributionPt)).toBe(true);

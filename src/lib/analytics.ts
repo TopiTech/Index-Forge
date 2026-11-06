@@ -355,7 +355,7 @@ export function calculateStockDetails(
       ticker: item.ticker,
       name: item.name,
       theme: item.theme || "その他",
-      weight: item.weight,
+      weight: safeWeight,
       currentPrice,
       previousPrice,
       change,

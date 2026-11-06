@@ -29,7 +29,12 @@ import { toSafeDownloadFileName } from "../lib/downloadFileName";
 import { downloadBlob } from "../lib/downloadFile";
 import { todayJstDateString } from "../lib/portfolioStorage";
 import { formatStockPrice } from "../lib/currency";
-import { changeTone, formatSignedPercent } from "./changeTone";
+import {
+  changeTone,
+  formatSignedPercent,
+  formatSignedPoints,
+  formatWeightPercent,
+} from "./changeTone";
 
 // PERF-01: the add-stock dialog searches the 4,500+ ticker universe, so it
 // carries that dataset. This table is rendered on the dashboard (first paint),
@@ -763,18 +768,14 @@ export function ConstituentsTable({
                           className="mono bold"
                           style={{
                             color:
-                              item.contributionPt >= 0.005
+                              changeTone(item.contributionPt, 2) === "positive"
                                 ? "var(--neon-green)"
-                                : item.contributionPt <= -0.005
+                                : changeTone(item.contributionPt, 2) === "negative"
                                   ? "var(--neon-red)"
                                   : "inherit",
                           }}
                         >
-                          {item.contributionPt >= 0.005 ? "+" : ""}
-                          {Math.abs(item.contributionPt) < 0.005
-                            ? "0.00"
-                            : item.contributionPt.toFixed(2)}
-                          pt
+                          {formatSignedPoints(item.contributionPt, 2)}
                         </span>
                       </td>
                       <td>
@@ -784,7 +785,9 @@ export function ConstituentsTable({
                               <motion.div
                                 className="weight-progress-bar"
                                 initial={{ width: 0 }}
-                                animate={{ width: `${Math.min(item.weight, 100)}%` }}
+                                animate={{
+                                  width: `${Math.min(typeof item.weight === "number" && Number.isFinite(item.weight) ? item.weight : 0, 100)}%`,
+                                }}
                                 transition={{ duration: 0.5 }}
                               />
                             </div>
@@ -792,7 +795,7 @@ export function ConstituentsTable({
                               className="mono tiny"
                               style={{ minWidth: 42, textAlign: "right", fontWeight: 600 }}
                             >
-                              {item.weight.toFixed(2)}%
+                              {formatWeightPercent(item.weight, 2)}
                             </span>
                           </div>
                         </div>
@@ -908,18 +911,14 @@ export function ConstituentsTable({
                     <span>寄与度</span>
                     <strong
                       className={
-                        item.contributionPt >= 0.005
+                        changeTone(item.contributionPt, 2) === "positive"
                           ? "positive"
-                          : item.contributionPt <= -0.005
+                          : changeTone(item.contributionPt, 2) === "negative"
                             ? "negative"
                             : ""
                       }
                     >
-                      {item.contributionPt >= 0.005 ? "+" : ""}
-                      {Math.abs(item.contributionPt) < 0.005
-                        ? "0.00"
-                        : item.contributionPt.toFixed(2)}
-                      pt
+                      {formatSignedPoints(item.contributionPt, 2)}
                     </strong>
                   </div>
                   <div>
@@ -932,12 +931,14 @@ export function ConstituentsTable({
 
                 <div className="constituent-mobile-footer">
                   <div className="constituent-mobile-weight">
-                    <span>構成比 {item.weight.toFixed(2)}%</span>
+                    <span>構成比 {formatWeightPercent(item.weight, 2)}</span>
                     <div className="weight-progress-bg" aria-hidden="true">
                       <motion.div
                         className="weight-progress-bar"
                         initial={{ width: 0 }}
-                        animate={{ width: `${Math.min(item.weight, 100)}%` }}
+                        animate={{
+                          width: `${Math.min(typeof item.weight === "number" && Number.isFinite(item.weight) ? item.weight : 0, 100)}%`,
+                        }}
                         transition={{ duration: 0.5 }}
                       />
                     </div>

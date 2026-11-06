@@ -5436,6 +5436,8 @@ export function isAllowedOrigin(origin: string, env?: Env): boolean {
   }
 }
 
+export const requestEnvScope = new WeakMap<Request, Env>();
+
 export function json(
   data: unknown,
   status = 200,
@@ -5453,8 +5455,9 @@ export function json(
   // Cloudflare Assets 経由で同じドメインから呼ばれる場合は CORS 不要。
   // 開発時のローカルホストからのクロスドメインリクエストのみ許可。
   if (request) {
+    const effectiveEnv = env ?? requestEnvScope.get(request);
     const origin = request.headers.get("origin");
-    if (origin && isAllowedOrigin(origin, env)) {
+    if (origin && isAllowedOrigin(origin, effectiveEnv)) {
       headers["access-control-allow-origin"] = origin;
       headers["access-control-allow-methods"] = "GET,POST,PUT,DELETE,OPTIONS";
       headers["access-control-allow-headers"] =
@@ -5500,8 +5503,9 @@ export function notModified(
     ...customHeaders,
   };
   if (request) {
+    const effectiveEnv = env ?? requestEnvScope.get(request);
     const origin = request.headers.get("origin");
-    if (origin && isAllowedOrigin(origin, env)) {
+    if (origin && isAllowedOrigin(origin, effectiveEnv)) {
       headers["access-control-allow-origin"] = origin;
       headers["access-control-allow-methods"] = "GET,POST,PUT,DELETE,OPTIONS";
       headers["access-control-allow-headers"] =
@@ -5917,6 +5921,7 @@ export async function checkRateLimit(
 export default {
   async fetch(request: Request, env: Env, ctx?: WorkerExecutionContext): Promise<Response> {
     try {
+      requestEnvScope.set(request, env);
       if (request.method === "OPTIONS")
         return json({ ok: true }, 200, request, { "access-control-max-age": "86400" }, env);
 
