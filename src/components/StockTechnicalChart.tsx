@@ -1134,7 +1134,7 @@ export function StockTechnicalChart({
                 <RefreshCw size={22} className="spin animate-spin muted" />
               </div>
             ) : (
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={200}>
                 <ComposedChart
                   data={displaySeries}
                   margin={{ top: 12, right: activeIsMobile ? 8 : 16, left: activeIsMobile ? 0 : 8, bottom: 4 }}

@@ -478,7 +478,7 @@ export function PerformanceChart({
             )}
           </div>
         ) : displayData.length > 0 ? (
-          <ResponsiveContainer width="100%" height="100%">
+          <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={200}>
             <ComposedChart data={renderedData} margin={{ top: 12, right: 14, left: -10, bottom: 0 }}>
               <defs>
                 <linearGradient id="cyanGradient" x1="0" y1="0" x2="0" y2="1">

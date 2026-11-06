@@ -104,6 +104,7 @@ export {
   getMarketAwareCacheDuration,
   isPriceCacheFresh,
   generateETag,
+  releaseWorkerResponse,
   matchesIfNoneMatch,
   requestsFreshCalculation,
   // Ticker formatting and fetching

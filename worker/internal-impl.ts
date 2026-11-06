@@ -2586,6 +2586,22 @@ export async function generateETag(content: string): Promise<string> {
   return `"${hash.slice(0, 16)}"`;
 }
 
+/**
+ * Safely releases an upstream fetch response body when the worker will not consume it.
+ * In Cloudflare Workers and standard Fetch environments, unconsumed response streams
+ * can hold underlying TCP sockets open until garbage collection.
+ */
+export async function releaseWorkerResponse(res: Response | null | undefined): Promise<void> {
+  if (!res) return;
+  try {
+    if (res.body && !res.bodyUsed) {
+      await res.body.cancel();
+    }
+  } catch {
+    // Best effort cleanup: ignore cancellation failures
+  }
+}
+
 // Yahoo Finance API fetcher
 export async function fetchYahooFinance(symbol: string, range = "1y"): Promise<PricePoint[]> {
   const encodedSymbol = encodeURIComponent(symbol);
@@ -2601,7 +2617,10 @@ export async function fetchYahooFinance(symbol: string, range = "1y"): Promise<P
       },
     });
 
-    if (!res.ok) throw new Error(`Yahoo Finance error: ${res.status}`);
+    if (!res.ok) {
+      await releaseWorkerResponse(res);
+      throw new Error(`Yahoo Finance error: ${res.status}`);
+    }
 
     const data: YahooChartResponse = await res.json();
     const result = data.chart?.result?.[0];
@@ -2706,7 +2725,10 @@ export async function fetchYahooQuote(symbol: string): Promise<YahooQuoteSummary
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
       },
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      await releaseWorkerResponse(res);
+      return null;
+    }
 
     const data: YahooChartResponse & {
       chart?: {
@@ -2877,6 +2899,8 @@ export async function getYahooCrumb(
       redirect: "manual",
       signal: AbortSignal.timeout(2500),
     });
+    // Immediately release res1's unconsumed redirect/error body
+    await releaseWorkerResponse(res1);
     // Read the single `set-cookie` value once instead of asserting the second
     // `get` non-null: the two reads can disagree, and the assertion hid that.
     const singleSetCookie = res1.headers.get("set-cookie");
@@ -2903,6 +2927,8 @@ export async function getYahooCrumb(
       });
       if (res2.ok) {
         crumbText = (await res2.text()).trim();
+      } else {
+        await releaseWorkerResponse(res2);
       }
     } catch {
       // try query1
@@ -2920,6 +2946,8 @@ export async function getYahooCrumb(
         });
         if (resAlt.ok) {
           crumbText = (await resAlt.text()).trim();
+        } else {
+          await releaseWorkerResponse(resAlt);
         }
       } catch {
         // best effort
@@ -2979,7 +3007,10 @@ export async function fetchSecEdgarFinancials(
       },
       signal: AbortSignal.timeout(5000),
     });
-    if (!res.ok) return [];
+    if (!res.ok) {
+      await releaseWorkerResponse(res);
+      return [];
+    }
     const data = (await res.json()) as {
       facts?: {
         "us-gaap"?: Record<
@@ -3174,6 +3205,8 @@ export async function fetchLiveMarketOverview(
           }
         }
       }
+    } else {
+      await releaseWorkerResponse(sparkRes);
     }
   } catch {
     // Ignore sparkline fetch error
@@ -3224,8 +3257,11 @@ export async function fetchLiveMarketOverview(
             });
           }
         }
-      } else if (quoteRes.status === 401 || quoteRes.status === 403) {
-        resetYahooCrumbCache();
+      } else {
+        await releaseWorkerResponse(quoteRes);
+        if (quoteRes.status === 401 || quoteRes.status === 403) {
+          resetYahooCrumbCache();
+        }
       }
     } catch {
       // Ignore quote batch error
@@ -3391,6 +3427,8 @@ export async function fetchLiveMarketOverview(
           };
         });
       }
+    } else {
+      await releaseWorkerResponse(searchRes);
     }
   } catch {
     // fallback
@@ -3674,14 +3712,19 @@ export async function fetchLiveStockFundamentals(
     ]);
 
     let summaryData: YahooQuoteSummaryResponse | null = null;
-    if (summaryRes && summaryRes.ok) {
-      try {
-        summaryData = (await summaryRes.json()) as YahooQuoteSummaryResponse;
-      } catch {
-        summaryData = null;
+    if (summaryRes) {
+      if (summaryRes.ok) {
+        try {
+          summaryData = (await summaryRes.json()) as YahooQuoteSummaryResponse;
+        } catch {
+          summaryData = null;
+        }
+      } else {
+        await releaseWorkerResponse(summaryRes);
+        if (summaryRes.status === 401 || summaryRes.status === 403) {
+          resetYahooCrumbCache();
+        }
       }
-    } else if (summaryRes && (summaryRes.status === 401 || summaryRes.status === 403)) {
-      resetYahooCrumbCache();
     }
 
     // Tier 2 Fallback: If Tier 1 (with crumb) failed or was skipped, try query1/query2 quoteSummary without crumb
@@ -3706,6 +3749,8 @@ export async function fetchLiveStockFundamentals(
               summaryData = altJson;
               break;
             }
+          } else {
+            await releaseWorkerResponse(altRes);
           }
         } catch {
           // continue to next host
@@ -3713,8 +3758,12 @@ export async function fetchLiveStockFundamentals(
       }
     }
     let chartData: YahooChartResponse | null = null;
-    if (chartRes && chartRes.ok) {
-      chartData = (await chartRes.json()) as YahooChartResponse;
+    if (chartRes) {
+      if (chartRes.ok) {
+        chartData = (await chartRes.json()) as YahooChartResponse;
+      } else {
+        await releaseWorkerResponse(chartRes);
+      }
     }
 
     const chartMeta = chartData?.chart?.result?.[0]?.meta || {};
@@ -4131,6 +4180,8 @@ export async function fetchLiveStockFundamentals(
             }
             liveValuationMetrics = true;
           }
+        } else {
+          await releaseWorkerResponse(qRes);
         }
       } catch {
         // Best effort
@@ -4279,8 +4330,11 @@ export async function fetchLiveScreenerUniverse(
             quotesMap.set(q.symbol, q);
           }
         }
-      } else if (qRes.status === 401 || qRes.status === 403) {
-        resetYahooCrumbCache();
+      } else {
+        await releaseWorkerResponse(qRes);
+        if (qRes.status === 401 || qRes.status === 403) {
+          resetYahooCrumbCache();
+        }
       }
     } catch {
       // ignore
@@ -4922,7 +4976,10 @@ export async function fetchLiveMacroEventsFromApiAsync(refDate = new Date()): Pr
         Accept: "application/json",
       },
     });
-    if (!res.ok) return [];
+    if (!res.ok) {
+      await releaseWorkerResponse(res);
+      return [];
+    }
     const body: unknown = await res.json();
     if (!Array.isArray(body) || body.length === 0) return [];
     const items = body
@@ -5348,13 +5405,18 @@ export async function fetchLiveMarketCalendarAsync(
                   });
                 }
               }
+            } else {
+              await releaseWorkerResponse(sumRes);
             }
           } catch {
             // quoteSummary 補完のエラーは無視
           }
         }
-      } else if (qRes.status === 401 || qRes.status === 403) {
-        resetYahooCrumbCache();
+      } else {
+        await releaseWorkerResponse(qRes);
+        if (qRes.status === 401 || qRes.status === 403) {
+          resetYahooCrumbCache();
+        }
       }
     }
   } catch (err) {
