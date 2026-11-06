@@ -167,6 +167,60 @@ describe("Worker /api/market/overview news provenance (N-1)", () => {
     expect(rows[0].source).toBe("配信元不明");
     expect(MEDIA_STYLE_SOURCES).not.toContain(rows[0].source);
   });
+
+  it("assigns a deterministic id when the provider omits uuid (no Math.random)", async () => {
+    stubYahooNewsSearch([
+      {
+        title: "uuid のない実記事",
+        publisher: "テスト通信",
+        link: "https://example.com/article-4",
+      },
+    ]);
+
+    const first = await fetchOverviewNews();
+    const second = await fetchOverviewNews();
+    expect(first.length).toBe(1);
+    expect(first[0].id).toBe("news-live-0");
+    expect(second[0].id).toBe(first[0].id);
+    expect(String(first[0].id)).not.toContain(".");
+  });
+
+  it("skips a malformed element without discarding the valid articles", async () => {
+    stubYahooNewsSearch([
+      null,
+      {
+        uuid: "uuid-valid",
+        title: "有効な実記事",
+        publisher: "テスト通信",
+        link: "https://example.com/article-5",
+      },
+      {
+        uuid: "uuid-no-title",
+        publisher: "テスト通信",
+        link: "https://example.com/article-6",
+      },
+    ]);
+
+    const rows = await fetchOverviewNews();
+    expect(rows.length).toBe(1);
+    expect(rows[0].id).toBe("uuid-valid");
+    expect(rows[0].title).toBe("有効な実記事");
+  });
+
+  it("drops a non-http(s) article link at the Worker boundary", async () => {
+    stubYahooNewsSearch([
+      {
+        uuid: "uuid-bad-link",
+        title: "不正リンクの実記事",
+        publisher: "テスト通信",
+        link: "javascript:alert(1)",
+      },
+    ]);
+
+    const rows = await fetchOverviewNews();
+    expect(rows.length).toBe(1);
+    expect(rows[0].url).toBeUndefined();
+  });
 });
 
 describe("Client default overview news provenance (N-1)", () => {

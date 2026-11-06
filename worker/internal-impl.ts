@@ -3404,28 +3404,49 @@ export async function fetchLiveMarketOverview(
         }>;
       };
       if (Array.isArray(sJson.news) && sJson.news.length > 0) {
-        newsList = sJson.news.map((item) => {
+        // Yahoo の search 応答は外部入力: 要素単位で検証し、不正な要素は
+        // 落とす (1 件の破損で全件フォールバックにしない)。id は決定的に
+        // 採番する (Math.random ではキー重複・非再現性が生じる)。
+        const validated: MarketOverviewData["news"] = [];
+        sJson.news.forEach((rawItem, index) => {
+          if (!rawItem || typeof rawItem !== "object" || Array.isArray(rawItem)) return;
+          const item = rawItem as Record<string, unknown>;
+          const title = typeof item.title === "string" && item.title ? item.title : null;
+          if (!title) return;
+          const uuid = typeof item.uuid === "string" && item.uuid ? item.uuid : null;
+          const publisher =
+            typeof item.publisher === "string" && item.publisher ? item.publisher : "配信元不明";
+          const rawLink = typeof item.link === "string" ? item.link : undefined;
+          const url = rawLink && /^https?:\/\//i.test(rawLink) ? rawLink : undefined;
+          const tickers = Array.isArray(item.relatedTickers) ? item.relatedTickers : undefined;
+          const relatedTicker =
+            tickers?.find((t): t is string => typeof t === "string" && t.length > 0);
           // N-1: 配信元が供給した時刻のみを使う。欠損時に「今」を代入すると
           // 偽の鮮度になるため、その場合は時刻なし (publishedAt: "") とする。
-          const providerTimeMs =
-            typeof item.providerPublishTime === "number" && Number.isFinite(item.providerPublishTime)
+          const providerTime =
+            typeof item.providerPublishTime === "number" &&
+            Number.isFinite(item.providerPublishTime)
               ? item.providerPublishTime * 1000
               : undefined;
-          const date = providerTimeMs !== undefined ? new Date(providerTimeMs) : undefined;
-          const jstDate = date ? new Date(date.getTime() + 9 * 60 * 60 * 1000) : undefined;
+          const date = providerTime !== undefined ? new Date(providerTime) : undefined;
+          const validDate = date && !Number.isNaN(date.getTime()) ? date : undefined;
+          const jstDate = validDate
+            ? new Date(validDate.getTime() + 9 * 60 * 60 * 1000)
+            : undefined;
           const hh = jstDate ? String(jstDate.getUTCHours()).padStart(2, "0") : "";
           const mm = jstDate ? String(jstDate.getUTCMinutes()).padStart(2, "0") : "";
-          return {
-            id: item.uuid || `news-${Math.random()}`,
-            title: item.title,
+          validated.push({
+            id: uuid ?? `news-live-${index}`,
+            title,
             // 実在の配信元が不明でも媒体名を捏造せず「配信元不明」とする。
-            source: item.publisher || "配信元不明",
-            publishedAt: date ? `${hh}:${mm}` : "",
-            ...(date ? { publishedTimestamp: date.toISOString() } : {}),
-            url: item.link,
-            relatedTicker: item.relatedTickers?.[0],
-          };
+            source: publisher,
+            publishedAt: validDate ? `${hh}:${mm}` : "",
+            ...(validDate ? { publishedTimestamp: validDate.toISOString() } : {}),
+            ...(url ? { url } : {}),
+            ...(relatedTicker ? { relatedTicker } : {}),
+          });
         });
+        if (validated.length > 0) newsList = validated;
       }
     } else {
       await releaseWorkerResponse(searchRes);
