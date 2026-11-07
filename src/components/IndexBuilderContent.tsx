@@ -391,7 +391,8 @@ export function IndexBuilderContent({
     if (basket.length === 0) return;
     const yields = basket.map((b) => {
       const fund = getStockFundamentals(b.ticker);
-      return (fund.dividendYield ?? 0) > 0 ? fund.dividendYield! : 0.5;
+      const dividendYield = fund.dividendYield ?? 0;
+      return dividendYield > 0 ? dividendYield : 0.5;
     });
     const weights = allocateDividendYieldWeights(yields, 100);
     setBasket(basket.map((b, idx) => ({ ...b, weight: weights[idx] })));

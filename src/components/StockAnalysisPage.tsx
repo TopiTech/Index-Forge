@@ -364,8 +364,8 @@ export function StockAnalysisPage({
           s.dividendYield > 0,
       )
       .sort((a, b) => {
-        const yieldA = a.dividendYield!;
-        const yieldB = b.dividendYield!;
+        const yieldA = a.dividendYield ?? 0;
+        const yieldB = b.dividendYield ?? 0;
         if (yieldB !== yieldA) {
           return yieldB - yieldA;
         }

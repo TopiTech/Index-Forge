@@ -3022,7 +3022,9 @@ export async function fetchSecEdgarFinancials(
     const usGaap = data.facts?.["us-gaap"];
     if (!usGaap) return [];
 
-    const isUsableFact = (r: { form?: string; fy?: number; val?: number; fp?: string }) =>
+    const isUsableFact = (
+      r: { form?: string; fy?: number; val?: number; fp?: string },
+    ): r is { form?: string; fy: number; val: number; fp?: string } =>
       r.form === "10-K" &&
       typeof r.fy === "number" &&
       typeof r.val === "number" &&
@@ -3052,7 +3054,7 @@ export async function fetchSecEdgarFinancials(
       usGaap.CommonStockDividendsPerShareCashPaid?.units;
     const dpsList = (dpsUnits?.["USD/shares"] || dpsUnits?.USD || []).filter(isUsableFact);
 
-    const years = [...new Set(revList.map((r) => r.fy!))].sort((a, b) => a - b).slice(-4);
+    const years = [...new Set(revList.map((r) => r.fy))].sort((a, b) => a - b).slice(-4);
     if (years.length === 0) return [];
 
     return years.map((fy) => {

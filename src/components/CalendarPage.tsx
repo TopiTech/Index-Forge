@@ -1375,7 +1375,8 @@ export function CalendarPage({
                   type="button"
                   className="btn btn-sm btn-accent"
                   onClick={() => {
-                    const t = selectedEvent.ticker!;
+                    const t = selectedEvent.ticker;
+                    if (!t) return;
                     setSelectedEvent(null);
                     onOpenStockDetail(t);
                   }}

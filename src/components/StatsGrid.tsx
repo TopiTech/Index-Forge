@@ -65,7 +65,11 @@ export function StatsGrid({
     hasPeriodMetrics &&
     (safeAlphaPct !== undefined ||
       (isFiniteNumber(customReturnPct) && isFiniteNumber(benchmarkReturnPct)));
-  const rawBenchmarkDiff = hasAlpha ? (safeAlphaPct ?? customReturnPct! - benchmarkReturnPct!) : 0;
+  const fallbackBenchmarkDiff =
+    isFiniteNumber(customReturnPct) && isFiniteNumber(benchmarkReturnPct)
+      ? customReturnPct - benchmarkReturnPct
+      : 0;
+  const rawBenchmarkDiff = hasAlpha ? (safeAlphaPct ?? fallbackBenchmarkDiff) : 0;
   const isRawDiffFinite = isFiniteNumber(rawBenchmarkDiff);
   const normalizedBenchmarkDiff = Math.abs(rawBenchmarkDiff) < 0.005 ? 0 : rawBenchmarkDiff;
   const benchmarkDiff = isRawDiffFinite ? normalizedBenchmarkDiff : 0;
