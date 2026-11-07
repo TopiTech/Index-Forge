@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import type { AuthSession } from "../types";
-import { fetchWithNetworkMark } from "../lib/apiContract";
+import { fetchWithNetworkMark, releaseResponse } from "../lib/apiContract";
 import {
   getStoredAuth,
   clearAuth,
@@ -173,7 +173,11 @@ export function useAuth() {
     if (current) {
       const headers = getAdminSessionHeaders(current);
       if (Object.keys(headers).length > 0) {
-        void fetchWithNetworkMark("/api/auth/logout", { method: "POST", headers }).catch(() => {});
+        void fetchWithNetworkMark("/api/auth/logout", { method: "POST", headers })
+          .then((res) => {
+            releaseResponse(res);
+          })
+          .catch(() => {});
       }
     }
 
