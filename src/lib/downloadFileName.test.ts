@@ -50,7 +50,13 @@ describe("toSafeDownloadFileName", () => {
   });
 
   it("handles undefined-like input gracefully", () => {
-    expect(toSafeDownloadFileName(undefined as unknown as string, "fallback")).toBe("fallback");
+    expect(toSafeDownloadFileName(undefined, "fallback")).toBe("fallback");
+    expect(toSafeDownloadFileName(null, "fallback")).toBe("fallback");
+  });
+
+  it("stringifies non-string scalars instead of falling back", () => {
+    expect(toSafeDownloadFileName(123)).toBe("123");
+    expect(toSafeDownloadFileName(0)).toBe("0");
   });
 });
 

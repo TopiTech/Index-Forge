@@ -12,6 +12,7 @@ import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { CheckCircle2, AlertTriangle, AlertCircle, Info, X } from "lucide-react";
 import { useOverlayRoot } from "./ModalBase";
+import { safeRandomId } from "../lib/randomId";
 
 export type ToastType = "success" | "error" | "warning" | "info";
 
@@ -152,7 +153,13 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 
   const showToast = useCallback(
     (message: string, options?: ToastOptions) => {
-      const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+      // Identifiers are the only thing distinguishing two toasts: two toasts
+      // fired in the same millisecond (a save followed by a sync warning)
+      // share a `Date.now()` prefix, and `Math.random()` is not guaranteed
+      // unique, so a collision merged them into one React key and dismissing
+      // one dismissed both. Identity comes from the shared crypto-backed
+      // generator instead, exactly like portfolio position ids.
+      const id = `toast-${safeRandomId(8)}`;
       const type = options?.type || "info";
       const duration = options?.duration ?? 3500;
 

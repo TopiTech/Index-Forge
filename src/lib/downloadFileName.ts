@@ -7,8 +7,14 @@
  * attributes and OS-level paths, so unbounded or control-character input from
  * an index name must never reach them verbatim.
  */
-export function toSafeDownloadFileName(raw: string, fallback = "download"): string {
-  const characters = Array.from(raw ?? "", (character) => {
+export function toSafeDownloadFileName(raw: unknown, fallback = "download"): string {
+  // The boundary receives index names, calendar titles and event ids from
+  // several screens: the type states that anything can arrive. `null` and
+  // `undefined` mean "no name" (the fallback), while other scalars are
+  // stringified so a numeric title still produces a usable file name instead
+  // of silently becoming the fallback.
+  const text = typeof raw === "string" ? raw : raw == null ? "" : String(raw);
+  const characters = Array.from(text, (character) => {
     const code = character.codePointAt(0) ?? 0;
     // C0/C1 control characters and DEL are unusable in file names.
     if (code <= 31 || (code >= 127 && code <= 159)) return "_";
