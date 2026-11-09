@@ -100,6 +100,7 @@ import type { Timeframe, BenchmarkSymbol } from "./types";
 import type { CustomIndex } from "./data/indices";
 import type { ReactNode } from "react";
 import { FreshnessProvider, useActiveFreshness } from "./contexts/FreshnessContext";
+import { getMediaMatches, subscribeMediaQuery } from "./lib/mediaQuery";
 
 const VALID_TIMEFRAMES: readonly Timeframe[] = ["1W", "1M", "3M", "6M", "YTD", "1Y"] as const;
 function isValidTimeframe(tf: string | undefined): tf is Timeframe {
@@ -183,15 +184,13 @@ function PageLayout({
   }, []);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const mediaQuery = window.matchMedia(MOBILE_LAYOUT_QUERY);
-    const handleLayoutChange = () => {
-      if (!mediaQuery.matches) {
+    // Capability-safe: runtimes without matchMedia (or with only the legacy
+    // addListener API) degrade to no auto-close instead of throwing.
+    return subscribeMediaQuery(MOBILE_LAYOUT_QUERY, (matches) => {
+      if (!matches) {
         setIsNavOpen(false);
       }
-    };
-    mediaQuery.addEventListener("change", handleLayoutChange);
-    return () => mediaQuery.removeEventListener("change", handleLayoutChange);
+    });
   }, []);
 
   useEffect(() => {
@@ -239,7 +238,7 @@ function PageLayout({
 }
 
 function getInitialMobileLayout() {
-  return typeof window !== "undefined" && window.matchMedia(MOBILE_LAYOUT_QUERY).matches;
+  return getMediaMatches(MOBILE_LAYOUT_QUERY);
 }
 
 /**
@@ -476,15 +475,15 @@ function AppContent({
   }, [toggleSearchModal, currentView]);
 
   useEffect(() => {
-    const mediaQuery = window.matchMedia(MOBILE_LAYOUT_QUERY);
-    const syncLayout = () => {
-      setIsMobileLayout(mediaQuery.matches);
-      setIsSidebarOpen(!mediaQuery.matches);
+    // Capability-safe: without matchMedia the layout stays at the
+    // initializer value (desktop) instead of throwing during commit.
+    const syncLayout = (matches: boolean) => {
+      setIsMobileLayout(matches);
+      setIsSidebarOpen(!matches);
     };
 
-    syncLayout();
-    mediaQuery.addEventListener("change", syncLayout);
-    return () => mediaQuery.removeEventListener("change", syncLayout);
+    syncLayout(getMediaMatches(MOBILE_LAYOUT_QUERY));
+    return subscribeMediaQuery(MOBILE_LAYOUT_QUERY, syncLayout);
   }, []);
 
   useEffect(() => {

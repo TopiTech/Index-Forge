@@ -205,6 +205,19 @@ export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModal
     if (!cardEl) return;
 
     let resizeTimer: ReturnType<typeof setTimeout> | null = null;
+    // Capability-safe: runtimes without ResizeObserver (very old browsers,
+    // privacy-hardened webviews) keep the persisted/default dimensions and
+    // still notify the widget on window resize instead of throwing here.
+    if (typeof ResizeObserver !== "function") {
+      const handleWindowResize = (): void => {
+        notifyTradingViewResize();
+      };
+      window.addEventListener("resize", handleWindowResize);
+      return () => {
+        window.removeEventListener("resize", handleWindowResize);
+        if (resizeTimer) clearTimeout(resizeTimer);
+      };
+    }
     const observer = new ResizeObserver((entries) => {
       // Skip updates when the user is actively dragging the corner handle
       if (isResizingRef.current) return;

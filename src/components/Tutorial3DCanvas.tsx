@@ -136,7 +136,25 @@ export const Tutorial3DCanvas = forwardRef<Tutorial3DCanvasHandle, Tutorial3DCan
       canvas.addEventListener("webglcontextlost", handleContextLost, false);
       canvas.addEventListener("webglcontextrestored", handleContextRestored, false);
 
-      // Resize observer
+      // Resize observer. Capability-safe: runtimes without ResizeObserver
+      // fall back to window resize instead of throwing during mount.
+      if (typeof ResizeObserver !== "function") {
+        const handleWindowResize = (): void => {
+          const rect = container.getBoundingClientRect();
+          if (rect.width > 0 && rect.height > 0 && sceneRef.current) {
+            sceneRef.current.resize(rect.width, rect.height);
+          }
+        };
+        window.addEventListener("resize", handleWindowResize);
+        return () => {
+          window.removeEventListener("resize", handleWindowResize);
+          canvas.removeEventListener("webglcontextlost", handleContextLost);
+          canvas.removeEventListener("webglcontextrestored", handleContextRestored);
+          sceneRef.current?.destroy();
+          sceneRef.current = null;
+          sceneInstance = null;
+        };
+      }
       const resizeObserver = new ResizeObserver((entries) => {
         for (const entry of entries) {
           const { width, height } = entry.contentRect;

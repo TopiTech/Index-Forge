@@ -31,8 +31,12 @@ describe("Goal Platform Integration & Accessibility Verification", () => {
 
   describe("App Shell Desktop Resize Auto-Close", () => {
     it("listens to mediaQuery changes to close the drawer when resizing to desktop", () => {
+      // Capability-safe subscription (Safari < 14 fallback + missing
+      // matchMedia guard live in src/lib/mediaQuery.ts and are covered by
+      // its behaviour tests); the shell must route desktop transitions
+      // through it instead of touching matchMedia directly.
       expect(appSource).toMatch(
-        /const mediaQuery = window\.matchMedia\(MOBILE_LAYOUT_QUERY\);[\s\S]*?if \(!mediaQuery\.matches\) \{\s*setIsNavOpen\(false\);/,
+        /subscribeMediaQuery\(MOBILE_LAYOUT_QUERY,[\s\S]*?setIsNavOpen\(false\)/,
       );
     });
 
