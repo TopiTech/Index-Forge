@@ -766,6 +766,8 @@ export function calculatePeriodReturns(
           customReturn = 0;
         } else if (startValue > 0 && Number.isFinite(startValue) && Number.isFinite(endValue)) {
           customReturn = sanitizeMetricPct(((endValue - startValue) / startValue) * 100);
+        } else {
+          customReturn = 0;
         }
       }
     } else if (

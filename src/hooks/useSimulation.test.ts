@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { calculateConstituentPerformance } from "./useSimulation";
-import type { BasketItem, StockSeries } from "../types";
+import { calculateConstituentPerformance, calculatePeriodReturns } from "./useSimulation";
+import type { BasketItem, PricePoint, StockSeries } from "../types";
 
 describe("calculateConstituentPerformance", () => {
   const sampleBasket: BasketItem[] = [
@@ -76,5 +76,24 @@ describe("calculateConstituentPerformance", () => {
     expect(perf).toHaveLength(2);
     expect(perf[0].periodReturnPct).toBe(0);
     expect(perf[1].periodReturnPct).toBe(0);
+  });
+});
+
+describe("calculatePeriodReturns edge cases", () => {
+  it("safely resets customReturn to 0 when aligned startValue is non-positive or non-finite", () => {
+    const customSeries: PricePoint[] = [
+      { date: "2026-01-01", close: 1000, value: 1000 },
+      { date: "2026-01-15", close: 0, value: 0 }, // non-positive aligned start
+      { date: "2026-02-01", close: 1100, value: 1100 },
+    ];
+    const benchmarkSeries: PricePoint[] = [
+      { date: "2026-01-15", close: 30000 },
+      { date: "2026-02-01", close: 33000 }, // +10%
+    ];
+
+    const res = calculatePeriodReturns(customSeries, benchmarkSeries);
+    expect(res.periodBenchmarkReturnPct).toBe(10);
+    expect(res.periodCustomReturnPct).toBe(0);
+    expect(res.alphaPct).toBe(-10);
   });
 });
