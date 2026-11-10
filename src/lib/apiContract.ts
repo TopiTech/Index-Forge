@@ -564,6 +564,16 @@ export const REQUEST_TIMEOUT_MESSAGE =
 export const DEFAULT_REQUEST_TIMEOUT_MS = 8000;
 
 /**
+ * Deadline for administrator reads and mutations.
+ *
+ * Account creation/update may run bounded PBKDF2 collision checks in the
+ * Worker, so it needs more time than a metadata GET. The value is explicit
+ * because {@link fetchWithNetworkMark} has no default deadline: a request that
+ * is not given a budget can hang its view forever.
+ */
+export const ADMIN_REQUEST_TIMEOUT_MS = 20_000;
+
+/**
  * Deadline for `POST /api/calculate`.
  *
  * Calculating an index over a large basket legitimately takes longer than a

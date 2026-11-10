@@ -842,10 +842,13 @@ function AppContent({
         return;
       }
       if (selectedIndex && canEditSelectedIndex) {
-        const constituents =
-          selectedIndex.basket ??
-          (selectedIndex as unknown as { stocks?: { ticker: string }[] }).stocks ??
-          [];
+        // `CustomIndex` has exactly one basket field. The former `.stocks`
+        // fallback was an unchecked cast (`as unknown as`) with no producer in
+        // the app, and it hid a malformed selected index instead of treating
+        // it as an empty basket. `sanitizeIndex` guarantees the field exists on
+        // every value this hook returns; the `?? []` only guards a corrupt
+        // in-memory object supplied by an external caller.
+        const constituents = selectedIndex.basket ?? [];
         const cleanTicker = normalizeTicker(ticker);
         const alreadyPresent =
           cleanTicker !== "" &&

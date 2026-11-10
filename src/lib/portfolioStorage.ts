@@ -222,10 +222,17 @@ function sanitizePosition(raw: unknown): PortfolioPosition | null {
   const ticker = typeof record.ticker === "string" ? normalizeTicker(record.ticker) : "";
   if (!ticker) return null;
 
-  const shares = Number(record.shares);
-  const averageCost = Number(record.averageCost);
-  if (!Number.isFinite(shares) || shares <= 0) return null;
-  if (!Number.isFinite(averageCost) || averageCost <= 0) return null;
+  // JSON numbers only: `Number(value)` also coerces booleans (`true` -> 1),
+  // single-element arrays (`[100]` -> 100) and numeric strings. Persisted
+  // positions are written by this module as numbers, so accepting those forms
+  // would turn a hand-edited/corrupt row into a fabricated holding instead of
+  // dropping it at the load boundary.
+  const shares = record.shares;
+  const averageCost = record.averageCost;
+  if (typeof shares !== "number" || !Number.isFinite(shares) || shares <= 0) return null;
+  if (typeof averageCost !== "number" || !Number.isFinite(averageCost) || averageCost <= 0) {
+    return null;
+  }
 
   const id =
     typeof record.id === "string" && record.id.trim()

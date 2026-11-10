@@ -2,6 +2,7 @@ import React, { useState, useRef, useCallback, useEffect } from "react";
 import { TrendingUp, TrendingDown } from "lucide-react";
 import { TradingViewChartModal, type PopupSymbolInfo } from "./TradingViewChartModal";
 import {
+  DEFAULT_REQUEST_TIMEOUT_MS,
   fetchWithNetworkMark,
   isRecord,
   readJsonBody,
@@ -286,6 +287,7 @@ export function TradingViewTickerTape() {
       const res = await fetchWithNetworkMark("/api/ticker-prices", {
         headers,
         signal: controller.signal,
+        timeoutMs: DEFAULT_REQUEST_TIMEOUT_MS,
       });
       if (!isCurrent()) {
         releaseResponse(res);

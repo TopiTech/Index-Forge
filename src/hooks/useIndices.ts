@@ -485,7 +485,9 @@ export function useIndices() {
       try {
         const storedToken = getIndexOwnerToken(newIndex.id);
         const token = ownerToken || storedToken || safeRandomId(24);
-        const { headers, body } = buildSaveIndexRequest(newIndex, token, getAuthHeaders());
+        const { headers, body } = buildSaveIndexRequest(newIndex, token, getAuthHeaders(), {
+          repairMissingWeights: true,
+        });
         const res = await fetchWithNetworkMark(`${API_BASE}/indices`, {
           method: "POST",
           headers,

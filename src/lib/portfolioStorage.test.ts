@@ -140,6 +140,14 @@ describe("PortfolioStorage & Engine", () => {
           { id: "bad2", ticker: "7203", shares: "abc", averageCost: 100 },
           { id: "bad3", ticker: "7203", shares: 10, averageCost: -5 },
           { id: "bad4", ticker: "7203", shares: 0, averageCost: 100 },
+          // JSON types that `Number()` silently coerces must be rejected too:
+          // boolean -> 1, single-element array -> its element, numeric string
+          // -> number. Accepting them fabricated holdings from corrupt data.
+          { id: "bad5", ticker: "7203", shares: true, averageCost: 100 },
+          { id: "bad6", ticker: "7203", shares: [100], averageCost: 100 },
+          { id: "bad7", ticker: "7203", shares: "100", averageCost: 100 },
+          { id: "bad8", ticker: "7203", shares: 100, averageCost: true },
+          { id: "bad9", ticker: "7203", shares: 100, averageCost: "2500" },
           { id: "good", ticker: "8058", name: "三菱商事", shares: 300, averageCost: 2680 },
         ]),
       );

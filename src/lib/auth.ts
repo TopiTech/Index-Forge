@@ -386,6 +386,7 @@ export async function verifyPassword(
       headers: { "Content-Type": "application/json", "x-auth-mode": "user" },
       body: JSON.stringify({ password: trimmed, role: "user", userOnly: true }),
       signal,
+      timeoutMs: AUTH_REQUEST_TIMEOUT_MS,
     });
 
     const parsedBody: unknown = await readJsonBody(res);
@@ -470,6 +471,17 @@ export function generateSecurePassword(length = 10): string {
   }
   return result;
 }
+
+/**
+ * Deadline for an authentication request.
+ *
+ * Login goes through PBKDF2 (the Worker may verify up to
+ * `MAX_AUTH_ROW_VERIFICATIONS` rows), so it needs more room than a metadata
+ * GET, but a stalled connection must not leave the form spinning forever.
+ * `fetchWithNetworkMark` has no default deadline by design, so every auth
+ * call opts in explicitly.
+ */
+export const AUTH_REQUEST_TIMEOUT_MS = 20_000;
 
 /** Turnstile test site key; used whenever the Worker cannot be reached. */
 export const DEFAULT_TURNSTILE_SITE_KEY = "1x00000000000000000000AA";
@@ -573,6 +585,7 @@ export async function adminLogin(
         turnstileToken: trimmedToken,
       }),
       signal,
+      timeoutMs: AUTH_REQUEST_TIMEOUT_MS,
     });
 
     const parsedAdminBody: unknown = await readJsonBody(res);
@@ -653,6 +666,7 @@ export async function changeAdminSecretCode(
         currentSecretCode: currentSecretCode.normalize("NFC").trim(),
         newSecretCode: newSecretCode.normalize("NFC").trim(),
       }),
+      timeoutMs: AUTH_REQUEST_TIMEOUT_MS,
     });
 
     const parsedSecretBody: unknown = await readJsonBody(res);

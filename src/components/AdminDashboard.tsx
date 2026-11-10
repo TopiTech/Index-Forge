@@ -45,7 +45,15 @@ import { ConfirmModal } from "./ConfirmModal";
 import { ModalBase } from "./ModalBase";
 import { useToast } from "./Toast";
 import { equalizeWeightsExact, normalizeTicker } from "../lib/indexEngine";
-import { clampBaseValue, fetchWithNetworkMark, isRecord, isValidTicker, readJsonBody, releaseResponse } from "../lib/apiContract";
+import {
+  ADMIN_REQUEST_TIMEOUT_MS,
+  clampBaseValue,
+  fetchWithNetworkMark,
+  isRecord,
+  isValidTicker,
+  readJsonBody,
+  releaseResponse,
+} from "../lib/apiContract";
 import { safeRandomId } from "../lib/randomId";
 import { TurnstileWidget, type TurnstileWidgetRef } from "./TurnstileWidget";
 
@@ -370,6 +378,7 @@ export function AdminDashboard({
       const res = await fetchWithNetworkMark("/api/admin/system-stats", {
         headers: getHeaders(),
         signal: controller.signal,
+        timeoutMs: ADMIN_REQUEST_TIMEOUT_MS,
       });
       const payload: unknown = await readJsonBody(res);
       if (!isCurrent()) return;
@@ -423,6 +432,7 @@ export function AdminDashboard({
       const res = await fetchWithNetworkMark("/api/admin/passwords", {
         headers: getHeaders(),
         signal: controller.signal,
+        timeoutMs: ADMIN_REQUEST_TIMEOUT_MS,
       });
       // UI-38: a non-JSON error body (gateway 500, HTML page) must not throw.
       const payload: unknown = await readJsonBody(res);
@@ -667,6 +677,7 @@ export function AdminDashboard({
           maxIndices: newUserRole === "admin" ? null : newUserMaxIndices,
           role: newUserRole,
         }),
+        timeoutMs: ADMIN_REQUEST_TIMEOUT_MS,
       });
 
       const parsedCreateBody: unknown = await readJsonBody(res);
@@ -710,6 +721,7 @@ export function AdminDashboard({
         {
           method: "DELETE",
           headers: getHeaders(),
+          timeoutMs: ADMIN_REQUEST_TIMEOUT_MS,
         },
       );
       if (res.ok) {
@@ -788,6 +800,7 @@ export function AdminDashboard({
           id: item.id,
           isActive: nextActive,
         }),
+        timeoutMs: ADMIN_REQUEST_TIMEOUT_MS,
       });
       if (res.ok) {
         releaseResponse(res);
@@ -1022,6 +1035,7 @@ export function AdminDashboard({
           currentPassword: currentAdminPassword.trim() || undefined,
           newPassword: normalizedPassword,
         }),
+        timeoutMs: ADMIN_REQUEST_TIMEOUT_MS,
       });
       const parsedAdminPwdBody: unknown = await readJsonBody(res);
       const data: Record<string, unknown> = isRecord(parsedAdminPwdBody) ? parsedAdminPwdBody : {};

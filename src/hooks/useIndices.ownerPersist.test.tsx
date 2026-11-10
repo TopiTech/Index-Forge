@@ -85,6 +85,34 @@ describe("useIndices.saveCustomIndex owner persistence (C-3 pair)", () => {
     expect(readOwnerEntry(NEW_INDEX.id)).toEqual({ token: "tok-stored", issuedAt: storedAt });
   });
 
+  it("keeps legacy zero-weight constituents on save instead of deleting them", async () => {
+    // indexEngine documents that the save path must opt into
+    // `repairMissingWeights`; without it, sanitizeBasketForRequest dropped
+    // every non-positive weight and the next save silently removed the
+    // constituent from the index (DATA-09/DATA-17).
+    const fetchMock = installIndicesFetch({ id: NEW_INDEX.id });
+    const legacyIndex: CustomIndex = {
+      ...NEW_INDEX,
+      basket: [
+        { ticker: "7203", name: "Toyota", theme: "Auto", weight: 0 },
+        { ticker: "9984", name: "SoftBank", theme: "AI", weight: 100 },
+      ],
+    };
+
+    const { result } = renderHook(() => useIndices());
+    await act(async () => {
+      await result.current.saveCustomIndex(legacyIndex);
+    });
+
+    const postCall = fetchMock.mock.calls.find(([, init]) => init?.method === "POST");
+    expect(postCall).toBeDefined();
+    const requestBody = JSON.parse(String(postCall?.[1]?.body)) as {
+      basket: { ticker: string; weight: number }[];
+    };
+    expect(requestBody.basket.map((item) => item.ticker)).toEqual(["7203", "9984"]);
+    expect(requestBody.basket.every((item) => item.weight > 0)).toBe(true);
+  });
+
   it("keeps the stored age when the echo carries no issuance time", async () => {
     // The Worker preserves the original issuance time on edit; an echo
     // without ownerTokenIssuedAt must not reset the age to now.

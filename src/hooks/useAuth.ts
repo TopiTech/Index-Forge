@@ -1,6 +1,10 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import type { AuthSession } from "../types";
-import { fetchWithNetworkMark, releaseResponse } from "../lib/apiContract";
+import {
+  DEFAULT_REQUEST_TIMEOUT_MS,
+  fetchWithNetworkMark,
+  releaseResponse,
+} from "../lib/apiContract";
 import {
   getStoredAuth,
   clearAuth,
@@ -173,7 +177,11 @@ export function useAuth() {
     if (current) {
       const headers = getAdminSessionHeaders(current);
       if (Object.keys(headers).length > 0) {
-        void fetchWithNetworkMark("/api/auth/logout", { method: "POST", headers })
+        void fetchWithNetworkMark("/api/auth/logout", {
+          method: "POST",
+          headers,
+          timeoutMs: DEFAULT_REQUEST_TIMEOUT_MS,
+        })
           .then((res) => {
             releaseResponse(res);
           })

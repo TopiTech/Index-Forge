@@ -56,6 +56,29 @@ describe("useSimulation demo-data fallback contract", () => {
     );
   });
 
+  it("uses the JST calendar for demo dates around UTC midnight", () => {
+    // 2026-01-04T15:30Z is 2026-01-05 00:30 JST (a Monday). The UTC date was
+    // still Sunday, so toISOString() both labelled the bar with yesterday's
+    // date and, on a UTC machine, treated the newest day as a weekend.
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-01-04T15:30:00Z"));
+      const universe = generateFallbackStockUniverse(BASKET);
+      const dates = universe[0].series.map((point) => point.date);
+
+      expect(dates[dates.length - 1]).toBe("2026-01-05");
+      expect(new Set(dates).size).toBe(dates.length);
+      for (const date of dates) {
+        const [year, month, day] = date.split("-").map(Number);
+        const weekday = new Date(Date.UTC(year, month - 1, day)).getUTCDay();
+        expect(weekday).not.toBe(0);
+        expect(weekday).not.toBe(6);
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("marks every generated fallback entry as demo data", () => {
     // The fallback universe must not be indistinguishable from API data by
     // shape alone: every entry carries the production `isDemoData` marker.

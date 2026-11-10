@@ -877,14 +877,38 @@ export function getTickerBasePrice(ticker: string): number {
   return 1000 + (hash % 4000);
 }
 
+/** Japan Standard Time is UTC+09:00 and has no daylight-saving transitions. */
+const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
+
+/**
+ * Calendar date in Japan Standard Time (YYYY-MM-DD).
+ *
+ * Demo dates are displayed next to real market data, so they must use the
+ * same calendar as the rest of the app. `toISOString().slice(0, 10)` returns
+ * the UTC date, which is still the previous day between 00:00 and 08:59 JST
+ * (and `getDay()` would judge the weekday in the machine's local time zone).
+ * Fixed offset arithmetic avoids depending on the runtime's ICU data; a
+ * locale formatter can fall back to `MM/DD/YYYY` in small-ICU builds.
+ */
+function toJstDateString(date: Date): string {
+  return new Date(date.getTime() + JST_OFFSET_MS).toISOString().slice(0, 10);
+}
+
+/** Weekday of an ISO calendar date, independent of the machine time zone. */
+function weekdayOfIsoDate(date: string): number {
+  const [year, month, day] = date.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, day)).getUTCDay();
+}
+
 export function generateFallbackStockUniverse(basket: BasketItem[], days = 180): StockSeries[] {
   const dates: string[] = [];
   const now = new Date();
   for (let i = days; i >= 0; i--) {
     const d = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
-    const dayOfWeek = d.getDay();
+    const date = toJstDateString(d);
+    const dayOfWeek = weekdayOfIsoDate(date);
     if (dayOfWeek !== 0 && dayOfWeek !== 6) {
-      dates.push(d.toISOString().slice(0, 10));
+      dates.push(date);
     }
   }
 

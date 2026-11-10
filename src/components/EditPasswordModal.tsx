@@ -7,7 +7,12 @@ import { useModalFocus } from "../hooks/useModalFocus";
 import { useOverlayRoot } from "./ModalBase";
 import { generateSecurePassword } from "../lib/auth";
 import { readApiErrorMessage } from "../lib/auth";
-import { fetchWithNetworkMark, readJsonBody, releaseResponse } from "../lib/apiContract";
+import {
+  ADMIN_REQUEST_TIMEOUT_MS,
+  fetchWithNetworkMark,
+  readJsonBody,
+  releaseResponse,
+} from "../lib/apiContract";
 
 interface EditPasswordModalProps {
   isOpen: boolean;
@@ -156,6 +161,7 @@ export function EditPasswordModal({
           ...getHeaders(),
         },
         body: JSON.stringify(payload),
+        timeoutMs: ADMIN_REQUEST_TIMEOUT_MS,
       });
 
       if (res.ok) {
