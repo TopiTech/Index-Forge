@@ -25,7 +25,7 @@ import {
   sanitizeStockUniverse,
 } from "../lib/apiContract";
 import { filterByTimeframe } from "../lib/timeframe";
-import { isPriceCacheFresh } from "../lib/marketCache";
+import { isPriceCacheFresh, jstDateString } from "../lib/marketCache";
 import { mergeSyncCache, readSyncCache, removeFromSyncCache } from "../lib/syncCache";
 import { getAuthHeaders, getStoredAuth } from "../lib/auth";
 // The "sync prices → calculate" contract (batch size, auth headers, warning
@@ -877,23 +877,6 @@ export function getTickerBasePrice(ticker: string): number {
   return 1000 + (hash % 4000);
 }
 
-/** Japan Standard Time is UTC+09:00 and has no daylight-saving transitions. */
-const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
-
-/**
- * Calendar date in Japan Standard Time (YYYY-MM-DD).
- *
- * Demo dates are displayed next to real market data, so they must use the
- * same calendar as the rest of the app. `toISOString().slice(0, 10)` returns
- * the UTC date, which is still the previous day between 00:00 and 08:59 JST
- * (and `getDay()` would judge the weekday in the machine's local time zone).
- * Fixed offset arithmetic avoids depending on the runtime's ICU data; a
- * locale formatter can fall back to `MM/DD/YYYY` in small-ICU builds.
- */
-function toJstDateString(date: Date): string {
-  return new Date(date.getTime() + JST_OFFSET_MS).toISOString().slice(0, 10);
-}
-
 /** Weekday of an ISO calendar date, independent of the machine time zone. */
 function weekdayOfIsoDate(date: string): number {
   const [year, month, day] = date.split("-").map(Number);
@@ -905,7 +888,9 @@ export function generateFallbackStockUniverse(basket: BasketItem[], days = 180):
   const now = new Date();
   for (let i = days; i >= 0; i--) {
     const d = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
-    const date = toJstDateString(d);
+    // Demo dates are displayed next to real market data, so they use the
+    // shared JST calendar (src/lib/marketCache) rather than the UTC date.
+    const date = jstDateString(d);
     const dayOfWeek = weekdayOfIsoDate(date);
     if (dayOfWeek !== 0 && dayOfWeek !== 6) {
       dates.push(date);

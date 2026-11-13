@@ -1,7 +1,23 @@
 import { describe, it, expect } from "vitest";
 import { calculateRiskMetrics } from "./analytics";
-import { getMarketAwareCacheDuration, isPriceCacheFresh } from "./marketCache";
+import { getMarketAwareCacheDuration, isPriceCacheFresh, jstDateString } from "./marketCache";
 import type { PricePoint } from "../types";
+
+describe("jstDateString: one JST calendar day for every producer", () => {
+  it("returns the JST day, not the UTC day, just after midnight JST", () => {
+    // 2026-01-01T00:30+09:00 == 2025-12-31T15:30Z
+    expect(jstDateString(new Date("2025-12-31T15:30:00.000Z"))).toBe("2026-01-01");
+  });
+
+  it("stays on the same JST day through 08:59 JST", () => {
+    expect(jstDateString(new Date("2025-12-31T23:59:59.999Z"))).toBe("2026-01-01");
+  });
+
+  it("rolls over exactly at 00:00 JST", () => {
+    expect(jstDateString(new Date("2025-12-31T14:59:59.999Z"))).toBe("2025-12-31");
+    expect(jstDateString(new Date("2025-12-31T15:00:00.000Z"))).toBe("2026-01-01");
+  });
+});
 
 // ---------------------------------------------------------------------------
 // HIGH-01: CAGR calculation parentheses / boundary regression tests

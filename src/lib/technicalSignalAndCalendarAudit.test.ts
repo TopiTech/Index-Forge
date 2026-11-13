@@ -1,9 +1,10 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   evaluateTechnicalSignal,
   formatCalendarFieldValueWithProvenance,
   exportCalendarToCsv,
   exportCalendarToIcs,
+  sanitizeCalendarEvent,
   type CalendarEvent,
 } from "./marketDataService";
 
@@ -110,6 +111,69 @@ describe("exportCalendarToCsv with Field Provenance", () => {
     expect(csv).toContain('"\' +15 (推計)"'.replace(" ", ""));
     expect(csv).toContain('"14"'); // actual has no provenance and no formula trigger
     expect(csv).toContain('"実データ"'); // source is official
+  });
+});
+
+describe("sanitizeCalendarEvent calendar-date validation", () => {
+  it("drops an impossible fullDate that the ICS exporter would reject anyway", () => {
+    const event = sanitizeCalendarEvent({
+      id: "evt-invalid-full-date",
+      date: "02/30",
+      fullDate: "2026-02-30",
+      type: "MACRO",
+      title: "存在しない日付",
+      importance: "LOW",
+    });
+    expect(event).not.toBeNull();
+    // The event keeps its display date but no longer claims a canonical
+    // calendar date the export cannot honour.
+    expect(event?.fullDate).toBeUndefined();
+  });
+
+  it("keeps a leap day and rejects a non-leap century day", () => {
+    const leapDay = sanitizeCalendarEvent({
+      id: "evt-leap-day",
+      date: "02/29",
+      fullDate: "2024-02-29",
+      type: "MACRO",
+      title: "うるう日",
+      importance: "LOW",
+    });
+    expect(leapDay?.fullDate).toBe("2024-02-29");
+
+    const centuryDay = sanitizeCalendarEvent({
+      id: "evt-century-day",
+      date: "02/29",
+      fullDate: "2100-02-29",
+      type: "MACRO",
+      title: "非うるう日",
+      importance: "LOW",
+    });
+    expect(centuryDay?.fullDate).toBeUndefined();
+  });
+});
+
+describe("exportCalendarToIcs year inference (JST)", () => {
+  it("resolves a month/day-only event against the JST month", () => {
+    vi.useFakeTimers();
+    try {
+      // 2026-07-01T01:00 JST: a January event is exactly six months behind, so
+      // its nearest occurrence is 2027. The UTC clock still reads 2026-06-30,
+      // where the same event would be exported in 2026.
+      vi.setSystemTime(new Date("2026-06-30T16:00:00.000Z"));
+      const event: CalendarEvent = {
+        id: "evt-year-inference",
+        date: "01/15",
+        type: "MACRO",
+        title: "年推定テスト",
+        importance: "LOW",
+      };
+
+      const ics = exportCalendarToIcs([event]);
+      expect(ics).toContain("DTSTART;VALUE=DATE:20270115");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

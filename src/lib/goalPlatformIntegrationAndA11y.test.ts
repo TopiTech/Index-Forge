@@ -41,14 +41,18 @@ describe("Goal Platform Integration & Accessibility Verification", () => {
     });
 
     it("handles dashboard searchParams in navigateTo including indexId, benchmark, timeframe", () => {
+      // In-app navigation delegates to the one dashboard-parameter rule, which
+      // applies tf/bm and routes `?index=` through the shared resolver.
       expect(appSource).toMatch(
-        /if \(view === "dashboard" && searchParams\) \{[\s\S]*?parseDashboardParams\(searchParams\)[\s\S]*?params\.indexId[\s\S]*?selectIndex/,
+        /const applyDashboardSearchParams = useCallback\([\s\S]*?isValidTimeframe\(params\.timeframe\)[\s\S]*?isBenchmarkSymbol\(params\.benchmark\)[\s\S]*?resolveDashboardIndexId\(params\.indexId, indices\)[\s\S]*?if \(view === "dashboard" && searchParams\) \{[\s\S]*?applyDashboardSearchParams\(searchParams\);/,
       );
     });
 
     it("resolves pending indexId when indices finish loading", () => {
+      // The pending effect applies the stored id once the list contains it; the
+      // one-time deep link keeps an unknown id pending through the resolver.
       expect(appSource).toMatch(
-        /pendingIndexIdRef\.current = params\.indexId;[\s\S]*?indices\.find\(\(idx\) => idx\.id === pendingIndexIdRef\.current\)/,
+        /indices\.find\(\(idx\) => idx\.id === pendingIndexIdRef\.current\)[\s\S]*?const resolution = resolveDashboardIndexId\(targetIndexId, indices\);[\s\S]*?pendingIndexIdRef\.current = resolution\.indexId;/,
       );
     });
   });

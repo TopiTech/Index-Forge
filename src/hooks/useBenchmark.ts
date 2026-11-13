@@ -5,7 +5,7 @@ import {
   fetchWithNetworkMark,
   isFetchTimeoutError,
   parseJsonText,
-  PRICE_DATE_PATTERN,
+  isCalendarDate,
   readJsonBody,
   releaseResponse,
 } from "../lib/apiContract";
@@ -83,7 +83,7 @@ export function normalizeBenchmarkData(raw: unknown): BenchmarkData | null {
   for (const point of rawSeries) {
     if (!point || typeof point !== "object" || Array.isArray(point)) continue;
     const entry = point as Record<string, unknown>;
-    if (typeof entry.date !== "string" || !PRICE_DATE_PATTERN.test(entry.date)) continue;
+    if (!isCalendarDate(entry.date)) continue;
     if (
       typeof entry.close !== "number" ||
       !Number.isFinite(entry.close) ||

@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { getMediaMatches, subscribeMediaQuery } from "./mediaQuery";
+import {
+  getMediaMatches,
+  prefersReducedMotion,
+  REDUCED_MOTION_QUERY,
+  subscribeMediaQuery,
+} from "./mediaQuery";
 
 const QUERY = "(max-width: 1080px)";
 
@@ -27,6 +32,27 @@ describe("getMediaMatches", () => {
       }),
     } as unknown as Window);
     expect(getMediaMatches(QUERY)).toBe(false);
+  });
+});
+
+describe("prefersReducedMotion", () => {
+  it("queries the OS reduced-motion preference", () => {
+    const matchMedia = vi.fn(() => ({ matches: true }));
+    vi.stubGlobal("window", { matchMedia } as unknown as Window);
+
+    expect(REDUCED_MOTION_QUERY).toBe("(prefers-reduced-motion: reduce)");
+    expect(prefersReducedMotion()).toBe(true);
+    expect(matchMedia).toHaveBeenCalledWith(REDUCED_MOTION_QUERY);
+  });
+
+  it("reports false when the platform cannot answer", () => {
+    vi.stubGlobal("window", {
+      matchMedia: vi.fn(() => {
+        throw new Error("denied");
+      }),
+    } as unknown as Window);
+
+    expect(prefersReducedMotion()).toBe(false);
   });
 });
 

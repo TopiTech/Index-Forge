@@ -94,6 +94,7 @@ import {
   parseDashboardParams,
   resolveStockTicker,
   buildDashboardQuery,
+  resolveDashboardIndexId,
   type PageView,
 } from "./lib/navigation";
 import type { Timeframe, BenchmarkSymbol } from "./types";
@@ -624,6 +625,41 @@ function AppContent({
 
   const pendingIndexIdRef = useRef<string | null>(null);
 
+  /**
+   * Apply the dashboard parameters of a URL (`?tf=`, `?bm=`, `?index=`) to the
+   * dashboard state.
+   *
+   * In-app navigation and browser back/forward both consume dashboard URLs, so
+   * they must interpret them identically. The `?index=` half is the subtle one:
+   * a known id is selected, an unknown id stays pending until the authoritative
+   * list contains it, and a missing id abandons a pending deep link. That last
+   * branch used to exist only in `navigateTo`, so a back-navigation to a URL
+   * without `?index=` left a stale pending id behind and the URL synchronizer
+   * returned early for the rest of the session. The decision itself is the pure
+   * `resolveDashboardIndexId` in src/lib/navigation.
+   */
+  const applyDashboardSearchParams = useCallback(
+    (search: string) => {
+      const params = parseDashboardParams(search);
+      if (isValidTimeframe(params.timeframe)) {
+        setTimeframe(params.timeframe);
+      }
+      if (isBenchmarkSymbol(params.benchmark)) {
+        setSelectedBenchmark(params.benchmark);
+      }
+      const resolution = resolveDashboardIndexId(params.indexId, indices);
+      if (resolution.kind === "select") {
+        selectIndex(resolution.index);
+        pendingIndexIdRef.current = null;
+      } else if (resolution.kind === "pending") {
+        pendingIndexIdRef.current = resolution.indexId;
+      } else {
+        pendingIndexIdRef.current = null;
+      }
+    },
+    [indices, selectIndex, setSelectedBenchmark],
+  );
+
   const navigateTo = useCallback(
     (view: PageView, searchParams: string = "") => {
       setCurrentView(view);
@@ -636,26 +672,9 @@ function AppContent({
       }
 
       if (view === "dashboard" && searchParams) {
-        const params = parseDashboardParams(searchParams);
-        if (isValidTimeframe(params.timeframe)) {
-          setTimeframe(params.timeframe);
-        }
-        if (isBenchmarkSymbol(params.benchmark)) {
-          setSelectedBenchmark(params.benchmark);
-        }
-        if (params.indexId) {
-          const match = indices?.find((idx) => idx.id === params.indexId);
-          if (match) {
-            selectIndex(match);
-            pendingIndexIdRef.current = null;
-          } else {
-            pendingIndexIdRef.current = params.indexId;
-          }
-        } else {
-          // An explicit navigation without ?index= abandons any unresolved deep
-          // link; otherwise a stale id would keep the URL frozen forever.
-          pendingIndexIdRef.current = null;
-        }
+        // An explicit navigation without ?index= abandons any unresolved deep
+        // link; otherwise a stale id would keep the URL frozen forever.
+        applyDashboardSearchParams(searchParams);
       }
 
       const currentPathWithSearch =
@@ -673,7 +692,7 @@ function AppContent({
         }
       }
     },
-    [indices, selectIndex, setSelectedBenchmark],
+    [applyDashboardSearchParams],
   );
 
   // Apply a pending `?index=` id as soon as the authoritative list contains it.
@@ -725,15 +744,15 @@ function AppContent({
     // index or reports "not found" and lets the URL sync erase the id the user
     // was linked to.
     if (loadingIndices || !indices || indices.length === 0) return;
-    const match = indices.find((idx) => idx.id === targetIndexId);
-    if (match) {
-      selectIndex(match);
+    const resolution = resolveDashboardIndexId(targetIndexId, indices);
+    if (resolution.kind === "select") {
+      selectIndex(resolution.index);
       pendingIndexIdRef.current = null;
-    } else {
+    } else if (resolution.kind === "pending") {
       // The list is authoritative and does not contain the id yet (the index
       // may be created later, or the list may still be replaced by a newer
       // response). Keep it pending and let the effect above apply it.
-      pendingIndexIdRef.current = targetIndexId;
+      pendingIndexIdRef.current = resolution.indexId;
     }
     initialIndexHandledRef.current = true;
   }, [indices, loadingIndices, selectIndex]);
@@ -771,21 +790,10 @@ function AppContent({
         setActiveStockTicker(ticker || null);
       }
       if (newView === "dashboard") {
-        const params = parseDashboardParams(window.location.search);
-        if (isValidTimeframe(params.timeframe)) {
-          setTimeframe(params.timeframe);
-        }
-        if (isBenchmarkSymbol(params.benchmark)) {
-          setSelectedBenchmark(params.benchmark);
-        }
-        if (params.indexId) {
-          const match = indices?.find((idx) => idx.id === params.indexId);
-          if (match) {
-            selectIndex(match);
-          } else {
-            pendingIndexIdRef.current = params.indexId;
-          }
-        }
+        // Back/forward must interpret `?index=` exactly like in-app
+        // navigation, including abandoning a pending deep link when the URL
+        // has no id.
+        applyDashboardSearchParams(window.location.search);
       }
       try {
         window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
@@ -795,7 +803,7 @@ function AppContent({
     };
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
-  }, [indices, selectIndex, setSelectedBenchmark]);
+  }, [applyDashboardSearchParams]);
 
   const [selectedTheme, setSelectedTheme] = useState<string | null>(null);
   const [isBuilderOpen, setIsBuilderOpen] = useState(false);

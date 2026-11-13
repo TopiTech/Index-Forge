@@ -287,9 +287,12 @@ describe("Batch 3: UI-04 & UI-08 - VisualViewport Tracking & prefers-reduced-mot
       let changeHandler: ((e: MediaQueryListEvent) => void) | null = null;
       const removeEventListenerMock = vi.fn();
 
-      vi.stubGlobal("matchMedia", vi.fn((query: string) => ({
+      // A real MediaQueryList reflects the new value before it dispatches the
+      // change event, and the shared subscription reads `matches` from the
+      // list (not from the event payload), so the mock has to do the same.
+      const mediaQueryList = {
         matches: false,
-        media: query,
+        media: "",
         onchange: null,
         addListener: vi.fn(),
         removeListener: vi.fn(),
@@ -298,7 +301,12 @@ describe("Batch 3: UI-04 & UI-08 - VisualViewport Tracking & prefers-reduced-mot
         }),
         removeEventListener: removeEventListenerMock,
         dispatchEvent: vi.fn(),
-      })));
+      };
+
+      vi.stubGlobal("matchMedia", vi.fn((query: string) => {
+        mediaQueryList.media = query;
+        return mediaQueryList;
+      }));
 
       const sampleData: ChartPoint[] = [
         { date: "2026-01-01", value: 1000, nikkei: 38000 },
@@ -327,6 +335,7 @@ describe("Batch 3: UI-04 & UI-08 - VisualViewport Tracking & prefers-reduced-mot
       capturedAreaProps.length = 0;
 
       act(() => {
+        mediaQueryList.matches = true;
         changeHandler?.({ matches: true } as MediaQueryListEvent);
       });
 

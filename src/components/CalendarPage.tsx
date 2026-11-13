@@ -25,6 +25,9 @@ import {
   type CalendarValueProvenance,
 } from "../lib/marketDataService";
 import { normalizeSearchQuery, getUniverseStockByTicker } from "../data/stockUniverse";
+import { daysInMonth } from "../lib/apiContract";
+import { resolveEventYear } from "../lib/eventCalendar";
+import { jstDateString } from "../lib/marketCache";
 import { detectStockCurrency } from "../lib/currency";
 import { toSafeDownloadFileName } from "../lib/downloadFileName";
 import { downloadBlob } from "../lib/downloadFile";
@@ -113,11 +116,14 @@ export function getEventDayOfWeek(dateStr: string, fullDate?: string): string {
         !isNaN(d) &&
         m >= 1 &&
         m <= 12 &&
-        d >= 1 &&
-        d <= 31
+        d >= 1
       ) {
+        // The days-per-month rule is shared with the API contract: a date the
+        // calendar does not contain must yield no weekday rather than being
+        // rolled into the next month by `Date`.
+        if (d > daysInMonth(y, m)) return "";
         const dObj = new Date(Date.UTC(y, m - 1, d));
-        if (!isNaN(dObj.getTime()) && dObj.getUTCMonth() === m - 1) {
+        if (!isNaN(dObj.getTime())) {
           return days[dObj.getUTCDay()] || "";
         }
       }
@@ -127,19 +133,16 @@ export function getEventDayOfWeek(dateStr: string, fullDate?: string): string {
   if (shortMatch) {
     const m = parseInt(shortMatch[1], 10);
     const d = parseInt(shortMatch[2], 10);
-    if (!isNaN(m) && !isNaN(d) && m >= 1 && m <= 12 && d >= 1 && d <= 31) {
-      const now = new Date();
-      const currentMonth = now.getMonth() + 1;
-      const currentYear = now.getFullYear();
-      let year = currentYear;
-      if (m < currentMonth && currentMonth - m >= 6) {
-        year = currentYear + 1;
-      } else if (m > currentMonth && m - currentMonth >= 6) {
-        year = currentYear - 1;
-      }
-      const dateObj = new Date(Date.UTC(year, m - 1, d));
-      if (!isNaN(dateObj.getTime()) && dateObj.getUTCMonth() === m - 1) {
-        return days[dateObj.getUTCDay()] || "";
+    if (!isNaN(m) && !isNaN(d) && m >= 1 && m <= 12 && d >= 1) {
+      // The year is resolved on the JST calendar by the same rule the month
+      // grid and the ICS export use, and impossible month/day pairs yield no
+      // weekday instead of a rolled-over date.
+      const year = resolveEventYear(m, d);
+      if (year !== null) {
+        const dateObj = new Date(Date.UTC(year, m - 1, d));
+        if (!isNaN(dateObj.getTime())) {
+          return days[dateObj.getUTCDay()] || "";
+        }
       }
     }
   }
@@ -350,8 +353,7 @@ export function CalendarPage({
     }
     const icsContent = exportCalendarToIcs(filteredEvents);
     const blob = new Blob([icsContent], { type: "text/calendar;charset=utf-8" });
-    const d = new Date();
-    const dStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    const dStr = jstDateString();
     downloadBlob(blob, toSafeDownloadFileName(`indexforge_calendar_${dStr}.ics`));
     toastSuccess("カレンダー (.ics) をダウンロードしました");
   };
@@ -363,8 +365,7 @@ export function CalendarPage({
     }
     const csvContent = exportCalendarToCsv(filteredEvents);
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8" });
-    const d = new Date();
-    const dStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    const dStr = jstDateString();
     downloadBlob(blob, toSafeDownloadFileName(`indexforge_calendar_${dStr}.csv`));
     toastSuccess(`${filteredEvents.length}件のイベントをCSVエクスポートしました`);
   };
@@ -393,8 +394,11 @@ export function CalendarPage({
     const cells = [];
 
     const pad = (n: number) => String(n).padStart(2, "0");
+    // "Today" is a JST calendar day: the TODAY highlight and the year of a
+    // month/day-only event must not follow the viewer's local time zone (west
+    // of JST the browser marks the previous day for the first 17 hours).
     const today = new Date();
-    const todayStr = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
+    const todayStr = jstDateString(today);
 
     for (let i = 0; i < totalCells; i++) {
       let cellYear = viewYear;
@@ -458,14 +462,8 @@ export function CalendarPage({
         const normalizedShort = `${pad(mNum)}/${pad(dNum)}`;
         if (normalizedShort !== dateKeyShort) return false;
 
-        let eventYear = today.getFullYear();
-        const currentMonth = today.getMonth() + 1;
-        if (mNum < currentMonth && currentMonth - mNum >= 6) {
-          eventYear += 1;
-        } else if (mNum > currentMonth && mNum - currentMonth >= 6) {
-          eventYear -= 1;
-        }
-        return cellYear === eventYear;
+        const eventYear = resolveEventYear(mNum, dNum, today);
+        return eventYear !== null && cellYear === eventYear;
       });
 
       cells.push({

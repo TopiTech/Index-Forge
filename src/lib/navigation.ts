@@ -82,6 +82,33 @@ export function parseDashboardParams(search: string = ""): DashboardQueryParams 
   return { indexId, benchmark, timeframe };
 }
 
+export type DashboardIndexResolution<T extends { id: string }> =
+  | { kind: "select"; index: T }
+  | { kind: "pending"; indexId: string }
+  | { kind: "clear" };
+
+/**
+ * Decide what a dashboard URL's `?index=` value means for the current list.
+ *
+ * - `select`: the authoritative list contains the id, so the index is shown.
+ * - `pending`: the id is not in the list yet (the list may still be loading, or
+ *   the index may be created later), so the link must be kept and retried
+ *   instead of being resolved against a provisional list.
+ * - `clear`: the URL carries no id, which abandons an unresolved deep link.
+ *
+ * In-app navigation and browser back/forward both consume dashboard URLs, so
+ * the rule lives here once: a missing `?index=` that did not clear the pending
+ * id left the URL synchronizer suppressed for the rest of the session.
+ */
+export function resolveDashboardIndexId<T extends { id: string }>(
+  indexId: string | undefined,
+  indices: readonly T[] | undefined,
+): DashboardIndexResolution<T> {
+  if (!indexId) return { kind: "clear" };
+  const match = indices?.find((index) => index.id === indexId);
+  return match ? { kind: "select", index: match } : { kind: "pending", indexId };
+}
+
 export type StockQueryParams = {
   ticker?: string;
 };

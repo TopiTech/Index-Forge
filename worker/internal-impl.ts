@@ -32,6 +32,7 @@ import {
 import {
   getMarketAwareCacheDuration as getMarketAwareCacheDurationShared,
   isPriceCacheFresh as isPriceCacheFreshShared,
+  jstDateString,
 } from "../src/lib/marketCache";
 import { safeRandomId } from "../src/lib/randomId";
 import { normalizeTicker, toYahooSymbol } from "../src/lib/yahooSymbol";
@@ -41,7 +42,6 @@ import {
   MAX_DESCRIPTION_LENGTH,
   MAX_OWNER_TOKEN_LENGTH,
   MAX_STOCK_NAME_LENGTH,
-  PRICE_DATE_PATTERN,
   isPricePoint,
   isValidBaseValue,
   isValidIndexId,
@@ -56,7 +56,7 @@ import type { BasketItemInput } from "../src/lib/apiContract";
 // Re-exported so the Worker's internal test surface keeps importing the price
 // validation from here, while the rule itself lives in the shared API
 // contract (also used by the browser to validate calculation responses).
-export { PRICE_DATE_PATTERN, isPricePoint, sanitizePriceSeries };
+export { isPricePoint, sanitizePriceSeries };
 import type { BasketItem, PricePoint, StockSeries } from "../src/types";
 import {
   formatMacroCalendarValue,
@@ -7719,7 +7719,7 @@ export default {
               const currentPrice = baselineAsset ? baselineAsset.baselinePrice : 1000;
               const changeVal = baselineAsset ? baselineAsset.baselineChange : 0;
               const changePctVal = baselineAsset ? baselineAsset.baselineChangePercent : 0;
-              const todayStr = new Date().toISOString().slice(0, 10);
+              const todayStr = jstDateString(); // JST trading date, not the UTC day
               const baselineData: SnapshotResponseData = {
                 snapshot: {
                   symbol,

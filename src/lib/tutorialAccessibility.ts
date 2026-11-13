@@ -2,6 +2,8 @@
  * Tutorial step definitions, accessibility announcements, and keyboard control mappings.
  */
 
+import { prefersReducedMotion } from "./mediaQuery";
+
 export interface TutorialStep {
   id: number;
   badge: string;
@@ -91,16 +93,14 @@ export const TUTORIAL_KEYBOARD_SHORTCUTS: readonly KeyboardShortcutHelp[] = [
 
 /**
  * Checks system-level prefers-reduced-motion setting.
+ *
+ * Capability detection is owned by `src/lib/mediaQuery`. This module used to
+ * carry its own copy without a `try/catch`, so a runtime where `matchMedia`
+ * throws disagreed with the rest of the app (it threw in the tutorial and
+ * silently reported "no preference" elsewhere).
  */
 export function getSystemPrefersReducedMotion(): boolean {
-  if (typeof globalThis === "undefined" || !("window" in globalThis)) {
-    return false;
-  }
-  const win = (globalThis as unknown as { window?: { matchMedia?: (q: string) => { matches: boolean } } }).window;
-  if (!win || typeof win.matchMedia !== "function") {
-    return false;
-  }
-  return win.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  return prefersReducedMotion();
 }
 
 /**

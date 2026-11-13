@@ -5,7 +5,45 @@ import {
   parseDashboardParams,
   buildDashboardQuery,
   resolveStockTicker,
+  resolveDashboardIndexId,
 } from "./navigation";
+
+describe("resolveDashboardIndexId (shared ?index= rule)", () => {
+  const indices = [{ id: "custom-1" }, { id: "custom-2" }];
+
+  it("selects the matching index object", () => {
+    expect(resolveDashboardIndexId("custom-2", indices)).toEqual({
+      kind: "select",
+      index: indices[1],
+    });
+  });
+
+  it("keeps an id the authoritative list does not contain yet", () => {
+    expect(resolveDashboardIndexId("custom-9", indices)).toEqual({
+      kind: "pending",
+      indexId: "custom-9",
+    });
+  });
+
+  it("keeps the id while the list is still loading (empty)", () => {
+    expect(resolveDashboardIndexId("custom-1", [])).toEqual({
+      kind: "pending",
+      indexId: "custom-1",
+    });
+  });
+
+  it("clears a pending deep link when the URL has no id", () => {
+    expect(resolveDashboardIndexId(undefined, indices)).toEqual({ kind: "clear" });
+    expect(resolveDashboardIndexId("", indices)).toEqual({ kind: "clear" });
+  });
+
+  it("does not match ids loosely", () => {
+    expect(resolveDashboardIndexId("CUSTOM-1", indices)).toEqual({
+      kind: "pending",
+      indexId: "CUSTOM-1",
+    });
+  });
+});
 
 describe("Navigation & View Routing Logic", () => {
   describe("parseViewFromLocation", () => {

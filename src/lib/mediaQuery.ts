@@ -18,6 +18,9 @@
  * unchanged.
  */
 
+/** Media query for the OS-level reduced-motion preference. */
+export const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
+
 export function getMediaMatches(query: string): boolean {
   if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
     return false;
@@ -43,6 +46,17 @@ type LegacyMediaQueryList = {
  * when the platform cannot observe the query the returned cleanup is a
  * no-op and the handler is never called.
  */
+/**
+ * Whether the OS asks for reduced motion.
+ *
+ * Capability-safe: a runtime without `matchMedia`, or one where the call
+ * throws, reports `false` (motion allowed) instead of throwing. Consumers that
+ * subscribe to changes must use `subscribeMediaQuery(REDUCED_MOTION_QUERY)`.
+ */
+export function prefersReducedMotion(): boolean {
+  return getMediaMatches(REDUCED_MOTION_QUERY);
+}
+
 export function subscribeMediaQuery(query: string, handler: (matches: boolean) => void): () => void {
   if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
     return () => {};

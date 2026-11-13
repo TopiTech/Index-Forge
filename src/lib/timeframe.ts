@@ -1,4 +1,5 @@
 import type { Timeframe } from "../types";
+import { daysInMonth } from "./apiContract";
 
 export const TIMEFRAME_LABELS: Record<Timeframe, string> = {
   "1W": "1週間",
@@ -19,10 +20,11 @@ function parseTradingDate(date: string): { y: number; m: number; d: number } | n
   const y = Number(match[1]);
   const m = Number(match[2]);
   const d = Number(match[3]);
-  if (m < 1 || m > 12 || d < 1 || d > 31) return null;
   // Reject impossible calendar dates (e.g. 2026-02-30) the same way the
-  // chart would fail to place them.
-  if (d > new Date(Date.UTC(y, m, 0)).getUTCDate()) return null;
+  // chart would fail to place them. The days-per-month rule is single-sourced
+  // in the API contract so this parser and the boundary validation cannot
+  // disagree about which dates exist.
+  if (d < 1 || d > daysInMonth(y, m)) return null;
   return { y, m, d };
 }
 
@@ -47,7 +49,7 @@ function shiftTradingMonth(date: string, months: number): string | null {
   const total = parsed.y * 12 + (parsed.m - 1) - months;
   const y = Math.floor(total / 12);
   const m = total - y * 12 + 1;
-  const d = Math.min(parsed.d, new Date(Date.UTC(y, m, 0)).getUTCDate());
+  const d = Math.min(parsed.d, daysInMonth(y, m));
   return formatTradingDate(y, m, d);
 }
 

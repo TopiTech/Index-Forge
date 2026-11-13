@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  PRICE_DATE_PATTERN,
+  daysInMonth,
+  isCalendarDate,
+  isLeapYear,
+  isPricePoint,
   sanitizeIndexSeries,
   sanitizePriceSeries,
   sanitizeStockUniverse,
@@ -55,10 +58,88 @@ const validBenchmark = {
   ],
 };
 
+describe("calendar date contract (shared by Worker and browser)", () => {
+  it("rejects dates the calendar does not contain", () => {
+    expect(isCalendarDate("2024-02-30")).toBe(false);
+    expect(isCalendarDate("2024-04-31")).toBe(false);
+    expect(isCalendarDate("2024-13-01")).toBe(false);
+    expect(isCalendarDate("2024-00-10")).toBe(false);
+    expect(isCalendarDate("2024-01-00")).toBe(false);
+    expect(isCalendarDate("2024-01-32")).toBe(false);
+    // 2100 is not a leap year (century rule); 2000 is.
+    expect(isCalendarDate("2100-02-29")).toBe(false);
+    expect(isCalendarDate("2000-02-29")).toBe(true);
+    expect(isCalendarDate("2024-02-29")).toBe(true);
+    expect(isCalendarDate("2026-12-31")).toBe(true);
+  });
+
+  it("rejects malformed shapes and non-strings", () => {
+    expect(isCalendarDate("2026-1-5")).toBe(false);
+    expect(isCalendarDate("2026-01-05T00:00:00Z")).toBe(false);
+    expect(isCalendarDate(20260105)).toBe(false);
+    expect(isCalendarDate(null)).toBe(false);
+    expect(isCalendarDate(undefined)).toBe(false);
+  });
+
+  it("counts month days without Date.UTC remapping years 0-99", () => {
+    expect(daysInMonth(2024, 2)).toBe(29);
+    expect(daysInMonth(2100, 2)).toBe(28);
+    // `new Date(Date.UTC(0, 2, 0))` reports 31 days because Date.UTC maps
+    // year 0 to 1900, which is not a leap year either.
+    expect(daysInMonth(0, 2)).toBe(29);
+    expect(daysInMonth(2026, 4)).toBe(30);
+    expect(daysInMonth(2026, 0)).toBe(0);
+    expect(daysInMonth(2026, 13)).toBe(0);
+    expect(isLeapYear(1900)).toBe(false);
+    expect(isLeapYear(2000)).toBe(true);
+  });
+
+  it("drops impossible dates before they reach the chart", () => {
+    expect(isPricePoint({ date: "2024-02-30", close: 100 })).toBe(false);
+    expect(
+      sanitizePriceSeries([
+        { date: "2024-02-28", close: 99 },
+        { date: "2024-02-29", close: 100 },
+        { date: "2024-02-30", close: 101 },
+        { date: "2024-06-31", close: 102 },
+      ]),
+    ).toEqual([
+      { date: "2024-02-28", close: 99 },
+      { date: "2024-02-29", close: 100 },
+    ]);
+
+    expect(
+      sanitizeIndexSeries([
+        { date: "2024-02-29", value: 1000 },
+        { date: "2024-02-30", value: 1001 },
+        { date: "2024-13-01", value: 1002 },
+      ]),
+    ).toEqual([{ date: "2024-02-29", close: 1000, value: 1000 }]);
+  });
+
+  it("drops an impossible date from a benchmark series", () => {
+    const normalized = normalizeBenchmarkData({
+      ...validBenchmark,
+      series: [
+        { date: "2026-11-01", close: 37800 },
+        { date: "2026-02-30", close: 38000 },
+      ],
+    });
+    expect(normalized?.series).toEqual([{ date: "2026-11-01", close: 37800 }]);
+
+    expect(
+      normalizeBenchmarkData({
+        ...validBenchmark,
+        series: [{ date: "2026-02-30", close: 38000 }],
+      }),
+    ).toBeNull();
+  });
+});
+
 describe("shared price-series validation", () => {
   it("drops malformed points, deduplicates dates and sorts ascending", () => {
-    expect(PRICE_DATE_PATTERN.test("2026-11-05")).toBe(true);
-    expect(PRICE_DATE_PATTERN.test("2026-1-5")).toBe(false);
+    expect(isCalendarDate("2026-11-05")).toBe(true);
+    expect(isCalendarDate("2026-1-5")).toBe(false);
 
     const sanitized = sanitizePriceSeries([
       { date: "2026-01-03", close: 100, volume: 5 },

@@ -1,9 +1,24 @@
 // Tokyo Stock Exchange regular-session cache policy. Keeping this pure helper
 // shared by the Worker and browser prevents browser-side cache decisions from
 // overriding the Worker after the market closes.
-const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
+export const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
 const MARKET_OPEN_JST = 9 * 60;
 const MARKET_CLOSE_JST = 15 * 60 + 30;
+
+/**
+ * Calendar date in Japan Standard Time (`YYYY-MM-DD`).
+ *
+ * Every trading date in the product is a JST date: the market session, the
+ * portfolio acquisition date and the price series all use that calendar.
+ * `new Date().toISOString().slice(0, 10)` returns the UTC date and is still the
+ * previous day between 00:00 and 08:59 JST, so it must never label price data.
+ * JST has no daylight-saving transitions, so fixed-offset arithmetic is exact
+ * and needs no ICU locale data (the Worker runtime is not guaranteed to carry a
+ * full `Asia/Tokyo` database).
+ */
+export function jstDateString(date: Date = new Date()): string {
+  return new Date(date.getTime() + JST_OFFSET_MS).toISOString().slice(0, 10);
+}
 
 function getJstParts(date: Date): { day: number; minutes: number } {
   const jst = new Date(date.getTime() + JST_OFFSET_MS);

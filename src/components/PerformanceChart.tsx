@@ -19,6 +19,12 @@ import { calculateSMA } from "../lib/analytics";
 import { filterByTimeframe } from "../lib/timeframe";
 import { downsampleLTTB } from "../lib/chartData";
 import { changeTone, formatSignedPercent } from "./changeTone";
+import {
+  getMediaMatches,
+  prefersReducedMotion,
+  REDUCED_MOTION_QUERY,
+  subscribeMediaQuery,
+} from "../lib/mediaQuery";
 
 const fmt = new Intl.NumberFormat("ja-JP", { maximumFractionDigits: 2 });
 const pct = new Intl.NumberFormat("ja-JP", {
@@ -28,17 +34,13 @@ const pct = new Intl.NumberFormat("ja-JP", {
 
 /**
  * Detects whether the user/system prefers reduced motion.
- * Safely guards for SSR and environments lacking window.matchMedia.
+ *
+ * The capability check and the media-query plumbing are single-sourced in
+ * `src/lib/mediaQuery` (shared with the App shell and the tutorial); this
+ * named export remains for existing callers.
  */
 export function getSystemPrefersReducedMotion(): boolean {
-  if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
-    return false;
-  }
-  try {
-    return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  } catch {
-    return false;
-  }
+  return prefersReducedMotion();
 }
 
 function ChartLegendIndicator({
@@ -140,23 +142,12 @@ export function PerformanceChart({
     getSystemPrefersReducedMotion(),
   );
 
+  // The shared subscription adds the legacy Safari `addListener` fallback and
+  // guarantees the cleanup; this effect used to spell both out by hand, so a
+  // Safari < 14 user never received a preference change after the first paint.
   useEffect(() => {
-    if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
-      return;
-    }
-    try {
-      const mediaQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
-      setPrefersReducedMotion(mediaQuery.matches);
-      const handleChange = (e: MediaQueryListEvent) => {
-        setPrefersReducedMotion(e.matches);
-      };
-      if (typeof mediaQuery.addEventListener === "function") {
-        mediaQuery.addEventListener("change", handleChange);
-        return () => mediaQuery.removeEventListener("change", handleChange);
-      }
-    } catch {
-      // Fallback for environments lacking full matchMedia support
-    }
+    setPrefersReducedMotion(getMediaMatches(REDUCED_MOTION_QUERY));
+    return subscribeMediaQuery(REDUCED_MOTION_QUERY, setPrefersReducedMotion);
   }, []);
 
   // Filter data by timeframe

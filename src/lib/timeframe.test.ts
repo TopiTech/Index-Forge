@@ -80,6 +80,17 @@ describe("filterByTimeframe calendar windows (M-3)", () => {
     expect(filterByTimeframe([], "1M")).toEqual([]);
   });
 
+  it("does not anchor the window at a date the calendar rejects", () => {
+    const data = [
+      { date: "2026-02-30", close: 5 },
+      { date: "2026-01-20", close: 2 },
+    ];
+    // Anchored at Jan 20 (the latest real date) the 1M window reaches back to
+    // Dec 20 and keeps both rows; anchoring at the impossible "Feb 30" would
+    // have cut Jan 20 out of the window labelled 1か月.
+    expect(filterByTimeframe(data, "1M").map((p) => p.date)).toContain("2026-01-20");
+  });
+
   it("keeps 3M/6M calendar cutoffs", () => {
     const data = dailySeries("2026-01-01", 180); // Jan 1 - Jun 29
     const latest = data[data.length - 1].date;

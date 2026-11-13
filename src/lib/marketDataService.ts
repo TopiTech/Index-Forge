@@ -17,9 +17,11 @@ import {
 import type { StockMarket, UniverseStock } from "../data/stockUniverse";
 import { normalizeSearchQuery } from "./searchNormalize";
 import { escapeCsvCell } from "./csv";
+import { resolveEventYear } from "./eventCalendar";
 import {
   DEFAULT_REQUEST_TIMEOUT_MS,
   fetchWithNetworkMark,
+  isCalendarDate,
   isRecord,
   readJsonBody,
   releaseResponse,
@@ -2696,7 +2698,11 @@ export function sanitizeCalendarEvent(e: unknown): CalendarEvent | null {
   const sanitized: CalendarEvent = { id, date, title, type, importance };
 
   const fullDate = optionalCalendarText(record.fullDate, CALENDAR_TEXT_LIMITS.fullDate);
-  if (fullDate && /^\d{4}-\d{2}-\d{2}$/.test(fullDate)) sanitized.fullDate = fullDate;
+  // `fullDate` is the canonical date of the event (the `date` field is a
+  // display-only MM/DD). A shape-only test let `2026-02-30` through, which the
+  // UI then rendered and the ICS exporter silently dropped, so the calendar
+  // and the export disagreed about the event.
+  if (isCalendarDate(fullDate)) sanitized.fullDate = fullDate;
 
   const ticker = optionalCalendarText(record.ticker, CALENDAR_TEXT_LIMITS.ticker);
   if (ticker) sanitized.ticker = ticker;
@@ -3382,24 +3388,19 @@ export function exportCalendarToIcs(events: CalendarEvent[]): string {
 
   for (const evt of events) {
     let dateStr = "";
-    if (evt.fullDate && /^\d{4}-\d{2}-\d{2}$/.test(evt.fullDate)) {
+    if (isCalendarDate(evt.fullDate)) {
       dateStr = evt.fullDate.replace(/-/g, "");
     } else {
       const parts = evt.date.split("/");
       if (parts.length === 2) {
         const mNum = parseInt(parts[0], 10);
         const dNum = parseInt(parts[1], 10);
-        if (!Number.isNaN(mNum) && !Number.isNaN(dNum) && mNum >= 1 && mNum <= 12 && dNum >= 1 && dNum <= 31) {
-          let y = now.getFullYear();
-          const currentMonth = now.getMonth() + 1;
-          if (mNum < currentMonth && currentMonth - mNum >= 6) {
-            y += 1;
-          } else if (mNum > currentMonth && mNum - currentMonth >= 6) {
-            y -= 1;
-          }
-          const m = pad(mNum);
-          const d = pad(dNum);
-          dateStr = `${y}${m}${d}`;
+        // A month/day-only event's year is resolved on the JST calendar by the
+        // shared rule used by the calendar page; reading the local clock here
+        // put events in the previous year for users west of JST on January 1.
+        const year = resolveEventYear(mNum, dNum, now);
+        if (year !== null) {
+          dateStr = `${year}${pad(mNum)}${pad(dNum)}`;
         }
       }
     }

@@ -365,7 +365,11 @@ describe("Goal Comprehensive Review Pass 2 - Edge Cases & Regression Tests", () 
         "const normalizedShort = `${pad(mNum)}/${pad(dNum)}`;",
       );
       expect(calendarPageSource).toContain("if (normalizedShort !== dateKeyShort) return false;");
-      expect(calendarPageSource).toContain("return cellYear === eventYear;");
+      // The cell only matches when the shared rule resolved a real year for the
+      // month/day pair (it rejects February 30 and April 31).
+      expect(calendarPageSource).toContain(
+        "return eventYear !== null && cellYear === eventYear;",
+      );
     });
   });
 });

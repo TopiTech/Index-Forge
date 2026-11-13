@@ -454,7 +454,11 @@ export function PortfolioManagerPage({
           }
           return next;
         });
-        setLastUpdatedAt(Date.now());
+        // Demo/reference rows are generated locally, so a fetch timestamp for
+        // them made the header claim a fresh refresh (same DATA-26 rule the
+        // screener already applies: only rows with real provenance are live).
+        const hasLiveRows = entries.some((entry) => entry !== null && !entry[1].isDemoData);
+        setLastUpdatedAt(hasLiveRows ? Date.now() : null);
         const fxEntry = entries.find((entry) => entry && entry[0] === "USDJPY=X");
         if (
           fxEntry &&
@@ -513,6 +517,22 @@ export function PortfolioManagerPage({
     }
     return list;
   }, [summary.positions, tableSortField, tableSortAsc]);
+
+  /**
+   * Toggle the holdings sort on the name column.
+   *
+   * Shared by the click and keyboard handlers so the header is operable
+   * without a mouse (the other screens' sortable headers already accept
+   * Enter/Space).
+   */
+  const toggleNameSort = () => {
+    if (tableSortField === "name") {
+      setTableSortAsc((prev) => !prev);
+    } else {
+      setTableSortField("name");
+      setTableSortAsc(true);
+    }
+  };
 
   // A break-even portfolio is neither a gain nor a loss. The shared tone
   // helper decides that, so a flat day is no longer painted green.
@@ -1683,14 +1703,13 @@ export function PortfolioManagerPage({
                     <th
                       style={{ textAlign: "left", cursor: "pointer", userSelect: "none" }}
                       className="table-sticky-col sortable-col-header"
-                      onClick={() => {
-                        if (tableSortField === "name") {
-                          setTableSortAsc((prev) => !prev);
-                        } else {
-                          setTableSortField("name");
-                          setTableSortAsc(true);
-                        }
+                      onClick={toggleNameSort}
+                      onKeyDown={(e) => {
+                        if (e.key !== "Enter" && e.key !== " ") return;
+                        e.preventDefault();
+                        toggleNameSort();
                       }}
+                      tabIndex={0}
                       title="銘柄名でソート"
                       role="columnheader"
                       aria-sort={tableSortField === "name" ? (tableSortAsc ? "ascending" : "descending") : "none"}

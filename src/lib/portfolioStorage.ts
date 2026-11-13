@@ -8,6 +8,7 @@ import { safeRandomId } from "./randomId";
 import { getStockCurrency } from "./currency";
 import { allocateIntegerWeights } from "./weights";
 import { normalizeTicker } from "./yahooSymbol";
+import { jstDateString } from "./marketCache";
 import { DEFAULT_USD_JPY_RATE } from "../data/marketConstants";
 import type { BasketItem } from "../types";
 
@@ -27,15 +28,12 @@ export interface PortfolioPosition {
  * `new Date().toISOString().split("T")[0]` は UTC 暦日を返すため、
  * JST の早朝 (00:00-08:59) に追加したポジションが前日付で記録される。
  *
- * フォーマッタはモジュールレベルで単一共有する: `Intl.DateTimeFormat` の
- * 構築はロケール解決を伴う高コスト処理であり、呼び出し毎の生成は
- * ポートフォリオ一覧の描画など高頻度パスで無駄になる。`format` 呼び出しは
- * 副作用を持たないため、共有インスタンスで結果は変わらない。
+ * 暦日の計算は `src/lib/marketCache` の `jstDateString` に一本化している。
+ * Worker のスナップショット日付も同じ関数を使うため、画面・保存データ・
+ * サーバ応答が別の暦日を指すことはない。
  */
-const jstDateFormatter = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tokyo" });
-
 export function todayJstDateString(): string {
-  return jstDateFormatter.format(new Date());
+  return jstDateString();
 }
 
 export interface PositionCalculation extends PortfolioPosition {

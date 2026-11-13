@@ -369,8 +369,45 @@ export function isApiErrorBody(value: unknown): value is { error: string } {
   return typeof error === "string";
 }
 
-/** Shape of a price date, as stored by the Worker (`YYYY-MM-DD`). */
-export const PRICE_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const DAYS_PER_MONTH = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31] as const;
+
+/** Whether `year` is a leap year in the proleptic Gregorian calendar. */
+export function isLeapYear(year: number): boolean {
+  return year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+}
+
+/**
+ * Number of days in a Gregorian month, or 0 for a month outside 1-12.
+ *
+ * Pure arithmetic instead of `new Date(Date.UTC(year, month, 0))`: `Date.UTC`
+ * remaps years 0-99 to 1900-1999, so the `Date` trick reports 29 days for
+ * February in those years even when the year is not a leap year. The Worker and
+ * the browser must agree on the calendar for every `YYYY-MM-DD` they accept.
+ */
+export function daysInMonth(year: number, month: number): number {
+  if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) return 0;
+  if (month === 2) return isLeapYear(year) ? 29 : 28;
+  return DAYS_PER_MONTH[month - 1];
+}
+
+/**
+ * Whether `value` is a `YYYY-MM-DD` string that names a real calendar date.
+ *
+ * A shape-only `/^\d{4}-\d{2}-\d{2}$/` test, which the boundaries used to apply
+ * directly, accepted `2024-02-30` and `2024-13-01`: the point survived and was
+ * plotted at a date the calendar does not contain (rolling over into the next
+ * month on the chart). Price dates are stored as calendar dates, so the shape
+ * test alone is not a contract; a caller that means "a trading date" must use
+ * this predicate, and the Worker and the browser share it.
+ */
+export function isCalendarDate(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return false;
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  return day >= 1 && day <= daysInMonth(Number(match[1]), month);
+}
 
 /**
  * Whether one entry of a stored price series is usable.
@@ -384,8 +421,7 @@ export function isPricePoint(value: unknown): value is PricePoint {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const point = value as Record<string, unknown>;
   return (
-    typeof point.date === "string" &&
-    PRICE_DATE_PATTERN.test(point.date) &&
+    isCalendarDate(point.date) &&
     typeof point.close === "number" &&
     Number.isFinite(point.close) &&
     point.close > 0 &&
@@ -428,8 +464,7 @@ export function sanitizeIndexSeries(value: unknown): PricePoint[] {
   for (const point of value) {
     if (!point || typeof point !== "object" || Array.isArray(point)) continue;
     const entry = point as Record<string, unknown>;
-    const date =
-      typeof entry.date === "string" && PRICE_DATE_PATTERN.test(entry.date) ? entry.date : "";
+    const date = isCalendarDate(entry.date) ? entry.date : "";
     if (!date) continue;
     const close =
       typeof entry.close === "number" && Number.isFinite(entry.close) && entry.close > 0
