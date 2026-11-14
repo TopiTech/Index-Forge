@@ -678,9 +678,10 @@ export async function changeAdminSecretCode(
       };
     }
 
+    // Same validation as adminLogin: a malformed token must not be stored as a session.
     return {
       ok: true,
-      adminToken: typeof data.adminToken === "string" ? data.adminToken : undefined,
+      adminToken: sanitizeAdminToken(data.adminToken),
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : "通信エラーが発生しました";

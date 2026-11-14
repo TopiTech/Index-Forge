@@ -879,9 +879,9 @@ export function bytesToHex(bytes: Uint8Array): string {
     .join("");
 }
 
-export function hexToBytes(hex: string): Uint8Array | null {
+export function hexToBytes(hex: string): Uint8Array<ArrayBuffer> | null {
   if (!/^[0-9a-f]+$/i.test(hex) || hex.length % 2 !== 0) return null;
-  const bytes = new Uint8Array(hex.length / 2);
+  const bytes = new Uint8Array(new ArrayBuffer(hex.length / 2));
   for (let i = 0; i < bytes.length; i++) {
     bytes[i] = Number.parseInt(hex.slice(i * 2, i * 2 + 2), 16);
   }
@@ -916,7 +916,7 @@ export async function hashPassword(password: string): Promise<string> {
 
 export function parsePasswordHash(storedHash: string): {
   iterations: number;
-  salt: Uint8Array;
+  salt: Uint8Array<ArrayBuffer>;
   digest: string;
 } | null {
   const [prefix, iterationsText, saltHex, digest] = storedHash.split("$");
@@ -954,9 +954,7 @@ export async function verifyPasswordHash(password: string, storedHash: string): 
   const derivedBits = await crypto.subtle.deriveBits(
     {
       name: "PBKDF2",
-      // Cloudflare's runtime accepts Uint8Array salts; the cast bridges the
-      // DOM lib's stricter ArrayBuffer generic in the application compiler.
-      salt: parsed.salt as unknown as BufferSource,
+      salt: parsed.salt,
       iterations: parsed.iterations,
       hash: "SHA-256",
     },

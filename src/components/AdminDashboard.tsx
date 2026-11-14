@@ -31,6 +31,7 @@ import { storeAuth, generateSecurePassword } from "../lib/auth";
 import {
   getTurnstileConfig,
   changeAdminSecretCode,
+  sanitizeAdminToken,
   sanitizeUserPasswordList,
   readApiErrorMessage,
   clearAdminSession,
@@ -1049,10 +1050,11 @@ export function AdminDashboard({
       setConfirmAdminPassword("");
       setCurrentAdminPassword("");
       if (session) {
+        const renewedToken = sanitizeAdminToken(data.adminToken);
         storeAuth({
           ...session,
           password: updatedPassword,
-          ...(typeof data.adminToken === "string" ? { adminToken: data.adminToken } : {}),
+          ...(renewedToken ? { adminToken: renewedToken } : {}),
         });
       }
     } catch (err) {

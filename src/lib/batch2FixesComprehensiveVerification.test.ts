@@ -246,6 +246,42 @@ describe("Batch 2 Comprehensive Fixes Verification Suite", () => {
         globalThis.fetch = originalFetch;
       }
     });
+
+    it("changeAdminSecretCode drops a malformed adminToken instead of returning it", async () => {
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({ ok: true, adminToken: "bad token\r\nX-Injected: 1" }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+
+      try {
+        const res = await changeAdminSecretCode("old-secret", "new-secret-999");
+        expect(res.ok).toBe(true);
+        expect(res.adminToken).toBeUndefined();
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+
+    it("changeAdminSecretCode drops a non-string adminToken", async () => {
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({ ok: true, adminToken: 12345 }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+
+      try {
+        const res = await changeAdminSecretCode("old-secret", "new-secret-999");
+        expect(res.ok).toBe(true);
+        expect(res.adminToken).toBeUndefined();
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
   });
 
   // --------------------------------------------------------------------------
