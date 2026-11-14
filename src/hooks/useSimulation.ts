@@ -297,8 +297,10 @@ export function useSimulation(
       const sanitizedBasket = sanitizeBasketForRequest(basket);
       const requestBasket = sanitizedBasket.basket;
       if (requestBasket.length === 0) {
+        knownTickersRef.current = "";
         setCustomSeries((prev) => clearIfEmpty(prev));
         setStockUniverse((prev) => clearIfEmpty(prev));
+        setSyncWarnings((prev) => clearIfEmpty(prev));
         setError("構成銘柄に有効なティッカーが含まれていないため計算できません。銘柄を編集してください。");
         setUsingDemoData(false);
         setLoading(false);
@@ -466,7 +468,8 @@ export function useSimulation(
         if (
           controller.signal.aborted ||
           isSuperseded() ||
-          (err instanceof DOMException && err.name === "AbortError")
+          (err instanceof DOMException && err.name === "AbortError") ||
+          (err instanceof Error && err.name === "AbortError")
         ) {
           // A superseded request must not publish demo data for a basket that
           // no longer exists.
@@ -522,6 +525,8 @@ export function useSimulation(
       setCustomSeries((prev) => clearIfEmpty(prev));
       setStockUniverse((prev) => clearIfEmpty(prev));
       setSyncWarnings((prev) => clearIfEmpty(prev));
+      setError(null);
+      setUsingDemoData(false);
       setLoading(false);
       return;
     }
@@ -844,8 +849,8 @@ export function calculateConstituentPerformance(
       name: item.name,
       theme: item.theme,
       weight: item.weight,
-      startPrice: start,
-      latestPrice: latest,
+      startPrice: Number.isFinite(start) && start > 0 ? start : 0,
+      latestPrice: Number.isFinite(latest) && latest > 0 ? latest : 0,
       periodReturnPct: safeRetPct,
       contributionPct: contribution,
     };

@@ -314,7 +314,11 @@ export function clearAdminSession(): void {
     try {
       sessionStore.setItem(AUTH_STORAGE_KEY, JSON.stringify(next));
     } catch {
-      // The in-memory session is authoritative for this tab.
+      try {
+        sessionStore.removeItem(AUTH_STORAGE_KEY);
+      } catch {
+        // The in-memory session is authoritative for this tab.
+      }
     }
   }
   notifyAuthChanged();

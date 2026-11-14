@@ -237,5 +237,12 @@ describe("Stock Universe & Zero Server Load Suggestion System", () => {
       // (typically < 0.5ms locally, allowing up to 5.0ms on heavily throttled/loaded CI runners)
       expect(perSearchAvgMs).toBeLessThan(5.0);
     });
+    it("returns an empty array when searchPopularStocks is given a non-positive or NaN limit", () => {
+      expect(searchPopularStocks("トヨタ", 0)).toEqual([]);
+      expect(searchPopularStocks("トヨタ", -3)).toEqual([]);
+      expect(searchPopularStocks("トヨタ", Number.NaN)).toEqual([]);
+      expect(POPULAR_STOCKS.length).toBeGreaterThan(0);
+      expect(searchPopularStocks("トヨタ", 1).length).toBeLessThanOrEqual(1);
+    });
   });
 });

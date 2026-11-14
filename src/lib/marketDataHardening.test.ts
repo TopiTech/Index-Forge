@@ -154,6 +154,22 @@ describe("sanitizeStockFundamentals", () => {
     expect(sanitized.isEstimatedPer).toBe(false);
     expect(sanitized.perNote).toBeUndefined();
   });
+
+  it("preserves trimmed live industry and falls back to baseline when blank", () => {
+    const withLiveIndustry = sanitizeStockFundamentals(
+      { ticker: "7203", price: 2900, industry: "  Auto Manufacturers  " },
+      { ...baseline, industry: "Baseline Industry" },
+      "7203",
+    );
+    expect(withLiveIndustry.industry).toBe("Auto Manufacturers");
+
+    const withBlankIndustry = sanitizeStockFundamentals(
+      { ticker: "7203", price: 2900, industry: "   " },
+      { ...baseline, industry: "Baseline Industry" },
+      "7203",
+    );
+    expect(withBlankIndustry.industry).toBe("Baseline Industry");
+  });
 });
 
 describe("browser-side cache expiry", () => {

@@ -255,7 +255,7 @@ export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModal
       observer.disconnect();
       if (resizeTimer) clearTimeout(resizeTimer);
     };
-  }, [isMaximized, isAnimating, dimensions.width, dimensions.height, saveDimensions, notifyTradingViewResize]);
+  }, [symbol, isMaximized, isAnimating, dimensions.width, dimensions.height, saveDimensions, notifyTradingViewResize]);
 
   // Toggle maximize with smooth animation and auto canvas recalculation
   const handleToggleMaximize = useCallback(() => {

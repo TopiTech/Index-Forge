@@ -208,7 +208,11 @@ export function validateSingleStockItem(stock: unknown): SingleStockValidationRe
   const rawWeight =
     raw.weight === undefined || raw.weight === null || raw.weight === ""
       ? 10
-      : Number(raw.weight);
+      : typeof raw.weight === "number"
+        ? raw.weight
+        : typeof raw.weight === "string"
+          ? Number(raw.weight)
+          : Number.NaN;
   if (!isValidWeight(rawWeight)) {
     return { ok: false, error: "銘柄の構成比率 (weight) は0超100以下の数値を指定してください" };
   }

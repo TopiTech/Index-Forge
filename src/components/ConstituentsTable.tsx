@@ -34,6 +34,7 @@ import {
   formatSignedPercent,
   formatSignedPoints,
   formatWeightPercent,
+  type ChangeTone,
 } from "./changeTone";
 
 // PERF-01: the add-stock dialog searches the 4,500+ ticker universe, so it
@@ -65,7 +66,7 @@ function getYahooFinanceUrl(ticker: string): string {
   return `https://finance.yahoo.com/quote/${encodeURIComponent(symbol)}`;
 }
 
-function Sparkline({ data, isPositive }: { data: number[]; isPositive: boolean }) {
+function Sparkline({ data, tone }: { data: number[]; tone: ChangeTone }) {
   if (!data || data.length < 2) return null;
   const validData = data.filter((v) => typeof v === "number" && Number.isFinite(v));
   if (validData.length < 2) return null;
@@ -83,7 +84,12 @@ function Sparkline({ data, isPositive }: { data: number[]; isPositive: boolean }
     })
     .join(" ");
 
-  const color = isPositive ? "var(--neon-green)" : "var(--neon-red)";
+  const color =
+    tone === "positive"
+      ? "var(--neon-green)"
+      : tone === "negative"
+        ? "var(--neon-red)"
+        : "var(--text-muted)";
 
   return (
     <svg width={width} height={height} aria-hidden="true" style={{ overflow: "visible" }}>
@@ -761,7 +767,7 @@ export function ConstituentsTable({
                         </span>
                       </td>
                       <td style={{ textAlign: "center" }}>
-                        <Sparkline data={item.sparkline} isPositive={isUp} />
+                        <Sparkline data={item.sparkline} tone={changeToneValue} />
                       </td>
                       <td style={{ textAlign: "right" }}>
                         <span
@@ -943,7 +949,7 @@ export function ConstituentsTable({
                       />
                     </div>
                   </div>
-                  <Sparkline data={item.sparkline} isPositive={isUp} />
+                  <Sparkline data={item.sparkline} tone={changeToneValue} />
                 </div>
               </article>
             );

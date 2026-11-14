@@ -56,6 +56,7 @@ import {
   releaseResponse,
 } from "../lib/apiContract";
 import { safeRandomId } from "../lib/randomId";
+import { useTheme } from "../lib/theme";
 import { TurnstileWidget, type TurnstileWidgetRef } from "./TurnstileWidget";
 
 /**
@@ -202,6 +203,7 @@ export function AdminDashboard({
   // evaluates only the administrator session: the aliased session-only
   // headers keep the plaintext password off the wire (C-2/C-5).
   const { session, isAdmin, adminLogin, logout, getAdminHeaders: getHeaders } = useAuth();
+  const { theme } = useTheme();
   const { success: toastSuccess, error: toastError } = useToast();
 
   // Admin login state if not admin
@@ -1180,7 +1182,7 @@ export function AdminDashboard({
                       gap: 6,
                       marginTop: 6,
                       fontWeight: 600,
-                      color: "#fff",
+                      color: "var(--text-primary)",
                     }}
                   >
                     <Clock size={14} />
@@ -1349,6 +1351,7 @@ export function AdminDashboard({
                 <TurnstileWidget
                   ref={turnstileRef}
                   siteKey={turnstileSiteKey}
+                  theme={theme}
                   onVerify={(token) => {
                     setTurnstileToken(token);
                     setLoginError(null);
@@ -1875,7 +1878,12 @@ export function AdminDashboard({
                         <td>
                           <div style={{ fontWeight: 600 }}>{item.name}</div>
                           <div className="muted tiny mono">
-                            {new Date(item.created_at * 1000).toLocaleDateString("ja-JP")}
+                            {typeof item.created_at === "number" &&
+                            Number.isFinite(item.created_at) &&
+                            item.created_at > 0 &&
+                            item.created_at * 1000 <= 8_640_000_000_000_000
+                              ? new Date(item.created_at * 1000).toLocaleDateString("ja-JP")
+                              : "--"}
                           </div>
                         </td>
                         <td>

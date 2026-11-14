@@ -39,6 +39,8 @@ export function searchPopularStocks(query: string, limit = 8): PopularStock[] {
   const seen = new Set<string>();
   const results: PopularStock[] = [];
 
+  if (Number.isNaN(limit) || limit <= 0) return [];
+
   for (const s of popularMatches) {
     const tUpper = s.ticker.toUpperCase();
     if (!seen.has(tUpper)) {

@@ -955,7 +955,7 @@ export class Tutorial3DScene {
   /**
    * Dispose all WebGL resources and stop animation loop.
    */
-  public destroy(): void {
+  public destroy(forceContextLoss = true): void {
     this.isDestroyed = true;
     if (this.animationFrameId !== null) {
       cancelAnimationFrame(this.animationFrameId);
@@ -974,7 +974,17 @@ export class Tutorial3DScene {
     });
 
     this.renderer.dispose();
-    if (typeof this.renderer.forceContextLoss === "function") {
+    const gl =
+      forceContextLoss && typeof this.renderer.getContext === "function"
+        ? this.renderer.getContext()
+        : null;
+    const isAlreadyLost =
+      gl && typeof gl.isContextLost === "function" ? gl.isContextLost() : false;
+    if (
+      forceContextLoss &&
+      !isAlreadyLost &&
+      typeof this.renderer.forceContextLoss === "function"
+    ) {
       this.renderer.forceContextLoss();
     }
     this.stepGroups.clear();

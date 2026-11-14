@@ -101,7 +101,8 @@ export const Tutorial3DCanvas = forwardRef<Tutorial3DCanvasHandle, Tutorial3DCan
         e.preventDefault();
         setIsContextLost(true);
         if (sceneInstance) {
-          sceneInstance.destroy();
+          // Context is already lost by the GPU/browser; keep context restorable.
+          sceneInstance.destroy(false);
           sceneInstance = null;
           sceneRef.current = null;
         }

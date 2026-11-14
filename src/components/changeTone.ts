@@ -14,6 +14,17 @@
 export type ChangeTone = "positive" | "negative" | "neutral";
 
 /**
+ * Normalize values that round to zero at `digits` decimals (including `-0`)
+ * so UI labels never display `-0.0` / `-0.00` artefacts.
+ */
+export function normalizeRoundedZero(value: number, digits = 2): number {
+  if (!Number.isFinite(value) || Object.is(value, -0)) return 0;
+  const safeDigits = Math.max(0, Math.trunc(digits));
+  const halfUnitAtPrecision = 0.5 / Math.pow(10, safeDigits);
+  return Math.abs(value) < halfUnitAtPrecision ? 0 : value;
+}
+
+/**
  * Resolve the display tone of a signed number.
  *
  * `digits` is the number of decimals the value is rendered with: anything that

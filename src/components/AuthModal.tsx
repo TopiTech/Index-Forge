@@ -5,6 +5,7 @@ import { useLockoutCountdown } from "../hooks/useLockoutCountdown";
 import { ModalBase } from "./ModalBase";
 import { TurnstileWidget, type TurnstileWidgetRef } from "./TurnstileWidget";
 import { getTurnstileConfig } from "../lib/auth";
+import { useTheme } from "../lib/theme";
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -22,6 +23,7 @@ export function AuthModal({
   description = "独自指数の作成や銘柄編集、ポートフォリオ管理を行うにはログインしてください。",
 }: AuthModalProps) {
   const { login, adminLogin, loading } = useAuth();
+  const { theme } = useTheme();
 
   // Mode: "admin" (default to fulfill Turnstile + Secret Code requirement) or "user"
   const [authMode, setAuthMode] = useState<"admin" | "user">("admin");
@@ -242,7 +244,7 @@ export function AuthModal({
             display: "flex",
             gap: 6,
             padding: 4,
-            background: "rgba(15, 23, 42, 0.6)",
+            background: "var(--surface-inset)",
             borderRadius: 10,
             border: "1px solid var(--border-subtle)",
             marginBottom: 16,
@@ -254,6 +256,10 @@ export function AuthModal({
             aria-pressed={authMode === "admin"}
             onKeyDown={handleModeKeyDown}
             onClick={() => {
+              if (authMode !== "admin") {
+                setTurnstileToken("");
+                turnstileRef.current?.reset();
+              }
               setAuthMode("admin");
               setError(null);
             }}
@@ -270,9 +276,9 @@ export function AuthModal({
               fontSize: 13,
               fontWeight: 600,
               transition: "all 0.15s ease",
-              background: authMode === "admin" ? "var(--bg-card-hover, rgba(0, 229, 255, 0.15))" : "transparent",
-              color: authMode === "admin" ? "var(--neon-cyan, #00e5ff)" : "var(--text-muted)",
-              boxShadow: authMode === "admin" ? "0 1px 3px rgba(0,0,0,0.3)" : "none",
+              background: authMode === "admin" ? "var(--accent-subtle)" : "transparent",
+              color: authMode === "admin" ? "var(--accent-text)" : "var(--text-muted)",
+              boxShadow: authMode === "admin" ? "0 1px 3px rgba(0,0,0,0.2)" : "none",
             }}
           >
             <Shield size={14} />
@@ -284,6 +290,10 @@ export function AuthModal({
             aria-pressed={authMode === "user"}
             onKeyDown={handleModeKeyDown}
             onClick={() => {
+              if (authMode !== "user") {
+                setTurnstileToken("");
+                turnstileRef.current?.reset();
+              }
               setAuthMode("user");
               setError(null);
             }}
@@ -300,9 +310,9 @@ export function AuthModal({
               fontSize: 13,
               fontWeight: 600,
               transition: "all 0.15s ease",
-              background: authMode === "user" ? "var(--bg-card-hover, rgba(255, 255, 255, 0.1))" : "transparent",
+              background: authMode === "user" ? "var(--bg-card)" : "transparent",
               color: authMode === "user" ? "var(--text-primary)" : "var(--text-muted)",
-              boxShadow: authMode === "user" ? "0 1px 3px rgba(0,0,0,0.3)" : "none",
+              boxShadow: authMode === "user" ? "0 1px 3px rgba(0,0,0,0.2)" : "none",
             }}
           >
             <User size={14} />
@@ -537,6 +547,7 @@ export function AuthModal({
                 <TurnstileWidget
                   ref={turnstileRef}
                   siteKey={turnstileSiteKey}
+                  theme={theme}
                   onVerify={(token) => {
                     setTurnstileToken(token);
                     setError(null);

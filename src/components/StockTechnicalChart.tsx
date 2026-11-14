@@ -138,6 +138,25 @@ export function formatChartDisplayDate(dateStr: string): string {
  * Exported so the behaviour is verifiable against the real component logic
  * instead of a copy of it.
  */
+export function formatTechnicalAxisPrice(
+  val: number,
+  ticker: string,
+  market?: string | null,
+): string {
+  if (typeof val !== "number" || !Number.isFinite(val)) return "--";
+  const metaCurrency = detectStockCurrency(ticker, market);
+  const upperTicker = typeof ticker === "string" ? ticker.trim().toUpperCase() : "";
+  if (val > 0 && val < 20 && metaCurrency === "USD" && upperTicker.endsWith("=X")) {
+    return `$${val.toFixed(4)}`;
+  }
+  const formatted = formatStockPrice(val, ticker, { market });
+  if (formatted !== "---") return formatted;
+  if (val === 0) {
+    return metaCurrency === "JPY" ? "¥0" : "$0.00";
+  }
+  return "--";
+}
+
 export function formatTechnicalTooltipValue(
   val: unknown,
   name: unknown,
@@ -401,6 +420,16 @@ export function StockTechnicalChart({
   const [userSelectedMode, setUserSelectedMode] = useState<"AUTO" | "LOCAL" | "TRADINGVIEW">(
     "AUTO",
   );
+  const prevStockTickerRef = useRef(stock.ticker);
+  useEffect(() => {
+    if (prevStockTickerRef.current === stock.ticker) return;
+    prevStockTickerRef.current = stock.ticker;
+    setTvLoaded(false);
+    setTvError(false);
+    setTvTimedOut(false);
+    setTvFallbackActive(false);
+    setUserSelectedMode("AUTO");
+  }, [stock.ticker]);
   const [selectedRange, setSelectedRange] = useState<"1M" | "3M" | "ALL">("3M");
   const [localSeries, setLocalSeries] = useState<PriceDataPoint[]>([]);
   /**
@@ -1169,7 +1198,7 @@ export function StockTechnicalChart({
                     width={activeIsMobile ? 52 : 60}
                     tickFormatter={(val: number) => {
                       if (typeof val !== "number" || !Number.isFinite(val)) return "--";
-                      return isUS ? `$${val.toFixed(1)}` : `¥${val.toLocaleString()}`;
+                      return formatTechnicalAxisPrice(val, stock.ticker, stock.market);
                     }}
                   />
 

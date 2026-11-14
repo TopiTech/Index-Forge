@@ -339,7 +339,7 @@ describe("apiContract: single-stock validation is single-sourced (M-1)", () => {
     expect(
       validateSingleStockItem({ ticker: "7203", name: "トヨタ", theme: "x".repeat(101), weight: 10 }),
     ).toEqual({ ok: false, error: "テーマは100文字以内で入力してください" });
-    for (const weight of [0, -1, 101, "abc", Number.NaN]) {
+    for (const weight of [0, -1, 101, "abc", "   ", Number.NaN, true, false, [10], { valueOf: () => 10 }]) {
       expect(validateSingleStockItem({ ticker: "7203", name: "トヨタ", weight })).toEqual({
         ok: false,
         error: "銘柄の構成比率 (weight) は0超100以下の数値を指定してください",

@@ -151,11 +151,12 @@ function normalizeTicker(raw: string | null | undefined): string | undefined {
  * selection even when the path segment still holds a previous ticker.
  */
 export function resolveStockTicker(pathname: string = "", search: string = ""): string | undefined {
+  const pathTicker = pathname.startsWith("/stock/")
+    ? pathname.slice("/stock/".length).replace(/\/+$/, "")
+    : undefined;
   return (
     normalizeTicker(new URLSearchParams(search).get("ticker")) ||
-    normalizeTicker(
-      pathname.startsWith("/stock/") ? pathname.slice("/stock/".length) : undefined,
-    )
+    normalizeTicker(pathTicker)
   );
 }
 

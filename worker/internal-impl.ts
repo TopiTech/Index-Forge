@@ -30,6 +30,7 @@ import {
   type CalendarEvent,
 } from "../src/lib/marketDataService";
 import {
+  JST_OFFSET_MS,
   getMarketAwareCacheDuration as getMarketAwareCacheDurationShared,
   isPriceCacheFresh as isPriceCacheFreshShared,
   jstDateString,
@@ -4115,8 +4116,8 @@ export async function fetchLiveStockFundamentals(
       historicalFinances = [];
     }
 
-    // Secondary fallback: if summaryData was missing, attempt quote endpoint for real valuation metrics
-    if (!summaryData && !isMacroAsset && Date.now() < deadline) {
+    // Secondary fallback: if summaryData was missing (or returned an empty result array), attempt quote endpoint for real valuation metrics
+    if (!summaryData?.quoteSummary?.result?.[0] && !isMacroAsset && Date.now() < deadline) {
       try {
         const quoteTimeout = Math.max(500, Math.min(4000, deadline - Date.now()));
         const qUrl = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(yahooSymbol)}`;
@@ -4132,7 +4133,19 @@ export async function fetchLiveStockFundamentals(
             quoteResponse?: { result?: Array<Record<string, unknown>> };
           };
           const q = qJson.quoteResponse?.result?.[0];
-          if (q) {
+          const hasQuoteValuation = Boolean(
+            q &&
+              ((typeof q.forwardPE === "number" && Number.isFinite(q.forwardPE) && q.forwardPE > 0) ||
+                (typeof q.trailingPE === "number" && Number.isFinite(q.trailingPE) && q.trailingPE > 0) ||
+                (typeof q.epsTrailingTwelveMonths === "number" && Number.isFinite(q.epsTrailingTwelveMonths)) ||
+                (typeof q.priceToBook === "number" && Number.isFinite(q.priceToBook) && q.priceToBook > 0) ||
+                normalizeDividendYield(q.trailingAnnualDividendYield, "fraction") !== null ||
+                normalizeDividendYield(q.dividendYield, "percent") !== null ||
+                (typeof q.dividendRate === "number" && Number.isFinite(q.dividendRate)) ||
+                (typeof q.trailingAnnualDividendRate === "number" &&
+                  Number.isFinite(q.trailingAnnualDividendRate))),
+          );
+          if (q && hasQuoteValuation) {
             if (typeof q.regularMarketPrice === "number" && q.regularMarketPrice > 0) {
               currentPrice = q.regularMarketPrice;
               hasLivePrice = true;
@@ -4148,6 +4161,17 @@ export async function fetchLiveStockFundamentals(
             if (typeof q.marketCap === "number" && q.marketCap > 0) {
               marketCap = isUS ? Math.round(q.marketCap / 1_000_000) : Math.round(q.marketCap / 100_000_000);
             }
+            // Start every nullable valuation metric from null before reading `q`
+            // so a live price never mixes with static anchor estimates.
+            per = null;
+            pbr = null;
+            dividendYield = null;
+            dps = null;
+            eps = null;
+            roe = null;
+            equityRatio = null;
+            isEstimatedPer = false;
+            perNote = undefined;
             if (typeof q.forwardPE === "number" && Number.isFinite(q.forwardPE) && q.forwardPE > 0) {
               per = Number(q.forwardPE.toFixed(1));
               isEstimatedPer = false;
@@ -4160,10 +4184,6 @@ export async function fetchLiveStockFundamentals(
               per = Number((currentPrice / q.epsTrailingTwelveMonths).toFixed(1));
               isEstimatedPer = true;
               perNote = "会社予想非開示のため直近実績(TTM)より推計";
-            } else {
-              per = null;
-              isEstimatedPer = false;
-              perNote = undefined;
             }
             if (typeof q.priceToBook === "number" && q.priceToBook > 0) pbr = Number(q.priceToBook.toFixed(2));
             const trailingYieldPercent = normalizeDividendYield(q.trailingAnnualDividendYield, "fraction");
@@ -4231,7 +4251,7 @@ export async function fetchLiveStockFundamentals(
           ) {
             currentPrice = lastPt.close;
             prevClose = prevPt.close;
-            change = Number((currentPrice - prevClose).toFixed(isUS ? 2 : 1));
+            change = Number((currentPrice - prevClose).toFixed(priceDecimals));
             changePct = Number((((currentPrice - prevClose) / prevPt.close) * 100).toFixed(2));
             sparkline = parsedPrices.slice(-10).map((p) => p.close);
             hasLivePrice = true;
@@ -4636,12 +4656,71 @@ export async function fetchLiveScreenerUniverse(
   return universe;
 }
 
+function parseOptionalPositiveIntLimit(
+  raw: unknown,
+  max: number,
+  errorMessage: string,
+): { ok: true; value: number | null } | { ok: false; error: string } {
+  if (raw === undefined || raw === null || raw === "" || raw === 0 || raw === "0") {
+    return { ok: true, value: null };
+  }
+  if (typeof raw === "number") {
+    if (!Number.isInteger(raw) || raw < 1 || raw > max) {
+      return { ok: false, error: errorMessage };
+    }
+    return { ok: true, value: raw };
+  }
+  if (typeof raw === "string") {
+    const trimmed = raw.trim();
+    if (!trimmed || trimmed === "0") {
+      return { ok: true, value: null };
+    }
+    if (!/^\d+$/.test(trimmed)) {
+      return { ok: false, error: errorMessage };
+    }
+    const num = Number(trimmed);
+    if (!Number.isSafeInteger(num) || num < 1 || num > max) {
+      return { ok: false, error: errorMessage };
+    }
+    return { ok: true, value: num };
+  }
+  return { ok: false, error: errorMessage };
+}
+
+function jstCalendarParts(d: Date): {
+  year: number;
+  month: number;
+  day: number;
+  dayOfWeek: number;
+} {
+  const jst = new Date(d.getTime() + JST_OFFSET_MS);
+  return {
+    year: jst.getUTCFullYear(),
+    month: jst.getUTCMonth(),
+    day: jst.getUTCDate(),
+    dayOfWeek: jst.getUTCDay(),
+  };
+}
+
+function makeJstCalendarDate(year: number, month: number, day: number): Date {
+  return new Date(Date.UTC(year, month, day) - JST_OFFSET_MS);
+}
+
+function formatJstCalendarMonthDay(d: Date): string {
+  const { month, day } = jstCalendarParts(d);
+  return `${String(month + 1).padStart(2, "0")}/${String(day).padStart(2, "0")}`;
+}
+
+function formatJstCalendarFullDate(d: Date): string {
+  const { year, month, day } = jstCalendarParts(d);
+  return `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
 function adjustToWeekday(d: Date): Date {
-  const res = new Date(d);
-  const day = res.getDay();
-  if (day === 0) res.setDate(res.getDate() + 1); // 日曜 -> 月曜
-  if (day === 6) res.setDate(res.getDate() + 2); // 土曜 -> 月曜
-  return res;
+  const { year, month, day, dayOfWeek } = jstCalendarParts(d);
+  if (dayOfWeek === 0) return makeJstCalendarDate(year, month, day + 1); // 日曜 -> 月曜
+  if (dayOfWeek === 6) return makeJstCalendarDate(year, month, day + 2); // 土曜 -> 月曜
+  return makeJstCalendarDate(year, month, day);
 }
 
 // 日銀金融政策決定会合 (BOJ) / 米FOMC の公定日程とマクロ指標の前回値・予想値は
@@ -4649,12 +4728,12 @@ function adjustToWeekday(d: Date): Date {
 // 片方だけが更新されて 2027年12月以降のイベントが黙って消えていた。
 function generateUpcomingMacroEvents(refDate = new Date()): CalendarEvent[] {
   const mStr = (m: number) => String(m).padStart(2, "0");
-  const dStr = (d: number) => String(d).padStart(2, "0");
-  const fmt = (d: Date) => `${mStr(d.getMonth() + 1)}/${dStr(d.getDate())}`;
-  const fmtFull = (d: Date) => `${d.getFullYear()}-${mStr(d.getMonth() + 1)}-${dStr(d.getDate())}`;
+  const fmt = formatJstCalendarMonthDay;
+  const fmtFull = formatJstCalendarFullDate;
 
   const events: CalendarEvent[] = [];
-  const refTime = refDate.getTime() - 24 * 60 * 60 * 1000; // 過去24時間以内は当日分として保持
+  const { year: refYear, month: refMonth, day: refDay } = jstCalendarParts(refDate);
+  const refTime = makeJstCalendarDate(refYear, refMonth, refDay).getTime();
 
   // N-3: イベント単位の source (日程の出所) とは別に、指標値 (previous /
   // forecast) は MACRO_METRICS_DEFAULTS の静的デフォルトであることをフィールド
@@ -4667,10 +4746,11 @@ function generateUpcomingMacroEvents(refDate = new Date()): CalendarEvent[] {
 
   // 1. 日銀会合 (直近2回)
   for (const d of getNextScheduledMeetings(BOJ_MEETING_SCHEDULE, refDate, 2)) {
+    const meetingDate = makeJstCalendarDate(d.getFullYear(), d.getMonth(), d.getDate());
     events.push({
       id: `macro-boj-${d.getFullYear()}-${mStr(d.getMonth() + 1)}`,
-      date: fmt(d),
-      fullDate: fmtFull(d),
+      date: fmt(meetingDate),
+      fullDate: fmtFull(meetingDate),
       type: "MACRO",
       title: "日銀金融政策決定会合・総裁記者会見",
       importance: "HIGH",
@@ -4685,10 +4765,11 @@ function generateUpcomingMacroEvents(refDate = new Date()): CalendarEvent[] {
 
   // 2. 米FOMC (直近2回)
   for (const d of getNextScheduledMeetings(FOMC_MEETING_SCHEDULE, refDate, 2)) {
+    const meetingDate = makeJstCalendarDate(d.getFullYear(), d.getMonth(), d.getDate());
     events.push({
       id: `macro-fomc-${d.getFullYear()}-${mStr(d.getMonth() + 1)}`,
-      date: fmt(d),
-      fullDate: fmtFull(d),
+      date: fmt(meetingDate),
+      fullDate: fmtFull(meetingDate),
       type: "MACRO",
       title: "米FOMC 政策金利発表 & パウエル議長記者会見",
       importance: "HIGH",
@@ -4703,13 +4784,10 @@ function generateUpcomingMacroEvents(refDate = new Date()): CalendarEvent[] {
 
   // 3. 米雇用統計 (当月または翌月の第1金曜日、直近2回)
   for (let offset = 0; offset <= 3; offset++) {
-    const targetMonth = new Date(refDate.getFullYear(), refDate.getMonth() + offset, 1);
-    const y = targetMonth.getFullYear();
-    const m = targetMonth.getMonth();
-    const firstDay = new Date(y, m, 1);
-    const dayOfWeek = firstDay.getDay();
+    const firstDay = makeJstCalendarDate(refYear, refMonth + offset, 1);
+    const { year: y, month: m, dayOfWeek } = jstCalendarParts(firstDay);
     const diff = (5 - dayOfWeek + 7) % 7;
-    const friday = new Date(y, m, 1 + diff);
+    const friday = makeJstCalendarDate(y, m, 1 + diff);
     if (
       friday.getTime() >= refTime &&
       events.filter((e) => e.id.startsWith("macro-jobs")).length < 2
@@ -4733,10 +4811,9 @@ function generateUpcomingMacroEvents(refDate = new Date()): CalendarEvent[] {
 
   // 4. 米CPI (毎月中旬12日前後の平日、直近2回)
   for (let offset = 0; offset <= 3; offset++) {
-    const targetMonth = new Date(refDate.getFullYear(), refDate.getMonth() + offset, 1);
-    const y = targetMonth.getFullYear();
-    const m = targetMonth.getMonth();
-    const cpiDate = adjustToWeekday(new Date(y, m, 12));
+    const baseDate = makeJstCalendarDate(refYear, refMonth + offset, 12);
+    const { year: y, month: m } = jstCalendarParts(baseDate);
+    const cpiDate = adjustToWeekday(baseDate);
     if (
       cpiDate.getTime() >= refTime &&
       events.filter((e) => e.id.startsWith("macro-cpi")).length < 2
@@ -4760,10 +4837,9 @@ function generateUpcomingMacroEvents(refDate = new Date()): CalendarEvent[] {
 
   // 5. 日本全国CPI (毎月第3または第4金曜日、直近2回)
   for (let offset = 0; offset <= 3; offset++) {
-    const targetMonth = new Date(refDate.getFullYear(), refDate.getMonth() + offset, 1);
-    const y = targetMonth.getFullYear();
-    const m = targetMonth.getMonth();
-    const cpiJpDate = adjustToWeekday(new Date(y, m, 19));
+    const baseDate = makeJstCalendarDate(refYear, refMonth + offset, 19);
+    const { year: y, month: m } = jstCalendarParts(baseDate);
+    const cpiJpDate = adjustToWeekday(baseDate);
     if (
       cpiJpDate.getTime() >= refTime &&
       events.filter((e) => e.id.startsWith("macro-jp-cpi")).length < 2
@@ -4799,19 +4875,20 @@ function generateFallbackEarningsEvents(
     }
   }
 
-  const mStr = (m: number) => String(m).padStart(2, "0");
-  const dStr = (d: number) => String(d).padStart(2, "0");
-  const fmt = (d: Date) => `${mStr(d.getMonth() + 1)}/${dStr(d.getDate())}`;
-  const fmtFull = (d: Date) => `${d.getFullYear()}-${mStr(d.getMonth() + 1)}-${dStr(d.getDate())}`;
+  const fmt = formatJstCalendarMonthDay;
+  const fmtFull = formatJstCalendarFullDate;
 
   // 基準日以降の平日に自然に分散配置
   const addBusinessDays = (start: Date, days: number): Date => {
-    const cur = new Date(start);
+    const startParts = jstCalendarParts(start);
+    let offset = 0;
+    let cur = makeJstCalendarDate(startParts.year, startParts.month, startParts.day);
     let added = 0;
     while (added < days) {
-      cur.setDate(cur.getDate() + 1);
-      const day = cur.getDay();
-      if (day !== 0 && day !== 6) {
+      offset++;
+      cur = makeJstCalendarDate(startParts.year, startParts.month, startParts.day + offset);
+      const { dayOfWeek } = jstCalendarParts(cur);
+      if (dayOfWeek !== 0 && dayOfWeek !== 6) {
         added++;
       }
     }
@@ -4915,8 +4992,8 @@ function generateFallbackEarningsEvents(
 }
 
 function sortCalendarEvents(events: CalendarEvent[], refDate = new Date()): CalendarEvent[] {
-  const currentYear = refDate.getFullYear();
-  const currentMonth = refDate.getMonth() + 1;
+  const { year: currentYear, month: currentMonth0 } = jstCalendarParts(refDate);
+  const currentMonth = currentMonth0 + 1;
 
   const parseTime = (e: CalendarEvent): number => {
     if (e.fullDate) {
@@ -4926,7 +5003,7 @@ function sortCalendarEvents(events: CalendarEvent[], refDate = new Date()): Cale
         const m = parseInt(parts[1], 10);
         const d = parseInt(parts[2], 10);
         if (!isNaN(y) && !isNaN(m) && !isNaN(d)) {
-          return new Date(y, m - 1, d).getTime();
+          return Date.UTC(y, m - 1, d);
         }
       }
     }
@@ -4940,7 +5017,7 @@ function sortCalendarEvents(events: CalendarEvent[], refDate = new Date()): Cale
     } else if (m > currentMonth && m - currentMonth >= 6) {
       y = currentYear - 1;
     }
-    return new Date(y, m - 1, d).getTime();
+    return Date.UTC(y, m - 1, d);
   };
 
   return [...events].sort((a, b) => parseTime(a) - parseTime(b));
@@ -4981,12 +5058,12 @@ export function fetchLiveMarketCalendar(
  */
 export async function fetchLiveMacroEventsFromApiAsync(refDate = new Date()): Promise<CalendarEvent[]> {
   try {
-    const fromDate = new Date(refDate.getTime() - 14 * 24 * 60 * 60 * 1000);
-    const toDate = new Date(refDate.getTime() + 90 * 24 * 60 * 60 * 1000);
     const mStr = (m: number) => String(m).padStart(2, "0");
     const dStr = (d: number) => String(d).padStart(2, "0");
-    const fromStr = `${fromDate.getFullYear()}-${mStr(fromDate.getMonth() + 1)}-${dStr(fromDate.getDate())}`;
-    const toStr = `${toDate.getFullYear()}-${mStr(toDate.getMonth() + 1)}-${dStr(toDate.getDate())}`;
+    const fromDate = new Date(refDate.getTime() - 14 * 24 * 60 * 60 * 1000);
+    const toDate = new Date(refDate.getTime() + 90 * 24 * 60 * 60 * 1000);
+    const fromStr = jstDateString(fromDate);
+    const toStr = jstDateString(toDate);
     const url = `https://biquote.io/api/calendar?importance=high&countries=US,JP&from=${fromStr}&to=${toStr}`;
 
     const res = await fetch(url, {
@@ -6414,34 +6491,17 @@ export default {
           ) {
             return json({ error: INVALID_PASSWORD_LENGTH_MESSAGE }, 400, request);
           }
-          let maxStockLimit: number | null = null;
-          if (
-            maxStocks !== undefined &&
-            maxStocks !== null &&
-            maxStocks !== "" &&
-            maxStocks !== 0 &&
-            maxStocks !== "0"
-          ) {
-            const num = Number(maxStocks);
-            if (!Number.isFinite(num) || num < 1 || num > 500) {
-              return json({ error: MAX_STOCKS_RANGE_MESSAGE }, 400, request);
-            }
-            maxStockLimit = Math.floor(num);
+          const parsedMaxStocks = parseOptionalPositiveIntLimit(maxStocks, 500, MAX_STOCKS_RANGE_MESSAGE);
+          if (!parsedMaxStocks.ok) {
+            return json({ error: parsedMaxStocks.error }, 400, request);
           }
-          let maxIndexLimit: number | null = null;
-          if (
-            maxIndices !== undefined &&
-            maxIndices !== null &&
-            maxIndices !== "" &&
-            maxIndices !== 0 &&
-            maxIndices !== "0"
-          ) {
-            const num = Number(maxIndices);
-            if (!Number.isFinite(num) || num < 1 || num > 100) {
-              return json({ error: MAX_INDICES_RANGE_MESSAGE }, 400, request);
-            }
-            maxIndexLimit = Math.floor(num);
+          const maxStockLimit = parsedMaxStocks.value;
+
+          const parsedMaxIndices = parseOptionalPositiveIntLimit(maxIndices, 100, MAX_INDICES_RANGE_MESSAGE);
+          if (!parsedMaxIndices.ok) {
+            return json({ error: parsedMaxIndices.error }, 400, request);
           }
+          const maxIndexLimit = parsedMaxIndices.value;
           const assignedRole = role === "admin" ? "admin" : "user";
           const id = `pwd-${Date.now()}-${safeRandomId(4)}`;
           const initialPassword = password.trim();
@@ -6647,30 +6707,25 @@ export default {
             clauses.push({ sql: "password_hash = ?", params: [hash], column: "password_hash" });
           }
           if (maxStocks !== undefined) {
-            if (maxStocks === null || maxStocks === 0 || maxStocks === "" || maxStocks === "0") {
+            const parsedMaxStocks = parseOptionalPositiveIntLimit(maxStocks, 500, MAX_STOCKS_RANGE_MESSAGE);
+            if (!parsedMaxStocks.ok) {
+              return json({ error: parsedMaxStocks.error }, 400, request);
+            }
+            if (parsedMaxStocks.value === null) {
               clauses.push({ sql: "max_stocks = NULL", params: [], column: "max_stocks" });
             } else {
-              const num = Number(maxStocks);
-              if (!Number.isFinite(num) || num < 1 || num > 500) {
-                return json({ error: MAX_STOCKS_RANGE_MESSAGE }, 400, request);
-              }
-              clauses.push({ sql: "max_stocks = ?", params: [Math.floor(num)], column: "max_stocks" });
+              clauses.push({ sql: "max_stocks = ?", params: [parsedMaxStocks.value], column: "max_stocks" });
             }
           }
           if (maxIndices !== undefined) {
-            if (
-              maxIndices === null ||
-              maxIndices === 0 ||
-              maxIndices === "" ||
-              maxIndices === "0"
-            ) {
+            const parsedMaxIndices = parseOptionalPositiveIntLimit(maxIndices, 100, MAX_INDICES_RANGE_MESSAGE);
+            if (!parsedMaxIndices.ok) {
+              return json({ error: parsedMaxIndices.error }, 400, request);
+            }
+            if (parsedMaxIndices.value === null) {
               clauses.push({ sql: "max_indices = NULL", params: [], column: "max_indices" });
             } else {
-              const num = Number(maxIndices);
-              if (!Number.isFinite(num) || num < 1 || num > 100) {
-                return json({ error: MAX_INDICES_RANGE_MESSAGE }, 400, request);
-              }
-              clauses.push({ sql: "max_indices = ?", params: [Math.floor(num)], column: "max_indices" });
+              clauses.push({ sql: "max_indices = ?", params: [parsedMaxIndices.value], column: "max_indices" });
               maxIndicesRequiresMigration = true;
             }
             includesMaxIndicesUpdate = true;
@@ -7076,7 +7131,7 @@ export default {
               hits: cacheHits,
               misses: cacheMisses,
               hitRatio,
-              memoryCacheSize: memoryCache.size,
+              memoryCacheSize: memoryCache.size + calcMemoryCache.size,
               memoryRateLimitsSize: memoryRateLimits.size,
               persistentRateLimitEntries: rateLimitEntries,
             },
@@ -9619,7 +9674,7 @@ export default {
           // 判定はパスではなくレスポンスの Content-Type で行う。SPA フォールバック
           // (not_found_handling: single-page-application) は /admin のような任意の
           // ディープリンクでも index.html を返すため、パス一致では取りこぼす。
-          if (contentType.includes("text/html")) {
+          if (assetRes.status >= 400 || contentType.includes("text/html")) {
             headers.set("Cache-Control", "no-cache, no-store, must-revalidate");
           } else if (pathname.startsWith("/assets/")) {
             headers.set("Cache-Control", "public, max-age=31536000, immutable");

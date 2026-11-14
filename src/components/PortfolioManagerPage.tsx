@@ -67,7 +67,8 @@ import {
 } from "../lib/marketDataService";
 import { POPULAR_STOCKS, PRESET_STOCKS, searchPopularStocks } from "../data/popularStocks";
 import { DEFAULT_USD_JPY_RATE } from "../data/marketConstants";
-import { getStockCurrency } from "../lib/currency";
+import { getStockCurrency, formatStockPrice } from "../lib/currency";
+import { useTheme } from "../lib/theme";
 import type { PageView } from "../lib/navigation";
 import { useToast } from "./Toast";
 import { useRegisterFreshness } from "../contexts/FreshnessContext";
@@ -99,6 +100,7 @@ export function PortfolioManagerPage({
   onConvertAndCreateCustomIndex,
 }: PortfolioManagerPageProps) {
   const { isAuthenticated, login, adminLogin, loading: authLoading } = useAuth();
+  const { theme } = useTheme();
   const [positions, setPositions] = useState<PortfolioPosition[]>(() =>
     isAuthenticated ? loadPortfolioPositions() : [],
   );
@@ -418,13 +420,27 @@ export function PortfolioManagerPage({
     }
   };
 
-  const loadLiveQuotes = useCallback(
-    async (forceRefresh = false) => {
-      const needsUsdJpy = positions.some((p) => getStockCurrency(p.ticker) === "$");
-      const allTickers = Array.from(
+  const quoteTickersKey = useMemo(
+    () =>
+      Array.from(
         new Set([
           ...positions.map((p) => normalizeTicker(p.ticker)),
           ...watchlist.map((w) => normalizeTicker(w)),
+        ]),
+      )
+        .filter(Boolean)
+        .join("|"),
+    [positions, watchlist],
+  );
+
+  const loadLiveQuotes = useCallback(
+    async (forceRefresh = false) => {
+      const baseTickers = quoteTickersKey ? quoteTickersKey.split("|") : [];
+      if (baseTickers.length === 0) return;
+      const needsUsdJpy = baseTickers.some((ticker) => getStockCurrency(ticker) === "$");
+      const allTickers = Array.from(
+        new Set([
+          ...baseTickers,
           // Only fetched when a USD position exists: the JPY totals otherwise
           // silently used a hardcoded FX constant instead of the live rate.
           ...(needsUsdJpy ? ["USDJPY=X"] : []),
@@ -474,7 +490,7 @@ export function PortfolioManagerPage({
         }
       }
     },
-    [positions, watchlist],
+    [quoteTickersKey],
   );
 
   useEffect(() => {
@@ -840,7 +856,7 @@ export function PortfolioManagerPage({
                 display: "flex",
                 gap: 6,
                 padding: 4,
-                background: "rgba(15, 23, 42, 0.6)",
+                background: "var(--surface-inset)",
                 borderRadius: 10,
                 border: "1px solid var(--border-subtle)",
                 marginBottom: 20,
@@ -855,6 +871,10 @@ export function PortfolioManagerPage({
                 tabIndex={authMode === "admin" ? 0 : -1}
                 onKeyDown={handleTabKeyDown}
                 onClick={() => {
+                  if (authMode !== "admin") {
+                    setTurnstileToken("");
+                    turnstileRef.current?.reset();
+                  }
                   setAuthMode("admin");
                   setAuthError(null);
                 }}
@@ -871,9 +891,9 @@ export function PortfolioManagerPage({
                   fontSize: 13,
                   fontWeight: 600,
                   transition: "all 0.15s ease",
-                  background: authMode === "admin" ? "var(--bg-card-hover, rgba(0, 229, 255, 0.15))" : "transparent",
-                  color: authMode === "admin" ? "var(--neon-cyan, #00e5ff)" : "var(--text-muted)",
-                  boxShadow: authMode === "admin" ? "0 1px 3px rgba(0,0,0,0.3)" : "none",
+                  background: authMode === "admin" ? "var(--accent-subtle)" : "transparent",
+                  color: authMode === "admin" ? "var(--accent-text)" : "var(--text-muted)",
+                  boxShadow: authMode === "admin" ? "0 1px 3px rgba(0,0,0,0.2)" : "none",
                 }}
               >
                 <Shield size={14} />
@@ -888,6 +908,10 @@ export function PortfolioManagerPage({
                 tabIndex={authMode === "user" ? 0 : -1}
                 onKeyDown={handleTabKeyDown}
                 onClick={() => {
+                  if (authMode !== "user") {
+                    setTurnstileToken("");
+                    turnstileRef.current?.reset();
+                  }
                   setAuthMode("user");
                   setAuthError(null);
                 }}
@@ -904,9 +928,9 @@ export function PortfolioManagerPage({
                   fontSize: 13,
                   fontWeight: 600,
                   transition: "all 0.15s ease",
-                  background: authMode === "user" ? "var(--bg-card-hover, rgba(255, 255, 255, 0.1))" : "transparent",
+                  background: authMode === "user" ? "var(--bg-card)" : "transparent",
                   color: authMode === "user" ? "var(--text-primary)" : "var(--text-muted)",
-                  boxShadow: authMode === "user" ? "0 1px 3px rgba(0,0,0,0.3)" : "none",
+                  boxShadow: authMode === "user" ? "0 1px 3px rgba(0,0,0,0.2)" : "none",
                 }}
               >
                 <User size={14} />
@@ -1119,6 +1143,7 @@ export function PortfolioManagerPage({
                       <TurnstileWidget
                         ref={turnstileRef}
                         siteKey={turnstileSiteKey}
+                        theme={theme}
                         onVerify={(token) => {
                           setTurnstileToken(token);
                           setAuthError(null);
@@ -2006,8 +2031,7 @@ export function PortfolioManagerPage({
 
                   <div style={{ textAlign: "right" }}>
                     <div className="mono bold" style={{ fontSize: "1.1rem" }}>
-                      {getStockCurrency(ticker)}
-                      {fund.price.toLocaleString()}
+                      {formatStockPrice(fund.price, ticker, { market: fund.market })}
                     </div>
                     <div
                       className="mono tiny bold"

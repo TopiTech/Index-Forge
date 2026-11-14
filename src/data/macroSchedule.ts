@@ -103,17 +103,26 @@ export const FOMC_MEETING_SCHEDULE: ReadonlyArray<MeetingDateItem> = [
 /**
  * 基準日以降の直近予定会合日（N回分）を取得
  */
+const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
+
 export function getNextScheduledMeetings(
   schedule: ReadonlyArray<MeetingDateItem>,
   refDate: Date = new Date(),
   count: number = 2,
 ): Date[] {
-  const refTime = refDate.getTime() - 24 * 60 * 60 * 1000; // 過去24時間以内は当日分として含む
+  if (count <= 0) return [];
+  const jstRef = new Date(refDate.getTime() + JST_OFFSET_MS);
+  const todayYear = jstRef.getUTCFullYear();
+  const todayMonth = jstRef.getUTCMonth() + 1;
+  const todayDay = jstRef.getUTCDate();
   const results: Date[] = [];
   for (const item of schedule) {
-    const d = new Date(item.year, item.month - 1, item.day);
-    if (d.getTime() >= refTime) {
-      results.push(d);
+    const isOnOrAfterToday =
+      item.year > todayYear ||
+      (item.year === todayYear &&
+        (item.month > todayMonth || (item.month === todayMonth && item.day >= todayDay)));
+    if (isOnOrAfterToday) {
+      results.push(new Date(item.year, item.month - 1, item.day));
       if (results.length >= count) break;
     }
   }

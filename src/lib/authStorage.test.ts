@@ -9,7 +9,7 @@
  * reload asks for a new login instead of silently restoring credentials.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getStoredAuth, storeAuth, clearAuth, getAuthHeaders } from "./auth";
+import { getStoredAuth, storeAuth, clearAuth, clearAdminSession, getAuthHeaders } from "./auth";
 import type { AuthSession } from "../types";
 
 const AUTH_KEY = "custom_stock_index_auth";
@@ -178,6 +178,36 @@ describe("storeAuth は検証を失敗したセッションを保持しない (C
 
     expect(getStoredAuth()?.password).toBe(SESSION.password);
     expect(session.data.get(AUTH_KEY)).toBe(JSON.stringify(SESSION));
+  });
+
+  it("removes stale sessionStorage entry when clearAdminSession cannot persist updated session", () => {
+    let failWrites = false;
+    const data = new Map<string, string>();
+    const storage = {
+      getItem: (key: string) => data.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        if (failWrites) throw new Error("QuotaExceededError");
+        data.set(key, value);
+      },
+      removeItem: (key: string) => {
+        data.delete(key);
+      },
+    };
+    const local = createStorage();
+    vi.stubGlobal("sessionStorage", storage);
+    vi.stubGlobal("localStorage", local.storage);
+
+    const elevated: AuthSession = { ...SESSION, role: "admin", adminToken: "secret-admin-jwt" };
+    storeAuth(elevated);
+    expect(data.has(AUTH_KEY)).toBe(true);
+    expect(getStoredAuth()?.adminToken).toBe("secret-admin-jwt");
+
+    failWrites = true;
+    clearAdminSession();
+
+    expect(getStoredAuth()?.adminToken).toBeUndefined();
+    expect(getStoredAuth()?.password).toBe(SESSION.password);
+    expect(data.has(AUTH_KEY)).toBe(false);
   });
 
   it("sessionStorage が無い環境でも不正セッションはメモリに保持されない", () => {

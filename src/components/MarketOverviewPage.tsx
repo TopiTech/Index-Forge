@@ -58,7 +58,7 @@ export function getFearGreedMeta(score: number): {
       label: "GREED (強気相場)",
       badgeClass: "badge-success",
       gradient: "linear-gradient(90deg, #38bdf8, #10b981)",
-      textColor: "#10b981",
+      textColor: "var(--neon-green)",
     };
   }
   if (score >= 45) {
@@ -214,7 +214,11 @@ export function MarketOverviewPage({
       ? allAssets
       : allAssets.filter((a) => a.category === selectedAssetTab);
 
-  const sentiment = getFearGreedMeta(data.marketBreadth.sentimentScore);
+  const rawSentimentScore = Number.isFinite(data.marketBreadth.sentimentScore)
+    ? data.marketBreadth.sentimentScore
+    : 50;
+  const clampedSentimentScore = Math.max(0, Math.min(100, Math.round(rawSentimentScore)));
+  const sentiment = getFearGreedMeta(clampedSentimentScore);
 
   return (
     <motion.div
@@ -393,21 +397,21 @@ export function MarketOverviewPage({
           gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
           gap: "16px",
           alignItems: "center",
-          background: "linear-gradient(180deg, var(--bg-card) 0%, rgba(20, 27, 45, 0.4) 100%)",
+          background: "linear-gradient(180deg, var(--bg-card) 0%, var(--surface-inset) 100%)",
         }}
       >
         <div>
           <span className="tiny muted mono uppercase block">市場センチメント (Fear & Greed)</span>
           <div style={{ display: "flex", alignItems: "baseline", gap: "10px", marginTop: "4px" }}>
             <span style={{ fontSize: "1.7rem", fontWeight: 700, color: sentiment.textColor }}>
-              {data.marketBreadth.sentimentScore}
+              {clampedSentimentScore}
             </span>
             <span
               className={`badge ${sentiment.badgeClass} tiny mono`}
               style={{
                 color: sentiment.textColor,
-                background: `${sentiment.textColor}1a`,
-                borderColor: `${sentiment.textColor}40`,
+                background: `color-mix(in srgb, ${sentiment.textColor} 12%, transparent)`,
+                borderColor: `color-mix(in srgb, ${sentiment.textColor} 35%, transparent)`,
               }}
             >
               {sentiment.label}
@@ -427,7 +431,7 @@ export function MarketOverviewPage({
             <div
               style={{
                 height: "100%",
-                width: `${data.marketBreadth.sentimentScore}%`,
+                width: `${clampedSentimentScore}%`,
                 background: sentiment.gradient,
                 borderRadius: "3px",
                 transition: "width 0.4s ease",

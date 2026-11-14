@@ -51,6 +51,32 @@ const FIELD_PROVENANCE_TOOLTIP: Record<CalendarValueProvenance, string> = {
   estimated: "公式実績ではなく推計値です",
 };
 
+function getCurrentJstMonthDate(): Date {
+  const jstYmd = jstDateString(new Date());
+  const [yearStr, monthStr] = jstYmd.split("-");
+  const year = Number(yearStr);
+  const month = Number(monthStr);
+  if (Number.isFinite(year) && Number.isFinite(month) && month >= 1 && month <= 12) {
+    return new Date(year, month - 1, 1);
+  }
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), 1);
+}
+
+function getActualResultColor(actual?: string): string {
+  const trimmed = typeof actual === "string" ? actual.trim() : "";
+  if (!trimmed || trimmed === "--" || trimmed === "---" || trimmed === "N/A") {
+    return "var(--text-muted)";
+  }
+  const numeric = Number(trimmed.replace(/[,¥$%pt倍件]/g, ""));
+  if (Number.isFinite(numeric)) {
+    if (numeric < 0) return "var(--color-negative)";
+    if (numeric > 0) return "var(--color-positive)";
+    return "var(--text-primary)";
+  }
+  return trimmed.startsWith("-") ? "var(--color-negative)" : "var(--text-primary)";
+}
+
 function FieldValueBadge({ provenance }: { provenance?: CalendarValueProvenance }) {
   if (!provenance) return null;
   return (
@@ -219,7 +245,7 @@ export function CalendarPage({
   const [marketFilter, setMarketFilter] = useState<MarketFilter>("ALL");
   const [searchQuery, setSearchQuery] = useState("");
   const [viewMode, setViewMode] = useState<"LIST" | "CALENDAR">("LIST");
-  const [currentMonthDate, setCurrentMonthDate] = useState(() => new Date());
+  const [currentMonthDate, setCurrentMonthDate] = useState(getCurrentJstMonthDate);
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
   const [selectedDayOverview, setSelectedDayOverview] = useState<{
     dateStr: string;
@@ -265,6 +291,10 @@ export function CalendarPage({
         // never retrieved (and are labeled 参考値 right below).
         if (data.some((event) => event.source !== "fallback")) {
           setLastUpdatedAt(Date.now());
+        } else {
+          // Degrading to locally generated fallback events invalidates any
+          // prior live timestamp so DataFreshness does not keep showing LIVE.
+          setLastUpdatedAt(null);
         }
       }
     } finally {
@@ -381,7 +411,7 @@ export function CalendarPage({
     setCurrentMonthDate(new Date(viewYear, viewMonth + 1, 1));
   };
   const handleTodayMonth = () => {
-    setCurrentMonthDate(new Date());
+    setCurrentMonthDate(getCurrentJstMonthDate());
   };
 
   const calendarGrid = useMemo(() => {
@@ -1095,7 +1125,7 @@ export function CalendarPage({
                         ? cell.isToday
                           ? "rgba(56, 189, 248, 0.08)"
                           : "var(--bg-card-hover)"
-                        : "rgba(0, 0, 0, 0.15)",
+                        : "var(--surface-inset)",
                       border: cell.isToday
                         ? "1px solid var(--accent-border)"
                         : "1px solid var(--border-subtle)",
@@ -1322,7 +1352,7 @@ export function CalendarPage({
                 </div>
                 <div>
                   <span className="tiny muted mono block">発表結果</span>
-                  <div className="mono bold" style={{ fontSize: "1.1rem", color: "#10b981" }}>
+                  <div className="mono bold" style={{ fontSize: "1.1rem", color: getActualResultColor(selectedEvent.actual) }}>
                     {selectedEvent.actual || "--"}
                   </div>
                   {selectedEvent.actual && (

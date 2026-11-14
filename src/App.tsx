@@ -69,7 +69,13 @@ const GlobalSearchModal = lazy(() =>
  */
 let globalSearchChunkPromise: Promise<unknown> | null = null;
 export const preloadGlobalSearchModal = () => {
-  globalSearchChunkPromise ??= import("./components/GlobalSearchModal");
+  if (!globalSearchChunkPromise) {
+    globalSearchChunkPromise = import("./components/GlobalSearchModal").catch((err) => {
+      // Clear cached rejection so a subsequent hover or shortcut can retry.
+      globalSearchChunkPromise = null;
+      throw err;
+    });
+  }
   return globalSearchChunkPromise;
 };
 

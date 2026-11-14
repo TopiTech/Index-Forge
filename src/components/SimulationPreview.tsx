@@ -21,6 +21,7 @@ import type { PricePoint, Timeframe, BenchmarkSymbol } from "../types";
 import { AVAILABLE_BENCHMARKS } from "../hooks/useBenchmark";
 import type { SimulationResult } from "../hooks/useSimulation";
 import { changeTone, formatDrawdownPercent, formatSignedPercent } from "./changeTone";
+import { normalizeRoundedZero } from "./changeTone";
 
 interface SimulationPreviewProps {
   simulation: SimulationResult;
@@ -165,6 +166,7 @@ export function SimulationPreview({
 
   const currentBenchmarkLabel =
     AVAILABLE_BENCHMARKS.find((b) => b.symbol === selectedBenchmark)?.shortLabel || "ベンチマーク";
+  const normalizedSharpe = normalizeRoundedZero(metrics.sharpeRatio, 2);
 
   return (
     <div
@@ -376,17 +378,17 @@ export function SimulationPreview({
         />
         <MiniStatCard
           label="ボラティリティ (年率)"
-          value={`${metrics.annualVolatility.toFixed(1)}%`}
+          value={`${normalizeRoundedZero(metrics.annualVolatility, 1).toFixed(1)}%`}
           valueColor="var(--text-primary)"
           sub="価格変動リスク"
         />
         <MiniStatCard
           label="シャープレシオ"
-          value={metrics.sharpeRatio.toFixed(2)}
+          value={normalizedSharpe.toFixed(2)}
           valueColor={
-            metrics.sharpeRatio >= 1
+            normalizedSharpe >= 1
               ? "var(--neon-green)"
-              : metrics.sharpeRatio >= 0
+              : normalizedSharpe >= 0
                 ? "var(--accent-text)"
                 : "var(--neon-red)"
           }
@@ -425,7 +427,7 @@ export function SimulationPreview({
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              backgroundColor: "rgba(9, 13, 22, 0.7)",
+              backgroundColor: "color-mix(in srgb, var(--bg-dark) 82%, transparent)",
               borderRadius: 8,
               zIndex: 10,
               gap: 8,
@@ -486,7 +488,7 @@ export function SimulationPreview({
                   typeof v === "number" && Number.isFinite(v) ? `${v > 0 ? "+" : ""}${v}%` : "--"
                 }
               />
-              <ReferenceLine y={0} stroke="rgba(255, 255, 255, 0.2)" strokeDasharray="2 2" />
+              <ReferenceLine y={0} stroke="var(--chart-reference)" strokeDasharray="2 2" />
               <Tooltip
                 content={({ active, payload, label }) => {
                   if (!active || !payload || !payload.length) return null;
@@ -544,7 +546,7 @@ export function SimulationPreview({
               <Line
                 type="monotone"
                 dataKey="benchmarkReturnPct"
-                stroke="rgba(255, 255, 255, 0.45)"
+                stroke="var(--chart-reference-strong)"
                 strokeWidth={1.5}
                 strokeDasharray="4 4"
                 dot={false}

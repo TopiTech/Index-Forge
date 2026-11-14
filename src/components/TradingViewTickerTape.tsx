@@ -457,6 +457,10 @@ export function TradingViewTickerTape() {
 
   const openChartModal = useCallback(
     (item: TickerSymbolItem) => {
+      if (hoverTimerRef.current) {
+        clearTimeout(hoverTimerRef.current);
+        hoverTimerRef.current = null;
+      }
       const live = liveQuotes[item.proName];
       setActivePopupSymbol({
         proName: item.proName,

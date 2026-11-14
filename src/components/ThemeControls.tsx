@@ -23,7 +23,8 @@ export function ThemeControls() {
     };
     const handleClickOutside = (e: MouseEvent) => {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        close();
+        // Do not steal focus back to the trigger when the user clicked elsewhere.
+        setIsOpen(false);
       }
     };
     const handleKeyDownGlobal = (e: KeyboardEvent) => {

@@ -25,6 +25,18 @@ interface DataFreshnessProps {
   customStatusText?: string;
 }
 
+const MAX_VALID_DATE_MS = 8_640_000_000_000_000;
+
+function isValidDateTimestamp(value: unknown): value is number {
+  return (
+    typeof value === "number" &&
+    Number.isFinite(value) &&
+    value > 0 &&
+    value <= MAX_VALID_DATE_MS &&
+    !Number.isNaN(new Date(value).getTime())
+  );
+}
+
 export function DataFreshness({
   benchmarkUpdatedAt,
   calculationUpdatedAt,
@@ -39,17 +51,15 @@ export function DataFreshness({
   const parsedUpdatedAt =
     typeof updatedAt === "string"
       ? Date.parse(updatedAt)
-      : typeof updatedAt === "number" && Number.isFinite(updatedAt) && updatedAt > 0
+      : isValidDateTimestamp(updatedAt)
         ? updatedAt
         : null;
 
-  const validParsedUpdatedAt =
-    typeof parsedUpdatedAt === "number" && Number.isFinite(parsedUpdatedAt) && parsedUpdatedAt > 0
-      ? parsedUpdatedAt
-      : null;
+  const validParsedUpdatedAt = isValidDateTimestamp(parsedUpdatedAt) ? parsedUpdatedAt : null;
 
   const timestamps = [benchmarkUpdatedAt, calculationUpdatedAt, validParsedUpdatedAt].filter(
-    (timestamp): timestamp is number => typeof timestamp === "number" && Number.isFinite(timestamp) && timestamp > 0,
+    (timestamp): timestamp is number =>
+      typeof timestamp === "number" && Number.isFinite(timestamp) && timestamp > 0 && isValidDateTimestamp(timestamp),
   );
   const latestUpdatedAt = timestamps.length > 0 ? Math.max(...timestamps) : null;
   const isUpdating = loading || syncing;

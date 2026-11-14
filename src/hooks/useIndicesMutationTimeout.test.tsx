@@ -143,4 +143,52 @@ describe("useIndices mutations timeout and lifecycle guards", () => {
       expect(res?.ok).toBe(true);
     });
   });
+
+  it("rejects invalid ticker in addStockToIndex before making a network request and normalizes timeout errors", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.endsWith("/indices") && (!init || init.method === "GET")) {
+        return new Response(JSON.stringify([TEST_INDEX]), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (init?.method === "POST" && url.endsWith("/indices")) {
+        throw new apiContract.FetchTimeoutError();
+      }
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result } = renderHook(() => useIndices());
+
+    let addRes: { ok: boolean; error?: string } | undefined;
+    await act(async () => {
+      addRes = await result.current.addStockToIndex("test-idx-1", {
+        ticker: "BAD@TICKER",
+        name: "Invalid",
+        theme: "Custom",
+        weight: 10,
+      });
+    });
+    expect(addRes).toEqual({ ok: false, error: "無効な銘柄コードです" });
+    expect(
+      fetchMock.mock.calls.some(
+        ([url, init]) => String(url).endsWith("/indices/stock") && init?.method === "POST",
+      ),
+    ).toBe(false);
+
+    vi.spyOn(apiContract, "fetchWithNetworkMark").mockRejectedValueOnce(new apiContract.FetchTimeoutError());
+    let timeoutRes: { ok: boolean; error?: string } | undefined;
+    await act(async () => {
+      timeoutRes = await result.current.saveCustomIndex(TEST_INDEX);
+    });
+    expect(timeoutRes).toEqual({
+      ok: false,
+      error: apiContract.REQUEST_TIMEOUT_MESSAGE,
+    });
+  });
 });

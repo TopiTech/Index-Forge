@@ -227,7 +227,7 @@ export const TurnstileWidget = forwardRef<TurnstileWidgetRef, TurnstileWidgetPro
           alignItems: "center",
           justifyContent: "center",
           minHeight: 70,
-          background: "rgba(15, 23, 42, 0.4)",
+          background: "var(--surface-inset, rgba(15, 23, 42, 0.4))",
           border: "1px dashed var(--border-subtle, rgba(255, 255, 255, 0.15))",
           borderRadius: 8,
           padding: "10px 14px",

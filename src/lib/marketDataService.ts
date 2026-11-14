@@ -2203,6 +2203,10 @@ export function sanitizeStockFundamentals(
     name: readText(raw.name, baseline.name),
     theme: readText(raw.theme, baseline.theme),
     sector: readText(raw.sector, baseline.sector),
+    industry:
+      typeof raw.industry === "string" && raw.industry.trim().length > 0
+        ? raw.industry.trim()
+        : baseline.industry,
     market: readMarket(raw.market, baseline.market),
     price: readNumber(raw.price, baseline.price),
     change: readNumber(raw.change, baseline.change),

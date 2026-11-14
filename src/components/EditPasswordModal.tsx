@@ -65,7 +65,7 @@ export function EditPasswordModal({
   const handleClose = () => {
     if (!loading) onClose();
   };
-  useModalFocus(isOpen, dialogRef, handleClose, nameInputRef);
+  useModalFocus(Boolean(isOpen && item), dialogRef, handleClose, nameInputRef);
 
   useEffect(() => {
     if (item) {

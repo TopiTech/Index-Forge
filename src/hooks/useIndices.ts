@@ -12,8 +12,10 @@ import {
 import { getAuthHeaders } from "../lib/auth";
 import {
   LEGACY_REPAIRED_WEIGHT,
+  REQUEST_TIMEOUT_MESSAGE,
   fetchWithNetworkMark,
   isFetchTimeoutError,
+  isValidTicker,
   readJsonBody,
   readResponseErrorMessage,
   releaseResponse,
@@ -29,6 +31,12 @@ const API_BASE = "/api";
 const INDICES_CACHE_KEY = "osi_indices_cache";
 const INDICES_ETAG_KEY = "osi_indices_etag";
 export const INDICES_REQUEST_TIMEOUT_MS = 10_000;
+
+function formatMutationError(err: unknown, fallback: string): string {
+  if (isFetchTimeoutError(err)) return REQUEST_TIMEOUT_MESSAGE;
+  if (err instanceof Error && err.message.trim().length > 0) return err.message;
+  return fallback;
+}
 
 /**
  * Validate one index received from the API or read back from browser storage.
@@ -535,8 +543,7 @@ export function useIndices() {
         }
         return { ok: true, ownerToken: finalToken || undefined, id: savedId };
       } catch (err) {
-        const msg = err instanceof Error ? err.message : "指数の保存に失敗しました";
-        return { ok: false, error: msg };
+        return { ok: false, error: formatMutationError(err, "指数の保存に失敗しました") };
       }
     },
     [fetchIndices],
@@ -570,8 +577,7 @@ export function useIndices() {
         await fetchIndices();
         return { ok: true };
       } catch (err) {
-        const msg = err instanceof Error ? err.message : "指数の削除に失敗しました";
-        return { ok: false, error: msg };
+        return { ok: false, error: formatMutationError(err, "指数の削除に失敗しました") };
       }
     },
     [fetchIndices],
@@ -597,6 +603,9 @@ export function useIndices() {
           headers["x-owner-token"] = token;
         }
         const cleanTicker = normalizeTicker(stock.ticker);
+        if (!isValidTicker(cleanTicker)) {
+          return { ok: false, error: "無効な銘柄コードです" };
+        }
         const cleanWeight =
           typeof stock.weight === "number" && Number.isFinite(stock.weight) && stock.weight > 0
             ? Math.min(stock.weight, 100)
@@ -625,8 +634,7 @@ export function useIndices() {
         await fetchIndices();
         return { ok: true };
       } catch (err) {
-        const msg = err instanceof Error ? err.message : "銘柄の追加に失敗しました";
-        return { ok: false, error: msg };
+        return { ok: false, error: formatMutationError(err, "銘柄の追加に失敗しました") };
       }
     },
     [fetchIndices],
@@ -669,8 +677,7 @@ export function useIndices() {
         await fetchIndices();
         return { ok: true };
       } catch (err) {
-        const msg = err instanceof Error ? err.message : "銘柄の削除に失敗しました";
-        return { ok: false, error: msg };
+        return { ok: false, error: formatMutationError(err, "銘柄の削除に失敗しました") };
       }
     },
     [fetchIndices],

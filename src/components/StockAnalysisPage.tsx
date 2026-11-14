@@ -31,7 +31,12 @@ import { formatStockPrice, formatStockChange } from "../lib/currency";
 import { POPULAR_STOCKS } from "../data/popularStocks";
 import { searchStockUniverse, normalizeSearchQuery, getUniverseStockByTicker } from "../data/stockUniverse";
 import { getRecentSearches } from "./GlobalSearchModal";
-import { changeTone, formatSignedPercent } from "./changeTone";
+import {
+  changeTone,
+  formatSignedPercent,
+  normalizeRoundedZero,
+  type ChangeTone,
+} from "./changeTone";
 import type { PageView } from "../lib/navigation";
 import { useRegisterFreshness } from "../contexts/FreshnessContext";
 import { formatMarketLabel } from "../lib/marketFormatter";
@@ -412,7 +417,7 @@ export function StockAnalysisPage({
     themeTabRefs.current[nextTab.id]?.focus();
   };
 
-  const renderSparkline = (data?: number[], isPositive = true) => {
+  const renderSparkline = (data?: number[], tone: ChangeTone = "positive") => {
     if (!data || data.length < 2) return null;
     const validData = data.filter((v) => typeof v === "number" && Number.isFinite(v));
     if (validData.length < 2) return null;
@@ -430,7 +435,12 @@ export function StockAnalysisPage({
       })
       .join(" ");
 
-    const strokeColor = isPositive ? "var(--neon-green, #10b981)" : "var(--neon-pink, #f43f5e)";
+    const strokeColor =
+      tone === "positive"
+        ? "var(--neon-green, #10b981)"
+        : tone === "negative"
+          ? "var(--neon-pink, #f43f5e)"
+          : "var(--text-muted)";
 
     return (
       <svg width={width} height={height} className="stock-analysis-sparkline" aria-hidden="true">
@@ -810,10 +820,17 @@ export function StockAnalysisPage({
                   </div>
                   <div className="stock-analysis-mover-right">
                     <span className="stock-mover-price">
-                      利回り {(item.dividendYield ?? 0).toFixed(2)}%
+                      利回り{" "}
+                      {typeof item.dividendYield === "number" && Number.isFinite(item.dividendYield)
+                        ? normalizeRoundedZero(item.dividendYield, 2).toFixed(2)
+                        : "0.00"}
+                      %
                     </span>
                     <span className="stock-mover-change neutral">
-                      PBR {item.pbr !== null ? `${item.pbr.toFixed(2)}x` : "-"}
+                      PBR{" "}
+                      {typeof item.pbr === "number" && Number.isFinite(item.pbr)
+                        ? `${normalizeRoundedZero(item.pbr, 2).toFixed(2)}x`
+                        : "-"}
                     </span>
                   </div>
                 </div>
@@ -980,7 +997,7 @@ export function StockAnalysisPage({
                       })()}
                     </div>
                     <div className="stock-card-sparkline-wrap">
-                      {renderSparkline(stock.sparkline, isPositive)}
+                      {renderSparkline(stock.sparkline, cardTone)}
                     </div>
                   </div>
                 </div>
@@ -1001,13 +1018,17 @@ export function StockAnalysisPage({
                   <div className="stock-card-metric-item">
                     <span className="metric-label">PBR</span>
                     <span className="metric-value">
-                      {stock.pbr !== null ? `${stock.pbr.toFixed(2)}x` : "-"}
+                      {typeof stock.pbr === "number" && Number.isFinite(stock.pbr)
+                        ? `${normalizeRoundedZero(stock.pbr, 2).toFixed(2)}x`
+                        : "-"}
                     </span>
                   </div>
                   <div className="stock-card-metric-item">
                     <span className="metric-label">配当利回り</span>
                     <span className="metric-value">
-                      {stock.dividendYield !== null ? `${stock.dividendYield.toFixed(2)}%` : "-"}
+                      {typeof stock.dividendYield === "number" && Number.isFinite(stock.dividendYield)
+                        ? `${normalizeRoundedZero(stock.dividendYield, 2).toFixed(2)}%`
+                        : "-"}
                     </span>
                   </div>
                   <div className="stock-card-metric-item">

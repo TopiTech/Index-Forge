@@ -29,7 +29,7 @@ import {
   formatUsdWithJpyEstimate,
   getCurrencyMeta,
 } from "../lib/currency";
-import { changeTone, formatSignedPercent } from "./changeTone";
+import { changeTone, formatSignedPercent, normalizeRoundedZero } from "./changeTone";
 import { DEFAULT_USD_JPY_RATE } from "../data/marketConstants";
 import { StockTechnicalChart } from "./StockTechnicalChart";
 import { getTradingViewWebUrl } from "../lib/tradingView";
@@ -447,7 +447,7 @@ export function StockDetailPage({
         style={{
           padding: "24px",
           marginBottom: "24px",
-          background: "linear-gradient(135deg, var(--bg-card) 0%, rgba(30, 41, 59, 0.4) 100%)",
+          background: "linear-gradient(135deg, var(--bg-card) 0%, var(--surface-inset) 100%)",
           border: "1px solid var(--border-subtle)",
         }}
       >
@@ -810,10 +810,9 @@ export function StockDetailPage({
               </thead>
               <tbody>
                 {(stock.historicalFinances ?? []).map((f, idx) => {
-                  const opMargin =
-                    f.revenue > 0
-                      ? Number(((f.operatingIncome / f.revenue) * 100).toFixed(1))
-                      : 0;
+                  const rawOpMargin =
+                    f.revenue > 0 ? Number(((f.operatingIncome / f.revenue) * 100).toFixed(1)) : 0;
+                  const opMargin = normalizeRoundedZero(rawOpMargin, 1).toFixed(1);
                   const isLatest = idx === (stock.historicalFinances?.length ?? 1) - 1;
                   
                   // 1株配当の決定:
@@ -881,8 +880,8 @@ export function StockDetailPage({
                       <td style={{ textAlign: "right" }} className="mono">
                         {f.eps !== null && f.eps !== undefined && Number.isFinite(f.eps)
                           ? stock.market === "US" && !Number.isInteger(f.eps)
-                            ? Number(f.eps).toFixed(2)
-                            : f.eps
+                            ? normalizeRoundedZero(f.eps, 2).toFixed(2)
+                            : normalizeRoundedZero(f.eps, 2)
                           : "--"}
                       </td>
                       <td

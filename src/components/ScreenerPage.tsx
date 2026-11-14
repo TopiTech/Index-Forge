@@ -27,7 +27,7 @@ import {
   type StockQuoteFundamentals,
 } from "../lib/marketDataService";
 import { allocateEvenWeights } from "../lib/weights";
-import { changeTone, formatSignedPercent } from "./changeTone";
+import { changeTone, formatSignedPercent, normalizeRoundedZero } from "./changeTone";
 import { escapeCsvCell } from "../lib/csv";
 import { toSafeDownloadFileName } from "../lib/downloadFileName";
 import { downloadBlob } from "../lib/downloadFile";
@@ -294,7 +294,7 @@ export function ScreenerPage({
   };
 
   const results = useMemo(() => {
-    return runStockScreener(
+    const rawResults = runStockScreener(
       {
         market,
         minDividendYield: minDividend,
@@ -306,6 +306,17 @@ export function ScreenerPage({
       },
       universe ?? undefined,
     );
+    return rawResults.map((item) => ({
+      ...item,
+      dividendYield:
+        typeof item.dividendYield === "number" && Number.isFinite(item.dividendYield)
+          ? normalizeRoundedZero(item.dividendYield, 2)
+          : null,
+      roe:
+        typeof item.roe === "number" && Number.isFinite(item.roe)
+          ? normalizeRoundedZero(item.roe, 1)
+          : null,
+    }));
   }, [market, minDividend, maxPbr, maxPer, searchQuery, sortBy, sortOrder, universe]);
 
   // Active filter pills
@@ -984,7 +995,7 @@ export function ScreenerPage({
                 width: "48px",
                 height: "48px",
                 borderRadius: "50%",
-                background: "rgba(255, 255, 255, 0.05)",
+                background: "var(--surface-inset)",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
@@ -1207,7 +1218,9 @@ export function ScreenerPage({
                         style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}
                         className="mono"
                       >
-                        {typeof stock.roe === "number" ? `${stock.roe.toFixed(1)}%` : "--"}
+                        {typeof stock.roe === "number"
+                          ? `${stock.roe.toFixed(1)}%`
+                          : "--"}
                       </td>
 
                       <td style={{ textAlign: "center" }}>
@@ -1337,7 +1350,9 @@ export function ScreenerPage({
                     <div className="screener-mobile-stat">
                       <span className="screener-mobile-stat-label">予想配当利回り</span>
                       <span className="screener-mobile-stat-val mono bold tabular-nums" style={{ color: "var(--accent-text)" }}>
-                        {typeof stock.dividendYield === "number" ? `${stock.dividendYield.toFixed(2)}%` : "--"}
+                        {typeof stock.dividendYield === "number"
+                          ? `${stock.dividendYield.toFixed(2)}%`
+                          : "--"}
                       </span>
                     </div>
                     <div className="screener-mobile-stat">
@@ -1356,7 +1371,10 @@ export function ScreenerPage({
 
                   <div className="screener-mobile-card-footer">
                     <span className="tiny muted mono">
-                      ROE: {typeof stock.roe === "number" ? `${stock.roe.toFixed(1)}%` : "--"}
+                      ROE:{" "}
+                      {typeof stock.roe === "number"
+                        ? `${stock.roe.toFixed(1)}%`
+                        : "--"}
                     </span>
                     <span
                       className={`badge ${getTechnicalSignalBadgeClass(stock.technicalSignal)} tiny mono`}

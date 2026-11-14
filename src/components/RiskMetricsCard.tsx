@@ -4,7 +4,7 @@ import { Card, Tag } from "./ui";
 import { ShieldAlert, Activity, Target, ArrowDownRight, Award, Zap, TrendingUp } from "lucide-react";
 import type { PricePoint } from "../types";
 import { calculateRiskMetrics } from "../lib/analytics";
-import { changeTone, formatSignedPercent } from "./changeTone";
+import { changeTone, formatSignedPercent, normalizeRoundedZero } from "./changeTone";
 
 interface RiskMetricsCardProps {
   customSeries: PricePoint[];
@@ -38,6 +38,13 @@ export function RiskMetricsCard({
         ? "var(--neon-red)"
         : "var(--text-primary)";
 
+  const sharpeValue = normalizeRoundedZero(metrics.sharpeRatio, 2);
+  const betaValue =
+    metrics.beta !== null && Number.isFinite(metrics.beta)
+      ? normalizeRoundedZero(metrics.beta, 2)
+      : null;
+  const winRateValue = normalizeRoundedZero(metrics.winRate, 1);
+
   const items = [
     {
       label: "年率期待リターン (CAGR)",
@@ -55,20 +62,24 @@ export function RiskMetricsCard({
     },
     {
       label: "シャープレシオ (Sharpe)",
-      value: metrics.sharpeRatio.toFixed(2),
+      value: sharpeValue.toFixed(2),
       sub:
-        metrics.sharpeRatio >= 1
+        sharpeValue >= 1
           ? "優秀なリスク対比リターン"
-          : metrics.sharpeRatio > 0
+          : sharpeValue > 0
             ? "プラスリターン"
-            : "リスク見劣り",
+            : sharpeValue === 0
+              ? "中立水準"
+              : "リスク見劣り",
       icon: <Target size={15} style={{ color: "var(--accent-text)" }} />,
       color:
-        metrics.sharpeRatio >= 1
+        sharpeValue >= 1
           ? "var(--neon-green)"
-          : metrics.sharpeRatio > 0
+          : sharpeValue > 0
             ? "var(--accent-text)"
-            : "var(--neon-red)",
+            : sharpeValue === 0
+              ? "var(--text-secondary)"
+              : "var(--neon-red)",
     },
     {
       label: "最大ドローダウン (MDD)",
@@ -84,29 +95,29 @@ export function RiskMetricsCard({
     },
     {
       label: "年率ボラティリティ (リスク)",
-      value: `${pctFmt.format(metrics.annualVolatility)}%`,
+      value: `${pctFmt.format(normalizeRoundedZero(metrics.annualVolatility, 2))}%`,
       sub: "日次変動の年率換算標準偏差",
       icon: <Activity size={15} style={{ color: "var(--neon-magenta)" }} />,
       color: "var(--text-primary)",
     },
     {
       label: `ベータ値 (vs ${benchmarkName})`,
-      value: metrics.beta === null ? "N/A" : metrics.beta.toFixed(2),
+      value: betaValue === null ? "N/A" : betaValue.toFixed(2),
       sub:
-        metrics.beta === null
+        betaValue === null
           ? "ベンチマークとの比較に十分なデータがありません"
-          : metrics.beta > 1
+          : betaValue > 1
             ? "市場よりハイボラティリティ"
             : "市場よりマイルドな値動き",
       icon: <Zap size={15} style={{ color: "var(--neon-yellow)" }} />,
-      color: metrics.beta === null ? "var(--text-secondary)" : "var(--neon-yellow)",
+      color: betaValue === null ? "var(--text-secondary)" : "var(--neon-yellow)",
     },
     {
       label: "日次勝率 (Win Rate)",
-      value: `${metrics.winRate.toFixed(1)}%`,
+      value: `${winRateValue.toFixed(1)}%`,
       sub: `最良: ${formatSignedPercent(metrics.bestDay, 2)} / 最悪: ${formatSignedPercent(metrics.worstDay, 2)}`,
       icon: <Award size={15} style={{ color: "var(--neon-green)" }} />,
-      color: metrics.winRate >= 50 ? "var(--neon-green)" : "var(--neon-red)",
+      color: winRateValue >= 50 ? "var(--neon-green)" : "var(--neon-red)",
     },
   ];
 
