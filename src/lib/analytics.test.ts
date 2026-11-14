@@ -266,6 +266,40 @@ describe("analytics library", () => {
       expect(details[0].sparkline).toEqual([100, 110]);
     });
 
+    it("measures each stock on the index date axis instead of its own last two points", () => {
+      // 7203 did not print a price on 2026-01-03: the index carries its
+      // 2026-01-02 close forward. Its own last two points (100 -> 110) are
+      // therefore not the move applied to the index on 2026-01-03; using them
+      // credited the previous session's gain to the newest date.
+      const details = calculateStockDetails(
+        [{ ticker: "7203", name: "トヨタ", weight: 100, theme: "自動車" }],
+        [
+          {
+            ticker: "7203",
+            name: "トヨタ",
+            theme: "自動車",
+            sector: "Auto",
+            latestPrice: 110,
+            series: [
+              { date: "2026-01-01", close: 100 },
+              { date: "2026-01-02", close: 110 },
+            ],
+          },
+        ],
+        1000,
+        [
+          { date: "2026-01-02", close: 1100, value: 1100 },
+          { date: "2026-01-03", close: 1100, value: 1100 },
+        ],
+      );
+
+      expect(details[0].currentPrice).toBe(110);
+      expect(details[0].previousPrice).toBe(110);
+      expect(details[0].change).toBe(0);
+      expect(details[0].changePct).toBe(0);
+      expect(details[0].contributionPt).toBe(0);
+    });
+
     it("matches stock details case-insensitively for legacy basket tickers", () => {
       const details = calculateStockDetails(
         [{ ticker: "aapl", name: "Apple", weight: 100, theme: "Tech" }],

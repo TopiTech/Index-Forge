@@ -263,6 +263,35 @@ export function TradingViewTickerTape() {
     };
   }, []);
 
+  /**
+   * Withdraw every live quote and return the tape to its disclosed reference
+   * values.
+   *
+   * A failed poll (transport error, non-2xx, malformed body) says nothing about
+   * the quote that was last accepted. Keeping that map while flipping only the
+   * badge would leave old market prices on screen under a 参考値 label, and the
+   * chart popover would still open with the stale live price.
+   */
+  const withdrawLiveQuotes = useCallback(() => {
+    setIsLive(false);
+    // The ETag describes the payload that produced the (now withdrawn) live
+    // map. Keeping it would let the next poll answer 304 and leave the tape
+    // on reference values until the upstream data changed; force a full body
+    // so the quotes can be restored as soon as connectivity returns.
+    etagRef.current = null;
+    const prev = liveQuotesRef.current;
+    if (Object.keys(prev).length > 0) {
+      const empty: Record<string, LiveQuoteItem> = {};
+      liveQuotesRef.current = empty;
+      setLiveQuotes(empty);
+    }
+    setFlashItems({});
+    if (flashTimerRef.current) {
+      clearTimeout(flashTimerRef.current);
+      flashTimerRef.current = null;
+    }
+  }, []);
+
   // Fetch real-time market quotes from worker API (with ETag conditional request)
   const fetchQuotes = useCallback(async () => {
     // DATA-29: this request supersedes every older one. Only the newest
@@ -300,6 +329,7 @@ export function TradingViewTickerTape() {
       }
       if (!res.ok) {
         releaseResponse(res);
+        withdrawLiveQuotes();
         return;
       }
 
@@ -309,7 +339,10 @@ export function TradingViewTickerTape() {
       // never applied (parse failure / unusable payload).
       const data: unknown = await readJsonBody(res);
       if (!isCurrent()) return;
-      if (!isUsableQuotesPayload(data)) return;
+      if (!isUsableQuotesPayload(data)) {
+        withdrawLiveQuotes();
+        return;
+      }
 
       const newEtag = res.headers.get("etag");
       if (newEtag) {
@@ -326,17 +359,7 @@ export function TradingViewTickerTape() {
         // would leave stale prices looking like market data under a 参考値
         // badge (and would still feed them to the chart popover). Drop the
         // map at its owner instead of merely changing the badge.
-        setIsLive(false);
-        if (Object.keys(prev).length > 0) {
-          const empty: Record<string, LiveQuoteItem> = {};
-          liveQuotesRef.current = empty;
-          setLiveQuotes(empty);
-        }
-        setFlashItems({});
-        if (flashTimerRef.current) {
-          clearTimeout(flashTimerRef.current);
-          flashTimerRef.current = null;
-        }
+        withdrawLiveQuotes();
         return;
       }
       const quotesToApply = freshQuotes;
@@ -386,11 +409,14 @@ export function TradingViewTickerTape() {
 
       setIsLive(true);
     } catch {
-      // Gracefully retain existing or default values when offline/error.
-      // A body that could not be parsed leaves the previous ETag untouched,
-      // so the next poll asks for the full payload again.
+      // A superseded/unmounted request has no authority over the current tape.
+      // A request that failed while current means the prices on screen can no
+      // longer be presented as live, so they are withdrawn (including the ETag,
+      // which no longer describes what is displayed).
+      if (!isCurrent()) return;
+      withdrawLiveQuotes();
     }
-  }, []);
+  }, [withdrawLiveQuotes]);
 
   // Smart polling: 60s during trading hours, 15m outside trading hours to conserve quota
   useEffect(() => {

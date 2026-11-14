@@ -298,6 +298,42 @@ export function calculateStockDetails(
         normalizedCustomSeries[normalizedCustomSeries.length - 2].close)
       : latestIndexVal;
 
+  // A stock's own last two points are not necessarily the index's last two
+  // dates: a constituent can be absent from the latest date (a different
+  // exchange holiday, a suspension, or a delisted tail that the index carries
+  // forward). Computing its change from its own last two points then credited
+  // the previous session's move to the latest index date, so the "index
+  // contribution" described a date that the contribution was not applied to.
+  // Both prices are therefore read on the index date axis, using the last
+  // close on or before each date.
+  const latestIndexDate =
+    normalizedCustomSeries.length > 0
+      ? normalizedCustomSeries[normalizedCustomSeries.length - 1].date
+      : null;
+  const previousIndexDate =
+    normalizedCustomSeries.length > 1
+      ? normalizedCustomSeries[normalizedCustomSeries.length - 2].date
+      : null;
+
+  const closeOnOrBefore = (series: PricePoint[], date: string): number | null => {
+    const targetTime = Date.parse(date);
+    for (let i = series.length - 1; i >= 0; i--) {
+      const point = series[i];
+      const pointTime = Date.parse(point.date);
+      // Dates normally arrive as ISO calendar dates. Comparing parsed times
+      // keeps the axis correct if a legacy payload used another parseable
+      // format; only truly non-parseable strings fall back to lexical order.
+      const isAfter =
+        Number.isNaN(targetTime) || Number.isNaN(pointTime)
+          ? point.date > date
+          : pointTime > targetTime;
+      if (isAfter) continue;
+      const close = point.close;
+      return typeof close === "number" && Number.isFinite(close) && close > 0 ? close : null;
+    }
+    return null;
+  };
+
   return normalized.map((item) => {
     const stock = stockMap.get(normalizeTicker(item.ticker));
     const series = normalizeAnalyticsSeries(stock?.series, false);
@@ -309,8 +345,18 @@ export function calculateStockDetails(
       stock.latestPrice > 0
         ? stock.latestPrice
         : 0;
-    const currentPrice = len > 0 ? series[len - 1].close : fallbackPrice;
-    const previousPrice = len > 1 ? series[len - 2].close : currentPrice;
+    const alignedCurrent =
+      latestIndexDate !== null ? closeOnOrBefore(series, latestIndexDate) : null;
+    const alignedPrevious =
+      previousIndexDate !== null ? closeOnOrBefore(series, previousIndexDate) : null;
+    const currentPrice =
+      alignedCurrent !== null ? alignedCurrent : len > 0 ? series[len - 1].close : fallbackPrice;
+    const previousPrice =
+      latestIndexDate !== null
+        ? (alignedPrevious ?? alignedCurrent ?? currentPrice)
+        : len > 1
+          ? series[len - 2].close
+          : currentPrice;
 
     const rawChange = currentPrice - previousPrice;
     const change =

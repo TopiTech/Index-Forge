@@ -44,7 +44,7 @@ describe("Goal Platform Integration & Accessibility Verification", () => {
       // In-app navigation delegates to the one dashboard-parameter rule, which
       // applies tf/bm and routes `?index=` through the shared resolver.
       expect(appSource).toMatch(
-        /const applyDashboardSearchParams = useCallback\([\s\S]*?isValidTimeframe\(params\.timeframe\)[\s\S]*?isBenchmarkSymbol\(params\.benchmark\)[\s\S]*?resolveDashboardIndexId\(params\.indexId, indices\)[\s\S]*?if \(view === "dashboard" && searchParams\) \{[\s\S]*?applyDashboardSearchParams\(searchParams\);/,
+        /const applyDashboardSearchParams = useCallback\([\s\S]*?isValidTimeframe\(params\.timeframe\)[\s\S]*?isBenchmarkSymbol\(params\.benchmark\)[\s\S]*?resolveDashboardIndexId\(params\.indexId, indices\)[\s\S]*?if \(view === "dashboard"\) \{[\s\S]*?applyDashboardSearchParams\(searchParams\);/,
       );
     });
 

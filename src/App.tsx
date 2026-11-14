@@ -624,6 +624,8 @@ function AppContent({
   }, [setSelectedBenchmark]);
 
   const pendingIndexIdRef = useRef<string | null>(null);
+  /** True once an explicit dashboard URL has superseded the URL the app loaded with. */
+  const initialIndexHandledRef = useRef(false);
 
   /**
    * Apply the dashboard parameters of a URL (`?tf=`, `?bm=`, `?index=`) to the
@@ -640,6 +642,11 @@ function AppContent({
    */
   const applyDashboardSearchParams = useCallback(
     (search: string) => {
+      // Any explicit dashboard URL (in-app navigation or back/forward) is
+      // authoritative. Without this, the mount-time deep-link effect could
+      // still re-apply the original `?index=` when the list finished loading,
+      // reviving a link the user had already abandoned.
+      initialIndexHandledRef.current = true;
       const params = parseDashboardParams(search);
       if (isValidTimeframe(params.timeframe)) {
         setTimeframe(params.timeframe);
@@ -671,9 +678,11 @@ function AppContent({
         setActiveStockTicker(ticker || null);
       }
 
-      if (view === "dashboard" && searchParams) {
+      if (view === "dashboard") {
         // An explicit navigation without ?index= abandons any unresolved deep
-        // link; otherwise a stale id would keep the URL frozen forever.
+        // link; otherwise a stale id would keep the URL frozen forever. The
+        // empty-search case still has to run: it is exactly the navigation that
+        // abandons the pending id.
         applyDashboardSearchParams(searchParams);
       }
 
@@ -730,7 +739,6 @@ function AppContent({
     selectedIndex && (isAdmin || isOwner(selectedIndex.id)),
   );
 
-  const initialIndexHandledRef = useRef(false);
   useEffect(() => {
     if (initialIndexHandledRef.current) return;
     const targetIndexId = initialDashboardParamsRef.current.indexId;

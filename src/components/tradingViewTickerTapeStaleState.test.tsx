@@ -194,4 +194,63 @@ describe("TradingViewTickerTape stale payload ownership", () => {
     expect(djiRow?.querySelector(".tv-ticker-price.is-reference")).not.toBeNull();
     expect(djiRow?.textContent).toContain("43,825.10");
   });
+
+  it("withdraws previously live prices when a later poll fails", async () => {
+    let phase: "fresh" | "offline" = "fresh";
+    const requestHeaders: Array<Record<string, string>> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+        requestHeaders.push((init?.headers as Record<string, string> | undefined) ?? {});
+        if (phase === "offline") return Promise.reject(new Error("network offline"));
+        return Promise.resolve(
+          new Response(
+            JSON.stringify(
+              response([
+                {
+                  proName: "INDEX:NKY",
+                  formattedPrice: "2,801.00",
+                  formattedChange: "+1.00",
+                  formattedChangePercent: "+0.04%",
+                  isPositive: true,
+                },
+              ]),
+            ),
+            {
+              status: 200,
+              headers: { "content-type": "application/json", etag: '"tape-v1"' },
+            },
+          ),
+        );
+      }),
+    );
+
+    render(<TradingViewTickerTape />);
+
+    await waitFor(() => expect(screen.getAllByText("2,801.00").length).toBeGreaterThan(0));
+    expect(document.querySelector(".tv-live-badge")?.textContent).toContain("LIVE");
+
+    // The last accepted price is no longer supported by a successful poll. It
+    // must not stay on screen as if it were still live.
+    phase = "offline";
+    document.dispatchEvent(new Event("visibilitychange"));
+
+    await waitFor(() =>
+      expect(document.querySelector(".tv-live-badge")?.textContent).toContain("参考値"),
+    );
+    expect(screen.queryByText("2,801.00")).toBeNull();
+    const row = firstRow();
+    expect(row).not.toBeNull();
+    expect(row?.querySelector(".tv-ticker-price.is-reference")).not.toBeNull();
+    expect(row?.textContent).toContain("38,980.50");
+
+    // Recovery must request a full body: the retained ETag belonged to the
+    // withdrawn payload, so sending it would earn a 304 and keep the tape on
+    // reference values indefinitely.
+    phase = "fresh";
+    document.dispatchEvent(new Event("visibilitychange"));
+    await waitFor(() => expect(screen.getAllByText("2,801.00").length).toBeGreaterThan(0));
+    expect(document.querySelector(".tv-live-badge")?.textContent).toContain("LIVE");
+    expect(requestHeaders.at(-1)?.["If-None-Match"]).toBeUndefined();
+  });
 });
