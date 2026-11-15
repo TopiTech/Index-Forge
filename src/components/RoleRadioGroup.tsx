@@ -30,6 +30,7 @@ export function RoleRadioGroup({ value, onChange }: RoleRadioGroupProps) {
           <input
             type="radio"
             name="userRole"
+            aria-label="ユーザー（銘柄制限あり）"
             checked={value === "user"}
             onChange={() => onChange("user")}
           />
@@ -39,6 +40,7 @@ export function RoleRadioGroup({ value, onChange }: RoleRadioGroupProps) {
           <input
             type="radio"
             name="userRole"
+            aria-label="副管理者（無制限）"
             checked={value === "admin"}
             onChange={() => onChange("admin")}
           />

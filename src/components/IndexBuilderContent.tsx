@@ -1024,6 +1024,7 @@ export function IndexBuilderContent({
                   accept=".json,.csv"
                   style={{ display: "none" }}
                   onChange={handleImportFile}
+                  aria-label="指数定義ファイル（JSONまたはCSV）をインポート"
                 />
               </div>
 

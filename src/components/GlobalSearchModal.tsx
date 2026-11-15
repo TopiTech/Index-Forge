@@ -584,6 +584,7 @@ export function GlobalSearchModal({
             aria-activedescendant={
               displayedResults.length > 0 ? `global-search-item-${selectedIndex}` : undefined
             }
+            aria-label="銘柄・テーマ・指数の検索"
             className="global-search-input"
             placeholder="銘柄名、コード (例: 7203, NVDA)、テーマ、指数を検索..."
             value={query}

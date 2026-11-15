@@ -135,10 +135,16 @@ export function downsampleLTTB<T extends { date: string; value: number }>(
       }
     }
 
-    sampled.push(data[maxAreaIndex]);
-    aIndex = maxAreaIndex; // Next a is this bucket's chosen point
+    const selectedPoint = data[maxAreaIndex] ?? data[data.length - 1];
+    if (selectedPoint) {
+      sampled.push(selectedPoint);
+      aIndex = maxAreaIndex; // Next a is this bucket's chosen point
+    }
   }
 
-  sampled.push(data[data.length - 1]); // Always add the last point
+  const lastPoint = data[data.length - 1];
+  if (lastPoint) {
+    sampled.push(lastPoint); // Always add the last point
+  }
   return sampled;
 }

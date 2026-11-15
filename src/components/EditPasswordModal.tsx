@@ -379,6 +379,7 @@ export function EditPasswordModal({
               >
                 <input
                   type="checkbox"
+                  aria-label="構成銘柄数を無制限に設定"
                   checked={role === "admin" || unlimitedStocks}
                   disabled={role === "admin"}
                   onChange={(e) => setUnlimitedStocks(e.target.checked)}
@@ -438,6 +439,7 @@ export function EditPasswordModal({
               >
                 <input
                   type="checkbox"
+                  aria-label="作成可能指数上限数を無制限に設定"
                   checked={role === "admin" || unlimitedIndices}
                   disabled={role === "admin"}
                   onChange={(e) => setUnlimitedIndices(e.target.checked)}
@@ -539,6 +541,7 @@ export function EditPasswordModal({
             >
               <input
                 type="checkbox"
+                aria-label="アカウントの有効・一時停止状態を切り替え"
                 checked={isActive}
                 disabled={item.id === "admin-master"}
                 onChange={(e) => setIsActive(e.target.checked)}

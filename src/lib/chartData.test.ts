@@ -202,4 +202,28 @@ describe("downsampleLTTB", () => {
     expect(result[1].value).toBe(100); // Peak is captured
     expect(result[2].value).toBe(10);
   });
+
+  it("handles non-finite or missing values gracefully without NaN or throwing", () => {
+    const pointsWithNaN = [
+      { date: "2026-01-01", value: 10 },
+      { date: "2026-01-02", value: NaN },
+      { date: "2026-01-03", value: 50 },
+      { date: "2026-01-04", value: Infinity },
+      { date: "2026-01-05", value: 20 },
+    ];
+    const result = downsampleLTTB(pointsWithNaN, 3);
+    expect(result.length).toBe(3);
+    expect(result[0].date).toBe("2026-01-01");
+    expect(result[2].date).toBe("2026-01-05");
+  });
+
+  it("handles threshold edge conditions like empty array or threshold <= 2", () => {
+    expect(downsampleLTTB([], 10)).toEqual([]);
+    const twoPoints = [
+      { date: "2026-01-01", value: 10 },
+      { date: "2026-01-02", value: 20 },
+    ];
+    expect(downsampleLTTB(twoPoints, 2)).toEqual(twoPoints);
+    expect(downsampleLTTB(twoPoints, 1)).toEqual(twoPoints);
+  });
 });
