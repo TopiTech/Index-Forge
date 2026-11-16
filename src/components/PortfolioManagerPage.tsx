@@ -575,11 +575,11 @@ export function PortfolioManagerPage({
       setAddError("銘柄コードは英数字、記号（. - _ ^ =、最大20文字）で入力してください (例: 7203, AAPL, ^N225, USDJPY=X)");
       return;
     }
-    if (isNaN(shares) || shares <= 0) {
+    if (!Number.isFinite(shares) || shares <= 0) {
       setAddError("保有株数は正の数値を入力してください");
       return;
     }
-    if (isNaN(avgCost) || avgCost <= 0) {
+    if (!Number.isFinite(avgCost) || avgCost <= 0) {
       setAddError("平均取得単価は正の数値を入力してください");
       return;
     }

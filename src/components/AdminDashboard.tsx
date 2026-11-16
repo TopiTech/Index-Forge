@@ -863,7 +863,7 @@ export function AdminDashboard({
       return;
     }
     const rawVal = editBaseValueDraft.trim() === "" ? 1000 : parseFloat(editBaseValueDraft);
-    if (isNaN(rawVal) || rawVal <= 0 || rawVal > 1000000) {
+    if (!Number.isFinite(rawVal) || rawVal <= 0 || rawVal > 1000000) {
       setIndexEditMessage({ type: "error", text: "基準値は0より大きく1,000,000以下の数値を入力してください" });
       return;
     }

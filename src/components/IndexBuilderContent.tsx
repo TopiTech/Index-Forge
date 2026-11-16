@@ -199,6 +199,20 @@ export function IndexBuilderContent({
   // an executeSave captured by that closure still sees the pre-login session.
   const executeSaveRef = useRef<() => Promise<void>>(async () => {});
 
+  const mountedRef = useRef(true);
+  const fileReaderRef = useRef<FileReader | null>(null);
+  const fileImportSequenceRef = useRef(0);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      fileImportSequenceRef.current += 1;
+      fileReaderRef.current?.abort();
+      fileReaderRef.current = null;
+    };
+  }, []);
+
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [baseValue, setBaseValue] = useState(1000);
@@ -432,36 +446,87 @@ export function IndexBuilderContent({
   const handleImportFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    const sequence = fileImportSequenceRef.current + 1;
+    fileImportSequenceRef.current = sequence;
+    const isCurrent = () =>
+      fileImportSequenceRef.current === sequence && mountedRef.current;
+
+    // 先行する FileReader があれば中断し、競合やアンマウント後更新を防ぐ
+    fileReaderRef.current?.abort();
     const reader = new FileReader();
-    reader.onload = (event) => {
-      const text = event.target?.result;
-      if (typeof text !== "string") return;
-      if (file.name.endsWith(".json") || text.trim().startsWith("{")) {
-        const res = deserializeIndexFromJson(text);
-        if (res.ok && res.data) {
-          setName(res.data.name);
-          setDescription(res.data.description);
-          setBaseValue(res.data.baseValue);
-          setBasket(res.data.basket);
-          toastSuccess(`JSONから指数「${res.data.name}」を取り込みました`);
-        } else {
-          setError(res.error || "JSONインポートに失敗しました");
-        }
-      } else {
-        const res = deserializeBasketFromCsv(text);
-        if (res.ok && res.data) {
-          setBasket(res.data);
-          toastSuccess(`CSVから${res.data.length}銘柄を取り込みました`);
-          // 重み列を解決できなかった場合、全重みが既定値 1 で取り込まれる。
-          // 配分が意図と違うと気づけるよう警告を表示する。
-          if (res.error) toastWarning(res.error);
-        } else {
-          setError(res.error || "CSVインポートに失敗しました");
-        }
+    fileReaderRef.current = reader;
+
+    const resetInput = () => {
+      if (isCurrent() && fileInputRef.current) {
+        fileInputRef.current.value = "";
       }
     };
-    reader.readAsText(file);
-    if (fileInputRef.current) fileInputRef.current.value = "";
+
+    reader.onload = (event) => {
+      if (!isCurrent()) return;
+      try {
+        const text = event.target?.result;
+        if (typeof text !== "string") {
+          setError("ファイルの読み込み結果が不正です");
+          return;
+        }
+        if (file.name.endsWith(".json") || text.trim().startsWith("{")) {
+          const res = deserializeIndexFromJson(text);
+          if (res.ok && res.data) {
+            setName(res.data.name);
+            setDescription(res.data.description);
+            setBaseValue(res.data.baseValue);
+            setBaseValueDraft(String(res.data.baseValue));
+            setBasket(res.data.basket);
+            setError(null);
+            toastSuccess(`JSONから指数「${res.data.name}」を取り込みました`);
+          } else {
+            setError(res.error || "JSONインポートに失敗しました");
+          }
+        } else {
+          const res = deserializeBasketFromCsv(text);
+          if (res.ok && res.data) {
+            setBasket(res.data);
+            setError(null);
+            toastSuccess(`CSVから${res.data.length}銘柄を取り込みました`);
+            // 重み列を解決できなかった場合、全重みが既定値 1 で取り込まれる。
+            // 配分が意図と違うと気づけるよう警告を表示する。
+            if (res.error) toastWarning(res.error);
+          } else {
+            setError(res.error || "CSVインポートに失敗しました");
+          }
+        }
+      } catch (err) {
+        if (isCurrent()) {
+          setError(err instanceof Error ? err.message : "ファイルの解析に失敗しました");
+        }
+      } finally {
+        resetInput();
+        if (isCurrent()) fileReaderRef.current = null;
+      }
+    };
+
+    reader.onerror = () => {
+      if (!isCurrent()) return;
+      resetInput();
+      setError("ファイルの読み込みに失敗しました");
+      fileReaderRef.current = null;
+    };
+
+    reader.onabort = () => {
+      if (isCurrent()) resetInput();
+    };
+
+    try {
+      reader.readAsText(file, "UTF-8");
+    } catch {
+      if (isCurrent()) {
+        resetInput();
+        fileReaderRef.current = null;
+        setError("ファイルの読み込みに失敗しました");
+      }
+    }
   };
 
   const totalWeight = basket.reduce((sum, b) => sum + b.weight, 0);
@@ -516,6 +581,8 @@ export function IndexBuilderContent({
 
       const res = await onSave(newIndex, ownerToken);
 
+      if (!mountedRef.current) return;
+
       if (res.ok) {
         toastSuccess(`独自指数「${newIndex.name}」を作成・保存しました`);
         if (onClose) onClose();
@@ -523,6 +590,7 @@ export function IndexBuilderContent({
         setError(res.error || "保存に失敗しました");
       }
     } catch (err) {
+      if (!mountedRef.current) return;
       console.error("Index save failed:", err);
       setError(err instanceof Error ? err.message : "保存処理中に予期せぬエラーが発生しました");
     } finally {

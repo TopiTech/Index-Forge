@@ -348,7 +348,7 @@ export function MarketOverviewPage({
                     const num = typeof raw === "number" ? raw : Number(raw);
                     const parsed =
                       Number.isFinite(num) && num > 0 ? new Date(num) : new Date(raw);
-                    return isNaN(parsed.getTime())
+                    return Number.isNaN(parsed.getTime())
                       ? String(raw)
                       : parsed.toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" });
                   } catch {
