@@ -1,9 +1,18 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import worker, { clearMemoryCache } from "../../worker/internal-impl";
 
 describe("cacheHeadersAndFallback", () => {
   beforeEach(() => {
     clearMemoryCache();
+    // These cases assert Cache-Control headers and the disclosed fallback,
+    // not upstream data. Reaching Yahoo/biquote for real made the suite
+    // latency-dependent (the audits observed 28 live requests here).
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("", { status: 503 })));
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
   });
 
   const makeMockDb = () => ({

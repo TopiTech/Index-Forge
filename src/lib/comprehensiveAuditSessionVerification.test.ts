@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import worker from "../../worker/index";
 import { setAllowMemoryCacheInTest, clearMemoryCache } from "../../worker/internal";
 import { generateUpcomingEvents, UPCOMING_EVENTS } from "./marketDataService";
+import { createStubWorkerEnv } from "../test-helpers/env";
 import fs from "fs";
 import path from "path";
 
@@ -20,14 +21,25 @@ describe("Comprehensive Audit Session Verification", () => {
 
   describe("1. Worker Stock Fundamentals Ticker Validation & News JST Offset", () => {
     it("allows index symbols (^N225, ^TOPX) and currency tickers (USDJPY=X) in /api/stock/fundamentals", async () => {
-      const allowedSymbols = ["^N225", "^TOPX", "USDJPY=X", "7203.T", "BRK_B", "AAPL"];
-      for (const symbol of allowedSymbols) {
-        const req = new Request(
-          `https://example.com/api/stock/fundamentals?ticker=${encodeURIComponent(symbol)}`,
-        );
-        const res = await worker.fetch(req, {} as any);
-        // Should not reject with 400 Bad Request (Invalid ticker format)
-        expect(res.status).not.toBe(400);
+      // The assertion is about ticker validation, not upstream availability.
+      // Without this stub each allowed symbol reached Yahoo for real; a slow
+      // network made the validation test time out and the result depended on
+      // live market data. An unavailable upstream is a supported path that
+      // must still pass ticker validation and answer with fallback data.
+      vi.stubGlobal("fetch", vi.fn(async () => new Response("", { status: 503 })));
+      const env = createStubWorkerEnv();
+      try {
+        const allowedSymbols = ["^N225", "^TOPX", "USDJPY=X", "7203.T", "BRK_B", "AAPL"];
+        for (const symbol of allowedSymbols) {
+          const req = new Request(
+            `https://example.com/api/stock/fundamentals?ticker=${encodeURIComponent(symbol)}`,
+          );
+          const res = await worker.fetch(req, env);
+          // Should not reject with 400 Bad Request (Invalid ticker format)
+          expect(res.status).not.toBe(400);
+        }
+      } finally {
+        vi.unstubAllGlobals();
       }
     });
 

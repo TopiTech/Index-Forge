@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
 import { readFileSync } from "fs";
 import { resolve } from "path";
 import worker from "../../worker/internal-impl";
@@ -35,6 +35,14 @@ describe("Comprehensive Code Review Resolution Round 4", () => {
   beforeEach(() => {
     clearAuthCache();
     resetPasswordTableEnsured();
+    // The sync-authentication assertion only needs the Worker's decision, not
+    // a live Yahoo chart response.
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("", { status: 503 })));
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
   });
 
   describe("1. ModalBase Dialog Accessibility & Accessible Names", () => {

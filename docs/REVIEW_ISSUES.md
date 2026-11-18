@@ -269,7 +269,7 @@ S6（§2、Unit E.4 の段階移行）の転換実績。いずれも「リファ
 - 表示文言（製品判断）: transport failure は `NETWORK_UNREACHABLE_MESSAGE`（「サーバーに接続できませんでした。…」）に統一する。これは旧ブラウザ依存文言 `"Failed to fetch"` を置き換える**意図した製品判断**であり、`AdminDashboard` / `EditPasswordModal` / `auth.ts` の catch が `err.message` を表示する全経路で同じ文言になる。`authNetworkMessage.test.ts`（verify/admin login）、`editPasswordNetworkMessage.test.tsx`、`adminDashboardNetworkMessage.test.tsx` が実際の UI / 関数入口でこの文言を固定する（監査で `FetchNetworkError` を素の rejection に戻して 4 件すべて fail することを実測）。
 - 監査後の追加修正（body 読み取り期限, 2026-10-25）: `fetchWithNetworkMark` はヘッダ受信後も timer と caller listener を保持し、返却 Response の `json` / `text` / `arrayBuffer` / `blob` / `formData` を期限・caller abort と race させる。`readJsonBody` は `FetchTimeoutError` を再送出し、成功・parse 失敗・timeout・caller abort の全経路で `finally` が timer/listener を解放する。body を読まない early return は `releaseResponse` を呼ぶ（Chart の snapshot/sync/calculate、TickerTape、useIndices 一覧、priceSync、marketDataService、useCalculation）。テスト: `apiContract.test.ts` の 5 件（ヘッダ即時・body 永不完了→`FetchTimeoutError`、正常 body 後の timer 0 / listener 解除、非 JSON body 後も同様、caller abort 中の stalled body 解放、discard 時の release）。旧実装はヘッダ時点で timer を消していたため、stalled body のテストは旧コードでは完了しない。
 
-### S6 [Medium | テスト品質 / 保守性] テストの 39% がリポジトリファイルを読み、実装文字列を固定するメタテストが残る
+### S6 [Medium | テスト品質 / 保守性] テストの 39% がリポジトリファイルを読み、実装文字列を固定するメタテストが残る — **保留（段階移行）**
 
 - 箇所: 例 `src/lib/goalFollowupReview.test.ts:30-42`（`readFileSync` したソースに `"if (!controller.signal.aborted) setPasswordFetchError(errText);"` 等の**行そのもの**を `toContain`）。`src/**` には `comprehensive*` / `goal*` / `audit*` / `review*` / `round*` 命名のテストが **79 ファイル**（2026-10-25 時点）。
 - 症状: 振る舞いを検証せず、変数名・空白・コメント・行順を固定する。リファクタのたびに無関係な失敗が出る一方、実際の回帰（S1/S2）は検出できない。テスト実行時間と認知負荷を増やし、修正のたびに「ソース文字列を更新する」圧力を生む。
@@ -279,7 +279,7 @@ S6（§2、Unit E.4 の段階移行）の転換実績。いずれも「リファ
 - 修正方針: (1) 新規テストはソース文字列検証を禁止するレビュー規則、(2) 既存 93 ファイルを対象モジュール単位の振る舞いテストへ段階移行、(3) 文字列でしか担保できない契約（CSP 文字列等）は理由コメント付きで残す。
 - 必須テスト: 置換対象ごとに「リファクタで壊れず、実装の回帰で落ちる」ことを確認（例: S2 の loading テストはソース文字列ではなく hook の状態を検証）。
 
-### S7 [Medium | 設計 / 保守性] バックエンドが単一 9,027 行モジュール、クライアントの中核サービスが 3,197 行で Worker からも import
+### S7 [Medium | 設計 / 保守性] バックエンドが単一 9,027 行モジュール、クライアントの中核サービスが 3,197 行で Worker からも import — **保留（独立リファクタ）**
 
 - 箇所: `worker/internal-impl.ts`（9,027 行、25 ルート＋認証＋暗号＋スキーマ＋Yahoo＋カレンダー＋キャッシュ）、`src/lib/marketDataService.ts`（3,197 行。`worker/internal-impl.ts:25-33` が `getStockFundamentals` / `DEFAULT_MARKET_OVERVIEW` / カレンダー生成等を import）、`src/lib/marketDataService.ts` の module-load 副作用（`UPCOMING_EVENTS`）。
 - 症状: ルート追加・認証変更・データ生成のどこを触っても 1 ファイル内の広い文脈を読む必要がある。Worker バンドル（910 KiB raw）にクライアント用の静的アンカー・ICS/CSV エクスポート・スクリーナー型まで含まれる。変更の衝突面が大きい。
@@ -288,7 +288,7 @@ S6（§2、Unit E.4 の段階移行）の転換実績。いずれも「リファ
 - 修正方針（段階的・独立出荷）: (1) Worker を `routes/{auth,admin,indices,market,sync}.ts` + `lib/{auth,schema,yahoo,http}.ts` に分割（挙動不変、テストは既存のまま）、(2) `marketDataService` から Worker 専用の純粋関数を `src/lib/marketFallbacks.ts` へ分離し、ICS/CSV は `src/lib/calendarExport.ts` へ、(3) `AdminDashboard` を「パスワード管理」「指数管理」「システム統計」の 3 コンテナに分割。
 - 必須テスト: 分割は挙動不変のため既存 2,329 テストが回帰網。加えて各ルートの 200/400/401/403/429/503 マトリクスを 1 本ずつ固定（現状は巨大テストに分散）。
 
-### S8 [Low | セキュリティ / 運用] 無認証 `/api/sync-prices` の乱用面（ticker allowlist なし、quota は IP 単位のみ）
+### S8 [Low | セキュリティ / 運用] 無認証 `/api/sync-prices` の乱用面（ticker allowlist なし、quota は IP 単位のみ） — **保留（製品判断）**
 
 - 箇所: `worker/internal-impl.ts:8549-8560`（認証なし、IP レート制限のみ）、`:8628-8645`（任意の正規 ticker を受け付ける）、`:8676-8715`（`sync_quota` は `ip` + 日付。`getClientIp` は CF-Connecting-IP 優先）。
 - 症状: ゲストのチャート表示のために意図的に公開されているが、任意の ticker を Yahoo へフェッチさせるプロキシとして使える。日次 5,000 ticker / IP は IP ローテーションで回避でき、D1 書き込みと Yahoo サブリクエストを消費する。
@@ -438,8 +438,56 @@ S6（§2、Unit E.4 の段階移行）の転換実績。いずれも「リファ
 
 ## 7. このパスの完了条件（次回以降のチェックリスト）
 
-- [ ] §2 の S1–S10 と D1 がすべて「修正済み / 意図的に保留（理由付き）」のいずれかになっている。
-- [ ] Unit A–F の必須テストが追加され、`npm test` の件数が減少していない（置換の場合は同等以上）。
-- [ ] `npm run lint` / `npm test` / `npm run build` / `npm run check:first-paint` / `wrangler deploy --dry-run` がすべて exit 0。
-- [ ] `git status` に調査用の一時ファイル・ログ・デバッグコードが残っていない。
-- [ ] `docs/REVIEW_ISSUES.md` の各行に、修正コミットまたは「保留理由」への参照がある。
+- [x] §2 の S1–S10 と D1 がすべて「修正済み / 意図的に保留（理由付き）」のいずれかになっている。
+- [ ] Unit A–F の必須テストが追加され、`npm test` の件数が減少していない（置換の場合は同等以上）。Unit E/F は保留。
+- [x] `npm run lint` / `npm test` / `npm run build` / `npm run check:first-paint` / `wrangler deploy --dry-run` がすべて exit 0。
+- [x] `git status` に調査用の一時ファイル・ログ・デバッグコードが残っていない。
+- [x] `docs/REVIEW_ISSUES.md` の各行に、修正コミットまたは「保留理由」への参照がある。
+
+---
+
+## 8. 2026-11-18 全ファイル横断レビュー（今回パス）
+
+### 8.1 範囲とベースライン
+
+- 対象: `src/`（UI・hooks・共通ライブラリ）、`worker/`（ルーティング・認証・D1・外部データ取得）、`scripts/`、設定ファイル、既存テスト。主要ロジックは全文、UI の残部は API 境界・非同期ライフサイクル・ストレージ・外部リンク・タイマーを横断 grep と既存契約テストで精査した。
+- ベースライン: `npm run lint` / `npm run build` は PASS。`npm test` は初回 2 件が 10 秒タイムアウト、再実行は全件 PASS（flaky）。
+- 実バグ探索の補助として `--noUncheckedIndexedAccess` を一時実行したが、指摘箇所は既に境界検証済みで、設定は変更していない。
+
+### 8.2 課題リストと処置
+
+| ID | 重要度 | 課題 | 根本原因 | 処置 |
+|---|---|---|---|---|
+| T-1 | High（開発者体験・CI 信頼性） | 全体テストが外部ネットワークに依存し、同一コードで PASS/FAIL が入れ替わる | 複数のテストが `worker.fetch` / 実データ取得関数をスタブせずに呼び、未処理 URL を `origFetch` に委譲していた | 最終監査で残存した 8 ファイル・57 回の実通信を決定的なスタブに置換（先行修正 5 ファイルを含め合計 13 ファイル、§8.3）。`goalComprehensiveCodeReviewFinalAudit.test.ts` はキャッシュバイパスを fetch 呼び出し回数で検証する形に強化 |
+| U-1 | High（開発時 UI が復帰不能） | `StockTechnicalChart` が StrictMode でスピナーのままになる | effect の再マウント時、中断された初回リクエストを「処理済み」と誤認する `processedQuoteRef` ガードが代替リクエストを抑止していた | ガードを削除。依存配列（内容シグネチャ）が既に重複実行を防いでいるため、中断後は再取得する。StrictMode 回帰テストを追加 |
+| U-2 | Medium（誤った成功表示） | スクリーナーの一括指数化トーストが「保存済み」と誤認させる | ホストは一時プレビューを表示するだけで永続化しないのに「即時作成しました」と表示していた | 「指数プレビューを表示しました（この指数は保存されません）」に修正し、テストも実際の契約に合わせて更新 |
+| S-1 | 継続課題（製品判断） | 公開 `/api/sync-prices` のゲスト利用による quota 乱用余地 | 従来レビューの S8。ゲストのチャート表示に必要で、機能停止は不可 | 変更せず。allowlist / 認証必須化は製品判断後に別対応 |
+| S-2 | 継続課題（構造） | `worker/internal-impl.ts` 約 9.7k 行、`AdminDashboard` 約 3.1k 行、`PortfolioManagerPage` 約 2.3k 行 | 機能追加に伴う巨大モジュール化 | 挙動不変の分割は大規模でリスクが高いため、今回の correctness 修正とは分離して申し送り |
+| S-3 | 継続課題（構造） | ソース文字列を読むメタテストが残存 | 過去レビューの S6。test 名・件数は runner 管理下 | 新規の文字列メタテストは追加せず、今回の修正は振る舞いテストで固定 |
+
+意図された仕様・誤検知として除外したもの: 共有パスワードの「最古アカウント優先」、フォールバックの生成時刻 `dataAsOf`、Turnstile の開発用テストキー、`schema.migration.sql` の非冪等 ALTER、`postMessage` の origin 制限（現在は allow-list 実装済み）、SQL の固定カラム補間、テスト用 env の `as any`（eslint 設定でテストのみ許可、production は 0 件）。
+
+### 8.3 横断検索の証跡
+
+- 一時的にテスト setup で外部 `fetch` を記録・遮断し、全 316 ファイルを実行した。先行修正した 5 ファイルに加え、最終監査で **8 ファイル / 57 回**の残存実通信（Yahoo chart/quoteSummary、biquote calendar、Cloudflare siteverify）を検出。合計 13 ファイルを修正。
+- 先行修正: `goalComprehensiveCodeReviewFinalAudit`, `comprehensiveAuditSessionVerification`, `comprehensiveCodeReviewFinalFixesPass`, `dynamicStockSectorAndMarket`, `macroCalendarLiveAccuracy`。
+- 最終監査で残存していた対象: `cacheHeadersAndFallback`, `adminLoginSecurity`, `securityAndAdmin`, `calendarEnhancements`, `workerBugs`, `comprehensiveCodeReviewResolutionRound4`, `comprehensiveGoalCodeReviewFinalAuditPass3`, `comprehensiveGoalCodeReviewUnit3Fixes`。
+- 修正後の同監査は **0 回**。監査用の setup 変更とログは削除済みで、ワークツリーに残っていない。
+- 同種アンチパターンの検索: 未処理 URL を `return origFetch(...)` に委譲する箇所は 0 件（残る `origFetch` はスタブ復元用）、production の `as any` / `@ts-ignore` / `eslint-disable` / `test.skip` / `console.log` は 0 件。
+
+### 8.4 検証結果（最終）
+
+| チェック | 結果 |
+|---|---|
+| `npm test`（coverage gate + meta-test gate + Vitest） | PASS: 316 files / 2,817 tests（2 回連続） |
+| `npm run lint`（`--max-warnings=0`） | PASS |
+| `npm run build`（app/worker/test の 3 tsc + vite build） | PASS |
+| `npm run check:first-paint` | PASS（gzip 225,481 B、予算内） |
+| `npx wrangler deploy --dry-run --config wrangler.local.jsonc` | PASS（D1/ASSETS バインディング解決、943.54 KiB / gzip 153.22 KiB） |
+| `git diff --check` / `git status` | PASS。未追跡の調査ファイル・ログ 0 件、意図した変更のみ |
+
+### 8.5 未確認・申し送り
+
+- ブラウザでの目視・クリック操作は行っていない。UI の変更は DOM テストとビルドまでで、実画面の見た目は未確認。
+- 構造分割（S-2）、メタテスト移行（S-3）、公開同期の abuse 対策（S-1）は、挙動変更または大規模移行を伴うため今回のスコープ外。
+- 外部サービスの実応答形式・レート制限はテストでは検証していない（スタブ契約のみ）。本番監視は別途必要。

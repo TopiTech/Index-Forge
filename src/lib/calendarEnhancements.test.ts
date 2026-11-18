@@ -181,6 +181,10 @@ describe("Calendar Enhancements & Live Data Fetching", () => {
   describe("Worker GET /api/market/calendar", () => {
     it("returns calendar events and responds to force refresh query", async () => {
       setAllowMemoryCacheInTest(true);
+      // The route's contract assertion is an event array plus an ETag; it does
+      // not need the live calendar providers. A fast unavailable upstream
+      // exercises the same fallback path without network latency.
+      vi.stubGlobal("fetch", vi.fn(async () => new Response("", { status: 503 })));
       try {
         const env = createMockEnv();
         const req = new Request("http://localhost/api/market/calendar?refresh=1", {
@@ -196,6 +200,7 @@ describe("Calendar Enhancements & Live Data Fetching", () => {
         expect(data.length).toBeGreaterThan(0);
         expect(res.headers.get("etag")).toBeDefined();
       } finally {
+        vi.unstubAllGlobals();
         setAllowMemoryCacheInTest(false);
       }
     });

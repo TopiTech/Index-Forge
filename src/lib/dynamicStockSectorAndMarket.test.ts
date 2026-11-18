@@ -85,8 +85,22 @@ describe("Dynamic Stock Sector and Market Resolution (Hardcoding Elimination)", 
       const { fetchLiveStockFundamentals } = await import("../../worker/internal");
 
       const origFetch = globalThis.fetch;
-      globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
         const urlStr = String(input);
+        // `fetchLiveStockFundamentals` first warms the Yahoo cookie/crumb. If
+        // that exchange is delegated to the live network, a slow response can
+        // consume the function's whole timeout budget before the stubbed
+        // quoteSummary request runs, making this test flaky. Answer the
+        // exchange deterministically; every other unhandled URL fails fast.
+        if (urlStr.includes("fc.yahoo.com")) {
+          return new Response("", {
+            status: 200,
+            headers: { "set-cookie": "A1=mockCookieValue; Path=/; Domain=.yahoo.com;" },
+          });
+        }
+        if (urlStr.includes("getcrumb")) {
+          return new Response("mockCrumbValue", { status: 200 });
+        }
         if (urlStr.includes("quoteSummary")) {
           return new Response(
             JSON.stringify({
@@ -110,7 +124,7 @@ describe("Dynamic Stock Sector and Market Resolution (Hardcoding Elimination)", 
             { status: 200, headers: { "Content-Type": "application/json" } },
           );
         }
-        return origFetch(input, init);
+        return new Response("", { status: 503 });
       });
 
       try {

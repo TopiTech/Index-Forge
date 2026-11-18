@@ -428,6 +428,25 @@ describe("worker: R2 fetch timeout on Yahoo Finance", () => {
 });
 
 describe("worker: R3 checkRateLimit first-window race", () => {
+  beforeEach(() => {
+    // This test asserts the rate-limit reservation, not Yahoo data. Without a
+    // stub, five concurrent requests each contacted the real chart endpoint.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({ chart: { result: [{ timestamp: [], indicators: { quote: [{ close: [] }] } }] } }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      ),
+    );
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
   it("does not lose increments when many concurrent first-window requests arrive", async () => {
     const env = createStatefulEnv();
     const calls = Array.from({ length: 5 }, () =>

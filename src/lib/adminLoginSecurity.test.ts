@@ -1,4 +1,4 @@
-import { beforeEach, describe, it, expect, vi } from "vitest";
+import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
 import worker from "../../worker/index";
 import {
   clearAuthCache,
@@ -155,6 +155,28 @@ describe("Admin Login Security: Turnstile, Rate Limiting, and Secret Code", () =
   beforeEach(() => {
     clearAuthCache();
     resetPasswordTableEnsured();
+    // The official test secret accepts mock tokens even when siteverify is
+    // unreachable, but the test still waited on the real request. Answer only
+    // the Turnstile endpoint locally; any other upstream call fails fast so a
+    // future regression cannot silently become a live-network dependency.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+        if (url.includes("challenges.cloudflare.com/turnstile/v0/siteverify")) {
+          return new Response(JSON.stringify({ success: true }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        return new Response("", { status: 503 });
+      }),
+    );
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
   });
 
   describe("Turnstile Token Verification", () => {

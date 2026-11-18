@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { StrictMode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, waitFor } from "@testing-library/react";
 import { StockTechnicalChart } from "./StockTechnicalChart";
@@ -72,6 +73,44 @@ describe("StockTechnicalChart refresh", () => {
     });
     // And it was not issued a second time either.
     expect(calculateCalls.length).toBe(1);
+  });
+
+  it("loads the chart when effects are mounted twice (StrictMode)", async () => {
+    const calculateCalls: string[] = [];
+
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : String(input);
+      if (url.includes("/api/sync-prices")) {
+        return Promise.resolve(jsonResponse({ ok: true }));
+      }
+      if (url.includes("/api/calculate")) {
+        calculateCalls.push(url);
+        return Promise.resolve(
+          jsonResponse({
+            stockUniverse: [
+              { ticker: "7203", series: [{ date: "2026-10-20", close: 2850 }] },
+            ],
+          }),
+        );
+      }
+      return Promise.resolve(jsonResponse({}));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <StrictMode>
+        <StockTechnicalChart stock={quote} theme="dark" />
+      </StrictMode>,
+    );
+
+    // StrictMode deliberately mounts, cleans up and re-mounts every effect.
+    // The first request is therefore aborted before it settles; the remount
+    // must issue its own request instead of concluding that the aborted one
+    // already completed the work and leaving the chart on its spinner.
+    await waitFor(() => {
+      expect(document.querySelector(".spin.animate-spin")).toBeNull();
+    });
+    expect(calculateCalls.length).toBeGreaterThanOrEqual(1);
   });
 
   it("re-issues the request when the quote content actually changed", async () => {

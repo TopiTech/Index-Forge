@@ -255,7 +255,7 @@ describe("Batch 2: UI-07 - ScreenerPage Toast Notification", () => {
     cleanup();
   });
 
-  it("shows success toast when onBatchCreateCustomIndex is provided and creates index", async () => {
+  it("shows a preview toast when onBatchCreateCustomIndex is provided", async () => {
     const onBatchCreate = vi.fn();
     render(
       <ToastProvider>
@@ -271,8 +271,10 @@ describe("Batch 2: UI-07 - ScreenerPage Toast Notification", () => {
     fireEvent.click(batchButton);
 
     expect(onBatchCreate).toHaveBeenCalled();
-    const successToast = await screen.findByText(/でカスタム指数を即時作成しました！/);
-    expect(successToast).toBeTruthy();
+    // The host only previews a temporary index; the toast must not claim it
+    // was persisted.
+    const successToast = await screen.findByText(/で指数プレビューを表示しました/);
+    expect(successToast.textContent).toContain("この指数は保存されません");
   });
 
   it("shows info toast and navigates to builder when onBatchCreateCustomIndex is not provided", async () => {
@@ -291,7 +293,7 @@ describe("Batch 2: UI-07 - ScreenerPage Toast Notification", () => {
       "指数ビルダー画面へ移動しました。銘柄構成を調整して指数を作成してください。",
     );
     expect(infoToast).toBeTruthy();
-    expect(screen.queryByText(/でカスタム指数を即時作成しました！/)).toBeNull();
+    expect(screen.queryByText(/で指数プレビューを表示しました/)).toBeNull();
   });
 });
 

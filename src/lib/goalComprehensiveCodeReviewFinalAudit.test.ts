@@ -4,6 +4,8 @@ import {
   matchesIfNoneMatch,
   setAllowMemoryCacheInTest,
   clearMemoryCache,
+  resetLastKnownCalendarEvents,
+  resetYahooCrumbCache,
 } from "../../worker/internal";
 import worker from "../../worker/index";
 import { deserializePortfolioFromCsv } from "./indexSerialization";
@@ -169,31 +171,52 @@ describe("Goal Comprehensive Code Review: Calendar Cache Bypass", () => {
   beforeEach(() => {
     setAllowMemoryCacheInTest(true);
     clearMemoryCache();
+    resetLastKnownCalendarEvents();
+    resetYahooCrumbCache();
   });
 
   afterEach(() => {
     setAllowMemoryCacheInTest(false);
     clearMemoryCache();
+    resetLastKnownCalendarEvents();
+    resetYahooCrumbCache();
+    vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
 
   it("respects Pragma: no-cache and Cache-Control: max-age=0 on /api/market/calendar", async () => {
+    // The route computes a live calendar by contacting upstream providers. The
+    // test used to reach Yahoo Finance for real on every run, so a slow or
+    // offline network turned this cache-bypass assertion into a 10s timeout
+    // and made the whole suite flaky. Upstream is stubbed as unavailable:
+    // that is a supported contract path (the route must answer with its
+    // disclosed fallback), and the number of upstream attempts still proves
+    // whether the memory cache was bypassed.
+    const fetchMock = vi.fn(async () => new Response("", { status: 503 }));
+    vi.stubGlobal("fetch", fetchMock);
+
     const req1 = new Request("https://example.com/api/market/calendar");
     const res1 = await worker.fetch(req1, {} as any);
     expect(res1.status).toBe(200);
+    const attemptsAfterCachedRequest = fetchMock.mock.calls.length;
+    expect(attemptsAfterCachedRequest).toBeGreaterThan(0);
 
-    // Request with Pragma: no-cache should trigger fresh computation without error
+    // Request with Pragma: no-cache must recompute instead of serving the
+    // memory-cached event list.
     const reqPragma = new Request("https://example.com/api/market/calendar", {
       headers: { Pragma: "no-cache" },
     });
     const resPragma = await worker.fetch(reqPragma, {} as any);
     expect(resPragma.status).toBe(200);
+    const attemptsAfterPragma = fetchMock.mock.calls.length;
+    expect(attemptsAfterPragma).toBeGreaterThan(attemptsAfterCachedRequest);
 
-    // Request with Cache-Control: max-age=0 should trigger fresh computation without error
+    // Request with Cache-Control: max-age=0 must likewise recompute.
     const reqMaxAge = new Request("https://example.com/api/market/calendar", {
       headers: { "Cache-Control": "max-age=0" },
     });
     const resMaxAge = await worker.fetch(reqMaxAge, {} as any);
     expect(resMaxAge.status).toBe(200);
+    expect(fetchMock.mock.calls.length).toBeGreaterThan(attemptsAfterPragma);
   });
 });

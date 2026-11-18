@@ -31,6 +31,7 @@ describe("Comprehensive Goal Code Review - Unit 3 Fixes", () => {
     clearMemoryRateLimits();
     setAllowMemoryCacheInTest(false);
     resetYahooCrumbCache();
+    vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
 
@@ -109,6 +110,9 @@ describe("Comprehensive Goal Code Review - Unit 3 Fixes", () => {
   });
 
   it("6. Route aliases /api/screener and /api/stock/quote are correctly handled by worker router", async () => {
+    // The screener route warms a Yahoo crumb even though this test only checks
+    // routing and fallback shape. Keep the route deterministic and offline.
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("", { status: 503 })));
     const mockEnv = {
       DB: {
         prepare: () => ({

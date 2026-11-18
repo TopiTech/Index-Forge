@@ -16,11 +16,16 @@ describe("Goal Comprehensive Code Review - Pass 3 Final Audit", () => {
     beforeEach(() => {
       setAllowMemoryCacheInTest(true);
       clearMemoryCache();
+      // ETag behavior does not depend on upstream values. Stubbing removes
+      // six live calendar requests per run and keeps the 304 assertions
+      // deterministic.
+      vi.stubGlobal("fetch", vi.fn(async () => new Response("", { status: 503 })));
     });
 
     afterEach(() => {
       setAllowMemoryCacheInTest(false);
       clearMemoryCache();
+      vi.unstubAllGlobals();
       vi.restoreAllMocks();
     });
 

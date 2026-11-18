@@ -535,9 +535,6 @@ export function StockTechnicalChart({
     [stock],
   );
 
-  /** Signature (and retry counter) of the last processed quote revision. */
-  const processedQuoteRef = useRef<{ signature: string; retryKey: number } | null>(null);
-
   /**
    * The latest quote object.
    *
@@ -558,14 +555,6 @@ export function StockTechnicalChart({
   }, [stock]);
 
   useEffect(() => {
-    const processed = processedQuoteRef.current;
-    if (processed && processed.signature === stockContentSignature && processed.retryKey === retryKey) {
-      // Nothing the chart shows has changed since the last run: re-issuing
-      // the requests would only duplicate them.
-      return;
-    }
-    processedQuoteRef.current = { signature: stockContentSignature, retryKey };
-
     // The quote the run is based on. Reading it through the ref keeps the
     // effect's dependencies aligned with its content signature.
     const quote = stockRef.current;
@@ -718,9 +707,12 @@ export function StockTechnicalChart({
       isCancelled = true;
       controller.abort();
     };
-    // The dependencies mirror the guard above: the run is keyed on the
-    // *content* of the quote, so a refresh that returns the same numbers
-    // neither cancels the in-flight request nor re-issues it.
+    // The run is keyed on the *content* of the quote, so a refresh that
+    // returns the same numbers neither cancels the in-flight request nor
+    // re-issues it. There is deliberately no "already processed" guard here:
+    // an effect can be mounted, cleaned up and mounted again (StrictMode),
+    // and the cleanup aborts its request. Treating that aborted run as done
+    // skipped the replacement request and left the chart on its spinner.
   }, [stockContentSignature, retryKey]);
 
   const activeIsMobileRef = useRef(activeIsMobile);

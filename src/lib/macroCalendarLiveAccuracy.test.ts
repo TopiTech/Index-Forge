@@ -1,15 +1,29 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { fetchLiveMarketCalendarAsync } from "../../worker/internal";
+import { fetchLiveMarketCalendarAsync, resetYahooCrumbCache } from "../../worker/internal";
 
 describe("Macro Calendar Live Accuracy and Official Schedules", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    // The crumb is cached at module scope. A value cached by one test would
+    // make the next test skip the cookie/crumb exchange it did not stub.
+    resetYahooCrumbCache();
   });
 
   it("marks central bank meeting schedules as official on successful live fetch", async () => {
     const origFetch = globalThis.fetch;
-    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
       const urlStr = String(input);
+      // The macro calendar also contacts its economic-calendar provider. It
+      // used to be delegated to the real network, so a slow provider turned
+      // this unit test into a 10s timeout. An empty response is the supported
+      // "provider has no events" path; the schedule master still supplies the
+      // official meeting dates asserted below.
+      if (urlStr.includes("biquote.io/api/calendar")) {
+        return new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
       if (urlStr.includes("fc.yahoo.com")) {
         return new Response("", {
           status: 200,
@@ -34,7 +48,7 @@ describe("Macro Calendar Live Accuracy and Official Schedules", () => {
           { status: 200, headers: { "Content-Type": "application/json" } },
         );
       }
-      return origFetch(input, init);
+      return new Response("", { status: 503 });
     });
 
     try {
@@ -52,9 +66,15 @@ describe("Macro Calendar Live Accuracy and Official Schedules", () => {
   it("fetchLiveMarketCalendarAsync queries ^IRX and ^TNX in quote symbols", async () => {
     const queriedUrls: string[] = [];
     const origFetch = globalThis.fetch;
-    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
       const urlStr = String(input);
       queriedUrls.push(urlStr);
+      if (urlStr.includes("biquote.io/api/calendar")) {
+        return new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
       if (urlStr.includes("fc.yahoo.com")) {
         return new Response("", {
           status: 200,
@@ -88,7 +108,7 @@ describe("Macro Calendar Live Accuracy and Official Schedules", () => {
           { status: 200, headers: { "Content-Type": "application/json" } },
         );
       }
-      return origFetch(input, init);
+      return new Response("", { status: 503 });
     });
 
     try {

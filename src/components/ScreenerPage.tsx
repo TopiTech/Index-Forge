@@ -433,7 +433,13 @@ export function ScreenerPage({
 
     if (onBatchCreateCustomIndex) {
       onBatchCreateCustomIndex(basket);
-      success(`スクリーニング${chosenStocks.length}銘柄でカスタム指数を即時作成しました！`);
+      // The host only opens a temporary dashboard preview: it does not persist
+      // an index (the id is local and no save API is called). Claiming the
+      // index was "created" told users their selection was stored when a
+      // reload would discard it.
+      success(
+        `スクリーニング${chosenStocks.length}銘柄で指数プレビューを表示しました（この指数は保存されません）`,
+      );
     } else {
       onNavigate("builder");
       info("指数ビルダー画面へ移動しました。銘柄構成を調整して指数を作成してください。");

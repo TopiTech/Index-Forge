@@ -1,4 +1,4 @@
-import { beforeEach, describe, it, expect, vi } from "vitest";
+import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
 import worker from "../../worker/index";
 import {
   hashPassword,
@@ -16,6 +16,28 @@ const TEST_ADMIN_PASSWORD = "test-admin-password";
 beforeEach(() => {
   clearAuthCache();
   resetPasswordTableEnsured();
+  // Admin login uses the official test secret and a mock token, which the
+  // Worker accepts without a successful siteverify response. Stub only that
+  // call so the test does not depend on Cloudflare's availability or latency;
+  // any other upstream request fails fast.
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (url.includes("challenges.cloudflare.com/turnstile/v0/siteverify")) {
+        return new Response(JSON.stringify({ success: true }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response("", { status: 503 });
+    }),
+  );
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 interface PasswordRecord {

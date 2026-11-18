@@ -12,11 +12,17 @@ describe("Comprehensive Code Review Final Fixes & Hardening Tests", () => {
   beforeEach(() => {
     setAllowMemoryCacheInTest(true);
     clearMemoryCache();
+    // Every forced read below must bypass the seeded memory cache and reach
+    // the upstream path. Serving that path from the real network made these
+    // cache assertions depend on provider latency; a fast 503 exercises the
+    // same bypass while the Worker answers with its disclosed fallback.
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("", { status: 503 })));
   });
 
   afterEach(() => {
     setAllowMemoryCacheInTest(false);
     clearMemoryCache();
+    vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
 
