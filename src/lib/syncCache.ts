@@ -15,7 +15,7 @@
  * turned that into a misdiagnosed "server unreachable" error and demo data.
  */
 
-import { MAX_TICKER_LENGTH, TICKER_PATTERN } from "./apiContract";
+import { isValidTicker } from "./apiContract";
 
 /** localStorage key holding the per-ticker "last synced" timestamps. */
 export const SYNC_STORAGE_KEY = "osi_stock_sync_cache";
@@ -35,9 +35,7 @@ export const SYNC_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
  */
 function normalizeSyncCacheTicker(value: string): string | null {
   const normalized = value.trim().toUpperCase();
-  if (!normalized || normalized.length > MAX_TICKER_LENGTH) return null;
-  if (!TICKER_PATTERN.test(normalized)) return null;
-  return normalized;
+  return isValidTicker(normalized) ? normalized : null;
 }
 
 export interface SyncCacheUpdateEntry {

@@ -21,7 +21,6 @@ describe("Comprehensive Goal Code Review Fulfillment Round 4", () => {
     it("queries /api/calculate to retrieve authentic historical price series instead of expecting series on /api/sync-prices", () => {
       // The chart goes through the shared request layer (timeout + abort).
       expect(chartTsx).toContain('fetchWithNetworkMark("/api/calculate"');
-      expect(chartTsx).toContain("calcData.stockUniverse?.find");
       // The authentic series is mapped without inventing OHLCV (S1).
       expect(chartTsx).toContain("buildTechnicalChartSeries(rawSeries)");
     });

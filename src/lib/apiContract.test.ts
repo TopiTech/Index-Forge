@@ -43,6 +43,8 @@ describe("apiContract: ticker rule", () => {
     expect(isValidTicker("")).toBe(false);
     expect(isValidTicker("A".repeat(MAX_TICKER_LENGTH + 1))).toBe(false);
     expect(isValidTicker("A".repeat(MAX_TICKER_LENGTH))).toBe(true);
+    expect(isValidTicker("...")).toBe(false);
+    expect(isValidTicker("---")).toBe(false);
     expect(isValidTicker("TICKER@SYM")).toBe(false);
     expect(isValidTicker("TICKER!SYM")).toBe(false);
     expect(isValidTicker("TICKER#SYM")).toBe(false);
@@ -158,6 +160,19 @@ describe("apiContract: basket validation", () => {
 
     const strict = validateBasketItems([withoutTheme], { requireTheme: true });
     expect(strict).toEqual({ ok: false, error: "Invalid basket item: theme" });
+  });
+
+  it("rejects a whitespace-only theme where a theme is required", () => {
+    const result = validateBasketItems([{ ...validItem, theme: "   " }], {
+      requireTheme: true,
+    });
+    expect(result).toEqual({ ok: false, error: "Invalid basket item: theme" });
+  });
+
+  it("repairs an empty optional theme to the same default as a missing one", () => {
+    const result = validateBasketItems([{ ...validItem, theme: "   " }]);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.basket[0].theme).toBe("カスタム");
   });
 
   it("rejects a non-object entry", () => {
@@ -299,6 +314,7 @@ describe("apiContract: single-stock validation is single-sourced (M-1)", () => {
     for (const stock of [
       { ticker: "7203", name: "トヨタ", weight: 10 },
       { ticker: "7203", name: "トヨタ", theme: undefined, weight: 10 },
+      { ticker: "7203", name: "トヨタ", theme: "   ", weight: 10 },
     ]) {
       const result = validateSingleStockItem(stock);
       expect(result.ok).toBe(true);

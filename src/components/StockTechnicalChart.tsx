@@ -23,8 +23,10 @@ import { resolveTradingViewSymbol, getTradingViewWebUrl } from "../lib/tradingVi
 import {
   DEFAULT_REQUEST_TIMEOUT_MS,
   fetchWithNetworkMark,
+  isRecord,
   readJsonBody,
   releaseResponse,
+  sanitizeStockUniverse,
 } from "../lib/apiContract";
 import { normalizeTicker } from "../lib/yahooSymbol";
 
@@ -656,15 +658,16 @@ export function StockTechnicalChart({
           });
 
           if (calcRes.ok) {
-            const calcData = (await readJsonBody(calcRes)) as {
-              stockUniverse?: Array<{
-                ticker: string;
-                series?: RawChartPoint[];
-              }>;
-            };
-            const found = calcData && calcData.stockUniverse?.find(
-              (s) => s.ticker.toUpperCase() === tickerToFetch.toUpperCase(),
+            // Parse the untrusted body through the shared contract instead of
+            // asserting a shape and calling `ticker.toUpperCase()` on every
+            // entry: one malformed row used to throw and discard a perfectly
+            // valid series returned alongside it.
+            const calcData: unknown = await readJsonBody(calcRes);
+            const calcUniverse = sanitizeStockUniverse(
+              isRecord(calcData) ? calcData.stockUniverse : undefined,
             );
+            const requestedTicker = normalizeTicker(tickerToFetch);
+            const found = calcUniverse.find((s) => s.ticker === requestedTicker);
             rawSeries = found?.series;
           } else {
             releaseResponse(calcRes);

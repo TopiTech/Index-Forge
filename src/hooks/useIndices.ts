@@ -12,6 +12,8 @@ import {
 import { getAuthHeaders } from "../lib/auth";
 import {
   LEGACY_REPAIRED_WEIGHT,
+  MAX_STOCK_NAME_LENGTH,
+  MAX_THEME_LENGTH,
   REQUEST_TIMEOUT_MESSAGE,
   fetchWithNetworkMark,
   isFetchTimeoutError,
@@ -72,8 +74,13 @@ export function sanitizeIndex(raw: unknown): CustomIndex | null {
   for (const item of rawBasket) {
     if (!item || typeof item !== "object" || Array.isArray(item)) continue;
     const entry = item as Record<string, unknown>;
-    const ticker = typeof entry.ticker === "string" ? entry.ticker.trim().toUpperCase() : "";
-    if (!ticker || seen.has(ticker)) continue;
+    // The same contract as the write boundary: normalize full-width input
+    // first, then reject anything that is not a ticker at all. Accepting an
+    // arbitrary string here let a hand-edited cache or a malformed response
+    // render a bogus constituent that every save/calculate path then had to
+    // silently drop.
+    const ticker = typeof entry.ticker === "string" ? normalizeTicker(entry.ticker) : "";
+    if (!isValidTicker(ticker) || seen.has(ticker)) continue;
     seen.add(ticker);
     // Non-positive weights are legacy (NULL/zero/negative) rows: the Worker
     // reader repairs them to LEGACY_REPAIRED_WEIGHT, so the client applies
@@ -84,10 +91,15 @@ export function sanitizeIndex(raw: unknown): CustomIndex | null {
       typeof entry.weight === "number" && Number.isFinite(entry.weight) && entry.weight > 0
         ? Math.min(entry.weight, 100)
         : LEGACY_REPAIRED_WEIGHT;
+    // Apply the write boundary's theme rule to the read side too: an empty
+    // label is displayed as カスタム and saved as カスタム, so the cached copy
+    // and the next save cannot disagree about what the index contains.
+    const rawTheme = typeof entry.theme === "string" ? entry.theme.trim() : "";
+    const rawName = typeof entry.name === "string" ? entry.name.trim() : "";
     basket.push({
       ticker,
-      name: typeof entry.name === "string" && entry.name.trim() ? entry.name.trim() : ticker,
-      theme: typeof entry.theme === "string" ? entry.theme : "カスタム",
+      name: rawName ? rawName.slice(0, MAX_STOCK_NAME_LENGTH) : ticker,
+      theme: rawTheme ? rawTheme.slice(0, MAX_THEME_LENGTH) : "カスタム",
       weight,
     });
   }
@@ -300,6 +312,15 @@ export function useIndices() {
     const requestId = ++requestIdRef.current;
     const isCurrentRequest = () => requestId === requestIdRef.current && mountedRef.current;
     const cachedIndices = getLocalIndicesCache();
+    // A mutation or a cross-tab storage event can issue a new list request
+    // while the previous one is still waiting for headers. Superseding it only
+    // through `requestIdRef` left that transport (and its deadline timer)
+    // running until it settled on its own; after an unmount it was not even
+    // reachable by the unmount cleanup, because `abortRef` had been replaced.
+    if (!mountedRef.current) {
+      return cachedIndices ?? indicesRef.current ?? DEFAULT_INDICES;
+    }
+    abortRef.current?.abort();
     // The controller is created before the try block so the catch can tell an
     // aborted request (unmount or timeout) from a real server failure.
     const controller = new AbortController();

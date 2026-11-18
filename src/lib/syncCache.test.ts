@@ -85,7 +85,12 @@ describe("parseLocalSyncCache", () => {
     const now = Date.now();
     expect(
       parseLocalSyncCache(
-        JSON.stringify({ "BAD TICKER!": now, ["X".repeat(21)]: now, OK: now }),
+        JSON.stringify({
+          "BAD TICKER!": now,
+          ["X".repeat(21)]: now,
+          "...": now,
+          OK: now,
+        }),
       ),
     ).toEqual({ OK: now });
   });

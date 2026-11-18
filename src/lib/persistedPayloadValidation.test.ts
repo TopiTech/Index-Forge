@@ -86,6 +86,39 @@ describe("sanitizeIndex", () => {
     expect(index?.basket[0].ticker).toBe("AAPL");
     expect(index?.basket[0].weight).toBe(100);
   });
+
+  it("normalizes the theme the same way the write boundary does", () => {
+    const index = sanitizeIndex({
+      id: "custom-1",
+      basket: [
+        { ticker: "7203", theme: "   ", weight: 50 },
+        { ticker: "9984", theme: `  ${"x".repeat(120)}  `, weight: 49 },
+        { ticker: "6758", name: `  ${"n".repeat(120)}  `, weight: 1 },
+      ],
+    });
+
+    expect(index?.basket[0].theme).toBe("カスタム");
+    expect(index?.basket[1].theme).toHaveLength(100);
+    expect(index?.basket[2].name).toHaveLength(100);
+  });
+
+  it("drops tickers the API would reject and de-duplicates after normalization", () => {
+    const index = sanitizeIndex({
+      id: "custom-1",
+      basket: [
+        { ticker: "７２０３", weight: 40 },
+        { ticker: "7203", weight: 30 },
+        { ticker: "<script>", weight: 20 },
+        { ticker: "BAD@T", weight: 10 },
+      ],
+    });
+
+    // A hand-edited cache must not surface a constituent that every save and
+    // calculate path would silently drop (and that a malformed full-width
+    // duplicate could otherwise show twice).
+    expect(index?.basket).toHaveLength(1);
+    expect(index?.basket[0].ticker).toBe("7203");
+  });
 });
 
 describe("sanitizeIndexList", () => {

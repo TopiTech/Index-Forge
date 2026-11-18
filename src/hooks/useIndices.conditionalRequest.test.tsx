@@ -135,6 +135,51 @@ describe("useIndices conditional requests", () => {
     expect(getCapturedSignal()?.aborted).toBe(true);
   });
 
+  it("aborts the superseded list request instead of leaving it running", async () => {
+    const signals: AbortSignal[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        if (init?.signal) signals.push(init.signal);
+        return new Promise<Response>(() => {
+          // Never resolves: only the lifecycle owner can stop it.
+        });
+      }),
+    );
+
+    let refreshFn: (() => Promise<void>) | null = null;
+    function Harness() {
+      const { refreshIndices } = useIndices();
+      refreshFn = refreshIndices;
+      return <span data-testid="mounted">mounted</span>;
+    }
+
+    const { unmount } = render(<Harness />);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(signals).toHaveLength(1);
+
+    act(() => {
+      void refreshFn?.();
+    });
+    expect(signals).toHaveLength(2);
+    // The first request can no longer write, so it must also not keep its
+    // transport/deadline alive after the newer request took over.
+    expect(signals[0].aborted).toBe(true);
+    expect(signals[1].aborted).toBe(false);
+
+    act(() => {
+      void refreshFn?.();
+    });
+    expect(signals).toHaveLength(3);
+    expect(signals[1].aborted).toBe(true);
+    expect(signals[2].aborted).toBe(false);
+
+    unmount();
+    expect(signals[2].aborted).toBe(true);
+  });
+
   it("handles 304 Not Modified without breaking state and keeps cached indices", async () => {
     // Prime cache
     const initialList = indexPayload();

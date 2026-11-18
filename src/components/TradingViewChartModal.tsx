@@ -94,6 +94,7 @@ export function getSavedDimensions(): CardDimensions {
 
 export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModalProps) {
   const { theme } = useTheme();
+  const isOpen = Boolean(symbol);
   const widgetContainerRef = useRef<HTMLDivElement>(null);
   const cardRef = useRef<HTMLDivElement>(null);
 
@@ -170,7 +171,12 @@ export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModal
   );
 
   // Cancel every scheduled timer and animation frame when the modal closes.
+  // The component stays mounted while `symbol` is null (the render returns
+  // null), so an unmount-only cleanup left a maximize/reset notification
+  // firing after the dialog was gone. Keying the cleanup on the open state
+  // closes that window without clearing timers on ordinary re-renders.
   useEffect(() => {
+    if (!isOpen) return;
     // The Set instance never changes, so the cleanup can close over it
     // directly instead of reading the ref at cleanup time.
     const timers = pendingTimersRef.current;
@@ -188,7 +194,7 @@ export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModal
         rafIdRef.current = null;
       }
     };
-  }, []);
+  }, [isOpen]);
 
   // Save dimensions whenever they change (debounce to localStorage)
   const saveDimensions = useCallback((dims: CardDimensions) => {

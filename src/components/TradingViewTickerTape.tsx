@@ -461,7 +461,10 @@ export function TradingViewTickerTape() {
         clearTimeout(hoverTimerRef.current);
         hoverTimerRef.current = null;
       }
-      const live = liveQuotes[item.proName];
+      // Read the map through its ref: the hover timer outlives the render
+      // that scheduled it, so closing over `liveQuotes` opened the popover
+      // with the price from 1.8 seconds ago even after a newer poll arrived.
+      const live = liveQuotesRef.current[item.proName];
       setActivePopupSymbol({
         proName: item.proName,
         title: item.title,
@@ -471,7 +474,7 @@ export function TradingViewTickerTape() {
         isPositive: live ? live.isPositive : item.isPositive,
       });
     },
-    [liveQuotes],
+    [],
   );
 
   const handleMouseEnter = useCallback(

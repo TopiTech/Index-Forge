@@ -180,6 +180,36 @@ describe("StockTechnicalChart request lifecycle (S5)", () => {
     expect(screen.queryByText(SYNTHETIC_BADGE)).toBeNull();
   });
 
+  it("keeps the matching series when another universe entry is malformed", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const url = typeof input === "string" ? input : String(input);
+        if (url.includes("/api/sync-prices")) return Promise.resolve(jsonResponse({ ok: true }));
+        if (url.includes("/api/calculate")) {
+          return Promise.resolve(
+            jsonResponse({
+              stockUniverse: [
+                // No ticker: the old code called `.toUpperCase()` on this and
+                // threw, discarding the valid entry that follows.
+                { name: "broken", series: realSeries },
+                { ticker: "7203", series: realSeries },
+              ],
+            }),
+          );
+        }
+        return Promise.resolve(jsonResponse({}));
+      }),
+    );
+
+    render(<StockTechnicalChart stock={createStockQuote()} theme="dark" />);
+
+    await waitFor(() => expect(document.querySelector(".spin.animate-spin")).toBeNull());
+    // The valid series is rendered as real history; only a failed or empty
+    // response may show the disclosed generated fallback.
+    expect(screen.queryByText(SYNTHETIC_BADGE)).toBeNull();
+  });
+
   it("does not render a quote-priced point when every API close is unusable", async () => {
     vi.stubGlobal(
       "fetch",

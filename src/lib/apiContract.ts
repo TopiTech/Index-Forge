@@ -84,7 +84,14 @@ export const MAX_OWNER_TOKEN_LENGTH = 256;
  */
 export function isValidTicker(ticker: string): boolean {
   return (
-    ticker.length > 0 && ticker.length <= MAX_TICKER_LENGTH && TICKER_PATTERN.test(ticker)
+    ticker.length > 0 &&
+    ticker.length <= MAX_TICKER_LENGTH &&
+    // The character class alone accepts "..." / "---": syntactically legal
+    // strings that are not symbols. Requiring at least one letter or digit
+    // keeps every real equity/index/FX/crypto ticker while rejecting a value
+    // that can only poison the price cache and produce an empty calculation.
+    /[A-Za-z0-9]/.test(ticker) &&
+    TICKER_PATTERN.test(ticker)
   );
 }
 
@@ -200,10 +207,14 @@ export function validateSingleStockItem(stock: unknown): SingleStockValidationRe
     return { ok: false, error: "銘柄名は1〜100文字で入力してください" };
   }
 
-  const theme = typeof raw.theme === "string" ? raw.theme.trim() : "カスタム";
-  if (theme.length > MAX_THEME_LENGTH) {
+  // An absent theme keeps the historical default, while a whitespace-only
+  // one is treated as absent too: storing "" produced an index whose theme
+  // rendered as an empty badge and could never be repaired by the form.
+  const rawTheme = typeof raw.theme === "string" ? raw.theme.trim() : "";
+  if (rawTheme.length > MAX_THEME_LENGTH) {
     return { ok: false, error: "テーマは100文字以内で入力してください" };
   }
+  const theme = rawTheme || "カスタム";
 
   const rawWeight =
     raw.weight === undefined || raw.weight === null || raw.weight === ""
@@ -247,7 +258,7 @@ export function validateBasketItems(
   const seen = new Set<string>();
 
   for (const item of items) {
-    if (!item || typeof item !== "object") {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
       return { ok: false, error: "Invalid basket item" };
     }
     const r = item as Record<string, unknown>;
@@ -273,14 +284,15 @@ export function validateBasketItems(
       return { ok: false, error: "Invalid basket item: name" };
     }
 
+    const theme = typeof r.theme === "string" ? r.theme.trim() : "";
     if (options.requireTheme) {
-      if (typeof r.theme !== "string" || r.theme.trim().length > MAX_THEME_LENGTH) {
+      // "Requires a theme" must not be satisfied by an empty label: an
+      // all-whitespace theme is not a theme and used to pass here while a
+      // missing one was rejected.
+      if (!theme || theme.length > MAX_THEME_LENGTH) {
         return { ok: false, error: "Invalid basket item: theme" };
       }
-    } else if (
-      r.theme !== undefined &&
-      (typeof r.theme !== "string" || r.theme.trim().length > MAX_THEME_LENGTH)
-    ) {
+    } else if (r.theme !== undefined && (typeof r.theme !== "string" || theme.length > MAX_THEME_LENGTH)) {
       return { ok: false, error: "Invalid basket item: theme" };
     }
 
@@ -291,7 +303,7 @@ export function validateBasketItems(
     basket.push({
       ticker,
       name: r.name.trim(),
-      theme: typeof r.theme === "string" ? r.theme.trim() : "カスタム",
+      theme: theme || "カスタム",
       weight: r.weight,
     });
   }

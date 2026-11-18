@@ -96,6 +96,28 @@ describe("TradingViewChartModal resource cleanup", () => {
     window.removeEventListener("resize", resizeListener);
   });
 
+  it("cancels pending resize notifications when the modal closes without unmounting", () => {
+    const { getByLabelText, rerender } = render(
+      <TradingViewChartModal symbol={SYMBOL} onClose={() => {}} />,
+    );
+
+    fireEvent.click(getByLabelText("画面に合わせて最大化"));
+    expect(vi.getTimerCount()).toBeGreaterThan(0);
+
+    // Closing sets `symbol` to null but the component itself stays mounted;
+    // the unmount-only cleanup used to leave the notification timer armed.
+    rerender(<TradingViewChartModal symbol={null} onClose={() => {}} />);
+    expect(vi.getTimerCount()).toBe(0);
+
+    const resizeListener = vi.fn();
+    window.addEventListener("resize", resizeListener);
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    expect(resizeListener).not.toHaveBeenCalled();
+    window.removeEventListener("resize", resizeListener);
+  });
+
   it("mounts safely and falls back to default responsive dimensions when localStorage throws SecurityError", () => {
     Object.defineProperty(globalThis, "localStorage", {
       configurable: true,

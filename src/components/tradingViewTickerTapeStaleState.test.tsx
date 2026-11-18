@@ -6,7 +6,7 @@
  * old market prices without the per-row 参考 disclosure.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { TradingViewTickerTape } from "./TradingViewTickerTape";
 
 const jsonResponse = (body: unknown) =>
@@ -193,6 +193,82 @@ describe("TradingViewTickerTape stale payload ownership", () => {
     );
     expect(djiRow?.querySelector(".tv-ticker-price.is-reference")).not.toBeNull();
     expect(djiRow?.textContent).toContain("43,825.10");
+  });
+
+  it("opens the hover popover with the newest quote, not the one present at hover time", async () => {
+    // Held in an object because the resolver is assigned from the fetch mock:
+    // a bare `let` is narrowed to its initial null by control-flow analysis.
+    const secondRequest: { resolve: ((value: Response) => void) | null } = {
+      resolve: null,
+    };
+    let requestCount = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => {
+        requestCount += 1;
+        if (requestCount === 1) {
+          return Promise.resolve(
+            jsonResponse(
+              response([
+                {
+                  proName: "INDEX:NKY",
+                  formattedPrice: "2,801.00",
+                  formattedChange: "+1.00",
+                  formattedChangePercent: "+0.04%",
+                  isPositive: true,
+                },
+              ]),
+            ),
+          );
+        }
+        return new Promise<Response>((resolve) => {
+          secondRequest.resolve = resolve;
+        });
+      }),
+    );
+
+    render(<TradingViewTickerTape />);
+    await waitFor(() => expect(screen.getAllByText("2,801.00").length).toBeGreaterThan(0));
+
+    // Start the next poll, then hover while it is still in flight. The timer
+    // captured this render's callback; a later quote must still win.
+    document.dispatchEvent(new Event("visibilitychange"));
+    await waitFor(() => expect(secondRequest.resolve).not.toBeNull());
+
+    const nikkeiRow = Array.from(document.querySelectorAll<HTMLElement>(".tv-ticker-item")).find(
+      (item) => item.textContent?.includes("日経平均"),
+    );
+    if (!nikkeiRow) throw new Error("Nikkei ticker row was not rendered");
+    fireEvent.mouseEnter(nikkeiRow);
+
+    const resolve = secondRequest.resolve;
+    if (!resolve) throw new Error("Second quote request was not started");
+    resolve(
+      jsonResponse(
+        response([
+          {
+            proName: "INDEX:NKY",
+            formattedPrice: "2,802.00",
+            formattedChange: "+2.00",
+            formattedChangePercent: "+0.07%",
+            isPositive: true,
+          },
+        ]),
+      ),
+    );
+    await waitFor(() => expect(screen.getAllByText("2,802.00").length).toBeGreaterThan(0));
+
+    // 1.8s hover delay. The popover must read the live map at open time.
+    await waitFor(
+      () => {
+        const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
+        expect(dialog).not.toBeNull();
+        if (!dialog) throw new Error("Chart popover did not open");
+        expect(within(dialog).getAllByText("2,802.00").length).toBeGreaterThan(0);
+        expect(within(dialog).queryByText("2,801.00")).toBeNull();
+      },
+      { timeout: 3000 },
+    );
   });
 
   it("withdraws previously live prices when a later poll fails", async () => {

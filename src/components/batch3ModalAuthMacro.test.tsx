@@ -306,6 +306,21 @@ describe("macro asset portfolio guard (ISSUE-11 behavior)", () => {
     expect(onAddToPortfolio).not.toHaveBeenCalled();
   });
 
+  it("labels a macro asset by its asset class, not by its listing market", async () => {
+    // The fundamentals API reports a currency bucket (PRIME/US) in `market`
+    // for macro assets; rendering that as a listing market claimed the Nikkei
+    // was listed on the TSE Prime market.
+    fetchMock.mockImplementationOnce(async () => ({
+      ...makeQuote("^N225"),
+      theme: "株価指数",
+      market: "PRIME",
+    }));
+    await renderDetail("^N225");
+
+    expect(screen.getByText("株価指数", { selector: ".badge" })).toBeTruthy();
+    expect(screen.queryByText("東証プライム")).toBeNull();
+  });
+
   it("keeps portfolio registration enabled for an ordinary stock", async () => {
     const onAddToPortfolio = vi.fn();
     await renderDetail("7203", { onAddToPortfolio });

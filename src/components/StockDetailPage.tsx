@@ -473,7 +473,9 @@ export function StockDetailPage({
               ) : (
                 <span className="badge badge-accent mono tiny">LIVE</span>
               )}
-              <span className="badge badge-default mono tiny">{formatMarketLabel(stock.market)}</span>
+              <span className="badge badge-default mono tiny">
+                {isMacro ? stock.theme || "マクロ資産" : formatMarketLabel(stock.market)}
+              </span>
               <span className="badge badge-default mono tiny">{formatDynamicSector(stock.sector)}</span>
               {stock.industry && (
                 <span className="badge badge-outline mono tiny">{formatDynamicIndustry(stock.industry)}</span>
