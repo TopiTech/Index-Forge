@@ -67,20 +67,27 @@ export function getSavedDimensions(): CardDimensions {
     const storage = getSafeStorage();
     const saved = storage?.getItem(STORAGE_KEY_SIZE);
     if (saved) {
-      const parsed = JSON.parse(saved);
+      const parsed: unknown = JSON.parse(saved);
       if (
-        typeof parsed.width === "number" &&
-        typeof parsed.height === "number" &&
-        parsed.width >= minW &&
-        parsed.height >= minH
+        parsed &&
+        typeof parsed === "object" &&
+        !Array.isArray(parsed) &&
+        typeof (parsed as { width?: unknown }).width === "number" &&
+        Number.isFinite((parsed as { width: number }).width) &&
+        typeof (parsed as { height?: unknown }).height === "number" &&
+        Number.isFinite((parsed as { height: number }).height)
       ) {
-        // Clamp to current viewport
-        const maxW = Math.max(minW, Math.floor(window.innerWidth * 0.94));
-        const maxH = Math.max(minH, Math.floor(window.innerHeight * 0.92));
-        return {
-          width: Math.min(Math.round(parsed.width), maxW),
-          height: Math.min(Math.round(parsed.height), maxH),
-        };
+        const pWidth = (parsed as { width: number }).width;
+        const pHeight = (parsed as { height: number }).height;
+        if (pWidth >= minW && pHeight >= minH) {
+          // Clamp to current viewport
+          const maxW = Math.max(minW, Math.floor(window.innerWidth * 0.94));
+          const maxH = Math.max(minH, Math.floor(window.innerHeight * 0.92));
+          return {
+            width: Math.min(Math.round(pWidth), maxW),
+            height: Math.min(Math.round(pHeight), maxH),
+          };
+        }
       }
     }
   } catch {

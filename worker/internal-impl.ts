@@ -3068,14 +3068,41 @@ export async function fetchSecEdgarFinancials(
     const usGaap = data.facts?.["us-gaap"];
     if (!usGaap) return [];
 
+    type UsableFact = {
+      form?: string;
+      fy: number;
+      val: number;
+      fp?: string;
+      filed?: string;
+      end?: string;
+    };
+
     const isUsableFact = (
-      r: { form?: string; fy?: number; val?: number; fp?: string },
-    ): r is { form?: string; fy: number; val: number; fp?: string } =>
-      r.form === "10-K" &&
+      r: { form?: string; fy?: number; val?: number; fp?: string; filed?: string; end?: string },
+    ): r is UsableFact =>
+      (r.form === "10-K" || r.form === "10-K/A") &&
       typeof r.fy === "number" &&
       typeof r.val === "number" &&
       Number.isFinite(r.val) &&
       (!r.fp || r.fp === "FY");
+
+    const pickLatestFact = (
+      list: UsableFact[],
+      targetFy: number,
+    ): UsableFact | undefined => {
+      const matches = list.filter((r) => r.fy === targetFy);
+      if (matches.length === 0) return undefined;
+      if (matches.length === 1) return matches[0];
+      // 提出日 (filed) または期末日 (end) の昇順でソートし、最新の確定開示値を採用
+      return matches.sort((a, b) => {
+        const filedA = a.filed || "";
+        const filedB = b.filed || "";
+        if (filedA !== filedB) return filedA.localeCompare(filedB);
+        const endA = a.end || "";
+        const endB = b.end || "";
+        return endA.localeCompare(endB);
+      }).pop();
+    };
 
     const revList = (
       usGaap.Revenues?.units?.USD ||
@@ -3104,11 +3131,11 @@ export async function fetchSecEdgarFinancials(
     if (years.length === 0) return [];
 
     return years.map((fy) => {
-      const revItem = revList.filter((r) => r.fy === fy).pop();
-      const netItem = netList.filter((r) => r.fy === fy).pop();
-      const opItem = opList.filter((r) => r.fy === fy).pop();
-      const epsItem = epsList.filter((r) => r.fy === fy).pop();
-      const dpsItem = dpsList.filter((r) => r.fy === fy).pop();
+      const revItem = pickLatestFact(revList, fy);
+      const netItem = pickLatestFact(netList, fy);
+      const opItem = pickLatestFact(opList, fy);
+      const epsItem = pickLatestFact(epsList, fy);
+      const dpsItem = pickLatestFact(dpsList, fy);
 
       const rev = revItem && typeof revItem.val === "number" && Number.isFinite(revItem.val)
         ? Math.round(revItem.val / 1_000_000)
