@@ -631,9 +631,17 @@ export function AdminDashboard({
 
     if (!res.ok) {
       setSecretCodeError(res.error || "秘密の暗号の更新に失敗しました");
+    } else if (typeof res.adminToken !== "string" || !res.adminToken.trim()) {
+      // The worker revokes every session and always returns the rotated token
+      // on success. Without it the stored session is stale, so do not report
+      // success: force a fresh login (P1-10).
+      setSecretCodeError(
+        "秘密の暗号は更新されましたが、新しい管理者セッションを取得できませんでした。管理者パスワードで再ログインしてください。",
+      );
+      logout();
     } else {
       setSecretCodeSuccess("秘密の暗号を正常に更新しました");
-      if (session && typeof res.adminToken === "string") {
+      if (session) {
         storeAuth({
           ...session,
           adminToken: res.adminToken,

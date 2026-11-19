@@ -91,10 +91,12 @@ describe("Comprehensive Goal Code Review Fulfillment Round 4", () => {
   });
 
   describe("3. StockDetailPage Resilience", () => {
-    it("handles unexpected fetch errors inside loadStockData without throwing unhandled exceptions", () => {
+    it("keeps a documented catch path in loadStockData (static contract)", () => {
+      // Static contract only: the behavioural assertion for a failed refresh
+      // lives in reviewP1StockDetail.test.tsx.
       expect(stockDetailTsx).toContain("catch {");
       expect(stockDetailTsx).toContain(
-        "// Gracefully retain existing cached data on unexpected network error"
+        "// Gracefully retain existing cached data, but say so instead of"
       );
     });
   });

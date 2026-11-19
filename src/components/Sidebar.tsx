@@ -136,6 +136,10 @@ export function Sidebar({
 
         const handleKeyDown = (event: KeyboardEvent) => {
             if (event.key === "Escape") {
+                // A modal above the drawer owns Escape. Closing both with one
+                // keypress leaves the user on a different screen than expected.
+                // App.tsx removes its duplicate listener separately.
+                if (document.querySelector("[data-modal-dialog]")) return;
                 event.preventDefault();
                 onRequestClose();
                 return;

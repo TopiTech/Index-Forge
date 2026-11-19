@@ -16,12 +16,20 @@
  */
 
 import { isValidTicker } from "./apiContract";
+import { MAX_CACHE_CLOCK_SKEW_SECONDS } from "./marketCache";
 
 /** localStorage key holding the per-ticker "last synced" timestamps. */
 export const SYNC_STORAGE_KEY = "osi_stock_sync_cache";
 
 /** Entries older than this are dropped so the cache cannot grow forever. */
 export const SYNC_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * A timestamp further ahead than this cannot be explained by clock skew. It
+ * would otherwise keep a ticker "fresh" forever because retention only looks
+ * at `now - timestamp`, which is negative for future values.
+ */
+export const SYNC_CACHE_MAX_CLOCK_SKEW_MS = MAX_CACHE_CLOCK_SKEW_SECONDS * 1000;
 
 /**
  * Normalize a ticker for the shared cache, or return null when it cannot be a
@@ -54,6 +62,7 @@ export function parseLocalSyncCache(raw: string | null): Record<string, number> 
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
 
     const cache: Record<string, number> = {};
+    const now = Date.now();
     for (const [ticker, timestamp] of Object.entries(parsed)) {
       const normalizedTicker = normalizeSyncCacheTicker(ticker);
       if (
@@ -63,6 +72,7 @@ export function parseLocalSyncCache(raw: string | null): Record<string, number> 
         timestamp > 0
       ) {
         const msTimestamp = timestamp < 1e11 ? Math.round(timestamp * 1000) : Math.round(timestamp);
+        if (msTimestamp > now + SYNC_CACHE_MAX_CLOCK_SKEW_MS) continue;
         cache[normalizedTicker] = Math.max(cache[normalizedTicker] || 0, msTimestamp);
       }
     }
@@ -114,12 +124,14 @@ export function mergeSyncCache(entries: (string | SyncCacheUpdateEntry)[]): void
       } else if (item && typeof item.ticker === "string") {
         const normalizedTicker = normalizeSyncCacheTicker(item.ticker);
         if (normalizedTicker !== null) {
-          cache[normalizedTicker] =
+          const provided =
             typeof item.lastSynced === "number" &&
             Number.isFinite(item.lastSynced) &&
             item.lastSynced > 0
               ? toMilliseconds(item.lastSynced)
               : now;
+          cache[normalizedTicker] =
+            provided > now + SYNC_CACHE_MAX_CLOCK_SKEW_MS ? now : provided;
         }
       }
     }
@@ -149,7 +161,11 @@ export function pruneSyncCacheMap(
   nowMs: number = Date.now(),
 ): void {
   for (const [ticker, timestamp] of entries) {
-    if (!Number.isFinite(timestamp) || nowMs - timestamp > SYNC_CACHE_MAX_AGE_MS) {
+    if (
+      !Number.isFinite(timestamp) ||
+      nowMs - timestamp > SYNC_CACHE_MAX_AGE_MS ||
+      timestamp > nowMs + SYNC_CACHE_MAX_CLOCK_SKEW_MS
+    ) {
       entries.delete(ticker);
     }
   }

@@ -177,7 +177,12 @@ describe("regression: registry and standard flow stay wired", () => {
   it("keeps the runner registry identical to vitest's include in vite.config.ts", () => {
     // registry が vitest より広い claims をすると fail-open (orphan を見逃す)。
     // 単一の情報源 (vite.config.ts) と一致させることで構造的に防ぐ。
-    expect(VITEST_INCLUDE).toEqual(viteConfig.test?.include);
+    // I8 で config が command を受け取る関数になったため、serve として解決する。
+    const resolved =
+      typeof viteConfig === "function"
+        ? viteConfig({ command: "serve", mode: "test", isSsrBuild: false, isPreview: false })
+        : viteConfig;
+    expect(VITEST_INCLUDE).toEqual(resolved.test?.include);
   });
 
   it("runs the gate before the test suite in `npm test`", () => {

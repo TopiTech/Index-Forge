@@ -8,7 +8,7 @@
  * gone, which is exactly what this test observes instead of grepping for
  * `clearTimeout`.
  */
-import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TradingViewChartModal } from "./TradingViewChartModal";
 
@@ -163,5 +163,15 @@ describe("TradingViewChartModal resource cleanup", () => {
     expect(dialog.style.height).toBeTruthy();
 
     unmount();
+  });
+});
+
+describe("TradingViewChartModal fallback access (C6)", () => {
+  it("offers an official-site link before the widget has rendered", () => {
+    render(<TradingViewChartModal symbol={SYMBOL} onClose={() => {}} />);
+
+    const link = screen.getByRole("link", { name: /公式サイトでチャートを開く/ });
+    expect(link.getAttribute("href")).toContain("https://");
+    expect(link.getAttribute("target")).toBe("_blank");
   });
 });

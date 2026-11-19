@@ -418,14 +418,15 @@ export async function verifyPassword(
       return { ok: false, error: "認証応答が不正です" };
     }
 
-    const session: AuthSession = {
+    const session = sanitizeAuthSession({
       role: "user",
       name: typeof data.name === "string" ? data.name : "ユーザー",
       password: trimmed,
       maxStocks: typeof data.maxStocks === "number" ? data.maxStocks : null,
       maxIndices: typeof data.maxIndices === "number" ? data.maxIndices : null,
       id: typeof data.id === "string" ? data.id : undefined,
-    };
+    });
+    if (!session) return { ok: false, error: "認証応答が不正です" };
 
     storeAuth(session);
     return { ok: true, session };
@@ -487,8 +488,23 @@ export function generateSecurePassword(length = 10): string {
  */
 export const AUTH_REQUEST_TIMEOUT_MS = 20_000;
 
-/** Turnstile test site key; used whenever the Worker cannot be reached. */
+/** Turnstile test site key; only usable in local/test deployments. */
 export const DEFAULT_TURNSTILE_SITE_KEY = "1x00000000000000000000AA";
+
+/**
+ * The Worker refuses the public test key outside local/test hosts, so the
+ * client must not fall back to it in production when the config API fails:
+ * that produces a widget whose token can never be verified.
+ */
+export function turnstileFallbackSiteKey(hostname: string): string {
+  const local =
+    !hostname ||
+    hostname === "localhost" ||
+    hostname === "127.0.0.1" ||
+    hostname === "::1" ||
+    hostname === "[::1]";
+  return local ? DEFAULT_TURNSTILE_SITE_KEY : "";
+}
 
 /**
  * Validate the lockout block of `/api/auth/turnstile-config`.
@@ -520,10 +536,15 @@ function sanitizeAdminLockout(
 /**
  * Retrieve Turnstile configuration and admin lockout status from the Worker API
  */
-export async function getTurnstileConfig(): Promise<{
+export async function getTurnstileConfig(hostnameOverride?: string): Promise<{
   siteKey: string;
   lockout?: { locked: boolean; remainingSeconds: number; remainingAttempts: number };
+  unavailable?: boolean;
 }> {
+  const hostname =
+    hostnameOverride ?? (typeof window === "undefined" ? "" : window.location.hostname);
+  const fallbackSiteKey = turnstileFallbackSiteKey(hostname);
+  const unavailable = (siteKey: string) => (siteKey ? {} : { unavailable: true });
   try {
     // The login form renders with the default test site key until this
     // resolves, so a stalled config request must not stay pending forever.
@@ -532,7 +553,7 @@ export async function getTurnstileConfig(): Promise<{
     });
     if (!res.ok) {
       releaseResponse(res);
-      return { siteKey: DEFAULT_TURNSTILE_SITE_KEY };
+      return { siteKey: fallbackSiteKey, ...unavailable(fallbackSiteKey) };
     }
     // UI-38: a non-JSON body must not throw (the catch below would hide the
     // configuration) and the payload is validated field by field.
@@ -541,11 +562,11 @@ export async function getTurnstileConfig(): Promise<{
     const siteKey =
       typeof data.siteKey === "string" && data.siteKey.trim()
         ? data.siteKey
-        : DEFAULT_TURNSTILE_SITE_KEY;
-    return { siteKey, lockout: sanitizeAdminLockout(data.lockout) };
+        : fallbackSiteKey;
+    return { siteKey, lockout: sanitizeAdminLockout(data.lockout), ...unavailable(siteKey) };
   } catch (e) {
     console.warn("Failed to fetch Turnstile config:", e);
-    return { siteKey: DEFAULT_TURNSTILE_SITE_KEY };
+    return { siteKey: fallbackSiteKey, ...unavailable(fallbackSiteKey) };
   }
 }
 

@@ -5,6 +5,7 @@ import { searchPopularStocks, PRESET_STOCKS } from "../data/popularStocks";
 import { normalizeTicker } from "../lib/indexEngine";
 import { isValidTicker } from "../lib/apiContract";
 import { toFiniteNumberOr } from "../lib/downloadFileName";
+import { useAuth } from "../hooks/useAuth";
 import { ModalBase } from "./ModalBase";
 
 const MAX_SEARCH_RESULTS = 80;
@@ -36,6 +37,9 @@ export function AddStockModal({
   const [error, setError] = useState<string | null>(null);
   const tickerInputRef = useRef<HTMLInputElement>(null);
   const isMountedRef = useRef(true);
+  // The parent (ConstituentsTable) applies maxStocks only to general users.
+  // Use the same gate here instead of trusting the raw prop alone.
+  const { isUser } = useAuth();
 
   const commitWeight = (): number => {
     const parsed = toFiniteNumberOr(weightDraft, 10);
@@ -80,7 +84,8 @@ export function AddStockModal({
     return searchPopularStocks(query, 8);
   }, [ticker, name]);
 
-  const isLimitReached = maxStocks !== null && maxStocks > 0 && currentCount >= maxStocks;
+  const isLimitReached =
+    isUser && maxStocks !== null && maxStocks > 0 && currentCount >= maxStocks;
 
   const handleSelectPreset = (p: { ticker: string; name: string; theme: string }) => {
     setTicker(p.ticker);
@@ -92,7 +97,7 @@ export function AddStockModal({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isLimitReached) {
-      setError(`このパスワードの上限（最大${maxStocks}銘柄）に達しているため、追加できません`);
+      setError(`この権限/プランの上限（最大${maxStocks}銘柄）に達しているため、追加できません`);
       return;
     }
 
@@ -129,24 +134,34 @@ export function AddStockModal({
 
     setLoading(true);
     setError(null);
-    const res = await onAddStock({
-      ticker: cleanTicker,
-      name: cleanName,
-      theme: theme.trim() || "カスタム",
-      weight: numericWeight,
-    });
-    if (!isMountedRef.current) return;
-    setLoading(false);
-
-    if (res.ok) {
-      setTicker("");
-      setName("");
-      setTheme("");
-      setWeight(10);
-      setWeightDraft("10");
-      onClose();
-    } else {
-      setError(res.error || "銘柄の追加に失敗しました");
+    try {
+      const res = await onAddStock({
+        ticker: cleanTicker,
+        name: cleanName,
+        theme: theme.trim() || "カスタム",
+        weight: numericWeight,
+      });
+      if (!isMountedRef.current) return;
+      if (res.ok) {
+        setTicker("");
+        setName("");
+        setTheme("");
+        setWeight(10);
+        setWeightDraft("10");
+        onClose();
+      } else {
+        setError(res.error || "銘柄の追加に失敗しました");
+      }
+    } catch (err) {
+      // A rejected request must not strand the dialog in "追加中..." — the
+      // user has to be able to retry or cancel after a network failure.
+      if (isMountedRef.current) {
+        setError(err instanceof Error ? err.message : "銘柄の追加に失敗しました");
+      }
+    } finally {
+      if (isMountedRef.current) {
+        setLoading(false);
+      }
     }
   };
 
@@ -209,7 +224,7 @@ export function AddStockModal({
           </div>
           {isLimitReached && (
             <div style={{ fontSize: 12, color: "var(--neon-red)", marginTop: 4 }}>
-              ⚠️ 現在のパスワードで許可されている銘柄数上限 ({maxStocks}銘柄) に達しています。追加するには既存銘柄を削除するか管理者にお問い合わせください。
+              ⚠️ 現在の権限/プランで許可されている銘柄数上限 ({maxStocks}銘柄) に達しています。追加するには既存銘柄を削除するか管理者にお問い合わせください。
             </div>
           )}
         </div>

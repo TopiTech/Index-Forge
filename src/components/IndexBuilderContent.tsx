@@ -304,6 +304,15 @@ export function IndexBuilderContent({
   };
 
   const handleApplyPreset = (preset: StrategyPreset) => {
+    // Apply the same quota rule as handleAddStock / save: silently replacing a
+    // basket with more stocks than the password allows would only defer the
+    // failure to save (and leave the user with an unsaveable draft).
+    if (isUser && maxStocks !== null && maxStocks > 0 && preset.stocks.length > maxStocks) {
+      setError(
+        `このパスワードの上限（最大${maxStocks}銘柄）を超えています（${preset.stocks.length}銘柄のプリセット）`,
+      );
+      return;
+    }
     setName(preset.name);
     setDescription(preset.description);
     setBasket(preset.stocks.map((s) => ({ ...s })));
@@ -481,6 +490,7 @@ export function IndexBuilderContent({
             setBasket(res.data.basket);
             setError(null);
             toastSuccess(`JSONから指数「${res.data.name}」を取り込みました`);
+            if (res.error) toastWarning(res.error);
           } else {
             setError(res.error || "JSONインポートに失敗しました");
           }

@@ -55,7 +55,7 @@ describe("Comprehensive Goal Audit Fixes 2: Accessibility & Security Enhancement
     });
 
     it("makes watchlist cards accessible and stops keyboard propagation on delete button", () => {
-      expect(portfolioTsx).toMatch(
+      expect(portfolioTsx).not.toMatch(
         /<div\s+key=\{ticker\}\s+role="button"\s+tabIndex=\{0\}\s+className="card interactive-card"/,
       );
       expect(portfolioTsx).toContain("aria-label={`${fund.name} (${ticker}) の詳細を見る`}");
@@ -65,13 +65,11 @@ describe("Comprehensive Goal Audit Fixes 2: Accessibility & Security Enhancement
   });
 
   describe("CalendarPage Timeline Keyboard Navigation", () => {
-    it("provides button role, tabIndex, and Enter/Space keyboard handlers on ticker events", () => {
-      expect(calendarTsx).toContain('role={ticker ? "button" : undefined}');
-      expect(calendarTsx).toContain("tabIndex={ticker ? 0 : undefined}");
-      expect(calendarTsx).toContain(
-        "aria-label={ticker ? `${evt.title} (${ticker}) の詳細を見る` : undefined}",
-      );
-      expect(calendarTsx).toMatch(/if \(e\.key === "Enter" \|\| e\.key === " "\)/);
+    it("keeps ticker-event activation on a real button instead of a nested-interactive card", () => {
+      expect(calendarTsx).not.toContain('role={ticker ? "button" : undefined}');
+      expect(calendarTsx).not.toContain("tabIndex={ticker ? 0 : undefined}");
+      expect(calendarTsx).toContain("aria-label={`${evt.title} (${ticker}) の詳細を見る`}");
+      expect(calendarTsx).toContain("e.stopPropagation()");
     });
   });
 

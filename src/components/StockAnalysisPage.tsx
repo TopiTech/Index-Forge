@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef, useId } from "react";
 import { createPortal } from "react-dom";
 import { motion } from "framer-motion";
 import { useOverlayRoot } from "./ModalBase";
@@ -41,12 +41,22 @@ import type { PageView } from "../lib/navigation";
 import { useRegisterFreshness } from "../contexts/FreshnessContext";
 import { formatMarketLabel } from "../lib/marketFormatter";
 
+/** Provenance of a price offered as a portfolio cost basis. */
+export type PortfolioPriceProvenance = "live" | "reference";
+
 export interface StockAnalysisPageProps {
   onNavigate: (view: PageView, searchParams?: string) => void;
   onOpenStockDetail: (ticker: string) => void;
   onAddToIndex?: (ticker: string, name: string, theme: string) => void;
-  onAddToWatchlist?: (ticker: string) => void;
-  onAddToPortfolio?: (ticker: string, currentPrice: number, stockName?: string) => void;
+  // A void-returning handler (older callers that only fire-and-forget) is
+  // accepted, but only an explicit `true` confirms the check mark.
+  onAddToWatchlist?: (ticker: string) => boolean | Promise<boolean> | void;
+  onAddToPortfolio?: (
+    ticker: string,
+    currentPrice: number,
+    stockName?: string,
+    priceProvenance?: PortfolioPriceProvenance,
+  ) => void;
 }
 
 type ThemeCategory =
@@ -114,6 +124,8 @@ export function StockAnalysisPage({
   });
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearchDropdownOpen, setIsSearchDropdownOpen] = useState(false);
+  const [activeOptionIndex, setActiveOptionIndex] = useState<number | null>(null);
+  const searchListId = useId();
   // The suggestion list is rendered in a portal because the hero card clips its
   // overflowing children (`overflow: hidden` for the decorative glow), which
   // hid every result below the first few (UI-23).
@@ -382,6 +394,7 @@ export function StockAnalysisPage({
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setIsSearchDropdownOpen(false);
+    setActiveOptionIndex(null);
     if (searchResults.length > 0) {
       onOpenStockDetail(searchResults[0].ticker);
     } else if (searchQuery.trim()) {
@@ -389,10 +402,48 @@ export function StockAnalysisPage({
     }
   };
 
-  const handleToggleWatchlist = (e: React.MouseEvent, ticker: string) => {
+  /**
+   * Arrow keys move the active option inside the portalled listbox while focus
+   * stays on the input; Enter commits that option. With no active option the
+   * form's existing Enter submit (first result / raw ticker) is untouched.
+   */
+  const handleSearchInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Escape") {
+      setIsSearchDropdownOpen(false);
+      setActiveOptionIndex(null);
+      return;
+    }
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      if (searchResults.length === 0) return;
+      e.preventDefault();
+      setIsSearchDropdownOpen(true);
+      const step = e.key === "ArrowDown" ? 1 : -1;
+      setActiveOptionIndex((prev) => {
+        if (prev === null) return step > 0 ? 0 : searchResults.length - 1;
+        return (prev + step + searchResults.length) % searchResults.length;
+      });
+      return;
+    }
+    if (e.key === "Enter" && activeOptionIndex !== null) {
+      const active = searchResults[activeOptionIndex];
+      if (!active) return;
+      e.preventDefault();
+      setIsSearchDropdownOpen(false);
+      setActiveOptionIndex(null);
+      onOpenStockDetail(active.ticker);
+    }
+  };
+
+  const handleToggleWatchlist = async (e: React.MouseEvent, ticker: string) => {
     e.stopPropagation();
-    onAddToWatchlist?.(ticker);
-    setAddedWatchlistMap((prev) => ({ ...prev, [ticker]: true }));
+    try {
+      const confirmed = await onAddToWatchlist?.(ticker);
+      if (confirmed === true) {
+        setAddedWatchlistMap((prev) => ({ ...prev, [ticker]: true }));
+      }
+    } catch {
+      // The owner reports storage failures; never claim success on a throw.
+    }
   };
 
   /**
@@ -531,13 +582,19 @@ export function StockAnalysisPage({
                 }}
                 onChange={(e) => {
                   setSearchQuery(e.target.value);
+                  setActiveOptionIndex(null);
                   setIsSearchDropdownOpen(true);
                 }}
-                onKeyDown={(e) => {
-                  if (e.key === "Escape") {
-                    setIsSearchDropdownOpen(false);
-                  }
-                }}
+                onKeyDown={handleSearchInputKeyDown}
+                role="combobox"
+                aria-autocomplete="list"
+                aria-expanded={isSearchDropdownOpen && searchQuery.trim().length > 0}
+                aria-controls={searchListId}
+                aria-activedescendant={
+                  activeOptionIndex !== null && searchResults[activeOptionIndex]
+                    ? `${searchListId}-option-${activeOptionIndex}`
+                    : undefined
+                }
                 aria-label="銘柄コード・企業名を入力"
                 autoComplete="off"
               />
@@ -547,6 +604,7 @@ export function StockAnalysisPage({
                   className="stock-analysis-search-clear"
                   onClick={() => {
                     setSearchQuery("");
+                    setActiveOptionIndex(null);
                     setIsSearchDropdownOpen(false);
                   }}
                   aria-label="検索キーワードをクリア"
@@ -576,6 +634,7 @@ export function StockAnalysisPage({
                 <div
                   ref={searchDropdownRef}
                   className="stock-analysis-search-dropdown"
+                  id={searchListId}
                   role="listbox"
                   aria-label="銘柄検索候補"
                   style={{
@@ -590,25 +649,29 @@ export function StockAnalysisPage({
                   }}
                 >
                   {searchResults.length > 0 ? (
-                    searchResults.map((item) => (
+                    searchResults.map((item, index) => (
                       <div
                         key={item.ticker}
+                        id={`${searchListId}-option-${index}`}
                         role="option"
                         tabIndex={0}
-                        aria-selected={false}
+                        aria-selected={activeOptionIndex === index}
                         className="stock-analysis-search-dropdown-item"
                         onClick={() => {
                           setIsSearchDropdownOpen(false);
+                          setActiveOptionIndex(null);
                           onOpenStockDetail(item.ticker);
                         }}
                         onKeyDown={(e) => {
                           if (e.key === "Enter" || e.key === " ") {
                             e.preventDefault();
                             setIsSearchDropdownOpen(false);
+                            setActiveOptionIndex(null);
                             onOpenStockDetail(item.ticker);
                           } else if (e.key === "Escape") {
                             e.preventDefault();
                             setIsSearchDropdownOpen(false);
+                            setActiveOptionIndex(null);
                           }
                         }}
                       >
@@ -903,20 +966,6 @@ export function StockAnalysisPage({
                 transition={{ duration: 0.18 }}
                 className="stock-analysis-card"
                 onClick={() => onOpenStockDetail(stock.ticker)}
-                role="button"
-                tabIndex={0}
-                onKeyDown={(e) => {
-                  // The card is a role="button" wrapper around real buttons.
-                  // Enter/Space pressed on「指数に追加」/「ポートフォリオに追加」
-                  // bubbled up and navigated to the detail page instead of
-                  // adding (UI-15), so only keys typed on the card itself may
-                  // activate the card.
-                  if (e.target !== e.currentTarget) return;
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    onOpenStockDetail(stock.ticker);
-                  }
-                }}
               >
                 {/* Card Top: Ticker, Market, Theme & Actions */}
                 <div className="stock-card-top">
@@ -949,11 +998,22 @@ export function StockAnalysisPage({
                       <button
                         type="button"
                         className="stock-card-action-btn"
+                        disabled={Boolean(stock.isDemoData)}
                         onClick={(e) => {
                           e.stopPropagation();
-                          onAddToPortfolio(stock.ticker, stock.price, stock.name);
+                          if (stock.isDemoData) return;
+                          onAddToPortfolio(
+                            stock.ticker,
+                            stock.price,
+                            stock.name,
+                            "live",
+                          );
                         }}
-                        title="ポートフォリオに追加"
+                        title={
+                          stock.isDemoData
+                            ? "参考値の価格は取得単価に使用できません"
+                            : "ポートフォリオに追加"
+                        }
                         aria-label={`${stock.name}をポートフォリオに追加`}
                       >
                         <PieChart size={13} />
@@ -974,7 +1034,26 @@ export function StockAnalysisPage({
                 {/* Card Body: Name, Price, Change */}
                 <div className="stock-card-body">
                   <h3 className="stock-card-name" title={stock.name}>
-                    {stock.name}
+                    <button
+                      type="button"
+                      className="stock-card-name-button"
+                      style={{
+                        background: "none",
+                        border: 0,
+                        padding: 0,
+                        color: "inherit",
+                        font: "inherit",
+                        cursor: "pointer",
+                        textAlign: "left",
+                      }}
+                      aria-label={`${stock.name} の詳細を見る`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onOpenStockDetail(stock.ticker);
+                      }}
+                    >
+                      {stock.name}
+                    </button>
                   </h3>
                   <div className="stock-card-price-row">
                     <div>

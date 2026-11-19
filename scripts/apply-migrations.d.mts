@@ -50,6 +50,14 @@ export interface CliArgs {
   dbName: string;
 }
 
+/** Injectable Wrangler command runner (defaults to the real CLI). */
+export type WranglerExec = (
+  targetFlag: string,
+  configPath: string,
+  dbName: string,
+  sql: string,
+) => string;
+
 export const REQUIRED_MIGRATION_STEPS: readonly MigrationStep[];
 
 export const OWNER_TOKEN_BACKFILL_SQL: string;
@@ -59,6 +67,7 @@ export function computePendingMigrations(
   steps?: readonly MigrationStep[],
 ): MigrationStep[];
 
+/** Throws on malformed JSON or an unexpected result shape (fail-closed). */
 export function parseWranglerJson(stdout: string): Record<string, unknown>[];
 
 export function parseCliArgs(args?: readonly string[]): CliArgs;
@@ -67,10 +76,12 @@ export function probeDatabase(
   targetFlag: "--local" | "--remote",
   configPath?: string,
   dbName?: string,
+  exec?: WranglerExec,
 ): DatabaseProbeResult;
 
 export function runMigration(
   targetFlag?: "--local" | "--remote",
   configPath?: string,
   dbName?: string,
+  exec?: WranglerExec,
 ): { appliedCount: number; steps: MigrationStep[] };

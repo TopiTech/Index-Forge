@@ -73,6 +73,10 @@ function stubYahooFinance(): ReturnType<typeof vi.fn> {
               regularMarketChange: change,
               regularMarketChangePercent: change / 10,
               regularMarketPreviousClose: price - change,
+              // The screener's live branch reports marketCap=0 when the quote
+              // omits it (no fabricated fallback), so the deterministic quote
+              // fixture must carry a real cap for the completeness assertion.
+              marketCap: 4_000_000_000_000 + (seed % 100) * 1_000_000,
             };
           }),
         },

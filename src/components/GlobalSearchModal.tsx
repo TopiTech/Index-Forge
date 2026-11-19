@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useRef, useMemo, useCallback, useId } from "react";
 import { createPortal } from "react-dom";
 import { motion } from "framer-motion";
 import {
@@ -120,9 +120,18 @@ export function getRecentSearches(): RecentSearchItem[] {
     if (!raw) return [];
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
+    // A stock and an index can legitimately share an id; keying only on id
+    // produced duplicate React rows and duplicate entries in the result list.
+    const seen = new Set<string>();
     return parsed
       .map(sanitizeRecentSearchItem)
       .filter((item): item is RecentSearchItem => item !== null)
+      .filter((item) => {
+        const key = `${item.type}:${item.id}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
       .slice(0, 8);
   } catch {
     return [];
@@ -133,7 +142,9 @@ export function saveRecentSearch(item: Omit<RecentSearchItem, "timestamp">): voi
   const storage = safeLocalStorage();
   if (!storage) return;
   try {
-    const current = getRecentSearches().filter((x) => x.id !== item.id);
+    const current = getRecentSearches().filter(
+      (x) => !(x.id === item.id && x.type === item.type),
+    );
     const updated: RecentSearchItem[] = [{ ...item, timestamp: Date.now() }, ...current].slice(0, 8);
     storage.setItem(RECENT_SEARCHES_STORAGE_KEY, JSON.stringify(updated));
   } catch {
@@ -243,6 +254,11 @@ export function GlobalSearchModal({
   const dialogRef = useRef<HTMLDivElement>(null);
   const isBackdropMouseDownRef = useRef(false);
   const overlayRoot = useOverlayRoot();
+  // Option ids must be unique per dialog instance: two simultaneously mounted
+  // search overlays otherwise claim the same ids for their active option.
+  const generatedId = useId();
+  const optionId = (index: number): string => `${generatedId}-option-${index}`;
+  const listboxId = `${generatedId}-results`;
 
   // Focus trap, Escape handling and focus restoration are delegated to the
   // shared modal hook (same contract as every other dialog in the app); the
@@ -474,6 +490,7 @@ export function GlobalSearchModal({
     [filteredResults],
   );
   const remainingCount = Math.max(0, filteredResults.length - MAX_SEARCH_RESULTS);
+  const selectedItem = displayedResults[selectedIndex];
 
   const handleSelect = useCallback(
     (item: (typeof filteredResults)[number]) => {
@@ -580,9 +597,9 @@ export function GlobalSearchModal({
             role="combobox"
             aria-autocomplete="list"
             aria-expanded={isOpen && displayedResults.length > 0}
-            aria-controls="global-search-results"
+            aria-controls={listboxId}
             aria-activedescendant={
-              displayedResults.length > 0 ? `global-search-item-${selectedIndex}` : undefined
+              displayedResults.length > 0 ? optionId(selectedIndex) : undefined
             }
             aria-label="銘柄・テーマ・指数の検索"
             className="global-search-input"
@@ -659,7 +676,7 @@ export function GlobalSearchModal({
         {/* Search Results List */}
         <div
           ref={listRef}
-          id="global-search-results"
+          id={listboxId}
           role="listbox"
           aria-label="検索結果"
           aria-live="polite"
@@ -678,7 +695,7 @@ export function GlobalSearchModal({
                 return (
                   <div
                     key={`${item.type}-${item.id}`}
-                    id={`global-search-item-${idx}`}
+                    id={optionId(idx)}
                     role="option"
                     aria-selected={isSelected}
                     data-result-index={idx}
@@ -765,52 +782,15 @@ export function GlobalSearchModal({
                       </div>
                     </div>
 
-                    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                      {item.type === "stock" && onAddToWatchlist && (
-                        <button
-                          type="button"
-                          className="btn btn-ghost tiny"
-                          title="ウォッチリストに追加"
-                          aria-label={`${item.title}をウォッチリストに追加`}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onAddToWatchlist(item.id);
-                          }}
-                        >
-                          <BookmarkPlus size={14} />
-                          <span style={{ marginLeft: "4px" }}>監視</span>
-                        </button>
-                      )}
-                      {item.type === "stock" && !isMacroAsset(item.id) && onAddToIndex && (
-                        <button
-                          type="button"
-                          className="btn btn-ghost tiny"
-                          title="指数ビルダーに追加"
-                          aria-label={`${item.title}を指数に追加`}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            const s = item.raw as Partial<PopularStock> | undefined;
-                            const ticker = s?.ticker || item.id;
-                            const name = s?.name || item.title;
-                            const theme = s?.theme || "その他";
-                            onAddToIndex(ticker, name, theme);
-                            onClose();
-                          }}
-                        >
-                          <Sparkles size={14} />
-                          <span style={{ marginLeft: "4px" }}>指数に追加</span>
-                        </button>
-                      )}
-                      {isSelected && (
-                        <div
-                          className="mono tiny muted"
-                          style={{ display: "flex", alignItems: "center", gap: "4px" }}
-                        >
-                          <span>選択</span>
-                          <CornerDownLeft size={12} />
-                        </div>
-                      )}
-                    </div>
+                    {isSelected && (
+                      <div
+                        className="mono tiny muted"
+                        style={{ display: "flex", alignItems: "center", gap: "4px" }}
+                      >
+                        <span>選択</span>
+                        <CornerDownLeft size={12} />
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -841,6 +821,37 @@ export function GlobalSearchModal({
             <span>ESC で閉じる</span>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+            {selectedItem?.type === "stock" && onAddToWatchlist && (
+              <button
+                type="button"
+                className="btn btn-ghost tiny"
+                title="ウォッチリストに追加"
+                aria-label={`${selectedItem.title}をウォッチリストに追加`}
+                onClick={() => onAddToWatchlist(selectedItem.id)}
+              >
+                <BookmarkPlus size={14} />
+                <span style={{ marginLeft: "4px" }}>監視</span>
+              </button>
+            )}
+            {selectedItem?.type === "stock" && !isMacroAsset(selectedItem.id) && onAddToIndex && (
+              <button
+                type="button"
+                className="btn btn-ghost tiny"
+                title="指数ビルダーに追加"
+                aria-label={`${selectedItem.title}を指数に追加`}
+                onClick={() => {
+                  const s = selectedItem.raw as Partial<PopularStock> | undefined;
+                  const ticker = s?.ticker || selectedItem.id;
+                  const name = s?.name || selectedItem.title;
+                  const theme = s?.theme || "その他";
+                  onAddToIndex(ticker, name, theme);
+                  onClose();
+                }}
+              >
+                <Sparkles size={14} />
+                <span style={{ marginLeft: "4px" }}>指数に追加</span>
+              </button>
+            )}
             <span className="tiny muted">✨ 4,500+ 東証全銘柄・米国株 即時検索</span>
           </div>
         </div>

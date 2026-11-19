@@ -279,13 +279,14 @@ describe("Comprehensive Code Review Final: CSV Round Trip Against the Production
 });
 
 describe("Comprehensive Code Review Final: CalendarPage Accessibility & UI Integrity", () => {
-  it("ensures CalendarPage list item has accessible controls and event propagation containment", () => {
+  it("keeps CalendarPage activation on a real button with propagation containment (static contract)", () => {
     const calendarPagePath = path.resolve(__dirname, "../components/CalendarPage.tsx");
     const content = fs.readFileSync(calendarPagePath, "utf-8");
 
-    // Container role & tabIndex for keyboard navigation
-    expect(content).toContain('role={ticker ? "button" : undefined}');
-    expect(content).toContain("tabIndex={ticker ? 0 : undefined}");
+    // The card container is no longer an interactive role wrapping buttons;
+    // keyboard activation lives on a real button (static contract).
+    expect(content).not.toContain('role={ticker ? "button" : undefined}');
+    expect(content).toContain('aria-label={`${evt.title} (${ticker}) の詳細を見る`}');
 
     // Detail button should have explicit aria-label and stopPropagation to isolate click/keypress
     expect(content).toContain('aria-label={`${evt.title}のイベント詳細を表示`}');

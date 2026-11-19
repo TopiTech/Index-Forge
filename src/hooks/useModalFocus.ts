@@ -26,6 +26,113 @@ let activeScrollLocks = 0;
 let originalBodyOverflow: string | null = null;
 
 /**
+ * Shared background-inert lock.
+ *
+ * A modal is portaled to `document.body` (or the fullscreen element), so
+ * hiding `body` itself would hide the dialog too. Instead every top-level
+ * sibling of the dialog — in the real app the `#root` app shell — is hidden
+ * while at least one dialog owns the lock. Only the first acquirer snapshots
+ * the original attributes and only the last release restores them, so a
+ * nested dialog closing first (or an outer dialog closing first) can never
+ * expose the background prematurely. The same ref-count keeps the existing
+ * focus/scroll-lock ownership untouched.
+ */
+interface BackgroundElementState {
+  element: HTMLElement;
+  hadInertAttribute: boolean;
+  hadAriaHidden: boolean;
+  originalAriaHidden: string | null;
+}
+
+const supportsInert = typeof HTMLElement !== "undefined" && "inert" in HTMLElement.prototype;
+
+let activeBackgroundLocks = 0;
+let backgroundSnapshot: BackgroundElementState[] = [];
+
+function getBackgroundElements(dialog: HTMLElement): HTMLElement[] {
+  if (typeof document === "undefined") return [];
+  // Walk up to the portal root's direct child: Modals portal a wrapper into
+  // document.body (or the fullscreen element). Siblings of that top-level node
+  // are the background; using dialog.parentElement would only see nodes inside
+  // the wrapper, and walking body.children would miss fullscreen siblings.
+  let rootChild = dialog;
+  while (
+    rootChild.parentElement &&
+    rootChild.parentElement !== document.body &&
+    rootChild.parentElement !== document.fullscreenElement
+  ) {
+    rootChild = rootChild.parentElement;
+  }
+  const root = rootChild.parentElement ?? document.body;
+  return Array.from(root.children).filter(
+    (child): child is HTMLElement =>
+      child instanceof HTMLElement &&
+      child !== rootChild &&
+      !child.contains(rootChild) &&
+      // Another open dialog's overlay is a sibling, not background: hiding it
+      // would make the topmost dialog unreachable in the a11y tree.
+      child.querySelector("[data-modal-dialog]") === null &&
+      child.tagName !== "SCRIPT" &&
+      child.tagName !== "STYLE",
+  );
+}
+
+function makeBackgroundInert(element: HTMLElement): BackgroundElementState {
+  const state: BackgroundElementState = {
+    element,
+    hadInertAttribute: element.hasAttribute("inert"),
+    hadAriaHidden: element.hasAttribute("aria-hidden"),
+    originalAriaHidden: element.getAttribute("aria-hidden"),
+  };
+  if (supportsInert) {
+    element.inert = true;
+  } else {
+    // The attribute is still recorded for browsers/inspectors even when the
+    // platform does not implement its behaviour; aria-hidden is the fallback
+    // that actually removes the subtree from the a11y tree.
+    element.setAttribute("inert", "");
+    element.setAttribute("aria-hidden", "true");
+  }
+  return state;
+}
+
+function acquireBackgroundInert(dialog: HTMLElement): () => void {
+  if (typeof document === "undefined") return () => {};
+
+  // Re-check on every acquisition: an overlay (or a fullscreen host) may have
+  // been mounted after the first dialog opened.
+  const tracked = new Set(backgroundSnapshot.map((state) => state.element));
+  for (const element of getBackgroundElements(dialog)) {
+    if (!tracked.has(element)) backgroundSnapshot.push(makeBackgroundInert(element));
+  }
+  activeBackgroundLocks++;
+
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    activeBackgroundLocks = Math.max(0, activeBackgroundLocks - 1);
+    if (activeBackgroundLocks > 0) return;
+
+    for (const state of backgroundSnapshot) {
+      if (supportsInert) {
+        state.element.inert = state.hadInertAttribute;
+      } else if (state.hadInertAttribute) {
+        state.element.setAttribute("inert", "");
+      } else {
+        state.element.removeAttribute("inert");
+      }
+      if (state.hadAriaHidden) {
+        state.element.setAttribute("aria-hidden", state.originalAriaHidden ?? "");
+      } else {
+        state.element.removeAttribute("aria-hidden");
+      }
+    }
+    backgroundSnapshot = [];
+  };
+}
+
+/**
  * Single owner of the `body` scroll lock.
  *
  * Dialogs (`useModalFocus`), the nav drawer and the mobile sidebar used to
@@ -123,6 +230,7 @@ export function useModalFocus<T extends HTMLElement>(
     }
 
     const releaseScrollLock = lockScroll ? acquireBodyScrollLock() : null;
+    const releaseBackgroundInert = acquireBackgroundInert(dialog);
 
     if (focusOnOpen) {
       const initialTarget = initialFocusRef?.current;
@@ -165,6 +273,7 @@ export function useModalFocus<T extends HTMLElement>(
     return () => {
       document.removeEventListener("keydown", handleKeyDown, true);
       releaseScrollLock?.();
+      releaseBackgroundInert();
 
       // A dialog that never took focus (hover preview) must not hand focus
       // back either: nothing was taken, so nothing may move.

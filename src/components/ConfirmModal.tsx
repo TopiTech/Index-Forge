@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useId, useRef } from "react";
 import { AlertTriangle, AlertCircle } from "lucide-react";
 import { ModalBase } from "./ModalBase";
 
@@ -27,6 +27,7 @@ export function ConfirmModal({
 }: ConfirmModalProps) {
   const confirmBtnRef = useRef<HTMLButtonElement>(null);
   const cancelBtnRef = useRef<HTMLButtonElement>(null);
+  const descriptionId = `confirm-description-${useId().replace(/:/g, "")}`;
   const handleClose = () => {
     if (!loading) onClose();
   };
@@ -38,7 +39,7 @@ export function ConfirmModal({
       isOpen={isOpen}
       onClose={handleClose}
       role="alertdialog"
-      ariaDescribedBy="confirm-modal-description"
+      ariaDescribedBy={descriptionId}
       maxWidth={420}
       variant={isDanger ? "danger" : "default"}
       initialFocusRef={isDanger ? cancelBtnRef : confirmBtnRef}
@@ -81,7 +82,7 @@ export function ConfirmModal({
       }
     >
       <p
-        id="confirm-modal-description"
+        id={descriptionId}
         style={{
           fontSize: 13,
           margin: 0,

@@ -217,6 +217,7 @@ describe("apiContract: the imported index stays inside the Worker's contract", (
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.data.basket.length).toBe(MAX_BASKET_ITEMS);
+    expect(result.error).toContain(`上限(${MAX_BASKET_ITEMS}件)`);
   });
 });
 

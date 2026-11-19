@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useId, useMemo } from "react";
 import { MiniStatCard } from "./ui";
 import {
   ResponsiveContainer,
@@ -137,6 +137,7 @@ export function SimulationPreview({
   baseValue,
   indexName,
 }: SimulationPreviewProps) {
+  const gradientId = `simColorCustom-${useId().replace(/:/g, "")}`;
   const {
     filteredCustomSeries,
     filteredBenchmarkSeries,
@@ -460,7 +461,7 @@ export function SimulationPreview({
           <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={200}>
             <ComposedChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
               <defs>
-                <linearGradient id="simColorCustom" x1="0" y1="0" x2="0" y2="1">
+                <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor="var(--accent-color)" stopOpacity={0.4} />
                   <stop offset="95%" stopColor="var(--accent-color)" stopOpacity={0.0} />
                 </linearGradient>
@@ -539,7 +540,7 @@ export function SimulationPreview({
                 dataKey="customReturnPct"
                 stroke="var(--accent-color)"
                 strokeWidth={2}
-                fill="url(#simColorCustom)"
+                fill={`url(#${gradientId})`}
                 isAnimationActive={false}
                 name="独自指数"
               />

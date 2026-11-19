@@ -1,8 +1,8 @@
 {
   "scripts/check-meta-test-gate.test.mjs": {
-    "budget": 8,
+    "budget": 13,
     "category": "impl-source",
-    "reason": "ゲート自体の検出器セルフテスト: ピン形状の文字列を fixture として埋め込むため検出されるが、実装ソースのピンではない（検出器の回帰防止用）。fixture 変更で件数が動く場合は budget を合わせて更新する。"
+    "reason": "ゲート自体の検出器セルフテスト: ピン形状の文字列を fixture として埋め込むため検出されるが、実装ソースのピンではない（検出器の回帰防止用）。I4 で直接 readFileSync 呼び出しと includes(...).toBe(true) の検出を追加したセルフテスト fixture 5 件を実測値として反映。fixture 変更で件数が動く場合は budget を合わせて更新する。"
   },
   "scripts/check-test-coverage.test.mjs": {
     "budget": 1,

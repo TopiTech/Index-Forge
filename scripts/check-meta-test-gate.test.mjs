@@ -104,6 +104,27 @@ describe("meta-test gate: pin detection", () => {
     expect(pins.some((p) => p.literal.includes("MAX_SEARCH_RESULTS"))).toBe(true);
   });
 
+  it("detects inline readFileSync calls and includes(...).toBe(true) pins (I4)", () => {
+    const text = `
+      const src = readFileSync("A.tsx", "utf8");
+      const data = [1, 2, 3];
+      it("x", () => {
+        expect(readFileSync("B.tsx", "utf8")).toContain("const y = 2;");
+        expect(src.includes("const x = 1;")).toBe(true);
+        expect(src.includes("removed marker")).toBe(false);
+        expect(data.includes(2)).toBe(true);
+      });
+    `;
+    const pins = findSourcePins(text);
+    expect(pins.map((p) => p.method)).toEqual(["toContain", "includes", "includes"]);
+    expect(pins.map((p) => p.literal)).toEqual([
+      '"const y = 2;"',
+      '"const x = 1;"',
+      '"removed marker"',
+    ]);
+    expect(pins[0].variable).toBe("readFileSync");
+  });
+
   it("ignores assertions on runtime data and parsed fixtures", () => {
     const text = `
       const fixture = JSON.parse(readFileSync("fixture.json", "utf8"));
@@ -129,6 +150,32 @@ describe("meta-test gate: registry enforcement", () => {
       expect(result.violations[0].kind).toBe("unregistered");
       expect(result.violations[0].file).toBe("src/a.test.ts");
     });
+  });
+
+  it("fails for an unregistered file that only uses the newly detected pin shapes (I4)", () => {
+    withTree(
+      {
+        "src/shapes.test.ts": `
+          const src = readFileSync("A.tsx", "utf8");
+          it("pins", () => {
+            expect(readFileSync("B.tsx", "utf8")).toContain("const y = 2;");
+            expect(src.includes("const x = 1;")).toBe(true);
+          });
+        `,
+      },
+      (root) => {
+        const result = checkRepo(root, {
+          "src/shapes.test.ts": { budget: 0, category: "impl-source", reason: "no pins expected" },
+        });
+        expect(result.ok).toBe(false);
+        expect(result.violations).toHaveLength(1);
+        expect(result.violations[0].kind).toBe("over-budget");
+        expect(result.violations[0].pins).toBe(2);
+
+        const unregistered = checkRepo(root, {});
+        expect(unregistered.violations[0].kind).toBe("unregistered");
+      },
+    );
   });
 
   it("passes when the pin count is within the registered budget", () => {

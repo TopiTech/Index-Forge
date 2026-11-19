@@ -473,7 +473,13 @@ export function PortfolioManagerPage({
         // Demo/reference rows are generated locally, so a fetch timestamp for
         // them made the header claim a fresh refresh (same DATA-26 rule the
         // screener already applies: only rows with real provenance are live).
-        const hasLiveRows = entries.some((entry) => entry !== null && !entry[1].isDemoData);
+        // FX is fetched only to value USD holdings; it is not a holding quote.
+        // Counting it here made a demo-only portfolio claim a fresh refresh
+        // just because USDJPY=X happened to be real (P1-02).
+        const hasLiveRows = entries.some(
+          (entry) =>
+            entry !== null && entry[0] !== "USDJPY=X" && !entry[1].isDemoData,
+        );
         setLastUpdatedAt(hasLiveRows ? Date.now() : null);
         const fxEntry = entries.find((entry) => entry && entry[0] === "USDJPY=X");
         if (
@@ -1987,8 +1993,6 @@ export function PortfolioManagerPage({
               return (
                 <div
                   key={ticker}
-                  role="button"
-                  tabIndex={0}
                   className="card interactive-card"
                   style={{
                     padding: "14px 16px",
@@ -1999,13 +2003,6 @@ export function PortfolioManagerPage({
                     cursor: "pointer",
                   }}
                   onClick={() => onOpenStockDetail(ticker)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      onOpenStockDetail(ticker);
-                    }
-                  }}
-                  aria-label={`${fund.name} (${ticker}) の詳細を見る`}
                 >
                   <div>
                     <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
@@ -2013,9 +2010,25 @@ export function PortfolioManagerPage({
                       <span className="badge badge-default tiny mono">{fund.market}</span>
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginTop: 2 }}>
-                      <div style={{ fontWeight: 600, fontSize: "0.95rem" }}>
+                      <button
+                        type="button"
+                        style={{
+                          background: "none",
+                          border: 0,
+                          padding: 0,
+                          color: "inherit",
+                          font: "inherit",
+                          cursor: "pointer",
+                          textAlign: "left",
+                        }}
+                        aria-label={`${fund.name} (${ticker}) の詳細を見る`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onOpenStockDetail(ticker);
+                        }}
+                      >
                         {fund.name}
-                      </div>
+                      </button>
                       {fund.isDemoData && (
                         <span
                           className="badge badge-default mono tiny"

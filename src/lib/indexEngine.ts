@@ -488,11 +488,14 @@ export function computeIndexCoverage(
   if (dates.length === 0 || rows.length === 0) return empty;
 
   let filledCells = 0;
+  let eligibleCells = 0;
   const points = dates.map((date, dateIndex) => {
     const filledTickers: string[] = [];
     let available = 0;
     for (const row of rows) {
       const fill = row.fills[dateIndex];
+      if (fill === "pre") continue;
+      eligibleCells += 1;
       if (fill === "real") {
         available += 1;
       } else if (fill === "gap" || fill === "trailing") {
@@ -512,8 +515,7 @@ export function computeIndexCoverage(
   return {
     points,
     latestDate,
-    filledCellRatio:
-      rows.length > 0 && dates.length > 0 ? filledCells / (rows.length * dates.length) : 0,
+    filledCellRatio: eligibleCells > 0 ? filledCells / eligibleCells : 0,
     trailingFilledTickers: latestPoint ? [...latestPoint.filledTickers] : [],
     gapFilledTickers,
   };

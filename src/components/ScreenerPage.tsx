@@ -1264,16 +1264,6 @@ export function ScreenerPage({
                   key={stock.ticker}
                   className={`screener-mobile-card ${isSelected ? "selected-card" : ""}`}
                   onClick={() => onOpenStockDetail(stock.ticker)}
-                  tabIndex={0}
-                  role="button"
-                  aria-label={`${stock.name} (${stock.ticker}) の詳細を見る`}
-                  onKeyDown={(e) => {
-                    if (e.target !== e.currentTarget) return;
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      onOpenStockDetail(stock.ticker);
-                    }
-                  }}
                 >
                   <div className="screener-mobile-card-header">
                     <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -1306,7 +1296,26 @@ export function ScreenerPage({
                       <div>
                         <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                           <span className="mono bold screener-mobile-ticker">{stock.ticker}</span>
-                          <strong className="screener-mobile-name">{stock.name}</strong>
+                          <button
+                            type="button"
+                            className="screener-mobile-name-button"
+                            style={{
+                              background: "none",
+                              border: 0,
+                              padding: 0,
+                              color: "inherit",
+                              font: "inherit",
+                              cursor: "pointer",
+                              textAlign: "left",
+                            }}
+                            aria-label={`${stock.name} (${stock.ticker}) の詳細を見る`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onOpenStockDetail(stock.ticker);
+                            }}
+                          >
+                            {stock.name}
+                          </button>
                           {stock.isDemoData && (
                             <span
                               className="badge badge-default mono tiny"

@@ -443,18 +443,23 @@ export function useIndices() {
     }
   }, []);
 
-  useEffect(() => {
-    fetchIndices();
-  }, [fetchIndices]);
-
   // Track the mounted state so a request that settles after the consumer
   // unmounted cannot publish anything into state that nobody reads any more.
+  // This effect MUST be declared before the fetch effect: StrictMode tears all
+  // effects down and then re-runs them in declaration order, so a fetch effect
+  // declared first would observe `mountedRef.current === false`, skip the
+  // request and leave `loading` true forever (the aborted first request's
+  // finally no longer owns the current generation).
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
     };
   }, []);
+
+  useEffect(() => {
+    fetchIndices();
+  }, [fetchIndices]);
 
   // Cancel the in-flight list request when the consumer unmounts, so it cannot
   // keep running and then write to state that no longer has a consumer.

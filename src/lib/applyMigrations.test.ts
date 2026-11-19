@@ -37,10 +37,10 @@ describe("apply-migrations script", () => {
       expect(res[0].name).toBe("id");
     });
 
-    it("returns empty array on invalid json or unexpected shape", () => {
-      expect(parseWranglerJson("not-json")).toEqual([]);
-      expect(parseWranglerJson("")).toEqual([]);
-      expect(parseWranglerJson("{}")).toEqual([]);
+    it("throws on invalid json or unexpected shape instead of reporting an empty database", () => {
+      expect(() => parseWranglerJson("not-json")).toThrow();
+      expect(() => parseWranglerJson("")).toThrow();
+      expect(() => parseWranglerJson("{}")).toThrow();
     });
   });
 
@@ -285,13 +285,9 @@ describe("apply-migrations script", () => {
       });
     });
 
-    it("retains defaults when option flags lack values", () => {
-      const parsed = parseCliArgs(["--config", "--db"]);
-      expect(parsed).toEqual({
-        targetFlag: "--local",
-        configPath: "wrangler.local.jsonc",
-        dbName: "original-stock-index-db",
-      });
+    it("rejects option flags without a value instead of silently falling back to defaults", () => {
+      expect(() => parseCliArgs(["--config", "--db"])).toThrow();
+      expect(() => parseCliArgs(["--remote", "--config", "--local"])).toThrow();
     });
   });
 });

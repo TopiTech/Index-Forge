@@ -357,7 +357,7 @@ export function EditPasswordModal({
           <div style={{ marginBottom: 14 }}>
             <div className="row space-between" style={{ marginBottom: 5 }}>
               <label
-                htmlFor="edit-pw-max-stocks"
+                htmlFor={role !== "admin" && !unlimitedStocks ? "edit-pw-max-stocks" : undefined}
                 style={{ fontSize: 12, color: "var(--text-secondary)" }}
               >
                 最大銘柄数制限{" "}
@@ -417,7 +417,7 @@ export function EditPasswordModal({
           <div style={{ marginBottom: 14 }}>
             <div className="row space-between" style={{ marginBottom: 5 }}>
               <label
-                htmlFor="edit-pw-max-indices"
+                htmlFor={role !== "admin" && !unlimitedIndices ? "edit-pw-max-indices" : undefined}
                 style={{ fontSize: 12, color: "var(--text-secondary)" }}
               >
                 作成可能 指数上限数{" "}

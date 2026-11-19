@@ -91,6 +91,11 @@ export function TutorialPage({ onComplete, onSkip }: TutorialPageProps) {
   // Global Keyboard listener for tutorial navigation
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Browser/OS shortcuts (Ctrl+R, Cmd+R, Alt+Arrow, ...) belong to the
+      // host, not the tutorial. Shift is deliberately allowed so the '?'
+      // help shortcut keeps working.
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+
       // If modal is open, don't intercept standard inputs
       if (isShortcutsModalOpen) {
         if (e.key === "Escape") setIsShortcutsModalOpen(false);

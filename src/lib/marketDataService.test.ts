@@ -29,6 +29,14 @@ describe("MarketDataService", () => {
       expect(data.per).toBeGreaterThan(0);
       expect(data.historicalFinances.length).toBe(4);
     });
+
+    it("reports the market category for indices, FX and crypto assets", () => {
+      expect(getStockFundamentals("^N225").market).toBe("INDEX");
+      expect(getStockFundamentals("USDJPY=X").market).toBe("FX");
+      expect(getStockFundamentals("BTC-USD").market).toBe("CRYPTO");
+      expect(getStockFundamentals("7203").market).toBe("PRIME");
+      expect(getStockFundamentals("NVDA").market).toBe("US");
+    });
   });
 
   describe("runStockScreener", () => {

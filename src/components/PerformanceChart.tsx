@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useId } from "react";
 import { motion } from "framer-motion";
 import {
   ResponsiveContainer,
@@ -137,6 +137,7 @@ export function PerformanceChart({
   const [viewMode, setViewMode] = useState<ViewMode>("value");
   const [showSMA5, setShowSMA5] = useState(false);
   const [showSMA25, setShowSMA25] = useState(false);
+  const gradientId = `cyanGradient-${useId().replace(/:/g, "")}`;
 
   const [prefersReducedMotion, setPrefersReducedMotion] = useState(() =>
     getSystemPrefersReducedMotion(),
@@ -472,7 +473,7 @@ export function PerformanceChart({
           <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={200}>
             <ComposedChart data={renderedData} margin={{ top: 12, right: 14, left: -10, bottom: 0 }}>
               <defs>
-                <linearGradient id="cyanGradient" x1="0" y1="0" x2="0" y2="1">
+                <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor="var(--accent-color)" stopOpacity={0.18} />
                   <stop offset="65%" stopColor="var(--accent-color)" stopOpacity={0.03} />
                   <stop offset="100%" stopColor="var(--accent-color)" stopOpacity={0.0} />
@@ -708,7 +709,7 @@ export function PerformanceChart({
                 stroke="var(--accent-color)"
                 strokeWidth={2}
                 fillOpacity={1}
-                fill="url(#cyanGradient)"
+                fill={`url(#${gradientId})`}
                 dot={{ r: 0 }}
                 activeDot={{
                   r: 4.5,

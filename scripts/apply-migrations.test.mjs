@@ -5,8 +5,14 @@
  * されていなかった (N-4)。標準ランナー (vitest) に統一し、`npm test` /
  * CI の "Run Tests" から実行されるようにした。検証内容は変更しない。
  */
-import { describe, expect, it } from "vitest";
-import { parseCliArgs } from "./apply-migrations.mjs";
+import { describe, expect, it, vi } from "vitest";
+import {
+  OWNER_TOKEN_BACKFILL_SQL,
+  parseCliArgs,
+  parseWranglerJson,
+  probeDatabase,
+  runMigration,
+} from "./apply-migrations.mjs";
 
 describe("parseCliArgs", () => {
   it("defaults", () => {
@@ -60,5 +66,70 @@ describe("parseCliArgs", () => {
       configPath: "wrangler.jsonc",
       dbName: "my-production-db",
     });
+  });
+
+  it("throws on unknown flags instead of silently ignoring a typo", () => {
+    expect(() => parseCliArgs(["--remtoe"])).toThrow(/unknown option/i);
+    expect(() => parseCliArgs(["--config", "wrangler.jsonc", "--bogus"])).toThrow(/unknown option/i);
+    expect(() => parseCliArgs(["positional"])).toThrow(/unknown option/i);
+  });
+
+  it("throws when a value-taking flag has no usable value", () => {
+    expect(() => parseCliArgs(["--config"])).toThrow(/requires a value/i);
+    expect(() => parseCliArgs(["--config", "--db"])).toThrow(/requires a value/i);
+    expect(() => parseCliArgs(["--config="])).toThrow(/requires a value/i);
+    expect(() => parseCliArgs(["--database="])).toThrow(/requires a value/i);
+    expect(() => parseCliArgs(["--db="])).toThrow(/requires a value/i);
+  });
+});
+
+describe("parseWranglerJson (I2 fail-closed)", () => {
+  it("keeps accepting the two normal Wrangler result shapes", () => {
+    expect(
+      parseWranglerJson(JSON.stringify([{ results: [{ name: "indices", type: "table" }] }])),
+    ).toEqual([{ name: "indices", type: "table" }]);
+    expect(
+      parseWranglerJson(JSON.stringify({ results: [{ cid: 0, name: "id" }] })),
+    ).toEqual([{ cid: 0, name: "id" }]);
+  });
+
+  it("throws on malformed JSON or an unexpected result shape", () => {
+    expect(() => parseWranglerJson("not-json")).toThrow(/Wrangler JSON/i);
+    expect(() => parseWranglerJson("")).toThrow(/Wrangler JSON/i);
+    expect(() => parseWranglerJson("{}")).toThrow(/results/i);
+    expect(() => parseWranglerJson("[]")).toThrow(/results/i);
+    expect(() => parseWranglerJson('[{"results":"not-an-array"}]')).toThrow(/results/i);
+  });
+
+  it("makes probeDatabase fail closed when Wrangler output cannot be parsed", () => {
+    const brokenExec = () => "not-json";
+    expect(() => probeDatabase("--local", "wrangler.jsonc", "db", brokenExec)).toThrow(/Wrangler JSON/i);
+  });
+});
+
+describe("runMigration backfill (I3)", () => {
+  it("throws a retryable error when the owner_token_issued_at backfill fails", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const exec = (_targetFlag, _configPath, _dbName, sql) => {
+      if (sql === OWNER_TOKEN_BACKFILL_SQL) throw new Error("D1 write failed");
+      if (sql.includes("sqlite_master")) {
+        return JSON.stringify([{ results: [{ type: "table", name: "indices" }] }]);
+      }
+      if (sql.startsWith("PRAGMA table_info")) {
+        return JSON.stringify([
+          { results: [{ name: "id" }, { name: "owner_token_hash" }, { name: "owner_token_issued_at" }] },
+        ]);
+      }
+      return "";
+    };
+    try {
+      expect(() => runMigration("--local", "wrangler.jsonc", "db", exec)).toThrow(
+        /owner_token_issued_at backfill failed/i,
+      );
+      expect(() => runMigration("--local", "wrangler.jsonc", "db", exec)).toThrow(/re-?run|再実行/i);
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
   });
 });

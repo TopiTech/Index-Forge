@@ -124,6 +124,11 @@ export function clearIfEmpty<T>(previous: T[]): T[] {
   return previous.length === 0 ? previous : [];
 }
 
+/** Whether two warning lists have identical content, so the state write can be skipped. */
+export function sameWarnings(previous: readonly string[], next: readonly string[]): boolean {
+  return previous.length === next.length && previous.every((value, index) => value === next[index]);
+}
+
 /**
  * True when two price series are equivalent.
  *
@@ -268,9 +273,12 @@ export function useSimulation(
         abortInFlight();
         const computed = calculateCustomIndex(basket, stockUniverse, baseValue);
         setCustomSeries((prev) => (sameSeries(prev, computed) ? prev : computed));
-        // The data was computed locally from the cached universe, so a warning
-        // about an earlier failed sync no longer describes what is displayed.
-        setSyncWarnings((prev) => clearIfEmpty(prev));
+        // Carried-forward prices in the cached universe are still displayed, so
+        // the coverage disclosure must match the recompute branch exactly.
+        setSyncWarnings((prev) => {
+          const next = getIndexCoverageWarnings(basket, stockUniverse);
+          return sameWarnings(prev, next) ? prev : next;
+        });
         // The fetched data already covers this ticker set; record it so the
         // effect recomputes in memory instead of re-arming a fetch.
         knownTickersRef.current = currentTickersKey;
@@ -544,7 +552,10 @@ export function useSimulation(
       // about an earlier failed sync no longer describes what is displayed.
       // Carried-forward prices still do (H-4): recompute the disclosure from
       // the same universe the series was just recomputed from.
-      setSyncWarnings(getIndexCoverageWarnings(basket, stockUniverse));
+      setSyncWarnings((prev) => {
+        const next = getIndexCoverageWarnings(basket, stockUniverse);
+        return sameWarnings(prev, next) ? prev : next;
+      });
       return;
     }
 

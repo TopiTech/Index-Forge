@@ -51,6 +51,7 @@ const StockDetailPage = lazy(() =>
 const StockAnalysisPage = lazy(() =>
   import("./components/StockAnalysisPage").then((m) => ({ default: m.StockAnalysisPage })),
 );
+import type { PortfolioPriceProvenance } from "./components/StockAnalysisPage";
 const PortfolioManagerPage = lazy(() =>
   import("./components/PortfolioManagerPage").then((m) => ({ default: m.PortfolioManagerPage })),
 );
@@ -496,17 +497,10 @@ function AppContent({
   useEffect(() => {
     if (!isMobileLayout || !isSidebarOpen) return;
 
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setIsSidebarOpen(false);
-    };
-
-    // Same shared overlay scroll lock as the nav drawer above.
-    const releaseScrollLock = acquireBodyScrollLock();
-    window.addEventListener("keydown", closeOnEscape);
-    return () => {
-      releaseScrollLock();
-      window.removeEventListener("keydown", closeOnEscape);
-    };
+    // Escape is owned by the sidebar's own handler. This effect only keeps the
+    // shared overlay scroll lock (C3: duplicate Escape listeners closed both
+    // the drawer and an open dialog at once).
+    return acquireBodyScrollLock();
   }, [isMobileLayout, isSidebarOpen]);
 
   useEffect(() => {
@@ -915,7 +909,7 @@ function AppContent({
   );
 
   const handleAddToWatchlist = useCallback(
-    (ticker: string) => {
+    (ticker: string): boolean => {
       // A storage failure (quota exceeded, blocked storage) used to be shown
       // as "already registered", so the user never learned the add was lost.
       const result = addWatchlistTickerDetailed(ticker);
@@ -928,12 +922,20 @@ function AppContent({
       } else {
         toastError(`「${ticker}」をウォッチリストに登録できませんでした`);
       }
+      // "exists" still ends with the ticker on the list, so callers may keep
+      // the added state; invalid / failed writes must not be confirmed.
+      return result.ok || result.reason === "exists";
     },
     [toastSuccess, toastInfo, toastError],
   );
 
   const handleAddToPortfolio = useCallback(
-    (ticker: string, currentPrice: number, stockName?: string) => {
+    (
+      ticker: string,
+      currentPrice: number,
+      stockName?: string,
+      priceProvenance: PortfolioPriceProvenance = "live",
+    ) => {
       if (!isAuthenticated) {
         toastInfo("ポートフォリオ登録にはログインが必要です");
         navigateTo("portfolio");
@@ -943,6 +945,15 @@ function AppContent({
         stockName ||
         POPULAR_STOCKS.find((s) => s.ticker.toUpperCase() === ticker.toUpperCase())?.name ||
         ticker;
+      if (priceProvenance === "reference") {
+        // A demo/reference quote is not an execution price: persisting it as
+        // the cost basis corrupts P/L. Callers also disable the action, so this
+        // is a second line of defence for the shared callback (P1-01).
+        toastError(
+          `「${displayName}」は参考値のため、取得単価として登録できませんでした`,
+        );
+        return;
+      }
       const safePrice =
         Number.isFinite(currentPrice) && currentPrice > 0
           ? currentPrice

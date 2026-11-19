@@ -74,6 +74,17 @@ export function AuthModal({
    */
   const adminLocked = authMode === "admin" && (adminLockout || isLocked);
 
+  /**
+   * C1: a lockout invalidates the solved Turnstile token. The widget is
+   * unmounted while locked and remounts fresh at expiry; clearing the token
+   * here prevents the pre-lockout value from being submitted then.
+   */
+  useEffect(() => {
+    if (!adminLocked) return;
+    setTurnstileToken("");
+    turnstileRef.current?.reset();
+  }, [adminLocked]);
+
   // Fetch Turnstile configuration and admin lockout state when opened
   useEffect(() => {
     if (!isOpen) return;
@@ -84,6 +95,12 @@ export function AuthModal({
         if (!isMounted) return;
         if (cfg.siteKey) {
           setTurnstileSiteKey(cfg.siteKey);
+        } else if (cfg.unavailable) {
+          // A production test key would render a widget whose token the Worker
+          // rejects. Fail closed with an explicit, retryable message instead.
+          setTurnstileSiteKey("");
+          setTurnstileToken("");
+          setError("ロボット確認の設定を取得できませんでした。時間をおいて再試行してください");
         }
         if (cfg.lockout) {
           // UI-06: this lockout is the administrator one.
@@ -167,42 +184,49 @@ export function AuthModal({
       }
 
       setIsSubmitting(true);
-      const res = await adminLogin(
-        password.trim(),
-        secretCode.normalize("NFC").trim(),
-        turnstileToken.trim(),
-      );
-      setIsSubmitting(false);
+      try {
+        const res = await adminLogin(
+          password.trim(),
+          secretCode.normalize("NFC").trim(),
+          turnstileToken.trim(),
+        );
 
-      if (res.ok) {
-        setPassword("");
-        setSecretCode("");
-        setTurnstileToken("");
-        // A successful administrator login means the lockout is over.
-        syncLockout(false, 0);
-        setAdminLockout(false);
-        if (onSuccess) onSuccess();
-        onClose();
-      } else if (res.cancelled) {
-        // The attempt was superseded (a newer attempt or a logout). It did
-        // not fail, so no error is shown and the solved Turnstile token is
-        // kept.
-        return;
-      } else {
-        if (res.locked) {
-          // UI-06: the server locked the administrator login; the
-          // general-user login is unaffected.
-          syncLockout(true, res.remainingSeconds || 900);
-          setAdminLockout(true);
-          setRemainingAttempts(0);
-        } else if (typeof res.remainingAttempts === "number") {
-          setRemainingAttempts(res.remainingAttempts);
-        }
-        setError(res.error || "管理者認証に失敗しました");
-        if (turnstileRef.current) {
-          turnstileRef.current.reset();
+        if (res.ok) {
+          setPassword("");
+          setSecretCode("");
           setTurnstileToken("");
+          // A successful administrator login means the lockout is over.
+          syncLockout(false, 0);
+          setAdminLockout(false);
+          if (onSuccess) onSuccess();
+          onClose();
+        } else if (res.cancelled) {
+          // The attempt was superseded (a newer attempt or a logout). It did
+          // not fail, so no error is shown and the solved Turnstile token is
+          // kept.
+          return;
+        } else {
+          if (res.locked) {
+            // UI-06: the server locked the administrator login; the
+            // general-user login is unaffected. The lockout effect discards
+            // the token that was just used.
+            syncLockout(true, res.remainingSeconds || 900);
+            setAdminLockout(true);
+            setRemainingAttempts(0);
+          } else if (typeof res.remainingAttempts === "number") {
+            setRemainingAttempts(res.remainingAttempts);
+          }
+          setError(res.error || "管理者認証に失敗しました");
+          if (turnstileRef.current) {
+            turnstileRef.current.reset();
+            setTurnstileToken("");
+          }
         }
+      } catch (err) {
+        // A rejected login must release the busy state so cancel/retry work.
+        setError(err instanceof Error ? err.message : "管理者認証に失敗しました");
+      } finally {
+        setIsSubmitting(false);
       }
     } else {
       // General User Login flow (Password only)
@@ -212,15 +236,19 @@ export function AuthModal({
       }
 
       setIsSubmitting(true);
-      const res = await login(password.trim());
-      setIsSubmitting(false);
-
-      if (res.ok) {
-        setPassword("");
-        if (onSuccess) onSuccess();
-        onClose();
-      } else if (!res.cancelled) {
-        setError(res.error || "パスワードが正しくありません");
+      try {
+        const res = await login(password.trim());
+        if (res.ok) {
+          setPassword("");
+          if (onSuccess) onSuccess();
+          onClose();
+        } else if (!res.cancelled) {
+          setError(res.error || "パスワードが正しくありません");
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "認証処理中にエラーが発生しました");
+      } finally {
+        setIsSubmitting(false);
       }
     }
   };
@@ -530,7 +558,12 @@ export function AuthModal({
             </div>
 
             {/* Cloudflare Turnstile Verification Widget */}
-            {!adminLocked && (
+            {!adminLocked && !turnstileSiteKey && (
+              <div role="alert" style={{ marginBottom: 16, color: "var(--neon-red)", fontSize: 12 }}>
+                ロボット確認を利用できません。時間をおいてダイアログを開き直してください。
+              </div>
+            )}
+            {!adminLocked && turnstileSiteKey && (
               <div style={{ marginBottom: 16 }}>
                 <span
                   id="auth-modal-turnstile-label"
@@ -581,7 +614,8 @@ export function AuthModal({
               isSubmitting ||
               adminLocked ||
               !password.trim() ||
-              (authMode === "admin" && (!secretCode.trim() || !turnstileToken.trim()))
+              (authMode === "admin" &&
+                (!turnstileSiteKey || !secretCode.trim() || !turnstileToken.trim()))
             }
             style={{
               minWidth: 110,

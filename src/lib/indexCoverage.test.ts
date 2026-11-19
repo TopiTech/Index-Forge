@@ -122,6 +122,26 @@ describe("computeIndexCoverage (H-4)", () => {
     expect(getIndexCoverageWarnings(basket, universe)).toEqual([]);
   });
 
+  it("excludes pre-start cells from the fill-ratio denominator", () => {
+    const basket = makeBasket();
+    const universe = [
+      makeSeries("A", [
+        ["2026-04-01", 100],
+        ["2026-04-02", 110],
+        ["2026-04-04", 130],
+      ]),
+      makeSeries("B", [
+        ["2026-04-03", 200],
+        ["2026-04-04", 210],
+      ]),
+    ];
+    const coverage = computeIndexCoverage(basket, universe);
+
+    // A has one mid-series gap; B's first two days are pre-start anchoring.
+    // Only the six eligible cells may be counted, not all eight cells.
+    expect(coverage.filledCellRatio).toBeCloseTo(1 / 6, 10);
+  });
+
   it("returns empty coverage for an empty basket or universe", () => {
     expect(computeIndexCoverage([], [])).toEqual({
       points: [],

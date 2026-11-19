@@ -18,6 +18,7 @@ import type { StockMarket, UniverseStock } from "../data/stockUniverse";
 import { normalizeSearchQuery } from "./searchNormalize";
 import { escapeCsvCell } from "./csv";
 import { resolveEventYear } from "./eventCalendar";
+import { jstDateString, MAX_CACHE_CLOCK_SKEW_SECONDS } from "./marketCache";
 import {
   DEFAULT_REQUEST_TIMEOUT_MS,
   fetchWithNetworkMark,
@@ -1660,12 +1661,25 @@ export function getStockFundamentals(ticker: string): StockQuoteFundamentals {
     ? overviewAsset.sparkline
     : defaultSparkline;
   const computedTechSignal = evaluateTechnicalSignal(changePct, finalSparkline, basePrice).signal;
+  const macroMarket: StockMarket | undefined =
+    overviewAsset?.category === "INDEX" &&
+    !BASELINE_ASSET_QUOTES.some(
+      (asset) => asset.symbol === normTicker && asset.querySymbol.endsWith(".T"),
+    )
+      ? "INDEX"
+      : overviewAsset?.category === "FX"
+        ? "FX"
+        : overviewAsset?.category === "CRYPTO"
+          ? "CRYPTO"
+          : overviewAsset?.category === "COMMODITY"
+            ? "COMMODITY"
+            : undefined;
   return {
     ticker: normTicker,
     name,
     theme,
     sector,
-    market: (anchor?.market ?? uStock?.market ?? (isUS ? "US" : "PRIME")) as StockMarket,
+    market: macroMarket ?? anchor?.market ?? uStock?.market ?? (isUS ? "US" : "PRIME"),
     price: basePrice,
     change,
     changePercent: changePct,
@@ -2794,6 +2808,10 @@ function loadCalendarCache(): CalendarEvent[] | null {
       const stored = storage.getItem(CALENDAR_CACHE_KEY);
       if (stored) {
         const parsed = JSON.parse(stored);
+        // A bare array is a legacy payload with no TTL. Keep its still-valid
+        // events (backward compatibility) but immediately rewrite it in the
+        // timestamped format so the next read can expire it.
+        const isLegacyArray = Array.isArray(parsed);
         let eventsArray: unknown = parsed;
         if (
           parsed &&
@@ -2809,7 +2827,12 @@ function loadCalendarCache(): CalendarEvent[] | null {
             typeof rawTimestamp === "number" && Number.isFinite(rawTimestamp)
               ? rawTimestamp
               : Number.NaN;
-          if (!Number.isFinite(timestamp) || Date.now() - timestamp > CALENDAR_CACHE_TTL_MS) {
+          const now = Date.now();
+          if (
+            !Number.isFinite(timestamp) ||
+            now - timestamp > CALENDAR_CACHE_TTL_MS ||
+            timestamp > now + MAX_CACHE_CLOCK_SKEW_SECONDS * 1000
+          ) {
             storage.removeItem?.(CALENDAR_CACHE_KEY);
             return null;
           }
@@ -2818,6 +2841,7 @@ function loadCalendarCache(): CalendarEvent[] | null {
         if (Array.isArray(eventsArray)) {
           const valid = eventsArray.map(sanitizeCalendarEvent).filter((e): e is CalendarEvent => e !== null);
           if (valid.length > 0) {
+            if (isLegacyArray) saveCalendarCache(valid);
             return valid;
           }
         }
@@ -2891,6 +2915,11 @@ export async function fetchUpcomingEvents(forceRefresh = false): Promise<Calenda
  * このメタデータに依存して動作する。
  */
 export function generateUpcomingEvents(referenceDate = new Date()): CalendarEvent[] {
+  // The calendar is a JST trading calendar. Derive every date from the JST day
+  // of the supplied instant: otherwise a user west of JST resolves a different
+  // month/year for the first hours of each month than resolveEventYear does.
+  const [jstYear, jstMonth, jstDay] = jstDateString(referenceDate).split("-").map(Number);
+  const jstRef = new Date(jstYear, jstMonth - 1, jstDay);
   const mStr = (m: number) => String(m).padStart(2, "0");
   const dStr = (d: number) => String(d).padStart(2, "0");
   const fmt = (d: Date) => `${mStr(d.getMonth() + 1)}/${dStr(d.getDate())}`;
@@ -2921,8 +2950,8 @@ export function generateUpcomingEvents(referenceDate = new Date()): CalendarEven
 
   // マクロ: 日銀会合 (公定日程スケジュールマスターから直近次回・次々回を特定)
   const nextBoj =
-    getNextScheduledMeetings(BOJ_MEETING_SCHEDULE, referenceDate, 1)[0] ||
-    adjustToWeekday(new Date(referenceDate.getFullYear(), referenceDate.getMonth(), 24));
+    getNextScheduledMeetings(BOJ_MEETING_SCHEDULE, jstRef, 1)[0] ||
+    adjustToWeekday(new Date(jstRef.getFullYear(), jstRef.getMonth(), 24));
   events.push({
     id: "macro-boj",
     date: fmt(nextBoj),
@@ -2942,8 +2971,8 @@ export function generateUpcomingEvents(referenceDate = new Date()): CalendarEven
 
   // マクロ: 米FOMC (公定日程スケジュールマスターから直近次回・次々回を特定)
   const nextFomc =
-    getNextScheduledMeetings(FOMC_MEETING_SCHEDULE, referenceDate, 1)[0] ||
-    adjustToWeekday(new Date(referenceDate.getFullYear(), referenceDate.getMonth(), 28));
+    getNextScheduledMeetings(FOMC_MEETING_SCHEDULE, jstRef, 1)[0] ||
+    adjustToWeekday(new Date(jstRef.getFullYear(), jstRef.getMonth(), 28));
   events.push({
     id: "macro-fomc",
     date: fmt(nextFomc),
@@ -2964,17 +2993,17 @@ export function generateUpcomingEvents(referenceDate = new Date()): CalendarEven
   // マクロ: 米雇用統計 (第1金曜日)
   const jobsDate = (() => {
     for (let offset = 0; offset <= 2; offset++) {
-      const y = referenceDate.getFullYear();
-      const m = referenceDate.getMonth() + offset;
+      const y = jstRef.getFullYear();
+      const m = jstRef.getMonth() + offset;
       const firstDay = new Date(y, m, 1);
       const dayOfWeek = firstDay.getDay();
       const diff = (5 - dayOfWeek + 7) % 7;
       const friday = new Date(y, m, 1 + diff);
-      if (friday.getTime() >= referenceDate.getTime() - 24 * 60 * 60 * 1000) {
+      if (friday.getTime() >= jstRef.getTime() - 24 * 60 * 60 * 1000) {
         return friday;
       }
     }
-    return addBusinessDays(referenceDate, 6);
+    return addBusinessDays(jstRef, 6);
   })();
 
   events.push({
@@ -2997,14 +3026,14 @@ export function generateUpcomingEvents(referenceDate = new Date()): CalendarEven
   // マクロ: 米CPI (中旬平日)
   const cpiDate = (() => {
     for (let offset = 0; offset <= 2; offset++) {
-      const y = referenceDate.getFullYear();
-      const m = referenceDate.getMonth() + offset;
+      const y = jstRef.getFullYear();
+      const m = jstRef.getMonth() + offset;
       const d = adjustToWeekday(new Date(y, m, 12));
-      if (d.getTime() >= referenceDate.getTime() - 24 * 60 * 60 * 1000) {
+      if (d.getTime() >= jstRef.getTime() - 24 * 60 * 60 * 1000) {
         return d;
       }
     }
-    return addBusinessDays(referenceDate, 15);
+    return addBusinessDays(jstRef, 15);
   })();
 
   events.push({
@@ -3101,7 +3130,7 @@ export function generateUpcomingEvents(referenceDate = new Date()): CalendarEven
   ];
 
   for (const corp of corporateList) {
-    const corpDate = addBusinessDays(referenceDate, corp.days);
+    const corpDate = addBusinessDays(jstRef, corp.days);
     events.push({
       id: corp.id,
       date: fmt(corpDate),
@@ -3122,18 +3151,18 @@ export function generateUpcomingEvents(referenceDate = new Date()): CalendarEven
   // 追加マクロ指標: 日本全国CPI (毎月19日を含む週の金曜日・公定基準)
   const jpCpiDate = (() => {
     for (let offset = 0; offset <= 2; offset++) {
-      const y = referenceDate.getFullYear();
-      const m = referenceDate.getMonth() + offset;
+      const y = jstRef.getFullYear();
+      const m = jstRef.getMonth() + offset;
       for (let day = 19; day <= 25; day++) {
         const d = new Date(y, m, day);
         if (d.getDay() === 5) {
-          if (d.getTime() >= referenceDate.getTime() - 24 * 60 * 60 * 1000) {
+          if (d.getTime() >= jstRef.getTime() - 24 * 60 * 60 * 1000) {
             return d;
           }
         }
       }
     }
-    return adjustToWeekday(addBusinessDays(referenceDate, 8));
+    return adjustToWeekday(addBusinessDays(jstRef, 8));
   })();
 
   events.push({
@@ -3159,15 +3188,15 @@ export function generateUpcomingEvents(referenceDate = new Date()): CalendarEven
   const jpGdpDate = (() => {
     const gdpMonths = [1, 4, 7, 10]; // Feb, May, Aug, Nov
     for (let yearOffset = 0; yearOffset <= 1; yearOffset++) {
-      const y = referenceDate.getFullYear() + yearOffset;
+      const y = jstRef.getFullYear() + yearOffset;
       for (const m of gdpMonths) {
         const target = adjustToWeekday(new Date(y, m, 15));
-        if (target.getTime() >= referenceDate.getTime() - 24 * 60 * 60 * 1000) {
+        if (target.getTime() >= jstRef.getTime() - 24 * 60 * 60 * 1000) {
           return target;
         }
       }
     }
-    return adjustToWeekday(addBusinessDays(referenceDate, 14));
+    return adjustToWeekday(addBusinessDays(jstRef, 14));
   })();
 
   events.push({
@@ -3188,8 +3217,8 @@ export function generateUpcomingEvents(referenceDate = new Date()): CalendarEven
   });
 
   // 日付順にソート (fullDate 優先、または6ヶ月境界判定)
-  const currentYear = referenceDate.getFullYear();
-  const currentMonth = referenceDate.getMonth() + 1;
+  const currentYear = jstRef.getFullYear();
+  const currentMonth = jstRef.getMonth() + 1;
   const parseEventTime = (e: CalendarEvent): number => {
     if (e.fullDate) {
       const parts = e.fullDate.split("-");

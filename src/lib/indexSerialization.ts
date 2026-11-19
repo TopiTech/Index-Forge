@@ -213,8 +213,10 @@ export function deserializeIndexFromJson(jsonStr: string): SerializationResult<C
     // Worker 契約 (POST /api/indices, POST /api/calculate) は1指数あたり
     // MAX_BASKET_ITEMS 銘柄まで。超えたまま取り込むと保存も計算も 400 になり、
     // 取り込んだ指数が永久に壊れる。
+    let limitWarning: string | null = null;
     if (basket.length > MAX_BASKET_ITEMS) {
       basket.length = MAX_BASKET_ITEMS;
+      limitWarning = `構成銘柄数が上限(${MAX_BASKET_ITEMS}件)を超えているため、先頭${MAX_BASKET_ITEMS}件のみ取り込みました`;
     }
 
     // Worker 契約 (POST /api/indices) は id に [A-Za-z0-9._-] と 100 字以内を要求する。
@@ -241,6 +243,7 @@ export function deserializeIndexFromJson(jsonStr: string): SerializationResult<C
         basket,
         ...(sortOrder !== undefined ? { sortOrder } : {}),
       },
+      ...(limitWarning ? { error: limitWarning } : {}),
     };
   } catch (err) {
     return {

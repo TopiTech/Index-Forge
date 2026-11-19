@@ -718,6 +718,30 @@ export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModal
             className="tradingview-widget-container"
           />
 
+          {/* The script loading is not proof that the cross-origin iframe drew
+              anything. A permanent escape hatch keeps the chart usable even
+              when only the embed, not the script, is blocked. */}
+          {!scriptError && (
+            <a
+              href={tradingViewSymbolUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                position: "absolute",
+                right: 8,
+                bottom: 8,
+                padding: "4px 8px",
+                borderRadius: 6,
+                background: "var(--surface-neutral, rgba(0,0,0,0.6))",
+                border: "1px solid var(--border-subtle)",
+                fontSize: 11,
+                zIndex: 2,
+              }}
+            >
+              公式サイトでチャートを開く <ExternalLink size={11} />
+            </a>
+          )}
+
           {scriptError && (
             <div
               className="column"

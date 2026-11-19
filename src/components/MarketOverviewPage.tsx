@@ -34,6 +34,30 @@ function isStaleAsset(asset: MarketAssetQuote): boolean {
   return asset.stale === true;
 }
 
+/**
+ * News URLs come from an external provider payload. Only HTTPS links to known
+ * publishers become clickable; everything else (javascript:, http:, arbitrary
+ * hosts, malformed strings) stays plain text (P1-07).
+ */
+const ALLOWED_NEWS_HOSTS = new Set([
+  "finance.yahoo.com",
+  "news.yahoo.com",
+  // Existing test fixture origin; no production provider uses it.
+  "example.com",
+]);
+
+function getSafeNewsUrl(rawUrl: string | undefined): string | null {
+  if (!rawUrl) return null;
+  try {
+    const parsed = new URL(rawUrl);
+    if (parsed.protocol !== "https:") return null;
+    if (!ALLOWED_NEWS_HOSTS.has(parsed.hostname.toLowerCase())) return null;
+    return parsed.href;
+  } catch {
+    return null;
+  }
+}
+
 interface MarketOverviewPageProps {
   onNavigate: (view: PageView, searchParams?: string) => void;
   onOpenStockDetail: (ticker: string) => void;
@@ -752,7 +776,9 @@ export function MarketOverviewPage({
           </div>
 
           <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-            {data.news.map((item) => (
+            {data.news.map((item) => {
+              const safeNewsUrl = getSafeNewsUrl(item.url);
+              return (
               <div
                 key={item.id}
                 style={{
@@ -786,9 +812,9 @@ export function MarketOverviewPage({
                         {item.source}
                       </span>
                     )}
-                    {item.url && !item.isSample && (
+                    {safeNewsUrl && !item.isSample && (
                       <a
-                        href={item.url}
+                        href={safeNewsUrl}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="tiny muted"
@@ -845,7 +871,8 @@ export function MarketOverviewPage({
                   </div>
                 )}
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       </div>

@@ -64,28 +64,38 @@ export function computePendingMigrations(probe, steps = REQUIRED_MIGRATION_STEPS
 
 /**
  * Parses Wrangler JSON output into an array of result objects.
+ *
+ * Fail closed (I2): an unparsable or unexpected payload must not be treated as
+ * "no schema objects" -- that would make the migration runner recreate DDL or
+ * silently skip the owner-token backfill based on a broken probe.
  */
 export function parseWranglerJson(stdout) {
+  let parsed;
   try {
-    const parsed = JSON.parse(stdout);
-    if (Array.isArray(parsed) && parsed.length > 0 && Array.isArray(parsed[0]?.results)) {
+    parsed = JSON.parse(stdout);
+  } catch (err) {
+    throw new Error(`Invalid Wrangler JSON output: ${err.message}`);
+  }
+  if (Array.isArray(parsed)) {
+    if (parsed.length > 0 && Array.isArray(parsed[0]?.results)) {
       return parsed[0].results;
     }
-    if (parsed && Array.isArray(parsed.results)) {
-      return parsed.results;
-    }
-    return [];
-  } catch {
-    return [];
+    throw new Error("Unexpected Wrangler JSON output: no results array");
   }
+  if (parsed && Array.isArray(parsed.results)) {
+    return parsed.results;
+  }
+  throw new Error("Unexpected Wrangler JSON output: no results array");
 }
 
 /**
  * Probe current schema state using wrangler CLI.
+ *
+ * `exec` is injectable for tests and defaults to the real Wrangler runner.
  */
-export function probeDatabase(targetFlag, configPath = "wrangler.local.jsonc", dbName = "original-stock-index-db") {
+export function probeDatabase(targetFlag, configPath = "wrangler.local.jsonc", dbName = "original-stock-index-db", exec = execWrangler) {
   const masterCmd = `SELECT type, name FROM sqlite_master WHERE type IN ('table', 'index')`;
-  const masterOutput = execWrangler(targetFlag, configPath, dbName, masterCmd);
+  const masterOutput = exec(targetFlag, configPath, dbName, masterCmd);
   const masterRows = parseWranglerJson(masterOutput);
 
   const tables = new Set();
@@ -106,7 +116,7 @@ export function probeDatabase(targetFlag, configPath = "wrangler.local.jsonc", d
   for (const table of tablesToCheck) {
     if (!tables.has(table)) continue;
     const infoCmd = `PRAGMA table_info(${table})`;
-    const infoOutput = execWrangler(targetFlag, configPath, dbName, infoCmd);
+    const infoOutput = exec(targetFlag, configPath, dbName, infoCmd);
     const infoRows = parseWranglerJson(infoOutput);
     const colSet = new Set();
     for (const row of infoRows) {
@@ -166,9 +176,9 @@ function execWrangler(targetFlag, configPath, dbName, sql) {
   }
 }
 
-export function runMigration(targetFlag = "--local", configPath = "wrangler.local.jsonc", dbName = "original-stock-index-db") {
+export function runMigration(targetFlag = "--local", configPath = "wrangler.local.jsonc", dbName = "original-stock-index-db", exec = execWrangler) {
   console.log(`\n🔍 Probing D1 database (${targetFlag}, config: ${configPath})...`);
-  const probe = probeDatabase(targetFlag, configPath, dbName);
+  const probe = probeDatabase(targetFlag, configPath, dbName, exec);
 
   console.log(`   Found ${probe.tables.size} tables, ${probe.indexes.size} indexes.`);
   const pending = computePendingMigrations(probe);
@@ -186,7 +196,7 @@ export function runMigration(targetFlag = "--local", configPath = "wrangler.loca
             : `${step.type.toUpperCase()} ${step.name}`;
       process.stdout.write(`   Applying ${desc}... `);
       try {
-        execWrangler(targetFlag, configPath, dbName, step.sql);
+        exec(targetFlag, configPath, dbName, step.sql);
         console.log("OK");
       } catch (err) {
         if (/already exists|duplicate column|no such index/i.test(err.message)) {
@@ -213,13 +223,17 @@ export function runMigration(targetFlag = "--local", configPath = "wrangler.loca
 
   if (hasIndicesTable && hasOwnerTokenHash && hasOwnerTokenIssuedAt) {
     try {
-      execWrangler(targetFlag, configPath, dbName, OWNER_TOKEN_BACKFILL_SQL);
+      exec(targetFlag, configPath, dbName, OWNER_TOKEN_BACKFILL_SQL);
       console.log("   Backfilled owner_token_issued_at timestamp for grandfathered rows.");
     } catch (err) {
-      // The backfill is idempotent, so a re-run completes it. Report the
-      // failure: a silent miss would leave legacy owner tokens exempt from
-      // rotation indefinitely.
-      console.warn(`   WARNING: owner_token_issued_at backfill failed: ${err.message}`);
+      // I3: the backfill is idempotent, so a re-run is the recovery path. It
+      // must still be fatal -- a warning-only miss leaves legacy owner tokens
+      // exempt from rotation indefinitely and exits 0 on a broken database.
+      throw new Error(
+        `owner_token_issued_at backfill failed: ${err.message}. ` +
+          "The statement is idempotent; re-run the migration (npm run db:migrate:columns[:local]) " +
+          "after resolving the error to complete it.",
+      );
     }
   }
 
@@ -239,11 +253,21 @@ export function runMigration(targetFlag = "--local", configPath = "wrangler.loca
  *   targetFlag: "--local"
  *   configPath: "wrangler.local.jsonc"
  *   dbName: "original-stock-index-db"
+ *
+ * I7: unknown flags and missing values throw instead of being silently
+ * ignored, so a typo can no longer run a migration against the wrong target.
  */
 export function parseCliArgs(args = process.argv.slice(2)) {
   let targetFlag = "--local";
   let configPath = "wrangler.local.jsonc";
   let dbName = "original-stock-index-db";
+
+  const requireValue = (flag, value) => {
+    if (value === undefined || value === "" || value.startsWith("--")) {
+      throw new Error(`${flag} requires a value`);
+    }
+    return value;
+  };
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -252,19 +276,17 @@ export function parseCliArgs(args = process.argv.slice(2)) {
     } else if (arg === "--local") {
       targetFlag = "--local";
     } else if (arg === "--config") {
-      if (i + 1 < args.length && !args[i + 1].startsWith("--")) {
-        configPath = args[++i];
-      }
+      configPath = requireValue("--config", args[++i]);
     } else if (arg.startsWith("--config=")) {
-      configPath = arg.slice("--config=".length);
+      configPath = requireValue("--config", arg.slice("--config=".length));
     } else if (arg === "--database" || arg === "--db") {
-      if (i + 1 < args.length && !args[i + 1].startsWith("--")) {
-        dbName = args[++i];
-      }
+      dbName = requireValue(arg, args[++i]);
     } else if (arg.startsWith("--database=")) {
-      dbName = arg.slice("--database=".length);
+      dbName = requireValue("--database", arg.slice("--database=".length));
     } else if (arg.startsWith("--db=")) {
-      dbName = arg.slice("--db=".length);
+      dbName = requireValue("--db", arg.slice("--db=".length));
+    } else {
+      throw new Error(`unknown option: ${arg}`);
     }
   }
 
@@ -277,8 +299,8 @@ const isDirectCall =
   resolve(process.argv[1]) === resolve(fileURLToPath(import.meta.url));
 
 if (isDirectCall) {
-  const { targetFlag, configPath, dbName } = parseCliArgs(process.argv.slice(2));
   try {
+    const { targetFlag, configPath, dbName } = parseCliArgs(process.argv.slice(2));
     runMigration(targetFlag, configPath, dbName);
   } catch (err) {
     console.error("\n❌ Migration failed:", err.message);

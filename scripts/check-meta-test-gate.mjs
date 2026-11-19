@@ -137,8 +137,12 @@ export function propagateDerivedVars(text, vars) {
  *   expect(src.slice(a, b)).toContain("...")
  *   expect(src.indexOf("...")).toBeGreaterThan(-1)
  *   expect(readFileSync(...)).toContain("...")
+ *   expect(src.includes("...")).toBe(true)
  */
 const LITERAL = "(?:`[^`]*`|\"(?:[^\"\\\\]|\\\\.)*\"|'(?:[^'\\\\]|\\\\.)*'|/(?:\\\\.|\\[[^\\]]*\\]|[^/\\n])+/[a-z]*)";
+
+/** A file read used directly as the assertion target (I4). */
+const READ_CALL_RE = /^(?:await\s+)?(?:[A-Za-z_$][\w$]*\.)?(?:readFileSync|readFile)\s*\(/;
 
 const ASSERTION_RE = new RegExp(
   "expect\\s*\\(\\s*([\\s\\S]{0,240}?)\\s*\\)\\s*\\.\\s*(?:not\\s*\\.\\s*)?(toContain|toMatch|toStartWith|toEndWith)\\s*\\(\\s*(" +
@@ -152,10 +156,23 @@ const POSITIONAL_RE = new RegExp(
   "g",
 );
 
+/**
+ * `expect(src.includes("...")).toBe(true)` is a source-text pin just like
+ * `toContain`, but its matcher chain was previously invisible to the gate.
+ */
+const INCLUDES_RE = new RegExp(
+  "expect\\s*\\(\\s*([\\s\\S]{0,240}?)\\.includes\\s*\\(\\s*(" +
+    LITERAL +
+    ")\\s*\\)\\s*\\)\\s*\\.\\s*(?:not\\s*\\.\\s*)?toBe\\s*\\(\\s*(?:true|false)\\s*\\)",
+  "g",
+);
+
 export function findSourcePins(text) {
   const vars = propagateDerivedVars(text, collectSourceTextVars(text));
   const isSourceTarget = (expr) => {
-    const name = expr.trim().split(/[^A-Za-z0-9_$]/)[0];
+    const trimmed = expr.trim();
+    if (READ_CALL_RE.test(trimmed)) return true;
+    const name = trimmed.split(/[^A-Za-z0-9_$]/)[0];
     return vars.has(name);
   };
   const pins = [];
@@ -173,6 +190,16 @@ export function findSourcePins(text) {
   for (const m of text.matchAll(POSITIONAL_RE)) {
     if (!vars.has(m[1])) continue;
     pins.push({ line: lineAt(m.index), variable: m[1], method: m[2], literal: m[3] });
+  }
+  for (const m of text.matchAll(INCLUDES_RE)) {
+    const target = m[1];
+    if (!isSourceTarget(target)) continue;
+    pins.push({
+      line: lineAt(m.index),
+      variable: target.trim().split(/[^A-Za-z0-9_$]/)[0],
+      method: "includes",
+      literal: m[2],
+    });
   }
   pins.sort((a, b) => a.line - b.line);
   return pins;

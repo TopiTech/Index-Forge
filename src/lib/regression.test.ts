@@ -20,21 +20,33 @@ describe("regression: worker API contract", () => {
     // SEC-11/DATA-07: the per-request ticker cap was lowered from 30 to 12
     // and the client batch size follows it (see R7).
     expect(MAX_SYNC_TICKERS_PER_REQUEST).toBe(12);
-    expect(workerSrc).toContain("rawTickers.length > MAX_SYNC_TICKERS_PER_REQUEST");
 
     const env = createStubWorkerEnv();
-    const res = await worker.fetch(
+    const syncRequest = (tickers: string[]) =>
       new Request("http://localhost/api/sync-prices", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tickers: Array.from({ length: 13 }, (_, i) => `T${i}`) }),
-      }),
+        body: JSON.stringify({ tickers }),
+      });
+    const res = await worker.fetch(
+      syncRequest(Array.from({ length: 13 }, (_, i) => `T${i}`)),
       env,
     );
 
     expect(res.status).toBe(400);
     const data = (await res.json()) as { error?: string };
     expect(data.error).toContain("12");
+
+    // The cap is checked before per-ticker normalization: an oversized batch
+    // made only of invalid values must still fail with the cap message, not
+    // with the invalid-ticker error. This is behavioural, not a source grep.
+    const invalidRes = await worker.fetch(
+      syncRequest(Array.from({ length: 13 }, () => "<invalid>")),
+      env,
+    );
+    expect(invalidRes.status).toBe(400);
+    const invalidData = (await invalidRes.json()) as { error?: string };
+    expect(invalidData.error).toContain("12");
   });
 
   it("R5: POST and DELETE /api/indices enforce rate limiting via checkRateLimit", () => {

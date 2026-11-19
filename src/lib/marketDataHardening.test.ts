@@ -234,6 +234,84 @@ describe("calendar cache", () => {
     expect(events.some((event) => event.id === "evt-1")).toBe(false);
     expect(store[CACHE_KEY]).toBeUndefined();
   });
+
+  it("discards a timestamped cache entry whose timestamp is far in the future", async () => {
+    const CACHE_KEY = "indexforge:calendar:cache:v1";
+    const store: Record<string, string> = {
+      [CACHE_KEY]: JSON.stringify({
+        timestamp: Date.now() + 24 * 60 * 60 * 1000,
+        events: [
+          {
+            id: "evt-future",
+            date: "04/01",
+            type: "MACRO",
+            title: "未来タイムスタンプのイベント",
+            importance: "HIGH",
+          },
+        ],
+      }),
+    };
+    vi.stubGlobal("sessionStorage", {
+      getItem: (key: string) => store[key] ?? null,
+      setItem: (key: string, value: string) => {
+        store[key] = value;
+      },
+      removeItem: (key: string) => {
+        delete store[key];
+      },
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new Error("network down");
+      }),
+    );
+
+    const events = await fetchUpcomingEvents();
+
+    expect(events.some((event) => event.id === "evt-future")).toBe(false);
+    expect(store[CACHE_KEY]).toBeUndefined();
+  });
+
+  it("migrates a legacy bare-array cache entry to the TTL format on read", async () => {
+    const CACHE_KEY = "indexforge:calendar:cache:v1";
+    const store: Record<string, string> = {
+      [CACHE_KEY]: JSON.stringify([
+        {
+          id: "evt-legacy",
+          date: "04/01",
+          type: "MACRO",
+          title: "古いテストイベント",
+          importance: "HIGH",
+        },
+      ]),
+    };
+    vi.stubGlobal("sessionStorage", {
+      getItem: (key: string) => store[key] ?? null,
+      setItem: (key: string, value: string) => {
+        store[key] = value;
+      },
+      removeItem: (key: string) => {
+        delete store[key];
+      },
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new Error("network down");
+      }),
+    );
+
+    const events = await fetchUpcomingEvents();
+
+    expect(events.some((event) => event.id === "evt-legacy")).toBe(true);
+    const migrated = JSON.parse(store[CACHE_KEY] ?? "null") as {
+      timestamp?: number;
+      events?: unknown[];
+    } | null;
+    expect(typeof migrated?.timestamp).toBe("number");
+    expect(migrated?.events?.length).toBe(1);
+  });
 });
 
 describe("fallback sparkline precision", () => {

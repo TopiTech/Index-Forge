@@ -75,11 +75,10 @@ describe("ScreenerPage Keyboard Event Bubbling Isolation (TASK-06)", () => {
     fireEvent.keyDown(mobileCheckbox!, { key: " " });
     expect(onOpenStockDetail).not.toHaveBeenCalled();
 
-    // Direct keydown on mobile card activates detail view
-    fireEvent.keyDown(firstCard, { key: "Enter" });
+    // Keyboard activation lives on a real button, not the card container.
+    const detailButton = firstCard.querySelector<HTMLButtonElement>(".screener-mobile-name-button");
+    expect(detailButton).not.toBeNull();
+    fireEvent.click(detailButton!);
     expect(onOpenStockDetail).toHaveBeenCalledTimes(1);
-
-    fireEvent.keyDown(firstCard, { key: " " });
-    expect(onOpenStockDetail).toHaveBeenCalledTimes(2);
   });
 });

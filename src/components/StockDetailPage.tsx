@@ -36,6 +36,7 @@ import { getTradingViewWebUrl } from "../lib/tradingView";
 import type { PageView } from "../lib/navigation";
 import { useRegisterFreshness } from "../contexts/FreshnessContext";
 import { formatMarketLabel, formatDynamicSector, formatDynamicIndustry } from "../lib/marketFormatter";
+import type { PortfolioPriceProvenance } from "./StockAnalysisPage";
 
 export function getRoeEvaluation(roe: number | null | undefined, isMacro: boolean): string {
   if (isMacro || roe === null || roe === undefined || !Number.isFinite(roe)) return "指数・マクロ指標対象外";
@@ -103,7 +104,12 @@ interface StockDetailPageProps {
   onNavigate: (view: PageView, searchParams?: string) => void;
   onAddToIndex?: (ticker: string, name: string, theme: string) => void;
   onAddToWatchlist?: (ticker: string) => void;
-  onAddToPortfolio?: (ticker: string, currentPrice: number, stockName?: string) => void;
+  onAddToPortfolio?: (
+    ticker: string,
+    currentPrice: number,
+    stockName?: string,
+    priceProvenance?: PortfolioPriceProvenance,
+  ) => void;
 }
 
 export function StockDetailPage({
@@ -120,6 +126,9 @@ export function StockDetailPage({
   );
   const [loading, setLoading] = useState(false);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(null);
+  // A thrown fetch must not be presented as fresh data: the cached row stays
+  // visible but its provenance is an explicitly failed refresh (P1-06).
+  const [fetchFailed, setFetchFailed] = useState(false);
 
   const resolvedFrom: string = (() => {
     if (from && typeof from === "string" && from.trim().length > 0) {
@@ -166,6 +175,7 @@ export function StockDetailPage({
       const data = await fetchStockFundamentals(targetTicker, forceRefresh);
       if (!mountedRef.current || requestId !== requestIdRef.current) return;
       setStock(data);
+      setFetchFailed(false);
       setLastUpdatedAt(Date.now());
 
       // 初回ロードでデモフォールバックだった場合、Worker側Crumbウォームアップ完了直後の実データを1回自動再取得
@@ -183,7 +193,11 @@ export function StockDetailPage({
         }, 1200);
       }
     } catch {
-      // Gracefully retain existing cached data on unexpected network error
+      // Gracefully retain existing cached data, but say so instead of
+      // relabelling it as the latest data. Ignore superseded requests.
+      if (mountedRef.current && requestId === requestIdRef.current) {
+        setFetchFailed(true);
+      }
     } finally {
       if (mountedRef.current && requestId === requestIdRef.current) {
         setLoading(false);
@@ -201,6 +215,7 @@ export function StockDetailPage({
     // 前ティッカーの遅延再取得ガードと競合しないようにする。
     requestIdRef.current += 1;
     setStock(getCachedStockFundamentals(ticker));
+    setFetchFailed(false);
     void loadStockData(ticker);
   }, [ticker, loadStockData]);
 
@@ -236,6 +251,38 @@ export function StockDetailPage({
       transition={{ duration: 0.3 }}
       className="page-container stock-detail-page"
     >
+      {/* Fetch failure is an event, unlike the static demo notice below. */}
+      {fetchFailed && (
+        <div
+          role="alert"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            flexWrap: "wrap",
+            gap: "12px",
+            padding: "10px 16px",
+            marginBottom: "16px",
+            borderRadius: "8px",
+            background: "rgba(255, 51, 102, 0.1)",
+            border: "1px solid rgba(255, 51, 102, 0.35)",
+            fontSize: "0.85rem",
+            color: "var(--neon-red, #f43f5e)",
+          }}
+        >
+          <span>取得失敗（前回データを表示中）。最新値を取得できませんでした。</span>
+          <button
+            type="button"
+            className="btn btn-xs btn-outline"
+            onClick={() => void loadStockData(stock.ticker, true)}
+            disabled={loading}
+          >
+            <RefreshCw size={11} className={loading ? "spin animate-spin" : ""} style={{ marginRight: 4 }} />
+            <span>再試行</span>
+          </button>
+        </div>
+      )}
+
       {/* Fallback / Demo Notice Banner (a static disclosure, not a live alert:
           role="alert" made screen readers interrupt on every open) */}
       {stock.isDemoData && (
@@ -370,7 +417,11 @@ export function StockDetailPage({
 
         <div className="stock-detail-actions-group" style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
           <div className="sr-only" role="status" aria-live="polite">
-            {loading ? "銘柄データを読み込み中..." : `${stock.name} の最新データを表示中`}
+            {loading
+              ? "銘柄データを読み込み中..."
+              : fetchFailed
+                ? "取得失敗（前回データを表示中）"
+                : `${stock.name} の最新データを表示中`}
           </div>
           <button
             type="button"
@@ -427,11 +478,17 @@ export function StockDetailPage({
             <button
               type="button"
               className="btn btn-sm btn-outline"
-              disabled={isMacro}
-              title={isMacro ? "マクロ資産・指数・為替はポートフォリオ登録対象外です" : undefined}
+              disabled={isMacro || Boolean(stock.isDemoData)}
+              title={
+                isMacro
+                  ? "マクロ資産・指数・為替はポートフォリオ登録対象外です"
+                  : stock.isDemoData
+                    ? "参考値の価格は取得単価に使用できません"
+                    : undefined
+              }
               onClick={() => {
-                if (isMacro) return;
-                onAddToPortfolio(stock.ticker, stock.price, stock.name);
+                if (isMacro || stock.isDemoData) return;
+                onAddToPortfolio(stock.ticker, stock.price, stock.name, "live");
               }}
             >
               <Briefcase size={14} />

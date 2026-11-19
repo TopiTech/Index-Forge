@@ -861,9 +861,6 @@ export function CalendarPage({
                 <div
                   key={evt.id}
                   className="calendar-event-item"
-                  role={ticker ? "button" : undefined}
-                  tabIndex={ticker ? 0 : undefined}
-                  aria-label={ticker ? `${evt.title} (${ticker}) の詳細を見る` : undefined}
                   style={{
                     padding: "16px",
                     borderRadius: "10px",
@@ -882,16 +879,6 @@ export function CalendarPage({
                       onOpenStockDetail(ticker);
                     }
                   }}
-                  onKeyDown={
-                    ticker
-                      ? (e) => {
-                        if (e.key === "Enter" || e.key === " ") {
-                          e.preventDefault();
-                          onOpenStockDetail(ticker);
-                        }
-                      }
-                      : undefined
-                  }
                 >
                   <div style={{ display: "flex", alignItems: "center", gap: "16px", flex: 1, minWidth: 0 }}>
                     <div
@@ -958,7 +945,29 @@ export function CalendarPage({
                         )}
                       </div>
                       <h3 style={{ fontSize: "1.05rem", fontWeight: 600, margin: 0, wordBreak: "break-word" }}>
-                        {evt.title}
+                        {ticker ? (
+                          <button
+                            type="button"
+                            style={{
+                              background: "none",
+                              border: 0,
+                              padding: 0,
+                              color: "inherit",
+                              font: "inherit",
+                              cursor: "pointer",
+                              textAlign: "left",
+                            }}
+                            aria-label={`${evt.title} (${ticker}) の詳細を見る`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onOpenStockDetail(ticker);
+                            }}
+                          >
+                            {evt.title}
+                          </button>
+                        ) : (
+                          evt.title
+                        )}
                       </h3>
                       {evt.description && (
                         <p className="tiny muted" style={{ margin: "4px 0 0", lineHeight: 1.4 }}>

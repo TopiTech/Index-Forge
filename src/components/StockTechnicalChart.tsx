@@ -21,6 +21,7 @@ import type { StockQuoteFundamentals } from "../lib/marketDataService";
 import { detectStockCurrency, formatStockPrice } from "../lib/currency";
 import { resolveTradingViewSymbol, getTradingViewWebUrl } from "../lib/tradingView";
 import {
+  CALCULATION_REQUEST_TIMEOUT_MS,
   DEFAULT_REQUEST_TIMEOUT_MS,
   fetchWithNetworkMark,
   isRecord,
@@ -643,7 +644,7 @@ export function StockTechnicalChart({
             method: "POST",
             headers: { "Content-Type": "application/json" },
             signal: controller.signal,
-            timeoutMs: DEFAULT_REQUEST_TIMEOUT_MS,
+            timeoutMs: CALCULATION_REQUEST_TIMEOUT_MS,
             body: JSON.stringify({
               basket: [
                 {

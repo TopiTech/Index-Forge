@@ -800,6 +800,13 @@ export const PASSWORD_HASH_PREFIX = "pbkdf2-sha256";
 export const PASSWORD_HASH_ITERATIONS = 100_000;
 export const AUTH_RATE_LIMIT_MAX = 10;
 
+/**
+ * Per-IP in-memory budget for logout writes. Logout stays idempotent and
+ * unauthenticated by design, but an unauthenticated caller must not be able to
+ * drive unbounded D1 DELETEs by looping this endpoint.
+ */
+export const LOGOUT_RATE_LIMIT_MAX = 30;
+
 /** Shared 429 message for a refused password attempt (distinct from `RATE_LIMIT_ERROR_MESSAGE`, the entry-limiter message). */
 export const AUTH_RATE_LIMIT_ERROR_MESSAGE =
   "認証試行回数が上限に達しました。しばらくしてから再試行してください";
@@ -1216,7 +1223,7 @@ export async function verifyTurnstileToken(
   token: string | undefined,
   remoteIp?: string,
   allowTestKeys: boolean = isTestRuntime(),
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; error?: string; unavailable?: boolean }> {
   const configuredSecret = secretKey?.trim();
   const effectiveSecret = configuredSecret || TURNSTILE_DEFAULT_SECRET_KEY;
   const trimmedToken = token?.trim();
@@ -1268,6 +1275,17 @@ export async function verifyTurnstileToken(
       return { success: true };
     }
 
+    // A siteverify 5xx is an outage, not a rejected token. Keep the test-key
+    // fallback above intact; real deployments report `unavailable` so the
+    // admin-login boundary can answer 503 instead of blaming the user.
+    if (res.status >= 500 && !(allowTestKeys && isTestSecret)) {
+      return {
+        success: false,
+        unavailable: true,
+        error: "Turnstile認証通信エラーが発生しました",
+      };
+    }
+
     return {
       success: false,
       error: "Turnstile認証に失敗しました。もう一度お試しください",
@@ -1279,6 +1297,7 @@ export async function verifyTurnstileToken(
     }
     return {
       success: false,
+      unavailable: true,
       error: "Turnstile認証通信エラーが発生しました",
     };
   }
@@ -1288,6 +1307,8 @@ export interface AdminSecretCodeCheckResult {
   valid: boolean;
   /** True when the D1 lookup failed and the code could not be checked at all (W-01). */
   unavailable?: boolean;
+  /** Operator-facing reason when the check could not be performed. */
+  error?: string;
 }
 
 /**
@@ -1333,7 +1354,14 @@ export async function verifyAdminSecretCodeDetailed(
 
   // No secret configured at all: the committed development default is only
   // acceptable where the deployment cannot be a public one.
-  if (!allowDevDefault) return { valid: false };
+  if (!allowDevDefault) {
+    return {
+      valid: false,
+      unavailable: true,
+      error:
+        "管理者ログインの第二要素が未設定です。Worker Secret「ADMIN_SECRET_CODE」を設定してください。",
+    };
+  }
   const inputHash = await hashToken(trimmed);
   const defaultHash = await hashToken(DEFAULT_DEV_ADMIN_SECRET_CODE.normalize("NFC"));
   return { valid: timingSafeEqual(inputHash, defaultHash) };
@@ -2879,10 +2907,24 @@ export function resetYahooCrumbCache(): void {
   yahooCrumbNegativeCacheUntil = 0;
 }
 
+/**
+ * Clamp a helper's own timeout to the caller's remaining wall-clock budget.
+ *
+ * `0` means the budget is exhausted and the caller must skip the request rather
+ * than issuing a request with a fake minimum timeout. Callers without a
+ * deadline keep the helper's historical fixed timeout.
+ */
+export function budgetedTimeoutMs(maxMs: number, deadlineMs?: number): number {
+  if (deadlineMs === undefined || !Number.isFinite(deadlineMs)) return maxMs;
+  return Math.max(0, Math.min(maxMs, deadlineMs - Date.now()));
+}
+
 export async function getYahooCrumb(
   forceRefresh = false,
+  deadlineMs?: number,
 ): Promise<{ crumb: string; cookie: string } | null> {
   const now = Date.now();
+  if (deadlineMs !== undefined && now >= deadlineMs) return null;
   if (!forceRefresh && now < yahooCrumbNegativeCacheUntil) {
     return null;
   }
@@ -2896,7 +2938,7 @@ export async function getYahooCrumb(
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
       },
       redirect: "manual",
-      signal: AbortSignal.timeout(2500),
+      signal: AbortSignal.timeout(budgetedTimeoutMs(2500, deadlineMs)),
     });
     // Immediately release res1's unconsumed redirect/error body
     await releaseWorkerResponse(res1);
@@ -2915,6 +2957,7 @@ export async function getYahooCrumb(
       .filter((c): c is string => Boolean(c && c.includes("=")))
       .join("; ");
     let crumbText = "";
+    if (deadlineMs !== undefined && Date.now() >= deadlineMs) return null;
     try {
       const res2 = await fetch("https://query2.finance.yahoo.com/v1/test/getcrumb", {
         headers: {
@@ -2922,7 +2965,7 @@ export async function getYahooCrumb(
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
           ...(cookie ? { Cookie: cookie } : {}),
         },
-        signal: AbortSignal.timeout(2500),
+        signal: AbortSignal.timeout(budgetedTimeoutMs(2500, deadlineMs)),
       });
       if (res2.ok) {
         crumbText = (await res2.text()).trim();
@@ -2934,6 +2977,7 @@ export async function getYahooCrumb(
     }
 
     if (!crumbText || crumbText.includes("<")) {
+      if (deadlineMs !== undefined && Date.now() >= deadlineMs) return null;
       try {
         const resAlt = await fetch("https://query1.finance.yahoo.com/v1/test/getcrumb", {
           headers: {
@@ -2941,7 +2985,7 @@ export async function getYahooCrumb(
               "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             ...(cookie ? { Cookie: cookie } : {}),
           },
-          signal: AbortSignal.timeout(2500),
+          signal: AbortSignal.timeout(budgetedTimeoutMs(2500, deadlineMs)),
         });
         if (resAlt.ok) {
           crumbText = (await resAlt.text()).trim();
@@ -2993,7 +3037,10 @@ export const US_CIK_LOOKUP: Record<string, string> = {
  */
 export async function fetchSecEdgarFinancials(
   ticker: string,
+  deadlineMs?: number,
 ): Promise<Array<{ fiscalYear: string; revenue: number; operatingIncome: number; netIncome: number; eps: number; dps: number }>> {
+  const timeoutMs = budgetedTimeoutMs(5000, deadlineMs);
+  if (timeoutMs <= 0) return [];
   const norm = normalizeTicker(ticker);
   const cik = US_CIK_LOOKUP[norm];
   if (!cik) return [];
@@ -3004,7 +3051,7 @@ export async function fetchSecEdgarFinancials(
         "User-Agent": "IndexForgePlatform/1.0 (compliance-contact@indexforge.dev)",
         Accept: "application/json",
       },
-      signal: AbortSignal.timeout(5000),
+      signal: AbortSignal.timeout(timeoutMs),
     });
     if (!res.ok) {
       await releaseWorkerResponse(res);
@@ -3662,9 +3709,18 @@ export async function fetchLiveStockFundamentals(
   const priceDecimals = isFx
     ? (normTicker.includes("JPY") || baselineAsset?.currency === "JPY" ? 2 : 4)
     : (isUS ? 2 : 1);
-  const market: StockQuoteFundamentals["market"] = baselineAsset
-    ? (isUS ? "US" : "PRIME")
-    : (uStock?.market ?? baseline.market);
+  const macroMarket: StockQuoteFundamentals["market"] | undefined =
+    baselineAsset?.category === "INDEX" && !baselineAsset.querySymbol.endsWith(".T")
+      ? "INDEX"
+      : baselineAsset?.category === "FX"
+        ? "FX"
+        : baselineAsset?.category === "CRYPTO"
+          ? "CRYPTO"
+          : baselineAsset?.category === "COMMODITY"
+            ? "COMMODITY"
+            : undefined;
+  const market: StockQuoteFundamentals["market"] =
+    macroMarket ?? (baselineAsset ? (isUS ? "US" : "PRIME") : (uStock?.market ?? baseline.market));
   const yahooSymbol = baselineAsset ? baselineAsset.querySymbol : toYahooSymbol(normTicker);
 
   let currentPrice = baselineAsset ? baselineAsset.baselinePrice : baseline.price;
@@ -3702,9 +3758,9 @@ export async function fetchLiveStockFundamentals(
   const currentYear = new Date().getFullYear();
 
   try {
-    const auth = Date.now() < deadline ? await getYahooCrumb() : null;
-    const summaryTimeout = Math.max(500, Math.min(6000, deadline - Date.now()));
-    const chartTimeout = Math.max(500, Math.min(5000, deadline - Date.now()));
+    const auth = Date.now() < deadline ? await getYahooCrumb(false, deadline) : null;
+    const summaryTimeout = budgetedTimeoutMs(6000, deadline);
+    const chartTimeout = budgetedTimeoutMs(5000, deadline);
     const [summaryRes, chartRes] = await Promise.all([
       auth && Date.now() < deadline
         ? fetch(
@@ -3754,7 +3810,7 @@ export async function fetchLiveStockFundamentals(
       for (const host of ["query1.finance.yahoo.com", "query2.finance.yahoo.com"]) {
         if (Date.now() >= deadline) break;
         try {
-          const altTimeout = Math.max(500, Math.min(4500, deadline - Date.now()));
+          const altTimeout = budgetedTimeoutMs(4500, deadline);
           const altRes = await fetch(
             `https://${host}/v10/finance/quoteSummary/${encodeURIComponent(yahooSymbol)}?modules=assetProfile,financialData,defaultKeyStatistics,summaryDetail,earnings,price,incomeStatementHistory,balanceSheetHistory,cashflowStatementHistory,calendarEvents`,
             {
@@ -4102,9 +4158,18 @@ export async function fetchLiveStockFundamentals(
       }
 
       // Tier 3: SEC EDGAR official XBRL facts API for US stocks
-      if (isUS && (!historicalFinances || historicalFinances.length === 0) && Date.now() < deadline) {
+      // SEC is the last external tier: only spend the remaining budget on it
+      // when enough time is left for a meaningful request (the helper's own
+      // call is capped at 5s, but a nearly exhausted caller budget must skip
+      // it entirely instead of starting a request that will be aborted).
+      const secRemainingMs = deadline - Date.now();
+      if (
+        isUS &&
+        (!historicalFinances || historicalFinances.length === 0) &&
+        secRemainingMs >= 1000
+      ) {
         try {
-          const secFinances = await fetchSecEdgarFinancials(normTicker);
+          const secFinances = await fetchSecEdgarFinancials(normTicker, deadline);
           if (secFinances.length > 0) {
             historicalFinances = secFinances;
           }
@@ -4119,7 +4184,7 @@ export async function fetchLiveStockFundamentals(
     // Secondary fallback: if summaryData was missing (or returned an empty result array), attempt quote endpoint for real valuation metrics
     if (!summaryData?.quoteSummary?.result?.[0] && !isMacroAsset && Date.now() < deadline) {
       try {
-        const quoteTimeout = Math.max(500, Math.min(4000, deadline - Date.now()));
+        const quoteTimeout = budgetedTimeoutMs(4000, deadline);
         const qUrl = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(yahooSymbol)}`;
         const qRes = await fetch(qUrl, {
           signal: AbortSignal.timeout(quoteTimeout),
@@ -4420,6 +4485,11 @@ export async function fetchLiveScreenerUniverse(
       Number.isFinite(q.regularMarketPrice) &&
       q.regularMarketPrice > 0
     ) {
+      // Live quotes are the only source of truth in this branch. A missing
+      // numeric field is reported with the contract's explicit "unknown" value
+      // (0), NEVER derived from the live price or a previous snapshot:
+      // price * 1.25 / 0.75, a 1,000,000 share placeholder and fixed market caps
+      // used to be served as if they were live data.
       price = q.regularMarketPrice;
       change =
         typeof q.regularMarketChange === "number" && Number.isFinite(q.regularMarketChange)
@@ -4434,35 +4504,33 @@ export async function fetchLiveScreenerUniverse(
         typeof q.regularMarketPreviousClose === "number" &&
         Number.isFinite(q.regularMarketPreviousClose)
           ? q.regularMarketPreviousClose
-          : Number((price - change).toFixed(2));
+          : 0;
       volume =
         typeof q.regularMarketVolume === "number" && Number.isFinite(q.regularMarketVolume)
           ? q.regularMarketVolume
-          : 1000000;
+          : 0;
       dayHigh =
         typeof q.regularMarketDayHigh === "number" && Number.isFinite(q.regularMarketDayHigh)
           ? q.regularMarketDayHigh
-          : price;
+          : 0;
       dayLow =
         typeof q.regularMarketDayLow === "number" && Number.isFinite(q.regularMarketDayLow)
           ? q.regularMarketDayLow
-          : price;
+          : 0;
       yearHigh =
         typeof q.fiftyTwoWeekHigh === "number" && Number.isFinite(q.fiftyTwoWeekHigh)
           ? q.fiftyTwoWeekHigh
-          : price * 1.25;
+          : 0;
       yearLow =
         typeof q.fiftyTwoWeekLow === "number" && Number.isFinite(q.fiftyTwoWeekLow)
           ? q.fiftyTwoWeekLow
-          : price * 0.75;
+          : 0;
 
       const rawCap =
-        typeof q.marketCap === "number" && Number.isFinite(q.marketCap) ? q.marketCap : 0;
-      if (rawCap > 0) {
-        marketCap = isUS ? Math.round(rawCap / 1_000_000) : Math.round(rawCap / 100_000_000);
-      } else {
-        marketCap = prev?.marketCap ?? (isUS ? 50000 : 25000);
-      }
+        typeof q.marketCap === "number" && Number.isFinite(q.marketCap) && q.marketCap > 0
+          ? q.marketCap
+          : 0;
+      marketCap = rawCap > 0 ? (isUS ? Math.round(rawCap / 1_000_000) : Math.round(rawCap / 100_000_000)) : 0;
 
       if (typeof q.forwardPE === "number" && Number.isFinite(q.forwardPE) && q.forwardPE > 0) {
         per = Number(q.forwardPE.toFixed(1));
@@ -4487,28 +4555,22 @@ export async function fetchLiveScreenerUniverse(
         perNote = undefined;
       }
 
-      if (
-        typeof q.priceToBook === "number" &&
-        Number.isFinite(q.priceToBook) &&
-        q.priceToBook > 0
-      ) {
-        pbr = Number(q.priceToBook.toFixed(2));
-      } else {
-        pbr = prev?.pbr ?? null;
-      }
+      // Provenance fence: every valuation metric in a live row must come from
+      // THIS live quote (or be derived from this live price), never from the
+      // previous snapshot. Missing values stay null so a stale anchor cannot
+      // masquerade as fresh data. This mirrors fetchLiveStockFundamentals'
+      // v7-quote path.
+      pbr =
+        typeof q.priceToBook === "number" && Number.isFinite(q.priceToBook) && q.priceToBook > 0
+          ? Number(q.priceToBook.toFixed(2))
+          : null;
 
       const screenerQuoteYield = normalizeDividendYield(q.dividendYield, "percent");
       const screenerTrailingYield = normalizeDividendYield(
         q.trailingAnnualDividendYield,
         "fraction",
       );
-      if (screenerQuoteYield !== null) {
-        dividendYield = screenerQuoteYield;
-      } else if (screenerTrailingYield !== null) {
-        dividendYield = screenerTrailingYield;
-      } else {
-        dividendYield = prev?.dividendYield ?? null;
-      }
+      dividendYield = screenerQuoteYield ?? screenerTrailingYield;
 
       if (typeof q.dividendRate === "number" && Number.isFinite(q.dividendRate)) {
         dps = Number(q.dividendRate.toFixed(isUS ? 2 : 1));
@@ -4517,16 +4579,16 @@ export async function fetchLiveScreenerUniverse(
         Number.isFinite(q.trailingAnnualDividendRate)
       ) {
         dps = Number(q.trailingAnnualDividendRate.toFixed(isUS ? 2 : 1));
-      } else if (dividendYield && dividendYield > 0) {
+      } else if (dividendYield !== null && dividendYield > 0) {
         dps = Number(((price * dividendYield) / 100).toFixed(isUS ? 2 : 1));
       } else {
-        dps = prev?.dps ?? null;
+        dps = null;
       }
 
       // 利回り0（無配）の確実な反映
       if (dividendYield === 0) {
         dps = 0;
-      } else if (dps === 0 && (dividendYield === null || dividendYield === undefined)) {
+      } else if (dps === 0 && dividendYield === null) {
         dividendYield = 0;
       }
 
@@ -4535,24 +4597,25 @@ export async function fetchLiveScreenerUniverse(
         Number.isFinite(q.epsTrailingTwelveMonths)
       ) {
         eps = Number(q.epsTrailingTwelveMonths.toFixed(isUS ? 2 : 1));
-      } else if (per && per > 0) {
+      } else if (per !== null && per > 0 && price > 0) {
         eps = Number((price / per).toFixed(isUS ? 2 : 1));
       } else {
-        eps = prev?.eps ?? null;
+        eps = null;
       }
 
-      if (
+      // ROE and equity ratio are not exposed by the quote endpoint. Deriving
+      // them from a previous snapshot's ROE (or equityRatio) would relabel old
+      // data as live, so they stay null unless both inputs are in this quote.
+      roe =
         typeof q.bookValue === "number" &&
         Number.isFinite(q.bookValue) &&
         q.bookValue > 0 &&
-        eps
-      ) {
-        roe = Number(((eps / q.bookValue) * 100).toFixed(1));
-      } else {
-        roe = prev?.roe ?? (per && pbr ? Number(((pbr / per) * 100).toFixed(1)) : null);
-      }
+        typeof q.epsTrailingTwelveMonths === "number" &&
+        Number.isFinite(q.epsTrailingTwelveMonths)
+          ? Number(((q.epsTrailingTwelveMonths / q.bookValue) * 100).toFixed(1))
+          : null;
 
-      equityRatio = prev?.equityRatio ?? null;
+      equityRatio = null;
     } else if (prev) {
       price = prev.price;
       change = prev.change;
@@ -4574,7 +4637,9 @@ export async function fetchLiveScreenerUniverse(
       roe = prev.roe;
       equityRatio = prev.equityRatio;
       sector = prev.sector;
-      isDemo = Boolean(prev.isDemoData);
+      // No quote was obtained in this run: a reused snapshot is stale by
+      // definition, even if it was live when it was produced.
+      isDemo = true;
     } else {
       // Fallback via getStockFundamentals
       const fallback = getStockFundamentals(preset.ticker);
@@ -5056,8 +5121,13 @@ export function fetchLiveMarketCalendar(
  * 外部API (biquote.io / MQL5) から主要国 (日米) の実マクロ経済カレンダーを取得。
  * 毎月12日/19日等の固定推計日程ではなく、外部機関公表の正確な公表予定日時・前回値・予想値を返す。
  */
-export async function fetchLiveMacroEventsFromApiAsync(refDate = new Date()): Promise<CalendarEvent[]> {
+export async function fetchLiveMacroEventsFromApiAsync(
+  refDate = new Date(),
+  deadlineMs?: number,
+): Promise<CalendarEvent[]> {
   try {
+    const macroTimeoutMs = budgetedTimeoutMs(3000, deadlineMs);
+    if (macroTimeoutMs <= 0) return [];
     const mStr = (m: number) => String(m).padStart(2, "0");
     const dStr = (d: number) => String(d).padStart(2, "0");
     const fromDate = new Date(refDate.getTime() - 14 * 24 * 60 * 60 * 1000);
@@ -5067,7 +5137,7 @@ export async function fetchLiveMacroEventsFromApiAsync(refDate = new Date()): Pr
     const url = `https://biquote.io/api/calendar?importance=high&countries=US,JP&from=${fromStr}&to=${toStr}`;
 
     const res = await fetch(url, {
-      signal: AbortSignal.timeout(3000),
+      signal: AbortSignal.timeout(macroTimeoutMs),
       headers: {
         "User-Agent":
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -5253,17 +5323,27 @@ export async function fetchLiveMacroEventsFromApiAsync(refDate = new Date()): Pr
   }
 }
 
+/** Total wall-clock budget for the live calendar's external calls. */
+export const MARKET_CALENDAR_TIMEOUT_BUDGET_MS = 8000;
+
 /**
  * リアルタイムカレンダー取得（非同期）。
  * Yahoo Finance から主要企業の最新決算予定日時をライブ取得し、
  * 外部APIおよび公定スケジュールと統合する。通信失敗時は動的フォールバックを返却。
+ *
+ * All external work shares one deadline: the crumb exchange, the v7 quote
+ * batch and every quoteSummary completion. Fallback calendar data is always
+ * returned, even when the deadline is already exhausted on entry.
  */
 export async function fetchLiveMarketCalendarAsync(
   universe?: StockQuoteFundamentals[],
   refDate = new Date(),
+  timeoutBudgetMs: number = MARKET_CALENDAR_TIMEOUT_BUDGET_MS,
 ): Promise<CalendarEvent[]> {
+  const deadline = Date.now() + timeoutBudgetMs;
   const fallbackMacros = generateUpcomingMacroEvents(refDate);
-  const liveMacroEvents = await fetchLiveMacroEventsFromApiAsync(refDate);
+  const liveMacroEvents =
+    Date.now() < deadline ? await fetchLiveMacroEventsFromApiAsync(refDate, deadline) : [];
 
   let macroEvents: CalendarEvent[] = [];
   if (liveMacroEvents.length > 0) {
@@ -5322,12 +5402,12 @@ export async function fetchLiveMarketCalendarAsync(
   const maxTime = refDate.getTime() + 90 * 24 * 60 * 60 * 1000; // 向こう90日以内
 
   try {
-    const auth = await getYahooCrumb();
-    if (auth) {
+    const auth = Date.now() < deadline ? await getYahooCrumb(false, deadline) : null;
+    if (auth && Date.now() < deadline) {
       const symbols = Array.from(new Set([...tickersToQuery.map(toYahooSymbol), "^IRX", "^TNX"]));
       const qUrl = `https://query2.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(symbols.join(","))}&crumb=${encodeURIComponent(auth.crumb)}`;
       const qRes = await fetch(qUrl, {
-        signal: AbortSignal.timeout(5000),
+        signal: AbortSignal.timeout(budgetedTimeoutMs(5000, deadline)),
         headers: {
           "User-Agent":
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -5451,11 +5531,16 @@ export async function fetchLiveMarketCalendarAsync(
           (t) => !liveEarnings.some((le) => le.ticker === t),
         );
         for (const t of missingCorporate) {
+          // The whole calendar shares one deadline. Check it before every
+          // ticker: a slow quote batch must not turn into eight more serial 3s
+          // calls after the budget has already been spent.
+          const summaryTimeoutMs = budgetedTimeoutMs(3000, deadline);
+          if (summaryTimeoutMs <= 0) break;
           try {
             const sym = toYahooSymbol(t);
             const sumUrl = `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(sym)}?modules=calendarEvents,price&crumb=${encodeURIComponent(auth.crumb)}`;
             const sumRes = await fetch(sumUrl, {
-              signal: AbortSignal.timeout(3000),
+              signal: AbortSignal.timeout(summaryTimeoutMs),
               headers: {
                 "User-Agent":
                   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -6108,11 +6193,21 @@ export default {
             return json({ error: RATE_LIMIT_ERROR_MESSAGE }, 429, request);
           }
           const lockout = await checkAdminLoginLockout(env, ip);
-          const siteKey = env.TURNSTILE_SITE_KEY?.trim() || TURNSTILE_DEFAULT_SITE_KEY;
+          const configuredSiteKey = env.TURNSTILE_SITE_KEY?.trim();
+          // The public test key is only usable with the test secret. Advertising
+          // it on a production host produces a solvable widget whose token the
+          // login route rejects, so report the missing configuration instead.
+          const isTestSiteKey =
+            !configuredSiteKey || configuredSiteKey === TURNSTILE_DEFAULT_SITE_KEY;
+          const siteKey =
+            isTestSiteKey && !isLocalHostname(url.hostname)
+              ? ""
+              : (configuredSiteKey || TURNSTILE_DEFAULT_SITE_KEY);
           return json(
             {
               ok: true,
               siteKey,
+              ...(siteKey ? {} : { unavailable: true }),
               lockout: {
                 locked: lockout.locked,
                 remainingSeconds: lockout.remainingSeconds,
@@ -6181,6 +6276,15 @@ export default {
             ip,
             isLocalOrTestHost(url.hostname),
           );
+          if (tsRes.unavailable) {
+            // Siteverify outage: like the other authentication backends, it
+            // must not be reported as a bad token (400) or spend lockout budget.
+            return json(
+              { ok: false, error: AUTH_SERVICE_UNAVAILABLE_MESSAGE },
+              503,
+              request,
+            );
+          }
           if (!tsRes.success) {
             return json(
               {
@@ -6202,7 +6306,10 @@ export default {
             // Infrastructure failure, not a guess: it must not spend lockout
             // budget and must not be reported as a wrong secret code (W-01).
             return json(
-              { ok: false, error: AUTH_SERVICE_UNAVAILABLE_MESSAGE },
+              {
+                ok: false,
+                error: secretCodeCheck.error || AUTH_SERVICE_UNAVAILABLE_MESSAGE,
+              },
               503,
               request,
             );
@@ -6408,6 +6515,12 @@ export default {
           return json({ error: METHOD_NOT_ALLOWED_POST_MESSAGE }, 405, request, { allow: "POST" });
         }
         try {
+          // Idempotent from the caller's perspective: a refused write still
+          // answers { ok: true }, but the D1 DELETE is skipped after the
+          // per-IP budget is exhausted.
+          if (!checkMemoryRateLimit(getClientIp(request), "auth-logout", LOGOUT_RATE_LIMIT_MAX)) {
+            return json({ ok: true }, 200, request);
+          }
           const token = getAdminSessionToken(request);
           if (token) {
             await revokeAdminSession(env, token);
@@ -9088,6 +9201,18 @@ export default {
           if (!Array.isArray(body.tickers)) {
             return json({ error: TICKERS_ARRAY_REQUIRED_MESSAGE }, 400, request);
           }
+          // Reject oversized requests before normalizing a single element:
+          // normalization is pure CPU work and an unauthenticated caller must
+          // not be able to force it for an already-invalid payload.
+          if (body.tickers.length > MAX_SYNC_TICKERS_PER_REQUEST) {
+            return json(
+              {
+                error: `1リクエストで同期できる銘柄は最大${MAX_SYNC_TICKERS_PER_REQUEST}件です`,
+              },
+              400,
+              request,
+            );
+          }
           if (body.tickers.length === 0) {
             return json(
               { error: TICKERS_ARRAY_EMPTY_MESSAGE },
@@ -9106,17 +9231,6 @@ export default {
               return json({ error: INVALID_TICKER_VALUE_MESSAGE }, 400, request);
             }
             tickers.push(normalized);
-          }
-          // Keep the request within Cloudflare's subrequest limits. Silently
-          // truncating used to make callers believe every ticker was refreshed.
-          if (rawTickers.length > MAX_SYNC_TICKERS_PER_REQUEST) {
-            return json(
-              {
-                error: `1リクエストで同期できる銘柄は最大${MAX_SYNC_TICKERS_PER_REQUEST}件です`,
-              },
-              400,
-              request,
-            );
           }
           const uniqueTickers = Array.from(new Set(tickers));
           const force = body.force === true;
