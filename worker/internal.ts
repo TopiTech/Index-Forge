@@ -101,6 +101,7 @@ export {
   cacheMisses,
   resetCacheMetrics,
   // Cache / ETag helpers
+  budgetedTimeoutMs,
   getMarketAwareCacheDuration,
   isPriceCacheFresh,
   generateETag,
@@ -108,6 +109,7 @@ export {
   matchesIfNoneMatch,
   requestsFreshCalculation,
   // Ticker formatting and fetching
+  isTseStockIdentifier,
   formatTickerChange,
   formatTickerChangePercent,
   formatTickerPrice,

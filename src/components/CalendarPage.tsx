@@ -63,18 +63,26 @@ function getCurrentJstMonthDate(): Date {
   return new Date(now.getFullYear(), now.getMonth(), 1);
 }
 
+function normalizeYmdKey(raw: string): string | null {
+  const cleaned = raw.trim().replace(/\//g, "-");
+  const prefixMatch = cleaned.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:\b|T)/);
+  if (!prefixMatch) return null;
+  const yNum = parseInt(prefixMatch[1], 10);
+  const mNum = parseInt(prefixMatch[2], 10);
+  const dNum = parseInt(prefixMatch[3], 10);
+  if (Number.isNaN(yNum) || Number.isNaN(mNum) || Number.isNaN(dNum)) return null;
+  return `${yNum}-${String(mNum).padStart(2, "0")}-${String(dNum).padStart(2, "0")}`;
+}
+
 function getActualResultColor(actual?: string): string {
   const trimmed = typeof actual === "string" ? actual.trim() : "";
   if (!trimmed || trimmed === "--" || trimmed === "---" || trimmed === "N/A") {
     return "var(--text-muted)";
   }
-  const numeric = Number(trimmed.replace(/[,¥$%pt倍件]/g, ""));
-  if (Number.isFinite(numeric)) {
-    if (numeric < 0) return "var(--color-negative)";
-    if (numeric > 0) return "var(--color-positive)";
-    return "var(--text-primary)";
-  }
-  return trimmed.startsWith("-") ? "var(--color-negative)" : "var(--text-primary)";
+  const tone = metricTone(trimmed);
+  if (tone === "positive") return "var(--color-positive)";
+  if (tone === "negative") return "var(--color-negative)";
+  return "var(--text-primary)";
 }
 
 function FieldValueBadge({ provenance }: { provenance?: CalendarValueProvenance }) {
@@ -198,7 +206,7 @@ const IMPORTANCE_FILTER_LABELS: Record<Exclude<ImportanceFilter, "ALL">, string>
  */
 export function normalizeMetricText(raw: string | undefined): string {
   if (!raw) return "";
-  return raw.replace(/^-(0(?:\.0+)?)(\s*%?)$/, "$1$2");
+  return raw.replace(/^-(0(?:\.0+)?)(\s*(?:%|pt|倍|件)?)$/, "$1$2");
 }
 
 export type MetricTone = "positive" | "negative" | "neutral";
@@ -212,8 +220,8 @@ export type MetricTone = "positive" | "negative" | "neutral";
  */
 export function metricTone(raw: string | undefined): MetricTone {
   const text = normalizeMetricText(raw).trim();
-  if (!text) return "neutral";
-  const numeric = Number(text.replace(/[%,\s]/g, "").replace(/^\+/, ""));
+  if (!text || text === "--" || text === "---" || text === "N/A") return "neutral";
+  const numeric = Number(text.replace(/[,¥$%pt倍件\s]/g, "").replace(/^\+/, ""));
   if (!Number.isFinite(numeric) || numeric === 0) return "neutral";
   return numeric > 0 ? "positive" : "negative";
 }
@@ -477,24 +485,18 @@ export function CalendarPage({
       // Find events matching this date
       const cellEvents = filteredEvents.filter((e) => {
         if (e.fullDate) {
-          return e.fullDate.startsWith(dateKeyFull);
+          const fullKey = normalizeYmdKey(e.fullDate);
+          return fullKey ? fullKey === dateKeyFull : e.fullDate.startsWith(dateKeyFull);
         }
         if (!e.date) return false;
-        if (
-          e.date.startsWith(dateKeyFull) ||
-          e.date.replace(/\//g, "-").startsWith(dateKeyFull)
-        ) {
+        const dateKey = normalizeYmdKey(e.date);
+        if (dateKey) {
+          return dateKey === dateKeyFull;
+        }
+        if (e.date.startsWith(dateKeyFull)) {
           return true;
         }
         const parts = e.date.trim().split(/[-/]/);
-        if (parts.length === 3) {
-          const yNum = parseInt(parts[0], 10);
-          const mNum = parseInt(parts[1], 10);
-          const dNum = parseInt(parts[2], 10);
-          if (!Number.isNaN(yNum) && !Number.isNaN(mNum) && !Number.isNaN(dNum)) {
-            return `${yNum}-${pad(mNum)}-${pad(dNum)}` === dateKeyFull;
-          }
-        }
         if (parts.length !== 2) return false;
         const mNum = parseInt(parts[0], 10);
         const dNum = parseInt(parts[1], 10);

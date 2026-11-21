@@ -13,6 +13,8 @@
  * を使ってはいけません。必ず公表元の PDF との照合で更新してください。
  */
 
+import { JST_OFFSET_MS } from "../lib/marketCache";
+
 export interface MeetingDateItem {
   year: number;
   month: number;
@@ -101,10 +103,33 @@ export const FOMC_MEETING_SCHEDULE: ReadonlyArray<MeetingDateItem> = [
 ];
 
 /**
- * 基準日以降の直近予定会合日（N回分）を取得
+ * 指定された JST カレンダー年月日 (year, month, day) 以降の直近予定会合日（N回分）を取得
  */
-const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
+export function getNextScheduledMeetingsForJstDate(
+  schedule: ReadonlyArray<MeetingDateItem>,
+  year: number,
+  month: number,
+  day: number,
+  count: number = 2,
+): Date[] {
+  if (count <= 0) return [];
+  const results: Date[] = [];
+  for (const item of schedule) {
+    const isOnOrAfterToday =
+      item.year > year ||
+      (item.year === year &&
+        (item.month > month || (item.month === month && item.day >= day)));
+    if (isOnOrAfterToday) {
+      results.push(new Date(item.year, item.month - 1, item.day));
+      if (results.length >= count) break;
+    }
+  }
+  return results;
+}
 
+/**
+ * 基準日時（JST基準）以降の直近予定会合日（N回分）を取得
+ */
 export function getNextScheduledMeetings(
   schedule: ReadonlyArray<MeetingDateItem>,
   refDate: Date = new Date(),
@@ -112,21 +137,13 @@ export function getNextScheduledMeetings(
 ): Date[] {
   if (count <= 0) return [];
   const jstRef = new Date(refDate.getTime() + JST_OFFSET_MS);
-  const todayYear = jstRef.getUTCFullYear();
-  const todayMonth = jstRef.getUTCMonth() + 1;
-  const todayDay = jstRef.getUTCDate();
-  const results: Date[] = [];
-  for (const item of schedule) {
-    const isOnOrAfterToday =
-      item.year > todayYear ||
-      (item.year === todayYear &&
-        (item.month > todayMonth || (item.month === todayMonth && item.day >= todayDay)));
-    if (isOnOrAfterToday) {
-      results.push(new Date(item.year, item.month - 1, item.day));
-      if (results.length >= count) break;
-    }
-  }
-  return results;
+  return getNextScheduledMeetingsForJstDate(
+    schedule,
+    jstRef.getUTCFullYear(),
+    jstRef.getUTCMonth() + 1,
+    jstRef.getUTCDate(),
+    count,
+  );
 }
 
 /**

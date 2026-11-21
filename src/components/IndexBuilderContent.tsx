@@ -43,6 +43,7 @@ import {
 import { toSafeDownloadFileName } from "../lib/downloadFileName";
 import { downloadBlob } from "../lib/downloadFile";
 import { safeRandomId } from "../lib/randomId";
+import { WeightDraftInput } from "./ui";
 
 export interface StrategyPreset {
   id: string;
@@ -122,6 +123,9 @@ export interface IndexBuilderContentProps {
   onSavingChange?: (isSaving: boolean) => void;
 }
 
+/**
+ * WeightNumberInput backed by shared WeightDraftInput.
+ */
 function WeightNumberInput({
   value,
   onChange,
@@ -131,50 +135,11 @@ function WeightNumberInput({
   onChange: (newVal: number) => void;
   ariaLabel: string;
 }) {
-  const [draft, setDraft] = useState(() => String(Number(value.toFixed(1))));
-  const [isFocused, setIsFocused] = useState(false);
-
-  useEffect(() => {
-    if (!isFocused) {
-      setDraft(String(Number(value.toFixed(1))));
-    }
-  }, [value, isFocused]);
-
-  const commit = () => {
-    setIsFocused(false);
-    const parsed = parseFloat(draft);
-    if (!Number.isFinite(parsed)) {
-      setDraft(String(Number(value.toFixed(1))));
-      return;
-    }
-    const clamped = Math.min(100, Math.max(0.1, Number(parsed.toFixed(1))));
-    setDraft(String(clamped));
-    onChange(clamped);
-  };
-
   return (
-    <input
-      type="number"
-      min={0.1}
-      max={100}
-      step={0.5}
-      value={draft}
-      onFocus={() => setIsFocused(true)}
-      onChange={(e) => {
-        const next = e.target.value;
-        setDraft(next);
-        const parsed = parseFloat(next);
-        if (Number.isFinite(parsed) && parsed >= 0.1 && parsed <= 100) {
-          onChange(Number(parsed.toFixed(1)));
-        }
-      }}
-      onBlur={commit}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") {
-          e.currentTarget.blur();
-        }
-      }}
-      aria-label={ariaLabel}
+    <WeightDraftInput
+      value={value}
+      onChange={onChange}
+      ariaLabel={ariaLabel}
       className="input-search builder-weight-number-input"
     />
   );

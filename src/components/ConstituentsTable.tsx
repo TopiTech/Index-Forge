@@ -1,5 +1,5 @@
 import { useState, useMemo, Suspense, lazy } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import { Card, Tag, SearchInput } from "./ui";
 import {
   ExternalLink,
@@ -698,8 +698,7 @@ export function ConstituentsTable({
             </tr>
           </thead>
           <tbody>
-            <AnimatePresence mode="popLayout">
-              {filteredAndSorted.length > 0 ? (
+            {filteredAndSorted.length > 0 ? (
                 filteredAndSorted.map((item) => {
                   const changeToneValue = changeTone(item.changePct, 2);
                   const isUp = changeToneValue === "positive";
@@ -840,7 +839,6 @@ export function ConstituentsTable({
                   </td>
                 </tr>
               )}
-            </AnimatePresence>
           </tbody>
         </table>
       </div>

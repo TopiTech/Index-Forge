@@ -1,4 +1,4 @@
-import type { PropsWithChildren, ReactNode } from "react";
+import { useEffect, useState, type CSSProperties, type PropsWithChildren, type ReactNode } from "react";
 import { Search, X } from "lucide-react";
 
 export function Card({
@@ -216,6 +216,73 @@ export function MiniStatCard({
       </div>
       {sub && <div className="mini-stat-sub">{sub}</div>}
     </div>
+  );
+}
+
+export function WeightDraftInput({
+  id,
+  value,
+  onChange,
+  ariaLabel,
+  className,
+  style,
+}: {
+  id?: string;
+  value: number;
+  onChange: (newVal: number) => void;
+  ariaLabel: string;
+  className?: string;
+  style?: CSSProperties;
+}) {
+  const formatWeight = (v: number) => String(Number(v.toFixed(1)));
+  const [draft, setDraft] = useState(() => formatWeight(value));
+  const [isFocused, setIsFocused] = useState(false);
+
+  useEffect(() => {
+    if (!isFocused) {
+      setDraft(formatWeight(value));
+    }
+  }, [value, isFocused]);
+
+  const commit = () => {
+    setIsFocused(false);
+    const parsed = parseFloat(draft);
+    if (!Number.isFinite(parsed)) {
+      setDraft(formatWeight(value));
+      return;
+    }
+    const clamped = Math.min(100, Math.max(0.1, Number(parsed.toFixed(1))));
+    setDraft(String(clamped));
+    onChange(clamped);
+  };
+
+  return (
+    <input
+      id={id}
+      type="number"
+      min={0.1}
+      max={100}
+      step={0.5}
+      value={draft}
+      onFocus={() => setIsFocused(true)}
+      onChange={(e) => {
+        const next = e.target.value;
+        setDraft(next);
+        const parsed = parseFloat(next);
+        if (Number.isFinite(parsed) && parsed >= 0.1 && parsed <= 100) {
+          onChange(Number(parsed.toFixed(1)));
+        }
+      }}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          e.currentTarget.blur();
+        }
+      }}
+      aria-label={ariaLabel}
+      className={className}
+      style={style}
+    />
   );
 }
 

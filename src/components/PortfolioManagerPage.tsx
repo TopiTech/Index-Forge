@@ -66,6 +66,7 @@ import {
   type StockQuoteFundamentals,
 } from "../lib/marketDataService";
 import { POPULAR_STOCKS, PRESET_STOCKS, searchPopularStocks } from "../data/popularStocks";
+import { getUniverseStockByTicker } from "../data/stockUniverse";
 import { DEFAULT_USD_JPY_RATE } from "../data/marketConstants";
 import { getStockCurrency, formatStockPrice } from "../lib/currency";
 import { useTheme } from "../lib/theme";
@@ -183,6 +184,27 @@ export function PortfolioManagerPage({
   const [newShares, setNewShares] = useState("100");
   const [newAverageCost, setNewAverageCost] = useState("2500");
   const [addError, setAddError] = useState<string | null>(null);
+  const addTickerInputRef = useRef<HTMLInputElement>(null);
+  const lastAutoResolvedNameRef = useRef("トヨタ自動車");
+  const lastAutoCostRef = useRef("2500");
+
+  const openAddModal = useCallback(() => {
+    setAddError(null);
+    setIsAddModalOpen(true);
+  }, []);
+
+  const selectStockForAddForm = useCallback((ticker: string, name: string) => {
+    setNewTicker(ticker);
+    setNewName(name);
+    lastAutoResolvedNameRef.current = name;
+    const f = getStockFundamentals(ticker);
+    if (f && f.price > 0) {
+      const priceText = String(f.price);
+      setNewAverageCost(priceText);
+      lastAutoCostRef.current = priceText;
+    }
+    setAddError(null);
+  }, []);
 
   const mountedRef = useRef(true);
   const requestIdRef = useRef(0);
@@ -713,6 +735,7 @@ export function PortfolioManagerPage({
       const result = event.target?.result;
       const content = typeof result === "string" ? result : "";
       if (!content) {
+        info("有効な保有銘柄データが見つかりませんでした");
         resetInput();
         return;
       }
@@ -1409,7 +1432,7 @@ export function PortfolioManagerPage({
           <button
             type="button"
             className="btn btn-sm btn-outline"
-            onClick={() => setIsAddModalOpen(true)}
+            onClick={openAddModal}
           >
             <Plus size={14} />
             <span>保有銘柄を追加</span>
@@ -1715,6 +1738,8 @@ export function PortfolioManagerPage({
 
       {/* Tabs */}
       <div
+        role="group"
+        aria-label="ポートフォリオ表示切り替え"
         style={{
           display: "flex",
           gap: "8px",
@@ -1726,6 +1751,7 @@ export function PortfolioManagerPage({
         <button
           type="button"
           className={`btn btn-sm ${activeTab === "HOLDINGS" ? "btn-accent" : "btn-ghost"}`}
+          aria-pressed={activeTab === "HOLDINGS"}
           onClick={() => setActiveTab("HOLDINGS")}
         >
           <Briefcase size={14} />
@@ -1734,6 +1760,7 @@ export function PortfolioManagerPage({
         <button
           type="button"
           className={`btn btn-sm ${activeTab === "WATCHLIST" ? "btn-accent" : "btn-ghost"}`}
+          aria-pressed={activeTab === "WATCHLIST"}
           onClick={() => setActiveTab("WATCHLIST")}
         >
           <BookmarkPlus size={14} />
@@ -1751,7 +1778,7 @@ export function PortfolioManagerPage({
               <button
                 type="button"
                 className="btn btn-sm btn-accent"
-                onClick={() => setIsAddModalOpen(true)}
+                onClick={openAddModal}
                 style={{ marginTop: 12 }}
               >
                 最初の保有株を登録する
@@ -1887,9 +1914,10 @@ export function PortfolioManagerPage({
                             className="btn btn-ghost tiny"
                             onClick={() => handleDeletePosition(p.id, p.name)}
                             title="削除"
+                            aria-label={`保有銘柄「${p.name}」を削除`}
                             style={{ padding: "4px" }}
                           >
-                            <Trash2 size={14} className="muted" />
+                            <Trash2 size={14} className="muted" aria-hidden="true" />
                           </button>
                         </td>
                       </tr>
@@ -2023,7 +2051,7 @@ export function PortfolioManagerPage({
               const fund = live ?? getStockFundamentals(normalizeTicker(ticker));
               const watchTone = changeTone(fund.changePercent, 2);
               return (
-                <div
+                <article
                   key={ticker}
                   className="card interactive-card"
                   style={{
@@ -2031,47 +2059,42 @@ export function PortfolioManagerPage({
                     display: "flex",
                     justifyContent: "space-between",
                     alignItems: "center",
+                    gap: "12px",
                     border: "1px solid var(--border-subtle)",
-                    cursor: "pointer",
                   }}
-                  onClick={() => onOpenStockDetail(ticker)}
                 >
-                  <div>
-                    <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                      <span className="mono bold">{ticker}</span>
-                      <span className="badge badge-default tiny mono">{fund.market}</span>
-                    </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginTop: 2 }}>
-                      <button
-                        type="button"
-                        style={{
-                          background: "none",
-                          border: 0,
-                          padding: 0,
-                          color: "inherit",
-                          font: "inherit",
-                          cursor: "pointer",
-                          textAlign: "left",
-                        }}
-                        aria-label={`${fund.name} (${ticker}) の詳細を見る`}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onOpenStockDetail(ticker);
-                        }}
-                      >
-                        {fund.name}
-                      </button>
-                      {fund.isDemoData && (
-                        <span
-                          className="badge badge-default mono tiny"
-                          style={{ fontSize: "0.62rem", padding: "1px 5px" }}
-                          title="実データ未取得のため推計デモ値を表示しています"
-                        >
-                          参考値
-                        </span>
-                      )}
-                    </div>
-                    <div className="tiny muted">{fund.theme}</div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <button
+                      type="button"
+                      style={{
+                        background: "none",
+                        border: 0,
+                        padding: 0,
+                        color: "inherit",
+                        font: "inherit",
+                        cursor: "pointer",
+                        textAlign: "left",
+                        width: "100%",
+                      }}
+                      aria-label={`${fund.name} (${ticker}) の詳細を見る`}
+                      onClick={() => onOpenStockDetail(ticker)}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                        <span className="mono bold">{ticker}</span>
+                        <span className="badge badge-default tiny mono">{fund.market}</span>
+                        {fund.isDemoData && (
+                          <span
+                            className="badge badge-default mono tiny"
+                            style={{ fontSize: "0.62rem", padding: "1px 5px" }}
+                            title="実データ未取得のため推計デモ値を表示しています"
+                          >
+                            参考値
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ marginTop: 2, fontWeight: 500 }}>{fund.name}</div>
+                      <div className="tiny muted">{fund.theme}</div>
+                    </button>
                   </div>
 
                   <div style={{ textAlign: "right" }}>
@@ -2087,19 +2110,16 @@ export function PortfolioManagerPage({
                     <button
                       type="button"
                       className="btn btn-ghost tiny"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleRemoveFromWatchlist(ticker);
-                      }}
+                      onClick={() => handleRemoveFromWatchlist(ticker)}
                       onKeyDown={(e) => e.stopPropagation()}
                       title="ウォッチリストから削除"
                       aria-label={`${fund.name} をウォッチリストから削除`}
                       style={{ padding: "2px", marginTop: 4 }}
                     >
-                      <Trash2 size={12} className="muted" />
+                      <Trash2 size={12} className="muted" aria-hidden="true" />
                     </button>
                   </div>
-                </div>
+                </article>
               );
             })}
           </div>
@@ -2116,10 +2136,13 @@ export function PortfolioManagerPage({
         title="保有銘柄の新規登録"
         icon={<Briefcase size={18} style={{ color: "var(--accent-text)" }} />}
         maxWidth={500}
+        initialFocusRef={addTickerInputRef}
       >
         <form onSubmit={handleAddPosition}>
           {addError && (
             <div
+              role="alert"
+              aria-live="assertive"
               style={{
                 display: "flex",
                 alignItems: "center",
@@ -2156,15 +2179,7 @@ export function PortfolioManagerPage({
                     background: newTicker.toUpperCase() === p.ticker.toUpperCase() ? "rgba(0, 229, 255, 0.15)" : undefined,
                     borderColor: newTicker.toUpperCase() === p.ticker.toUpperCase() ? "var(--neon-cyan)" : undefined,
                   }}
-                  onClick={() => {
-                    setNewTicker(p.ticker);
-                    setNewName(p.name);
-                    const f = getStockFundamentals(p.ticker);
-                    if (f && f.price > 0) {
-                      setNewAverageCost(String(f.price));
-                    }
-                    setAddError(null);
-                  }}
+                  onClick={() => selectStockForAddForm(p.ticker, p.name)}
                 >
                   <span className="mono bold">{p.ticker}</span>
                   <span style={{ marginLeft: 4 }}>{p.name}</span>
@@ -2184,6 +2199,7 @@ export function PortfolioManagerPage({
               </span>
             </div>
             <input
+              ref={addTickerInputRef}
               id="position-ticker-select"
               type="text"
               className="input-styled mono"
@@ -2194,16 +2210,33 @@ export function PortfolioManagerPage({
                 const val = e.target.value;
                 setNewTicker(val);
                 setAddError(null);
-                const upper = val.trim().toUpperCase();
-                if (upper) {
-                  const match = POPULAR_STOCKS.find((s) => s.ticker.toUpperCase() === upper);
-                  if (match) {
-                    setNewName(match.name);
-                    const f = getStockFundamentals(upper);
-                    if (f && f.price > 0) {
-                      setNewAverageCost(String(f.price));
-                    }
+                const normalized = normalizeTicker(val);
+                const popMatch = normalized
+                  ? POPULAR_STOCKS.find((s) => s.ticker.toUpperCase() === normalized)
+                  : undefined;
+                const universeMatch = normalized && !popMatch
+                  ? getUniverseStockByTicker(normalized)
+                  : undefined;
+                const matchedName = popMatch?.name ?? universeMatch?.name ?? "";
+
+                if (newName === lastAutoResolvedNameRef.current || newName.trim() === "") {
+                  setNewName(matchedName);
+                  lastAutoResolvedNameRef.current = matchedName;
+                }
+                if (normalized && (popMatch || universeMatch)) {
+                  const f = getStockFundamentals(normalized);
+                  if (
+                    f &&
+                    f.price > 0 &&
+                    (newAverageCost === lastAutoCostRef.current || newAverageCost.trim() === "")
+                  ) {
+                    const priceText = String(f.price);
+                    setNewAverageCost(priceText);
+                    lastAutoCostRef.current = priceText;
                   }
+                } else if (newAverageCost === lastAutoCostRef.current) {
+                  setNewAverageCost("");
+                  lastAutoCostRef.current = "";
                 }
               }}
               required
@@ -2220,14 +2253,7 @@ export function PortfolioManagerPage({
                       type="button"
                       className="btn btn-ghost tiny"
                       style={{ fontSize: "11px", padding: "2px 6px" }}
-                      onClick={() => {
-                        setNewTicker(s.ticker);
-                        setNewName(s.name);
-                        const f = getStockFundamentals(s.ticker);
-                        if (f && f.price > 0) {
-                          setNewAverageCost(String(f.price));
-                        }
-                      }}
+                      onClick={() => selectStockForAddForm(s.ticker, s.name)}
                     >
                       候補: <span className="mono bold">{s.ticker}</span> ({s.name})
                     </button>

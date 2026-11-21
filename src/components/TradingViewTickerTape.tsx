@@ -494,15 +494,13 @@ export function TradingViewTickerTape() {
 
   const handleMouseLeave = useCallback(
     (item: TickerSymbolItem) => {
-      if (hoveredSymbol === item.proName) {
-        setHoveredSymbol(null);
-      }
+      setHoveredSymbol((prev) => (prev === item.proName ? null : prev));
       if (hoverTimerRef.current) {
         clearTimeout(hoverTimerRef.current);
         hoverTimerRef.current = null;
       }
     },
-    [hoveredSymbol],
+    [],
   );
 
   const handleCloseModal = useCallback(() => {

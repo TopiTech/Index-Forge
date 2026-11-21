@@ -39,7 +39,7 @@ import {
 import { toFiniteNumberOr } from "../lib/downloadFileName";
 import { SYSTEM_INDICES, type CustomIndex } from "../data/indices";
 import type { BasketItem, UserPasswordItem } from "../types";
-import { Card, Tag, Badge } from "./ui";
+import { Card, Tag, Badge, WeightDraftInput } from "./ui";
 import { EditPasswordModal } from "./EditPasswordModal";
 import { RoleRadioGroup } from "./RoleRadioGroup";
 import { ConfirmModal } from "./ConfirmModal";
@@ -446,14 +446,17 @@ export function AdminDashboard({
   const isFetchingPasswordsRef = useRef(false);
   const abortControllerRef = useRef<AbortController | null>(null);
   // 取得進行中に要求された再取得 (mutation 直後の fetchPasswords など) を
-  // 黙って捨てないためのキュー。完了後に1回だけ再実行する。
+  // 黙って捨てないためのキュー。完了後に1回だけ再実行し、後続の await 呼び出しもその完了を待つ。
   const refetchQueuedRef = useRef(false);
+  const passwordFetchWaitersRef = useRef<Array<() => void>>([]);
 
-  const fetchPasswords = useCallback(async () => {
+  const fetchPasswords = useCallback(async (): Promise<void> => {
     if (!isAdmin) return;
     if (isFetchingPasswordsRef.current) {
       refetchQueuedRef.current = true;
-      return;
+      return new Promise<void>((resolve) => {
+        passwordFetchWaitersRef.current.push(resolve);
+      });
     }
     isFetchingPasswordsRef.current = true;
 
@@ -463,6 +466,8 @@ export function AdminDashboard({
     const controller = new AbortController();
     abortControllerRef.current = controller;
 
+    let shouldRefetch = false;
+    let queuedWaiters: Array<() => void> = [];
     try {
       setLoadingPasswords(true);
       setPasswordFetchError(null);
@@ -508,13 +513,31 @@ export function AdminDashboard({
         isFetchingPasswordsRef.current = false;
         if (refetchQueuedRef.current) {
           refetchQueuedRef.current = false;
-          void fetchPasswords();
+          shouldRefetch = true;
+          queuedWaiters = passwordFetchWaitersRef.current.splice(0);
+        } else if (passwordFetchWaitersRef.current.length > 0) {
+          queuedWaiters = passwordFetchWaitersRef.current.splice(0);
         }
+      }
+    }
+
+    if (shouldRefetch) {
+      try {
+        await fetchPasswords();
+      } finally {
+        for (const resolve of queuedWaiters) {
+          resolve();
+        }
+      }
+    } else if (queuedWaiters.length > 0) {
+      for (const resolve of queuedWaiters) {
+        resolve();
       }
     }
   }, [isAdmin, getHeaders]);
 
   useEffect(() => {
+    const waiters = passwordFetchWaitersRef.current;
     if (isAdmin && activeTab === "passwords") {
       fetchPasswords();
     }
@@ -523,6 +546,9 @@ export function AdminDashboard({
     }
     return () => {
       refetchQueuedRef.current = false;
+      for (const resolve of waiters.splice(0)) {
+        resolve();
+      }
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
         // Release the guard synchronously so the next invocation can start.
@@ -1093,11 +1119,12 @@ export function AdminDashboard({
   // Number inputs fire onChange with an empty string while the user is
   // clearing the field; Number("") is 0 and Number("12.") is NaN. A NaN weight
   // would poison the saved basket and later index calculations.
-  const handleEditWeightChange = (ticker: string, raw: string) => {
+  const handleEditWeightChange = (ticker: string, weight: number) => {
     const cleanTicker = normalizeTicker(ticker);
-    const next = toFiniteNumberOr(raw, 0.1);
-    const safeWeight = Math.min(100, Math.max(0.1, next));
-    setEditBasket(editBasket.map((item) => (normalizeTicker(item.ticker) === cleanTicker ? { ...item, weight: safeWeight } : item)));
+    const safeWeight = Math.min(100, Math.max(0.1, Number.isFinite(weight) ? weight : 0.1));
+    setEditBasket((prev) =>
+      prev.map((item) => (normalizeTicker(item.ticker) === cleanTicker ? { ...item, weight: safeWeight } : item)),
+    );
   };
 
   // Change Master Admin Password
@@ -1312,6 +1339,8 @@ export function AdminDashboard({
 
             {loginError && !isLocked && (
               <div
+                role="alert"
+                aria-live="assertive"
                 className="row"
                 style={{
                   gap: 8,
@@ -1619,6 +1648,8 @@ export function AdminDashboard({
 
             {createError && (
               <div
+                role="alert"
+                aria-live="assertive"
                 className="row"
                 style={{
                   gap: 8,
@@ -1638,6 +1669,8 @@ export function AdminDashboard({
 
             {createSuccess && (
               <div
+                role="status"
+                aria-live="polite"
                 className="row"
                 style={{
                   gap: 8,
@@ -1956,6 +1989,8 @@ export function AdminDashboard({
 
             {passwordFetchError && (
               <div
+                role="alert"
+                aria-live="assertive"
                 className="row space-between"
                 style={{
                   padding: "10px 14px",
@@ -2171,6 +2206,8 @@ export function AdminDashboard({
 
             {indexEditMessage && (
               <div
+                role={indexEditMessage.type === "error" ? "alert" : "status"}
+                aria-live={indexEditMessage.type === "error" ? "assertive" : "polite"}
                 className="row"
                 style={{
                   gap: 8,
@@ -2307,14 +2344,10 @@ export function AdminDashboard({
                         <td>{b.name}</td>
                         <td className="muted">{b.theme}</td>
                         <td>
-                          <input
-                            type="number"
-                            aria-label={`${b.name} (${b.ticker}) の比率 (%)`}
-                            min="0.1"
-                            max="100"
-                            step="0.5"
+                          <WeightDraftInput
+                            ariaLabel={`${b.name} (${b.ticker}) の比率 (%)`}
                             value={b.weight}
-                            onChange={(e) => handleEditWeightChange(b.ticker, e.target.value)}
+                            onChange={(weight) => handleEditWeightChange(b.ticker, weight)}
                             style={{
                               width: 70,
                               padding: "4px 6px",
@@ -2521,6 +2554,8 @@ export function AdminDashboard({
 
             {statsError && (
               <div
+                role="alert"
+                aria-live="assertive"
                 className="row"
                 style={{
                   gap: 8,
@@ -2649,6 +2684,8 @@ export function AdminDashboard({
               <>
               {adminPwdMessage && (
               <div
+                role={adminPwdMessage.type === "error" ? "alert" : "status"}
+                aria-live={adminPwdMessage.type === "error" ? "assertive" : "polite"}
                 className="row"
                 style={{
                   gap: 8,
@@ -2841,6 +2878,8 @@ export function AdminDashboard({
               <>
                 {secretCodeError && (
                   <div
+                    role="alert"
+                    aria-live="assertive"
                     className="row"
                     style={{
                       gap: 8,
@@ -2860,6 +2899,8 @@ export function AdminDashboard({
 
                 {secretCodeSuccess && (
                   <div
+                    role="status"
+                    aria-live="polite"
                     className="row"
                     style={{
                       gap: 8,

@@ -983,7 +983,7 @@ function AppContent({
         toastSuccess(`「${displayName}」をポートフォリオに追加しました`);
         navigateTo("portfolio");
       } else {
-        toastInfo(`「${displayName}」のポートフォリオ登録に失敗しました`);
+        toastError(`「${displayName}」のポートフォリオ登録に失敗しました`);
       }
     },
     [isAuthenticated, navigateTo, toastInfo, toastSuccess, toastError],

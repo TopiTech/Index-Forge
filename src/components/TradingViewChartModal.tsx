@@ -200,6 +200,11 @@ export function TradingViewChartModal({ symbol, onClose }: TradingViewChartModal
         cancelAnimationFrame(rafIdRef.current);
         rafIdRef.current = null;
       }
+      isResizingRef.current = false;
+      resizeStartRef.current = null;
+      pendingDimensionsRef.current = null;
+      setIsResizing(false);
+      setIsAnimating(false);
     };
   }, [isOpen]);
 

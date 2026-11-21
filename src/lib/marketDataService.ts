@@ -11,10 +11,11 @@ import { BASELINE_ASSET_QUOTES, type BaselineAssetQuote } from "../data/marketCo
 import {
   BOJ_MEETING_SCHEDULE,
   FOMC_MEETING_SCHEDULE,
-  getNextScheduledMeetings,
+  getNextScheduledMeetingsForJstDate,
   MACRO_METRICS_DEFAULTS,
 } from "../data/macroSchedule";
 import type { StockMarket, UniverseStock } from "../data/stockUniverse";
+import { detectStockCurrency } from "./currency";
 import { normalizeSearchQuery } from "./searchNormalize";
 import { escapeCsvCell } from "./csv";
 import { resolveEventYear } from "./eventCalendar";
@@ -1597,7 +1598,7 @@ export function getStockFundamentals(ticker: string): StockQuoteFundamentals {
           : isCrypto
             ? "暗号資産"
             : uStock?.sector || "株式";
-  const isUS = !/^\d/.test(normTicker);
+  const isUS = detectStockCurrency(normTicker) !== "JPY";
 
   const anchor = KNOWN_STOCK_ANCHORS[normTicker];
 
@@ -2950,7 +2951,7 @@ export function generateUpcomingEvents(referenceDate = new Date()): CalendarEven
 
   // マクロ: 日銀会合 (公定日程スケジュールマスターから直近次回・次々回を特定)
   const nextBoj =
-    getNextScheduledMeetings(BOJ_MEETING_SCHEDULE, jstRef, 1)[0] ||
+    getNextScheduledMeetingsForJstDate(BOJ_MEETING_SCHEDULE, jstYear, jstMonth, jstDay, 1)[0] ||
     adjustToWeekday(new Date(jstRef.getFullYear(), jstRef.getMonth(), 24));
   events.push({
     id: "macro-boj",
@@ -2971,7 +2972,7 @@ export function generateUpcomingEvents(referenceDate = new Date()): CalendarEven
 
   // マクロ: 米FOMC (公定日程スケジュールマスターから直近次回・次々回を特定)
   const nextFomc =
-    getNextScheduledMeetings(FOMC_MEETING_SCHEDULE, jstRef, 1)[0] ||
+    getNextScheduledMeetingsForJstDate(FOMC_MEETING_SCHEDULE, jstYear, jstMonth, jstDay, 1)[0] ||
     adjustToWeekday(new Date(jstRef.getFullYear(), jstRef.getMonth(), 28));
   events.push({
     id: "macro-fomc",

@@ -2954,13 +2954,15 @@ export async function getYahooCrumb(
     return { crumb: cachedYahooCrumb, cookie: cachedYahooCookie };
   }
   try {
+    const fcTimeoutMs = budgetedTimeoutMs(2500, deadlineMs);
+    if (fcTimeoutMs <= 0) return null;
     const res1 = await fetch("https://fc.yahoo.com", {
       headers: {
         "User-Agent":
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
       },
       redirect: "manual",
-      signal: AbortSignal.timeout(budgetedTimeoutMs(2500, deadlineMs)),
+      signal: AbortSignal.timeout(fcTimeoutMs),
     });
     // Immediately release res1's unconsumed redirect/error body
     await releaseWorkerResponse(res1);
@@ -2979,7 +2981,8 @@ export async function getYahooCrumb(
       .filter((c): c is string => Boolean(c && c.includes("=")))
       .join("; ");
     let crumbText = "";
-    if (deadlineMs !== undefined && Date.now() >= deadlineMs) return null;
+    const crumbTimeoutMs = budgetedTimeoutMs(2500, deadlineMs);
+    if (crumbTimeoutMs <= 0) return null;
     try {
       const res2 = await fetch("https://query2.finance.yahoo.com/v1/test/getcrumb", {
         headers: {
@@ -2987,7 +2990,7 @@ export async function getYahooCrumb(
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
           ...(cookie ? { Cookie: cookie } : {}),
         },
-        signal: AbortSignal.timeout(budgetedTimeoutMs(2500, deadlineMs)),
+        signal: AbortSignal.timeout(crumbTimeoutMs),
       });
       if (res2.ok) {
         crumbText = (await res2.text()).trim();
@@ -2999,7 +3002,8 @@ export async function getYahooCrumb(
     }
 
     if (!crumbText || crumbText.includes("<")) {
-      if (deadlineMs !== undefined && Date.now() >= deadlineMs) return null;
+      const altCrumbTimeoutMs = budgetedTimeoutMs(2500, deadlineMs);
+      if (altCrumbTimeoutMs <= 0) return null;
       try {
         const resAlt = await fetch("https://query1.finance.yahoo.com/v1/test/getcrumb", {
           headers: {
@@ -3007,7 +3011,7 @@ export async function getYahooCrumb(
               "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             ...(cookie ? { Cookie: cookie } : {}),
           },
-          signal: AbortSignal.timeout(budgetedTimeoutMs(2500, deadlineMs)),
+          signal: AbortSignal.timeout(altCrumbTimeoutMs),
         });
         if (resAlt.ok) {
           crumbText = (await resAlt.text()).trim();
@@ -3754,7 +3758,7 @@ export async function fetchLiveStockFundamentals(
         : baselineAsset
           ? "指数・ETF"
           : baseline.theme;
-  const isUS = baselineAsset ? baselineAsset.currency === "USD" : !/^\d/.test(normTicker);
+  const isUS = baselineAsset ? baselineAsset.currency === "USD" : !isTseStockIdentifier(normTicker);
   const uStock = getUniverseStockByTicker(normTicker);
   const priceDecimals = isFx
     ? (normTicker.includes("JPY") || baselineAsset?.currency === "JPY" ? 2 : 4)
@@ -3812,7 +3816,7 @@ export async function fetchLiveStockFundamentals(
     const summaryTimeout = budgetedTimeoutMs(6000, deadline);
     const chartTimeout = budgetedTimeoutMs(5000, deadline);
     const [summaryRes, chartRes] = await Promise.all([
-      auth && Date.now() < deadline
+      auth && summaryTimeout > 0
         ? fetch(
             `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(yahooSymbol)}?modules=assetProfile,financialData,defaultKeyStatistics,summaryDetail,earnings,price,incomeStatementHistory,balanceSheetHistory,cashflowStatementHistory,calendarEvents&crumb=${encodeURIComponent(auth.crumb)}`,
             {
@@ -3825,7 +3829,7 @@ export async function fetchLiveStockFundamentals(
             },
           )
         : Promise.resolve(null),
-      Date.now() < deadline
+      chartTimeout > 0
         ? fetch(
             `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?interval=1d&range=1mo`,
             {
@@ -3858,9 +3862,9 @@ export async function fetchLiveStockFundamentals(
     // Tier 2 Fallback: If Tier 1 (with crumb) failed or was skipped, try query1/query2 quoteSummary without crumb
     if (!summaryData?.quoteSummary?.result?.[0] && !isMacroAsset && Date.now() < deadline) {
       for (const host of ["query1.finance.yahoo.com", "query2.finance.yahoo.com"]) {
-        if (Date.now() >= deadline) break;
+        const altTimeout = budgetedTimeoutMs(4500, deadline);
+        if (altTimeout <= 0) break;
         try {
-          const altTimeout = budgetedTimeoutMs(4500, deadline);
           const altRes = await fetch(
             `https://${host}/v10/finance/quoteSummary/${encodeURIComponent(yahooSymbol)}?modules=assetProfile,financialData,defaultKeyStatistics,summaryDetail,earnings,price,incomeStatementHistory,balanceSheetHistory,cashflowStatementHistory,calendarEvents`,
             {
@@ -4232,9 +4236,12 @@ export async function fetchLiveStockFundamentals(
     }
 
     // Secondary fallback: if summaryData was missing (or returned an empty result array), attempt quote endpoint for real valuation metrics
-    if (!summaryData?.quoteSummary?.result?.[0] && !isMacroAsset && Date.now() < deadline) {
+    const quoteTimeout =
+      !summaryData?.quoteSummary?.result?.[0] && !isMacroAsset
+        ? budgetedTimeoutMs(4000, deadline)
+        : 0;
+    if (quoteTimeout > 0) {
       try {
-        const quoteTimeout = budgetedTimeoutMs(4000, deadline);
         const qUrl = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(yahooSymbol)}`;
         const qRes = await fetch(qUrl, {
           signal: AbortSignal.timeout(quoteTimeout),
@@ -5470,11 +5477,12 @@ export async function fetchLiveMarketCalendarAsync(
 
   try {
     const auth = Date.now() < deadline ? await getYahooCrumb(false, deadline) : null;
-    if (auth && Date.now() < deadline) {
+    const quoteTimeoutMs = auth ? budgetedTimeoutMs(5000, deadline) : 0;
+    if (auth && quoteTimeoutMs > 0) {
       const symbols = Array.from(new Set([...tickersToQuery.map(toYahooSymbol), "^IRX", "^TNX"]));
       const qUrl = `https://query2.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(symbols.join(","))}&crumb=${encodeURIComponent(auth.crumb)}`;
       const qRes = await fetch(qUrl, {
-        signal: AbortSignal.timeout(budgetedTimeoutMs(5000, deadline)),
+        signal: AbortSignal.timeout(quoteTimeoutMs),
         headers: {
           "User-Agent":
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
