@@ -303,6 +303,7 @@ const PORTFOLIO_NUMERIC_HINT =
 // stripping the symbol never silently changes a negative into a positive.
 const SIGNED_CURRENCY_PREFIX_RE = /^([+-]?)\s*[¥$€£]\s*/;
 const SIGNED_NUMBER_RE = /^[+-]?(?:(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
+const PARENTHESES_NEGATIVE_RE = /^\s*\((.*)\)\s*$/;
 
 function normalizeNumericText(value: string): string {
   return value
@@ -313,6 +314,8 @@ function normalizeNumericText(value: string): string {
     .replace(/[￥]/g, "¥")
     .replace(/[＄]/g, "$")
     .replace(/[％]/g, "%")
+    .replace(/（/g, "(")
+    .replace(/）/g, ")")
     .trim();
 }
 
@@ -322,6 +325,11 @@ export function parseNumericValue(val: unknown, options: NumericParseOptions = {
   if (typeof val !== "string") return NaN;
 
   let cleaned = normalizeNumericText(val);
+
+  // Support accounting parenthesis negative format: `(1,000)` -> `-1,000`, `($500)` -> `-$500`, `(10%)` -> `-10%`
+  if (PARENTHESES_NEGATIVE_RE.test(cleaned)) {
+    cleaned = "-" + cleaned.replace(PARENTHESES_NEGATIVE_RE, "$1").trim();
+  }
 
   const suffixes = options.allowedSuffixes;
   if (suffixes && suffixes.length > 0) {

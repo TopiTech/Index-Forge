@@ -35,8 +35,9 @@ export function normalizeWeights(items: BasketItem[]): BasketItem[] {
 export function equalizeWeightsExact<T extends { weight: number }>(items: T[], decimals = 2): T[] {
   const n = items.length;
   if (n === 0) return [];
-  let safeDecimals = Math.max(0, Math.floor(decimals));
-  while (n > 100 * 10 ** safeDecimals) {
+  const rawDecimals = Number.isFinite(decimals) ? Math.floor(decimals) : 2;
+  let safeDecimals = Math.min(6, Math.max(0, rawDecimals));
+  while (n > 100 * 10 ** safeDecimals && safeDecimals < 6) {
     safeDecimals++;
   }
   const factor = 10 ** safeDecimals;
@@ -69,8 +70,9 @@ export function redistributeWeightsExact<T extends { weight: number }>(
   decimals = 2,
 ): T[] {
   if (items.length === 0) return [];
-  let safeDecimals = Math.max(0, Math.floor(decimals));
-  while (items.length > 100 * 10 ** safeDecimals) {
+  const rawDecimals = Number.isFinite(decimals) ? Math.floor(decimals) : 2;
+  let safeDecimals = Math.min(6, Math.max(0, rawDecimals));
+  while (items.length > 100 * 10 ** safeDecimals && safeDecimals < 6) {
     safeDecimals++;
   }
   const factor = 10 ** safeDecimals;
@@ -266,11 +268,18 @@ export function sanitizeBasketForRequest(
     perItemBudget >= MIN_REQUEST_WEIGHT ? Math.min(perItemBudget, 100) : MIN_REQUEST_WEIGHT;
 
   const weightRepairs: BasketWeightRepair[] = [];
-  const basket = repaired.map((item) => {
+  let basket = repaired.map((item) => {
     if (!Number.isNaN(item.weight)) return toBasketItem(item);
     weightRepairs.push({ ticker: item.ticker, from: item.originalWeight, to: repairWeight });
     return { ticker: item.ticker, name: item.name, theme: item.theme, weight: repairWeight };
   });
+
+  if (weightRepairs.length > 0) {
+    const totalWeight = basket.reduce((sum, item) => sum + item.weight, 0);
+    if (Math.abs(totalWeight - 100) > 1e-4) {
+      basket = redistributeWeightsExact(basket, 2);
+    }
+  }
 
   return { basket, dropped, repaired: weightRepairs };
 }

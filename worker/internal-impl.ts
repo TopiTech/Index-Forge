@@ -1687,6 +1687,8 @@ export interface PasswordCollisionCheckResult {
   collidingId?: string;
   collidingName?: string;
   collidingRole?: "admin" | "user";
+  /** True when the collision check could not query D1; callers must 503. */
+  unavailable?: boolean;
 }
 
 export async function findPasswordCollision(
@@ -1773,6 +1775,7 @@ export async function findPasswordCollision(
     }
   } catch (err) {
     console.error("findPasswordCollision DB error:", err);
+    return { hasCollision: false, unavailable: true };
   }
 
   return { hasCollision: false };
@@ -6647,6 +6650,9 @@ export default {
           const initialPassword = password.trim();
           await ensurePasswordTable(env);
           const collision = await findPasswordCollision(env, initialPassword);
+          if (collision.unavailable) {
+            return json({ error: AUTH_SERVICE_UNAVAILABLE_MESSAGE }, 503, request);
+          }
           const isTargetAdmin = assignedRole === "admin";
           if (collision.isAdminCollision || (isTargetAdmin && collision.hasCollision)) {
             const errorMsg = isTargetAdmin
@@ -6821,6 +6827,9 @@ export default {
               return json({ error: INVALID_PASSWORD_LENGTH_MESSAGE }, 400, request);
             }
             const collision = await findPasswordCollision(env, password.trim(), id);
+            if (collision.unavailable) {
+              return json({ error: AUTH_SERVICE_UNAVAILABLE_MESSAGE }, 503, request);
+            }
             let isTargetAdmin = role === "admin";
             if (role !== "admin" && role !== "user") {
               try {
@@ -7042,8 +7051,12 @@ export default {
             );
             if (authFailure) return authFailure;
           }
+
           await ensurePasswordTable(env);
           const collision = await findPasswordCollision(env, newPassword, "admin-master");
+          if (collision.unavailable) {
+            return json({ error: AUTH_SERVICE_UNAVAILABLE_MESSAGE }, 503, request);
+          }
           if (collision.hasCollision) {
             return json(
               {

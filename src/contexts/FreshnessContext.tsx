@@ -146,6 +146,19 @@ export function useRegisterFreshness(view: PageView, freshness: TabFreshness) {
       benchmarkUpdatedAt,
       calculationUpdatedAt,
     });
+    return () => {
+      registerFreshness(view, {
+        updatedAt,
+        loading: false,
+        syncing: false,
+        stale,
+        hasSyncWarning,
+        typeLabel: typeLabel || VIEW_DEFAULT_TYPE_LABELS[view] || "市場データ",
+        customStatusText,
+        benchmarkUpdatedAt,
+        calculationUpdatedAt,
+      });
+    };
   }, [
     registerFreshness,
     view,

@@ -4,6 +4,7 @@ import {
   equalizeWeightsExact,
   redistributeWeightsExact,
   calculateCustomIndex,
+  sanitizeBasketForRequest,
 } from "../lib/indexEngine";
 import type { BasketItem, StockSeries } from "../types";
 
@@ -464,5 +465,28 @@ describe("calculateCustomIndex", () => {
     expect(result[1].value).toBe(1250);
     // Day 2: Neither A nor B moved from previous price: must stay 1250 (no cliff drop)
     expect(result[2].value).toBe(1250);
+  });
+
+  it("FE-05: handles extreme or NaN decimals in weight equalization without throwing RangeError", () => {
+    const items = [{ weight: 10 }, { weight: 20 }, { weight: 30 }];
+    const eqNaN = equalizeWeightsExact(items, NaN);
+    expect(eqNaN.reduce((s, i) => s + i.weight, 0)).toBeCloseTo(100, 2);
+
+    const redHuge = redistributeWeightsExact(items, 100);
+    expect(redHuge.reduce((s, i) => s + i.weight, 0)).toBeCloseTo(100, 2);
+  });
+
+  it("FE-06: ensures sanitized basket total strictly equals 100% when repairing missing weights", () => {
+    // Valid item already has 100%, and second item has missing weight
+    const input: BasketItem[] = [
+      { ticker: "7203", name: "Toyota", theme: "auto", weight: 100 },
+      { ticker: "6758", name: "Sony", theme: "tech", weight: 0 },
+    ];
+    const { basket, repaired } = sanitizeBasketForRequest(input, { repairMissingWeights: true });
+    expect(repaired.length).toBe(1);
+    const total = basket.reduce((s, i) => s + i.weight, 0);
+    expect(total).toBeCloseTo(100, 2);
+    expect(basket[0].weight).toBeGreaterThan(0);
+    expect(basket[1].weight).toBeGreaterThan(0);
   });
 });

@@ -202,6 +202,13 @@ export function useSimulation(
 
   const abortRef = useRef<AbortController | null>(null);
   const knownTickersRef = useRef<string>("");
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
   /**
    * Monotonic id of the newest simulation request.
    *
@@ -228,7 +235,9 @@ export function useSimulation(
     if (abortRef.current) {
       abortRef.current.abort();
       abortRef.current = null;
-      setLoading(false);
+      if (mountedRef.current) {
+        setLoading(false);
+      }
     }
   }, []);
 

@@ -162,6 +162,10 @@ export function useCalculation(selectedIndex: CustomIndex | null, enabled = true
   const calculate = useCallback(
     async (force = false) => {
       if (!selectedIndex || selectedIndex.basket.length === 0) {
+        if (abortRef.current) {
+          abortRef.current.abort();
+          abortRef.current = null;
+        }
         activeCalculationKeyRef.current = null;
         setCustomSeries([]);
         setStockUniverse([]);
@@ -395,10 +399,11 @@ export function useCalculation(selectedIndex: CustomIndex | null, enabled = true
       } catch (err: unknown) {
         if (controller.signal.aborted || (err instanceof DOMException && err.name === "AbortError"))
           return;
+        if (activeCalculationKeyRef.current !== basketKey) return;
         const message = err instanceof Error ? err.message : "計算に失敗しました";
         setError(message);
       } finally {
-        if (!controller.signal.aborted) {
+        if (!controller.signal.aborted && activeCalculationKeyRef.current === basketKey) {
           setLoading(false);
           setSyncing(false);
         }

@@ -45,4 +45,13 @@ describe("createTreemapLayout", () => {
     expect(layout[0].width).toBeCloseTo(1, 4);
     expect(layout[0].height).toBeCloseTo(1, 4);
   });
+
+  it("FE-07: ensures all input items are returned even with extreme aspect ratios or many items", () => {
+    const items = Array.from({ length: 50 }, (_, i) => ({
+      key: `item-${i}`,
+      value: i === 0 ? 1000 : 0.0001,
+    }));
+    const layout = createTreemapLayout(items);
+    expect(layout).toHaveLength(50);
+  });
 });

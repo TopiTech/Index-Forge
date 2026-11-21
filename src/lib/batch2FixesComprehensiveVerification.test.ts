@@ -712,4 +712,183 @@ describe("Batch 2 Comprehensive Fixes Verification Suite", () => {
       expect(data.ok).toBe(true);
     });
   });
+
+  // --------------------------------------------------------------------------
+  // ISSUE-BE-01 to BE-05: Backend Security & Lockout Verifications
+  // --------------------------------------------------------------------------
+  describe("ISSUE-BE-01 to BE-05: Backend Security Verifications", () => {
+    it("BE-01: rejects duplicate passwords between regular user accounts", async () => {
+      const passwords = new Map<string, { id: string; name: string; password_hash: string; role: string }>();
+      const env = {
+        DB: {
+          prepare: vi.fn().mockImplementation((sql: string) => {
+            let bound: unknown[] = [];
+            return {
+              bind: (...params: unknown[]) => {
+                bound = params;
+                return {
+                  all: async () => {
+                    if (sql.includes("FROM sqlite_master")) {
+                      return { results: [{ type: "table", name: "access_passwords" }] };
+                    }
+                    if (sql.includes("PRAGMA table_info")) {
+                      return {
+                        results: [
+                          { name: "id" },
+                          { name: "name" },
+                          { name: "password_hash" },
+                          { name: "role" },
+                          { name: "is_active" },
+                        ],
+                      };
+                    }
+                    if (sql.includes("SELECT id, name, role, password_hash FROM access_passwords")) {
+                      return { results: Array.from(passwords.values()) };
+                    }
+                    return { results: [] };
+                  },
+                  run: async () => {
+                    if (sql.includes("INSERT INTO access_passwords")) {
+                      const id = String(bound[0]);
+                      passwords.set(id, {
+                        id,
+                        name: String(bound[1]),
+                        password_hash: String(bound[2]),
+                        role: String(bound[3]),
+                      });
+                    }
+                    return { success: true, meta: { changes: 1 } };
+                  },
+                };
+              },
+              all: async () => {
+                if (sql.includes("SELECT id, name, role, password_hash FROM access_passwords")) {
+                  return { results: Array.from(passwords.values()) };
+                }
+                return { results: [] };
+              },
+              run: async () => ({ success: true }),
+            };
+          }),
+        },
+        ADMIN_PASSWORD: "MasterAdminPassword123!",
+      };
+
+      // 1. Create first user account
+      const req1 = new Request("http://localhost/api/admin/passwords", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-admin-key": "MasterAdminPassword123!",
+        },
+        body: JSON.stringify({
+          name: "User One",
+          password: "SharedUserPassword123!",
+          role: "user",
+        }),
+      });
+      const res1 = await worker.fetch(req1, env as unknown as Env);
+      expect(res1.status).toBe(201);
+
+      // 2. Creating another regular user with the same password is permitted by contract
+      const req2 = new Request("http://localhost/api/admin/passwords", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-admin-key": "MasterAdminPassword123!",
+        },
+        body: JSON.stringify({
+          name: "User Two",
+          password: "SharedUserPassword123!",
+          role: "user",
+        }),
+      });
+      const res2 = await worker.fetch(req2, env as unknown as Env);
+      expect(res2.status).toBe(201);
+      const data2 = (await res2.json()) as { ok: boolean };
+      expect(data2.ok).toBe(true);
+
+      // 3. Creating an admin with the same password as existing user is strictly rejected
+      const req3 = new Request("http://localhost/api/admin/passwords", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-admin-key": "MasterAdminPassword123!",
+        },
+        body: JSON.stringify({
+          name: "Admin Traitor",
+          password: "SharedUserPassword123!",
+          role: "admin",
+        }),
+      });
+      const res3 = await worker.fetch(req3, env as unknown as Env);
+      expect(res3.status).toBe(400);
+      const data3 = (await res3.json()) as { error?: string };
+      expect(data3.error).toBe("既存のユーザーアカウントで使用されているパスワードは管理者に設定できません");
+    });
+
+    it("BE-03: returns 503 when findPasswordCollision cannot query D1", async () => {
+      const env = {
+        DB: {
+          prepare: vi.fn().mockImplementation((sql: string) => ({
+            bind: () => ({
+              all: async () => {
+                if (sql.includes("SELECT id, name, role, password_hash FROM access_passwords")) {
+                  throw new Error("D1 connection lost");
+                }
+                return { results: [] };
+              },
+              run: async () => ({ success: true }),
+            }),
+            all: async () => {
+              if (sql.includes("SELECT id, name, role, password_hash FROM access_passwords")) {
+                throw new Error("D1 connection lost");
+              }
+              return { results: [] };
+            },
+            run: async () => ({ success: true }),
+          })),
+        },
+        ADMIN_PASSWORD: "MasterAdminPassword123!",
+      };
+
+      const req = new Request("http://localhost/api/admin/passwords", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-admin-key": "MasterAdminPassword123!",
+        },
+        body: JSON.stringify({
+          name: "User Test",
+          password: "UniqueUserPassword123!",
+          role: "user",
+        }),
+      });
+
+      const res = await worker.fetch(req, env as unknown as Env);
+      expect(res.status).toBe(503);
+    });
+
+    it("BE-05: provides test siteKey on localhost", async () => {
+      const env = {
+        DB: {
+          prepare: vi.fn().mockImplementation(() => ({
+            bind: () => ({
+              all: async () => ({ results: [] }),
+              run: async () => ({ success: true }),
+            }),
+            all: async () => ({ results: [] }),
+            run: async () => ({ success: true }),
+          })),
+        },
+      };
+
+      const reqLocal = new Request("http://localhost/api/auth/turnstile-config");
+      const resLocal = await worker.fetch(reqLocal, env as unknown as Env);
+      expect(resLocal.status).toBe(200);
+      const dataLocal = (await resLocal.json()) as { ok: boolean; siteKey: string };
+      expect(dataLocal.ok).toBe(true);
+      expect(dataLocal.siteKey).toBeTruthy();
+    });
+  });
 });

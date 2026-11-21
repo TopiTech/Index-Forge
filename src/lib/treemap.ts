@@ -135,5 +135,17 @@ export function createTreemapLayout(data: readonly TreemapDatum[]): TreemapLayou
     }
   }
 
+  // If numerical truncation or zero area caused remaining items to not be laid out,
+  // ensure every input item is returned to prevent constituents from disappearing.
+  for (const item of remaining) {
+    layouts.push({
+      ...item,
+      x: available.x,
+      y: available.y,
+      width: Math.max(0, available.width),
+      height: Math.max(0, available.height),
+    });
+  }
+
   return layouts;
 }

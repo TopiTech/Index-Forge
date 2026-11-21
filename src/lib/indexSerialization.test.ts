@@ -7,6 +7,7 @@ import {
   serializePortfolioToCsv,
   deserializePortfolioFromCsv,
   calculateDiversificationScore,
+  parseNumericValue,
 } from "./indexSerialization";
 import type { CustomIndex } from "../data/indices";
 import type { PortfolioPosition } from "./portfolioStorage";
@@ -194,5 +195,13 @@ describe("indexSerialization", () => {
     expect(parsed.data?.length).toBe(500);
     expect(parsed.error).toContain("構成銘柄数が上限(500件)を超えているため");
     expect(parsed.error).toContain("重み(比率)列を解決できなかったため");
+  });
+
+  it("FE-09: parses accounting parenthesis negative format correctly", () => {
+    expect(parseNumericValue("(1,000)")).toBe(-1000);
+    expect(parseNumericValue("(¥5,000)")).toBe(-5000);
+    expect(parseNumericValue("($1,234.50)")).toBe(-1234.5);
+    expect(parseNumericValue("（500）")).toBe(-500);
+    expect(parseNumericValue("(10%)", { allowedSuffixes: ["%"] })).toBe(-10);
   });
 });

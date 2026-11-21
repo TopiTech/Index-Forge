@@ -79,7 +79,7 @@ export function normalizeBenchmarkData(raw: unknown): BenchmarkData | null {
 
   const rawSeries = record.series;
   if (!Array.isArray(rawSeries)) return null;
-  const series: { date: string; close: number }[] = [];
+  const dateMap = new Map<string, number>();
   for (const point of rawSeries) {
     if (!point || typeof point !== "object" || Array.isArray(point)) continue;
     const entry = point as Record<string, unknown>;
@@ -91,9 +91,13 @@ export function normalizeBenchmarkData(raw: unknown): BenchmarkData | null {
     ) {
       continue;
     }
-    series.push({ date: entry.date, close: entry.close });
+    dateMap.set(entry.date, entry.close);
   }
-  if (series.length === 0) return null;
+  if (dateMap.size === 0) return null;
+
+  const series = Array.from(dateMap.entries())
+    .map(([date, close]) => ({ date, close }))
+    .sort((a, b) => a.date.localeCompare(b.date));
 
   const snapshot: Snapshot = {
     symbol,
