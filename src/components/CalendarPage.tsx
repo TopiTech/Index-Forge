@@ -230,6 +230,7 @@ export function CalendarPage({
 }: CalendarPageProps) {
   const [events, setEvents] = useState<CalendarEvent[]>(UPCOMING_EVENTS);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(null);
   const [activeFilter, setActiveFilter] = useState<EventTypeFilter>("ALL");
 
@@ -280,6 +281,7 @@ export function CalendarPage({
   const loadEvents = useCallback(async (forceRefresh = false) => {
     const requestId = ++requestIdRef.current;
     setLoading(true);
+    setLoadError(null);
     try {
       const data = await fetchUpcomingEvents(forceRefresh);
       if (!mountedRef.current || requestId !== requestIdRef.current) return;
@@ -297,6 +299,14 @@ export function CalendarPage({
           setLastUpdatedAt(null);
         }
       }
+    } catch (err: unknown) {
+      if (!mountedRef.current || requestId !== requestIdRef.current) return;
+      const message =
+        err instanceof Error && err.message.trim()
+          ? err.message
+          : "カレンダー情報の取得に失敗しました。時間をおいて再試行してください。";
+      setLoadError(message);
+      setLastUpdatedAt(null);
     } finally {
       if (mountedRef.current && requestId === requestIdRef.current) {
         setLoading(false);
@@ -755,6 +765,35 @@ export function CalendarPage({
 
       {/* Main Container */}
       <div className="card" style={{ padding: "20px" }}>
+        {loadError && (
+          <div
+            role="alert"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              flexWrap: "wrap",
+              gap: "12px",
+              padding: "10px 14px",
+              marginBottom: "16px",
+              borderRadius: "8px",
+              background: "rgba(255, 51, 102, 0.12)",
+              border: "1px solid var(--neon-red)",
+              fontSize: "0.85rem",
+              color: "var(--neon-red)",
+            }}
+          >
+            <span>{loadError}</span>
+            <button
+              type="button"
+              className="btn btn-xs btn-outline"
+              onClick={() => void loadEvents(true)}
+              disabled={loading}
+            >
+              再試行
+            </button>
+          </div>
+        )}
         {/* Dynamic Fallback Notice */}
         {events.some((evt) => evt.source === "fallback") && (
           <div

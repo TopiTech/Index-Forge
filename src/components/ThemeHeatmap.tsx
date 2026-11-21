@@ -1,7 +1,8 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Card, Tag } from "./ui";
+import { useOverlayRoot } from "./ModalBase";
 import { LayoutGrid, TrendingUp, TrendingDown, Layers, Grid } from "lucide-react";
 import type { StockDetail } from "../types";
 import { createTreemapLayout, type TreemapLayout } from "../lib/treemap";
@@ -28,6 +29,7 @@ export function ThemeHeatmap({ stockDetails, selectedTheme, onSelectTheme }: The
     x: number;
     y: number;
   } | null>(null);
+  const overlayRoot = useOverlayRoot();
 
   const filteredStocks = useMemo(() => {
     return [...stockDetails].sort((a, b) => {
@@ -65,6 +67,20 @@ export function ThemeHeatmap({ stockDetails, selectedTheme, onSelectTheme }: The
     );
     return new Map(layouts.map((layout) => [layout.key, layout]));
   }, [filteredStocks]);
+
+  const activeHoveredStock = useMemo(() => {
+    if (!hoveredStock) return null;
+    const latest = filteredStocks.find((s) => s.ticker === hoveredStock.stock.ticker);
+    if (!latest) return null;
+    return latest === hoveredStock.stock ? hoveredStock : { ...hoveredStock, stock: latest };
+  }, [filteredStocks, hoveredStock]);
+
+  useEffect(() => {
+    if (!hoveredStock) return;
+    if (!filteredStocks.some((s) => s.ticker === hoveredStock.stock.ticker)) {
+      setHoveredStock(null);
+    }
+  }, [filteredStocks, hoveredStock]);
 
   const themeTreemapLayouts = useMemo(() => {
     const layoutsByTheme = new Map<string, Map<string, TreemapLayout>>();
@@ -215,7 +231,10 @@ export function ThemeHeatmap({ stockDetails, selectedTheme, onSelectTheme }: The
             <button
               type="button"
               className={`btn-group-item ${viewMode === "grid" ? "active" : ""}`}
-              onClick={() => setViewMode("grid")}
+              onClick={() => {
+                setViewMode("grid");
+                setHoveredStock(null);
+              }}
               aria-pressed={viewMode === "grid"}
               title="全銘柄グリッド表示"
             >
@@ -228,7 +247,10 @@ export function ThemeHeatmap({ stockDetails, selectedTheme, onSelectTheme }: The
             <button
               type="button"
               className={`btn-group-item ${viewMode === "themeGroups" ? "active" : ""}`}
-              onClick={() => setViewMode("themeGroups")}
+              onClick={() => {
+                setViewMode("themeGroups");
+                setHoveredStock(null);
+              }}
               aria-pressed={viewMode === "themeGroups"}
               title="テーマ別グループ表示"
             >
@@ -332,36 +354,35 @@ export function ThemeHeatmap({ stockDetails, selectedTheme, onSelectTheme }: The
       )}
 
       {/* Floating Precision Tooltip */}
-      {typeof document !== "undefined" &&
-        document.body &&
+      {overlayRoot &&
         createPortal(
           <AnimatePresence>
-            {hoveredStock && (
+            {activeHoveredStock && (
               <motion.div
                 initial={{ opacity: 0, scale: 0.96 }}
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.96 }}
                 transition={{ duration: 0.12 }}
                 className="heatmap-tooltip-portal"
-                id={getTooltipId(hoveredStock.stock)}
+                id={getTooltipId(activeHoveredStock.stock)}
                 role="tooltip"
                 style={{
-                  top: hoveredStock.y,
-                  left: hoveredStock.x,
+                  top: activeHoveredStock.y,
+                  left: activeHoveredStock.x,
                 }}
               >
                 <div className="row space-between" style={{ marginBottom: 4, gap: 8 }}>
                   <strong style={{ color: "var(--text-heading)", fontSize: 13 }}>
-                    {hoveredStock.stock.name}
+                    {activeHoveredStock.stock.name}
                   </strong>
                   <span className="mono bold" style={{ color: "var(--accent-text)", fontSize: 12 }}>
-                    {hoveredStock.stock.ticker}
+                    {activeHoveredStock.stock.ticker}
                   </span>
                 </div>
 
                 <div style={{ marginBottom: 6 }}>
                   <span className="tag tag-theme" style={{ fontSize: 9 }}>
-                    {hoveredStock.stock.theme || "その他"}
+                    {activeHoveredStock.stock.theme || "その他"}
                   </span>
                 </div>
 
@@ -370,7 +391,7 @@ export function ThemeHeatmap({ stockDetails, selectedTheme, onSelectTheme }: The
                     株価
                   </span>
                   <strong style={{ fontSize: 12 }}>
-                    {formatStockPrice(hoveredStock.stock.currentPrice, hoveredStock.stock.ticker)}
+                    {formatStockPrice(activeHoveredStock.stock.currentPrice, activeHoveredStock.stock.ticker)}
                   </strong>
                 </div>
 
@@ -382,17 +403,17 @@ export function ThemeHeatmap({ stockDetails, selectedTheme, onSelectTheme }: The
                     style={{
                       fontSize: 12,
                       color:
-                        changeTone(hoveredStock.stock.changePct, 2) === "positive"
+                        changeTone(activeHoveredStock.stock.changePct, 2) === "positive"
                           ? "var(--neon-green)"
-                          : changeTone(hoveredStock.stock.changePct, 2) === "negative"
+                          : changeTone(activeHoveredStock.stock.changePct, 2) === "negative"
                             ? "var(--neon-red)"
                             : "inherit",
                     }}
                   >
-                    {formatSignedPercent(hoveredStock.stock.changePct, 2)}
-                    {hoveredStock.stock.change !== 0 && (
+                    {formatSignedPercent(activeHoveredStock.stock.changePct, 2)}
+                    {activeHoveredStock.stock.change !== 0 && (
                       <span style={{ fontSize: 10, marginLeft: 4, opacity: 0.8 }}>
-                        ({formatStockChange(hoveredStock.stock.change, hoveredStock.stock.ticker)})
+                        ({formatStockChange(activeHoveredStock.stock.change, activeHoveredStock.stock.ticker)})
                       </span>
                     )}
                   </strong>
@@ -402,7 +423,7 @@ export function ThemeHeatmap({ stockDetails, selectedTheme, onSelectTheme }: The
                   <span className="muted" style={{ fontSize: 10 }}>
                     構成比率
                   </span>
-                  <span style={{ fontSize: 11 }}>{formatWeightPercent(hoveredStock.stock.weight, 2)}</span>
+                  <span style={{ fontSize: 11 }}>{formatWeightPercent(activeHoveredStock.stock.weight, 2)}</span>
                 </div>
 
                 <div className="tooltip-row">
@@ -414,20 +435,20 @@ export function ThemeHeatmap({ stockDetails, selectedTheme, onSelectTheme }: The
                       fontSize: 11,
                       fontWeight: 600,
                       color:
-                        changeTone(hoveredStock.stock.contributionPt, 2) === "positive"
+                        changeTone(activeHoveredStock.stock.contributionPt, 2) === "positive"
                           ? "var(--neon-green)"
-                          : changeTone(hoveredStock.stock.contributionPt, 2) === "negative"
+                          : changeTone(activeHoveredStock.stock.contributionPt, 2) === "negative"
                             ? "var(--neon-red)"
                             : "inherit",
                     }}
                   >
-                    {formatSignedPoints(hoveredStock.stock.contributionPt, 2)}
+                    {formatSignedPoints(activeHoveredStock.stock.contributionPt, 2)}
                   </span>
                 </div>
               </motion.div>
             )}
           </AnimatePresence>,
-          (document.fullscreenElement as HTMLElement | null) ?? document.body,
+          overlayRoot,
         )}
     </Card>
   );

@@ -670,6 +670,9 @@ function AppContent({
   const navigateTo = useCallback(
     (view: PageView, searchParams: string = "") => {
       setCurrentView(view);
+      setIsSearchModalOpen(false);
+      setIsAuthModalOpen(false);
+      setIsBuilderOpen(false);
       const basePath = getViewPath(view);
       const targetPath = searchParams ? `${basePath}${searchParams}` : basePath;
 
@@ -789,6 +792,9 @@ function AppContent({
     const onPopState = () => {
       const newView = parseViewFromLocation(window.location.pathname, window.location.search);
       setCurrentView(newView);
+      setIsSearchModalOpen(false);
+      setIsAuthModalOpen(false);
+      setIsBuilderOpen(false);
       if (newView === "stock") {
         // Back/forward between detail page and hub must follow the URL
         const ticker = resolveStockTicker(
@@ -1085,6 +1091,15 @@ function AppContent({
     </Suspense>
   ) : null;
 
+  const commonBuilderModal = (
+    <IndexBuilderModal
+      isOpen={isBuilderOpen}
+      onClose={() => setIsBuilderOpen(false)}
+      onSave={saveCustomIndex}
+      onPreviewInDashboard={handlePreviewInDashboard}
+    />
+  );
+
   if (currentView === "tutorial") {
     return (
       <Suspense fallback={<LoadingScreen />}>
@@ -1104,6 +1119,7 @@ function AppContent({
         currentView={currentView}
         navigateTo={navigateTo}
         searchModal={commonSearchModal}
+        overlays={commonBuilderModal}
       >
         <Suspense fallback={<LoadingScreen />}>
           <MarketOverviewPage
@@ -1126,6 +1142,7 @@ function AppContent({
         currentView={currentView}
         navigateTo={navigateTo}
         searchModal={commonSearchModal}
+        overlays={commonBuilderModal}
       >
         <Suspense fallback={<LoadingScreen />}>
           {activeStockTicker ? (
@@ -1161,6 +1178,7 @@ function AppContent({
         currentView={currentView}
         navigateTo={navigateTo}
         searchModal={commonSearchModal}
+        overlays={commonBuilderModal}
       >
         <Suspense fallback={<LoadingScreen />}>
           <PortfolioManagerPage
@@ -1194,6 +1212,7 @@ function AppContent({
         currentView={currentView}
         navigateTo={navigateTo}
         searchModal={commonSearchModal}
+        overlays={commonBuilderModal}
       >
         <Suspense fallback={<LoadingScreen />}>
           <ScreenerPage
@@ -1227,6 +1246,7 @@ function AppContent({
         currentView={currentView}
         navigateTo={navigateTo}
         searchModal={commonSearchModal}
+        overlays={commonBuilderModal}
       >
         <Suspense fallback={<LoadingScreen />}>
           <CalendarPage
@@ -1248,6 +1268,7 @@ function AppContent({
         currentView={currentView}
         navigateTo={navigateTo}
         searchModal={commonSearchModal}
+        overlays={commonBuilderModal}
       >
         <Suspense fallback={<LoadingScreen />}>
           <IndexBuilderPage
@@ -1267,6 +1288,7 @@ function AppContent({
         currentView={currentView}
         navigateTo={navigateTo}
         searchModal={commonSearchModal}
+        overlays={commonBuilderModal}
       >
         <Suspense fallback={<LoadingScreen />}>
           <DisclaimerPage onNavigate={navigateTo} />
@@ -1282,6 +1304,7 @@ function AppContent({
         currentView={currentView}
         navigateTo={navigateTo}
         searchModal={commonSearchModal}
+        overlays={commonBuilderModal}
       >
         <Suspense fallback={<LoadingScreen />}>
           <PortfolioPage onNavigate={navigateTo} />
@@ -1317,6 +1340,7 @@ function AppContent({
     currentView,
     navigateTo,
     searchModal: commonSearchModal,
+    overlays: commonBuilderModal,
     children: null,
   };
 
@@ -1337,17 +1361,7 @@ function AppContent({
   }
 
   return (
-    <PageLayout
-      {...dashboardLayoutProps}
-      overlays={
-        <IndexBuilderModal
-          isOpen={isBuilderOpen}
-          onClose={() => setIsBuilderOpen(false)}
-          onSave={saveCustomIndex}
-          onPreviewInDashboard={handlePreviewInDashboard}
-        />
-      }
-    >
+    <PageLayout {...dashboardLayoutProps}>
       <div className="mobile-dashboard-toolbar" role="toolbar" aria-label="ダッシュボード操作">
         <div className="mobile-current-index">
           <span className="mono tiny uppercase muted">CURRENT INDEX</span>

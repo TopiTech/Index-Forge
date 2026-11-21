@@ -217,7 +217,7 @@ export function AdminDashboard({
     isLocked,
     remainingSeconds: lockoutRemainingSeconds,
     syncLockout,
-  } = useLockoutCountdown();
+  } = useLockoutCountdown({ onExpire: () => setLoginError(null) });
   const [remainingAttempts, setRemainingAttempts] = useState<number | null>(null);
   const turnstileRef = useRef<TurnstileWidgetRef>(null);
   const [loginError, setLoginError] = useState<string | null>(null);
@@ -250,7 +250,11 @@ export function AdminDashboard({
   const [newUserPassword, setNewUserPassword] = useState(() => generateSecurePassword());
   const [showNewUserPassword, setShowNewUserPassword] = useState(false);
   const [newUserMaxStocks, setNewUserMaxStocks] = useState<number | null>(10);
+  const [newUserMaxStocksDraft, setNewUserMaxStocksDraft] = useState("10");
+  const [isNewUserMaxStocksFocused, setIsNewUserMaxStocksFocused] = useState(false);
   const [newUserMaxIndices, setNewUserMaxIndices] = useState<number | null>(5);
+  const [newUserMaxIndicesDraft, setNewUserMaxIndicesDraft] = useState("5");
+  const [isNewUserMaxIndicesFocused, setIsNewUserMaxIndicesFocused] = useState(false);
   const [newUserRole, setNewUserRole] = useState<"user" | "admin">("user");
   const [creatingPassword, setCreatingPassword] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
@@ -306,6 +310,36 @@ export function AdminDashboard({
       setNewIndexBaseValueDraft(String(newIndexBaseValue));
     }
   }, [newIndexBaseValue, isNewIndexBaseValueFocused]);
+
+  useEffect(() => {
+    if (!isNewUserMaxStocksFocused && newUserMaxStocks !== null) {
+      setNewUserMaxStocksDraft(String(newUserMaxStocks));
+    }
+  }, [newUserMaxStocks, isNewUserMaxStocksFocused]);
+
+  useEffect(() => {
+    if (!isNewUserMaxIndicesFocused && newUserMaxIndices !== null) {
+      setNewUserMaxIndicesDraft(String(newUserMaxIndices));
+    }
+  }, [newUserMaxIndices, isNewUserMaxIndicesFocused]);
+
+  const commitNewUserMaxStocks = (): number | null => {
+    if (newUserMaxStocks === null) return null;
+    const parsed = toFiniteNumberOr(newUserMaxStocksDraft, 1);
+    const clamped = Math.min(500, Math.max(1, Math.floor(parsed)));
+    setNewUserMaxStocks(clamped);
+    setNewUserMaxStocksDraft(String(clamped));
+    return clamped;
+  };
+
+  const commitNewUserMaxIndices = (): number | null => {
+    if (newUserMaxIndices === null) return null;
+    const parsed = toFiniteNumberOr(newUserMaxIndicesDraft, 1);
+    const clamped = Math.min(100, Math.max(1, Math.floor(parsed)));
+    setNewUserMaxIndices(clamped);
+    setNewUserMaxIndicesDraft(String(clamped));
+    return clamped;
+  };
 
   const commitEditBaseValue = (): number => {
     const parsed = toFiniteNumberOr(editBaseValueDraft, 1000);
@@ -488,6 +522,7 @@ export function AdminDashboard({
       void fetchSystemStats();
     }
     return () => {
+      refetchQueuedRef.current = false;
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
         // Release the guard synchronously so the next invocation can start.
@@ -504,9 +539,21 @@ export function AdminDashboard({
   }, [isAdmin, activeTab, fetchPasswords, fetchSystemStats]);
 
   const prevSelectedIdRef = useRef<string | null>(null);
+  const pendingSelectedIndexIdRef = useRef<string | null>(null);
 
   // Sync selected index data into edit fields
   useEffect(() => {
+    const pendingId = pendingSelectedIndexIdRef.current;
+    if (pendingId) {
+      if (selectedEditIndexId !== pendingId) {
+        pendingSelectedIndexIdRef.current = null;
+      } else if (!indices.some((idx) => idx.id === pendingId)) {
+        // Keep newly created index selection while awaiting parent refresh.
+        return;
+      } else {
+        pendingSelectedIndexIdRef.current = null;
+      }
+    }
     const found = indices.find((idx) => idx.id === selectedEditIndexId) || indices[0];
     if (found) {
       const isInitialOrChanged = prevSelectedIdRef.current !== found.id;
@@ -530,7 +577,13 @@ export function AdminDashboard({
       getTurnstileConfig()
         .then((cfg) => {
           if (!isMountedRef.current) return;
-          if (cfg.siteKey) setTurnstileSiteKey(cfg.siteKey);
+          if (cfg.siteKey) {
+            setTurnstileSiteKey(cfg.siteKey);
+          } else if (cfg.unavailable) {
+            setTurnstileSiteKey("");
+            setTurnstileToken("");
+            setLoginError("ロボット確認の設定を取得できませんでした。時間をおいて再試行してください");
+          }
           if (cfg.lockout?.locked) {
             syncLockout(true, cfg.lockout.remainingSeconds);
           }
@@ -557,6 +610,10 @@ export function AdminDashboard({
     }
     if (!adminSecretCodeInput.trim()) {
       setLoginError("秘密の暗号を入力してください");
+      return;
+    }
+    if (!turnstileSiteKey) {
+      setLoginError("ロボット確認を利用できません。時間をおいてページを再読み込みしてください");
       return;
     }
     if (!turnstileToken.trim()) {
@@ -657,18 +714,25 @@ export function AdminDashboard({
   // Create user password submit
   const handleCreatePassword = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newUserName.trim() || !newUserPassword.trim()) {
+    if (creatingPassword) return;
+    const submittedName = newUserName.trim();
+    const submittedPassword = newUserPassword.trim();
+    if (!submittedName || !submittedPassword) {
       setCreateError("ユーザー名とパスワードは必須です");
       return;
     }
-    if (newUserName.trim().length > 100) {
+    if (submittedName.length > 100) {
       setCreateError("ユーザー名は100文字以内で入力してください");
       return;
     }
-    if (newUserPassword.trim().length < 8 || newUserPassword.trim().length > 100) {
+    if (submittedPassword.length < 8 || submittedPassword.length > 100) {
       setCreateError("パスワードは8〜100文字で入力してください");
       return;
     }
+    const submittedRole = newUserRole;
+    const submittedMaxStocks = submittedRole === "admin" ? null : commitNewUserMaxStocks();
+    const submittedMaxIndices = submittedRole === "admin" ? null : commitNewUserMaxIndices();
+
     setCreatingPassword(true);
     setCreateError(null);
     setCreateSuccess(null);
@@ -682,11 +746,11 @@ export function AdminDashboard({
           ...getHeaders(),
         },
         body: JSON.stringify({
-          name: newUserName.trim(),
-          password: newUserPassword.trim(),
-          maxStocks: newUserRole === "admin" ? null : newUserMaxStocks,
-          maxIndices: newUserRole === "admin" ? null : newUserMaxIndices,
-          role: newUserRole,
+          name: submittedName,
+          password: submittedPassword,
+          maxStocks: submittedMaxStocks,
+          maxIndices: submittedMaxIndices,
+          role: submittedRole,
         }),
         timeoutMs: ADMIN_REQUEST_TIMEOUT_MS,
       });
@@ -696,22 +760,28 @@ export function AdminDashboard({
       if (!res.ok || data.ok !== true) {
         throw new Error(reportAdminFailure(data, res.status, "パスワード作成に失敗しました"));
       }
+      if (!isMountedRef.current) return;
 
       // The plaintext password is the value the operator just generated.
       // It must be shown once here and never round-tripped through the API
       // response, where it would be exposed to server logs and caches.
-      const initialPassword = newUserPassword.trim();
-      setCreateSuccess(`パスワードを作成しました: [${newUserName.trim()}] / 銘柄制限: ${newUserRole === "admin" ? "無制限" : `${newUserMaxStocks}銘柄`} / 指数上限: ${newUserRole === "admin" ? "無制限" : `${newUserMaxIndices}件`}`);
-      if (initialPassword) {
-        setIssuedPassword({ name: newUserName.trim(), password: initialPassword });
+      setCreateSuccess(
+        `パスワードを作成しました: [${submittedName}] / 銘柄制限: ${submittedRole === "admin" ? "無制限" : `${submittedMaxStocks}銘柄`} / 指数上限: ${submittedRole === "admin" ? "無制限" : `${submittedMaxIndices}件`}`,
+      );
+      if (submittedPassword) {
+        setIssuedPassword({ name: submittedName, password: submittedPassword });
       }
       setNewUserName("");
       setNewUserPassword(generateSecurePassword());
       await fetchPasswords();
     } catch (err) {
-      setCreateError(err instanceof Error ? err.message : "パスワード作成に失敗しました");
+      if (isMountedRef.current) {
+        setCreateError(err instanceof Error ? err.message : "パスワード作成に失敗しました");
+      }
     } finally {
-      setCreatingPassword(false);
+      if (isMountedRef.current) {
+        setCreatingPassword(false);
+      }
     }
   };
 
@@ -725,29 +795,36 @@ export function AdminDashboard({
       setPasswordToDelete(null);
       return;
     }
+    const targetPassword = passwordToDelete;
     setDeletingPassword(true);
     try {
       const res = await fetchWithNetworkMark(
-        `/api/admin/passwords?id=${encodeURIComponent(passwordToDelete.id)}`,
+        `/api/admin/passwords?id=${encodeURIComponent(targetPassword.id)}`,
         {
           method: "DELETE",
           headers: getHeaders(),
           timeoutMs: ADMIN_REQUEST_TIMEOUT_MS,
         },
       );
+      if (!isMountedRef.current) return;
       if (res.ok) {
         releaseResponse(res);
-        toastSuccess(`パスワード「${passwordToDelete.name}」を削除しました`);
+        toastSuccess(`パスワード「${targetPassword.name}」を削除しました`);
         setPasswordToDelete(null);
         await fetchPasswords();
       } else {
         const data: unknown = await readJsonBody(res);
+        if (!isMountedRef.current) return;
         toastError("削除に失敗しました: " + reportAdminFailure(data, res.status, "サーバーが処理を拒否しました"));
       }
     } catch (err) {
-      toastError("削除に失敗しました: " + (err instanceof Error ? err.message : ""));
+      if (isMountedRef.current) {
+        toastError("削除に失敗しました: " + (err instanceof Error ? err.message : ""));
+      }
     } finally {
-      setDeletingPassword(false);
+      if (isMountedRef.current) {
+        setDeletingPassword(false);
+      }
     }
   };
 
@@ -815,15 +892,19 @@ export function AdminDashboard({
       });
       if (res.ok) {
         releaseResponse(res);
+        if (!isMountedRef.current) return;
         toastSuccess(`「${item.name}」を${nextActive ? "有効化" : "無効化"}しました`);
         await fetchPasswords();
       } else {
         const data: unknown = await readJsonBody(res);
+        if (!isMountedRef.current) return;
         toastError("状態更新に失敗しました: " + reportAdminFailure(data, res.status, "サーバーが処理を拒否しました"));
       }
     } catch (err) {
       console.error("状態更新エラー:", err);
-      toastError("状態更新に失敗しました: " + (err instanceof Error ? err.message : ""));
+      if (isMountedRef.current) {
+        toastError("状態更新に失敗しました: " + (err instanceof Error ? err.message : ""));
+      }
     }
   };
 
@@ -902,13 +983,12 @@ export function AdminDashboard({
       };
 
       const res = await saveCustomIndex(updated);
+      if (!isMountedRef.current) return;
       if (res.ok) {
         setIndexEditMessage({ type: "success", text: "指数と構成銘柄を保存しました！" });
         await onRefreshIndices();
       } else {
-        if (isMountedRef.current) {
-          setIndexEditMessage({ type: "error", text: res.error || "保存に失敗しました" });
-        }
+        setIndexEditMessage({ type: "error", text: res.error || "保存に失敗しました" });
       }
     } catch (err) {
       if (isMountedRef.current) {
@@ -918,7 +998,9 @@ export function AdminDashboard({
         });
       }
     } finally {
-      setSavingIndex(false);
+      if (isMountedRef.current) {
+        setSavingIndex(false);
+      }
     }
   };
 
@@ -928,17 +1010,18 @@ export function AdminDashboard({
     setDeletingIndex(true);
     try {
       const targetId = indexToDelete.id;
+      const targetName = indexToDelete.name;
       const res = await deleteCustomIndex(targetId);
       if (!isMountedRef.current) return;
       if (res.ok) {
-        toastSuccess(`カスタム指数「${indexToDelete.name}」を削除しました`);
+        toastSuccess(`カスタム指数「${targetName}」を削除しました`);
         setIndexToDelete(null);
-        await onRefreshIndices();
-        if (!isMountedRef.current) return;
+        pendingSelectedIndexIdRef.current = null;
         const remaining = indices.filter((idx) => idx.id !== targetId);
-        if (remaining.length > 0) {
-          setSelectedEditIndexId(remaining[0].id);
-        }
+        setSelectedEditIndexId((prevId) =>
+          prevId === targetId ? (remaining[0]?.id ?? "") : prevId,
+        );
+        await onRefreshIndices();
       } else {
         toastError(res.error || "指数の削除に失敗しました");
       }
@@ -979,14 +1062,14 @@ export function AdminDashboard({
       if (!isMountedRef.current) return;
       if (res.ok) {
         toastSuccess(`新規指数「${newIndex.name}」を作成しました`);
-        await onRefreshIndices();
-        if (!isMountedRef.current) return;
+        pendingSelectedIndexIdRef.current = newId;
         setSelectedEditIndexId(newId);
         setIsCreateIndexModalOpen(false);
         setNewIndexName("");
         setNewIndexDesc("");
         setNewIndexBaseValue(1000);
         setNewIndexBaseValueDraft("1000");
+        await onRefreshIndices();
       } else {
         toastError(res.error || "指数の作成に失敗しました");
       }
@@ -995,7 +1078,9 @@ export function AdminDashboard({
         toastError(err instanceof Error ? err.message : "指数の作成に失敗しました");
       }
     } finally {
-      setCreatingIndex(false);
+      if (isMountedRef.current) {
+        setCreatingIndex(false);
+      }
     }
   };
 
@@ -1355,7 +1440,13 @@ export function AdminDashboard({
                 </div>
               </div>
 
-              {!isLocked && (
+              {!isLocked && !turnstileSiteKey && (
+                <div role="alert" style={{ marginBottom: 16, color: "var(--neon-red)", fontSize: 12 }}>
+                  ロボット確認を利用できません。時間をおいてページを再読み込みしてください。
+                </div>
+              )}
+
+              {!isLocked && turnstileSiteKey && (
                 <TurnstileWidget
                   ref={turnstileRef}
                   siteKey={turnstileSiteKey}
@@ -1374,6 +1465,7 @@ export function AdminDashboard({
                 disabled={
                   isLocked ||
                   loggingIn ||
+                  !turnstileSiteKey ||
                   !adminPasswordInput.trim() ||
                   !adminSecretCodeInput.trim() ||
                   !turnstileToken.trim()
@@ -1604,6 +1696,7 @@ export function AdminDashboard({
                   type="text"
                   value={newUserName}
                   onChange={(e) => setNewUserName(e.target.value)}
+                  disabled={creatingPassword}
                   placeholder="例: リサーチチームA, 外部アナリスト"
                   style={{
                     width: "100%",
@@ -1625,13 +1718,14 @@ export function AdminDashboard({
                   </label>
                   <button
                     type="button"
+                    disabled={creatingPassword}
                     onClick={() => setNewUserPassword(generateSecurePassword())}
                     style={{
                       background: "transparent",
                       border: "none",
                       color: "var(--neon-cyan)",
                       fontSize: 11,
-                      cursor: "pointer",
+                      cursor: creatingPassword ? "not-allowed" : "pointer",
                       display: "inline-flex",
                       alignItems: "center",
                       gap: 4,
@@ -1646,6 +1740,7 @@ export function AdminDashboard({
                     type={showNewUserPassword ? "text" : "password"}
                     value={newUserPassword}
                     onChange={(e) => setNewUserPassword(e.target.value)}
+                    disabled={creatingPassword}
                     autoComplete="new-password"
                     style={{
                       width: "100%",
@@ -1691,7 +1786,11 @@ export function AdminDashboard({
                     <button
                       key={preset}
                       type="button"
-                      onClick={() => setNewUserMaxStocks(preset)}
+                      disabled={creatingPassword}
+                      onClick={() => {
+                        setNewUserMaxStocks(preset);
+                        setNewUserMaxStocksDraft(String(preset));
+                      }}
                       aria-pressed={newUserMaxStocks === preset}
                       className={`btn btn-sm ${newUserMaxStocks === preset ? "btn-default" : "btn-outline"}`}
                       style={{ padding: "4px 10px", fontSize: 11 }}
@@ -1701,6 +1800,7 @@ export function AdminDashboard({
                   ))}
                   <button
                     type="button"
+                    disabled={creatingPassword}
                     onClick={() => setNewUserMaxStocks(null)}
                     aria-pressed={newUserMaxStocks === null}
                     className={`btn btn-sm ${newUserMaxStocks === null ? "btn-default" : "btn-outline"}`}
@@ -1719,12 +1819,21 @@ export function AdminDashboard({
                       aria-label="カスタム上限銘柄数"
                       min="1"
                       max="500"
-                      value={newUserMaxStocks}
-                      onChange={(e) =>
-                        setNewUserMaxStocks(
-                          Math.min(500, Math.max(1, Math.floor(toFiniteNumberOr(e.target.value, 1)))),
-                        )
-                      }
+                      disabled={creatingPassword}
+                      value={newUserMaxStocksDraft}
+                      onFocus={() => setIsNewUserMaxStocksFocused(true)}
+                      onChange={(e) => {
+                        const raw = e.target.value;
+                        setNewUserMaxStocksDraft(raw);
+                        const num = Number(raw);
+                        if (raw.trim() !== "" && Number.isFinite(num) && num >= 1 && num <= 500) {
+                          setNewUserMaxStocks(Math.floor(num));
+                        }
+                      }}
+                      onBlur={() => {
+                        setIsNewUserMaxStocksFocused(false);
+                        commitNewUserMaxStocks();
+                      }}
                       style={{
                         width: 80,
                         padding: "6px 8px",
@@ -1749,7 +1858,11 @@ export function AdminDashboard({
                     <button
                       key={preset}
                       type="button"
-                      onClick={() => setNewUserMaxIndices(preset)}
+                      disabled={creatingPassword}
+                      onClick={() => {
+                        setNewUserMaxIndices(preset);
+                        setNewUserMaxIndicesDraft(String(preset));
+                      }}
                       aria-pressed={newUserMaxIndices === preset}
                       className={`btn btn-sm ${newUserMaxIndices === preset ? "btn-default" : "btn-outline"}`}
                       style={{ padding: "4px 10px", fontSize: 11 }}
@@ -1759,6 +1872,7 @@ export function AdminDashboard({
                   ))}
                   <button
                     type="button"
+                    disabled={creatingPassword}
                     onClick={() => setNewUserMaxIndices(null)}
                     aria-pressed={newUserMaxIndices === null}
                     className={`btn btn-sm ${newUserMaxIndices === null ? "btn-default" : "btn-outline"}`}
@@ -1777,12 +1891,21 @@ export function AdminDashboard({
                       aria-label="カスタム上限指数数"
                       min="1"
                       max="100"
-                      value={newUserMaxIndices}
-                      onChange={(e) =>
-                        setNewUserMaxIndices(
-                          Math.min(100, Math.max(1, Math.floor(toFiniteNumberOr(e.target.value, 1)))),
-                        )
-                      }
+                      disabled={creatingPassword}
+                      value={newUserMaxIndicesDraft}
+                      onFocus={() => setIsNewUserMaxIndicesFocused(true)}
+                      onChange={(e) => {
+                        const raw = e.target.value;
+                        setNewUserMaxIndicesDraft(raw);
+                        const num = Number(raw);
+                        if (raw.trim() !== "" && Number.isFinite(num) && num >= 1 && num <= 100) {
+                          setNewUserMaxIndices(Math.floor(num));
+                        }
+                      }}
+                      onBlur={() => {
+                        setIsNewUserMaxIndicesFocused(false);
+                        commitNewUserMaxIndices();
+                      }}
                       style={{
                         width: 80,
                         padding: "6px 8px",
@@ -1798,7 +1921,7 @@ export function AdminDashboard({
                 )}
               </div>
 
-              <RoleRadioGroup value={newUserRole} onChange={setNewUserRole} />
+              <RoleRadioGroup value={newUserRole} onChange={setNewUserRole} disabled={creatingPassword} />
 
               <button
                 type="submit"
@@ -2024,7 +2147,10 @@ export function AdminDashboard({
                   id="admin-select-edit-index"
                   aria-label="編集対象指数を選択"
                   value={selectedEditIndexId}
-                  onChange={(e) => setSelectedEditIndexId(e.target.value)}
+                  onChange={(e) => {
+                    pendingSelectedIndexIdRef.current = null;
+                    setSelectedEditIndexId(e.target.value);
+                  }}
                   style={{
                     padding: "6px 12px",
                     background: "var(--bg-input)",
@@ -2551,6 +2677,7 @@ export function AdminDashboard({
                     type={showCurrentAdminPassword ? "text" : "password"}
                     value={currentAdminPassword}
                     onChange={(e) => setCurrentAdminPassword(e.target.value)}
+                    disabled={updatingAdminPwd}
                     autoComplete="current-password"
                     placeholder="現在のパスワード (任意入力)"
                     style={{
@@ -2596,6 +2723,7 @@ export function AdminDashboard({
                     type={showNewAdminPassword ? "text" : "password"}
                     value={newAdminPassword}
                     onChange={(e) => setNewAdminPassword(e.target.value)}
+                    disabled={updatingAdminPwd}
                     autoComplete="new-password"
                     placeholder="新しいパスワード (8〜100文字)"
                     style={{
@@ -2642,6 +2770,7 @@ export function AdminDashboard({
                     type={showConfirmAdminPassword ? "text" : "password"}
                     value={confirmAdminPassword}
                     onChange={(e) => setConfirmAdminPassword(e.target.value)}
+                    disabled={updatingAdminPwd}
                     autoComplete="new-password"
                     placeholder="もう一度入力してください"
                     style={{
@@ -2765,6 +2894,7 @@ export function AdminDashboard({
                         spellCheck="false"
                         value={currentSecretCodeInput}
                         onChange={(e) => setCurrentSecretCodeInput(e.target.value)}
+                        disabled={updatingSecretCode}
                         placeholder="現在の秘密の暗号 (ひらがな・カタカナ可)"
                         style={{
                           width: "100%",
@@ -2816,6 +2946,7 @@ export function AdminDashboard({
                         spellCheck="false"
                         value={newSecretCodeInput}
                         onChange={(e) => setNewSecretCodeInput(e.target.value)}
+                        disabled={updatingSecretCode}
                         placeholder="新しい秘密の暗号 (ひらがな・カタカナ・英数字・記号)"
                         style={{
                           width: "100%",
@@ -2872,6 +3003,7 @@ export function AdminDashboard({
                         spellCheck="false"
                         value={confirmSecretCodeInput}
                         onChange={(e) => setConfirmSecretCodeInput(e.target.value)}
+                        disabled={updatingSecretCode}
                         placeholder="もう一度入力してください"
                         style={{
                           width: "100%",

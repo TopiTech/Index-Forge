@@ -235,6 +235,25 @@ export function isMissingTableError(error: unknown, table: string): boolean {
   );
 }
 
+export function isUniqueConstraintError(error: unknown, target?: string): boolean {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  if (!/UNIQUE constraint failed/i.test(message)) return false;
+  return target ? message.toLowerCase().includes(target.toLowerCase()) : true;
+}
+
+export function isTseStockIdentifier(ticker: string, rawSymbol?: string): boolean {
+  const sym = typeof rawSymbol === "string" ? rawSymbol.trim().toUpperCase() : "";
+  if (sym.endsWith(".T")) return true;
+  const normalized = normalizeTicker(ticker);
+  if (!normalized) return false;
+  return (
+    normalized.startsWith("TSE:") ||
+    normalized.startsWith("TYO:") ||
+    normalized.endsWith(".T") ||
+    /^\d/.test(normalized)
+  );
+}
+
 export type { BasketItemInput };
 
 export interface IndexWriteColumns {
@@ -3384,15 +3403,16 @@ export async function fetchLiveMarketOverview(
     const changePercent = hasLivePrice
       ? live.changePercent
       : (prevQuote?.changePercent ?? def.defaultChangePercent);
+    const priceDecimals = def.category === "FX" && price < 2 ? 4 : 2;
     let spark = sparkMap.get(def.querySymbol) ?? prevQuote?.sparkline;
     let sparkSynthesized = false;
     if (!spark || spark.length === 0) {
       const prevClose = live?.prevClose ?? price - change;
       spark = [
-        Number((prevClose * 0.998).toFixed(2)),
-        Number((prevClose * 1.001).toFixed(2)),
-        Number(((prevClose + price) / 2).toFixed(2)),
-        price,
+        Number((prevClose * 0.998).toFixed(priceDecimals)),
+        Number((prevClose * 1.001).toFixed(priceDecimals)),
+        Number(((prevClose + price) / 2).toFixed(priceDecimals)),
+        Number(price.toFixed(priceDecimals)),
       ];
       sparkSynthesized = true;
     }
@@ -3405,7 +3425,7 @@ export async function fetchLiveMarketOverview(
       symbol: def.symbol,
       name: def.name,
       category: def.category,
-      price: Number(price.toFixed(def.category === "FX" && price < 2 ? 4 : 2)),
+      price: Number(price.toFixed(priceDecimals)),
       change: Number(change.toFixed(def.category === "FX" && Math.abs(change) < 0.1 ? 4 : 2)),
       changePercent: Number(changePercent.toFixed(2)),
       currency: def.currency,
@@ -4125,7 +4145,7 @@ export async function fetchLiveStockFundamentals(
           const stmtEps = stmt.dilutedEPS?.raw ?? stmt.basicEPS?.raw;
           const periodEps = typeof stmtEps === "number" && Number.isFinite(stmtEps)
             ? (isUS ? Number(stmtEps.toFixed(2)) : Number(stmtEps.toFixed(1)))
-            : (isLatest ? (safeEpsVal ? (isUS ? Number(safeEpsVal.toFixed(2)) : Math.round(safeEpsVal)) : 0) : Math.round(safeEpsVal));
+            : (safeEpsVal ? (isUS ? Number(safeEpsVal.toFixed(2)) : Math.round(safeEpsVal)) : 0);
 
           // 過去年度のDPS: 無配銘柄は確実に0、アンカーに実績があればそれを尊重
           const anchorMatched = baseline?.historicalFinances?.find((bh) =>
@@ -5187,6 +5207,20 @@ export async function fetchLiveMacroEventsFromApiAsync(
 
     const events: CalendarEvent[] = [];
     const counts = new Map<string, number>();
+    const seenEventIds = new Set<string>();
+    const uniqueEventId = (baseId: string): string => {
+      if (!seenEventIds.has(baseId)) {
+        seenEventIds.add(baseId);
+        return baseId;
+      }
+      let seq = 2;
+      while (seenEventIds.has(`${baseId}-${seq}`)) {
+        seq += 1;
+      }
+      const nextId = `${baseId}-${seq}`;
+      seenEventIds.add(nextId);
+      return nextId;
+    };
     const inc = (k: string) => {
       const c = (counts.get(k) || 0) + 1;
       counts.set(k, c);
@@ -5241,13 +5275,15 @@ export async function fetchLiveMacroEventsFromApiAsync(
 
       // 米国CPI
       if (item.countryCode === "US" && (n === "cpi y/y" || n.includes("consumer price index") || n === "core cpi y/y")) {
-        if (inc("cpi") <= 2) {
+        const isCoreCpi = n === "core cpi y/y" || (n.includes("core") && n.includes("cpi"));
+        const cpiKey = isCoreCpi ? "core-cpi" : "cpi";
+        if (inc(cpiKey) <= 2) {
           events.push({
-            id: `macro-api-cpi-${fullDateStr}`,
+            id: uniqueEventId(isCoreCpi ? `macro-api-cpi-core-${fullDateStr}` : `macro-api-cpi-${fullDateStr}`),
             date: dateStr,
             fullDate: fullDateStr,
             type: "MACRO",
-            title: "米消費者物価指数 (CPI) 発表",
+            title: isCoreCpi ? "米コア消費者物価指数 (Core CPI) 発表" : "米消費者物価指数 (CPI) 発表",
             importance: "HIGH",
             market: "US",
             time: timeJst,
@@ -5264,7 +5300,7 @@ export async function fetchLiveMacroEventsFromApiAsync(
         // 米雇用統計
         if (inc("jobs") <= 2) {
           events.push({
-            id: `macro-api-jobs-${fullDateStr}`,
+            id: uniqueEventId(`macro-api-jobs-${fullDateStr}`),
             date: dateStr,
             fullDate: fullDateStr,
             type: "MACRO",
@@ -5285,7 +5321,7 @@ export async function fetchLiveMacroEventsFromApiAsync(
         // 米FOMC
         if (inc("fomc") <= 2) {
           events.push({
-            id: `macro-api-fomc-${fullDateStr}`,
+            id: uniqueEventId(`macro-api-fomc-${fullDateStr}`),
             date: dateStr,
             fullDate: fullDateStr,
             type: "MACRO",
@@ -5306,7 +5342,7 @@ export async function fetchLiveMacroEventsFromApiAsync(
         // 日銀会合
         if (inc("boj") <= 2) {
           events.push({
-            id: `macro-api-boj-${fullDateStr}`,
+            id: uniqueEventId(`macro-api-boj-${fullDateStr}`),
             date: dateStr,
             fullDate: fullDateStr,
             type: "MACRO",
@@ -5325,13 +5361,14 @@ export async function fetchLiveMacroEventsFromApiAsync(
         }
       } else if (item.countryCode === "JP" && n.includes("cpi")) {
         // 日本CPI
-        if (inc("jpcpi") <= 2) {
+        const isTokyoCpi = item.name.includes("Tokyo");
+        if (inc(isTokyoCpi ? "jpcpi-tokyo" : "jpcpi") <= 2) {
           events.push({
-            id: `macro-api-jpcpi-${fullDateStr}`,
+            id: uniqueEventId(isTokyoCpi ? `macro-api-jpcpi-tokyo-${fullDateStr}` : `macro-api-jpcpi-${fullDateStr}`),
             date: dateStr,
             fullDate: fullDateStr,
             type: "MACRO",
-            title: item.name.includes("Tokyo") ? "東京都区部消費者物価指数 (東京CPI)" : "日本 全国消費者物価指数 (全国CPI)",
+            title: isTokyoCpi ? "東京都区部消費者物価指数 (東京CPI)" : "日本 全国消費者物価指数 (全国CPI)",
             importance: "HIGH",
             market: "TSE",
             time: timeJst || "08:30 JST",
@@ -5525,7 +5562,7 @@ export async function fetchLiveMarketCalendarAsync(
               const matchedPreset = POPULAR_STOCKS.find((s) => s.ticker === normTicker);
               const companyName = matchedPreset?.name || q.displayName || q.shortName || normTicker;
               const title = `${companyName} (${normTicker}) 決算発表`;
-              const isUS = !/^\d{4}/.test(normTicker) && !rawSymbol.endsWith(".T");
+              const isUS = !isTseStockIdentifier(normTicker, rawSymbol);
               const marketCap = q.marketCap
                 ? isUS
                   ? Math.round(q.marketCap / 1_000_000)
@@ -5602,7 +5639,7 @@ export async function fetchLiveMarketCalendarAsync(
                   const matchedPreset = POPULAR_STOCKS.find((s) => s.ticker === t);
                   const shortName = sumData?.quoteSummary?.result?.[0]?.price?.shortName;
                   const companyName = matchedPreset?.name || shortName || t;
-                  const isUS = !/^\d{4}/.test(t) && !sym.endsWith(".T");
+                  const isUS = !isTseStockIdentifier(t, sym);
                   liveEarnings.push({
                     id: `earn-live-${t.toLowerCase()}`,
                     date: `${mStr(jstDate.getUTCMonth() + 1)}/${dStr(jstDate.getUTCDate())}`,
@@ -6770,10 +6807,10 @@ export default {
           let includesMaxIndicesUpdate = false;
           let maxIndicesRequiresMigration = false;
 
-          if (typeof name === "string" && name.trim()) {
-            // Reject overlong names symmetrically with the create endpoint
-            // (which 400s above 100 chars) instead of silently truncating.
-            if (name.trim().length > 100) {
+          if (name !== undefined) {
+            // Reject blank/overlong names symmetrically with the create endpoint
+            // (which 400s above 100 chars) instead of silently ignoring/truncating.
+            if (typeof name !== "string" || !name.trim() || name.trim().length > 100) {
               return json(
                 { error: INVALID_USER_LABEL_MESSAGE },
                 400,
@@ -6822,6 +6859,11 @@ export default {
             }
           }
 
+          if (password !== undefined) {
+            if (typeof password !== "string" || (password.length > 0 && password.trim().length === 0)) {
+              return json({ error: INVALID_PASSWORD_LENGTH_MESSAGE }, 400, request);
+            }
+          }
           if (typeof password === "string" && password.trim().length > 0) {
             if (password.trim().length < 8 || password.trim().length > 100) {
               return json({ error: INVALID_PASSWORD_LENGTH_MESSAGE }, 400, request);
@@ -6879,7 +6921,14 @@ export default {
             }
             includesMaxIndicesUpdate = true;
           }
-          if (role === "admin" || role === "user") {
+          if (role !== undefined) {
+            if (role !== "admin" && role !== "user") {
+              return json(
+                { error: "ロールは 'admin' または 'user' を指定してください" },
+                400,
+                request,
+              );
+            }
             clauses.push({ sql: "role = ?", params: [role], column: "role" });
           }
           if (activeInput !== undefined) {
@@ -9043,6 +9092,13 @@ export default {
               // owner_token_hash: the "no such column: sort_order" error was
               // rethrown as a 500 instead of retrying without sort_order.
               if (!mentionsMissingColumn) {
+                if (!isExisting && isUniqueConstraintError(batchErr, "indices")) {
+                  return json(
+                    { error: "同じ指数IDがすでに使用されています。再読み込みして再試行してください" },
+                    409,
+                    request,
+                  );
+                }
                 throw batchErr;
               }
 

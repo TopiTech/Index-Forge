@@ -25,20 +25,34 @@ import sceneSrc from "../components/Tutorial3DScene.ts?raw";
 import modalSrc from "../components/ModalBase.tsx?raw";
 import hookSrc from "../hooks/useIndices.ts?raw";
 import builderSrc from "../components/IndexBuilderContent.tsx?raw";
-import adminSrc from "../components/AdminDashboard.tsx?raw";
+
+const { authState, stableGetAdminHeaders } = vi.hoisted(() => ({
+  authState: {
+    isAdmin: false,
+  },
+  stableGetAdminHeaders: () => ({ "x-admin-session": "admin-token" }) as Record<string, string>,
+}));
 
 vi.mock("../hooks/useAuth", () => ({
   useAuth: () => ({
-    session: { role: "user", name: "テスター", maxStocks: null, maxIndices: null },
+    session: {
+      id: authState.isAdmin ? "admin-master" : "user-1",
+      role: authState.isAdmin ? "admin" : "user",
+      name: "テスター",
+      maxStocks: null,
+      maxIndices: null,
+      adminToken: authState.isAdmin ? "admin-token" : undefined,
+    },
     isAuthenticated: true,
-    isUser: true,
-    isAdmin: false,
+    isUser: !authState.isAdmin,
+    isAdmin: authState.isAdmin,
     maxStocks: null,
     maxIndices: null,
     loading: false,
     login: vi.fn(),
     adminLogin: vi.fn(),
     logout: vi.fn(),
+    getAdminHeaders: stableGetAdminHeaders,
   }),
 }));
 
@@ -59,11 +73,14 @@ vi.mock("../components/Toast", () => ({
   }),
 }));
 
+import { AdminDashboard } from "../components/AdminDashboard";
 import { IndexBuilderModal } from "../components/IndexBuilderModal";
 import { ModalBase, getOverlayRoot } from "../components/ModalBase";
 
 afterEach(() => {
+  authState.isAdmin = false;
   cleanup();
+  vi.unstubAllGlobals();
   vi.clearAllMocks();
 });
 
@@ -237,9 +254,74 @@ describe("Comprehensive Goal Code Review - Unit 1 & 2 Fixes", () => {
       expect(builderSrc).toContain("onSavingChangeRef.current?.(next);");
     });
 
-    it("wraps the admin saves in try...finally so their buttons never stay stuck", () => {
-      expect(adminSrc).toMatch(/try \{[\s\S]*?saveCustomIndex[\s\S]*?\} finally \{\s*setSavingIndex\(false\);/);
-      expect(adminSrc).toMatch(/try \{[\s\S]*?saveCustomIndex[\s\S]*?\} finally \{\s*setCreatingIndex\(false\);/);
+    it("releases admin index edit and create save buttons even when saveCustomIndex rejects", async () => {
+      authState.isAdmin = true;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () =>
+          new Response(JSON.stringify([]), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+        ),
+      );
+
+      let rejectEdit!: (err: Error) => void;
+      let rejectCreate!: (err: Error) => void;
+      const saveCustomIndex = vi
+        .fn()
+        .mockImplementationOnce(
+          () =>
+            new Promise((_res, rej) => {
+              rejectEdit = rej;
+            }),
+        )
+        .mockImplementationOnce(
+          () =>
+            new Promise((_res, rej) => {
+              rejectCreate = rej;
+            }),
+        );
+
+      render(
+        createElement(AdminDashboard, {
+          indices: [
+            {
+              id: "idx-test-1",
+              name: "テスト指数",
+              description: "テスト",
+              baseValue: 1000,
+              basket: [{ ticker: "7203", name: "トヨタ自動車", theme: "自動車", weight: 100 }],
+            },
+          ],
+          onBackToApp: vi.fn(),
+          onRefreshIndices: vi.fn(async () => {}),
+          saveCustomIndex,
+          deleteCustomIndex: vi.fn(async () => ({ ok: true })),
+        }),
+      );
+
+      fireEvent.click(document.getElementById("admin-tab-indices") as HTMLElement);
+
+      const editSaveBtn = screen.getByRole("button", { name: "変更をD1に保存" }) as HTMLButtonElement;
+      fireEvent.click(editSaveBtn);
+      await waitFor(() => expect(saveCustomIndex).toHaveBeenCalledTimes(1));
+      expect(editSaveBtn.disabled).toBe(true);
+
+      rejectEdit(new Error("Save failed"));
+      await waitFor(() => expect(editSaveBtn.disabled).toBe(false));
+
+      fireEvent.click(screen.getByRole("button", { name: /新規指数作成/ }));
+      fireEvent.change(document.getElementById("create-index-name") as HTMLInputElement, {
+        target: { value: "失敗時テスト指数" },
+      });
+      const createSubmitBtn = screen.getByRole("button", { name: "指数を作成" }) as HTMLButtonElement;
+      fireEvent.submit((document.getElementById("create-index-name") as HTMLInputElement).closest("form")!);
+      await waitFor(() => expect(saveCustomIndex).toHaveBeenCalledTimes(2));
+      expect(createSubmitBtn.disabled).toBe(true);
+
+      rejectCreate(new Error("Create failed"));
+      await waitFor(() => expect(createSubmitBtn.disabled).toBe(false));
     });
   });
 });

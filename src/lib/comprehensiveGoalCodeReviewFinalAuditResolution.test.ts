@@ -1,9 +1,12 @@
 import { describe, it, expect, vi } from "vitest";
 import { readFileSync } from "fs";
 import { resolve } from "path";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { runStockScreener, type StockQuoteFundamentals } from "./marketDataService";
 import { calculatePortfolioSummary, type PortfolioPosition } from "./portfolioStorage";
 import worker from "../../worker/index";
+import { ThemeHeatmap } from "../components/ThemeHeatmap";
 
 describe("Comprehensive Goal Code Review Final Audit Resolution Verification", () => {
   describe("Unit 1: Backend D1 Fallback Price & Zero-Division Immunity", () => {
@@ -241,11 +244,30 @@ describe("Comprehensive Goal Code Review Final Audit Resolution Verification", (
       expect(addModalTsx).toContain("setError(null);");
     });
 
-    it("verifies ThemeHeatmap validates document.body prior to portal rendering", () => {
-      const heatmapTsx = readFileSync(resolve(__dirname, "../../src/components/ThemeHeatmap.tsx"), "utf-8");
-      expect(heatmapTsx).toContain('typeof document !== "undefined" &&');
-      expect(heatmapTsx).toContain("document.body &&");
-      expect(heatmapTsx).toContain("createPortal(");
+    it("renders ThemeHeatmap safely in SSR when document is undefined instead of throwing on portal target", () => {
+      expect(typeof document).toBe("undefined");
+      const html = renderToStaticMarkup(
+        createElement(ThemeHeatmap, {
+          stockDetails: [
+            {
+              ticker: "7203",
+              name: "トヨタ自動車",
+              theme: "輸送用機器",
+              weight: 100,
+              currentPrice: 2850,
+              previousPrice: 2825,
+              change: 25,
+              changePct: 0.88,
+              contributionPt: 1.5,
+              contributionPct: 0.88,
+              sparkline: [2800, 2825, 2850],
+            },
+          ],
+          selectedTheme: null,
+          onSelectTheme: vi.fn(),
+        }),
+      );
+      expect(html).toContain("7203");
     });
   });
 });

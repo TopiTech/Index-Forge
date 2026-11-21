@@ -156,13 +156,26 @@ export function PortfolioManagerPage({
   const [turnstileToken, setTurnstileToken] = useState("");
   const [turnstileSiteKey, setTurnstileSiteKey] = useState("1x00000000000000000000AA");
   const [remainingAttempts, setRemainingAttempts] = useState<number | null>(null);
+  const [adminLockout, setAdminLockout] = useState(false);
   const {
     isLocked,
     remainingSeconds: lockoutRemainingSeconds,
     syncLockout,
-  } = useLockoutCountdown({ onExpire: () => setAuthError(null) });
+  } = useLockoutCountdown({
+    onExpire: () => {
+      setAuthError(null);
+      setAdminLockout(false);
+    },
+  });
   const [isSubmittingAuth, setIsSubmittingAuth] = useState(false);
   const turnstileRef = useRef<TurnstileWidgetRef>(null);
+  const adminLocked = authMode === "admin" && (adminLockout || isLocked);
+
+  useEffect(() => {
+    if (!adminLocked) return;
+    setTurnstileToken("");
+    turnstileRef.current?.reset();
+  }, [adminLocked]);
 
   // New position form state
   const [newTicker, setNewTicker] = useState("7203");
@@ -191,9 +204,16 @@ export function PortfolioManagerPage({
     getTurnstileConfig()
       .then((cfg) => {
         if (!isMounted) return;
-        if (cfg.siteKey) setTurnstileSiteKey(cfg.siteKey);
+        if (cfg.siteKey) {
+          setTurnstileSiteKey(cfg.siteKey);
+        } else if (cfg.unavailable) {
+          setTurnstileSiteKey("");
+          setTurnstileToken("");
+          setAuthError("ロボット確認の設定を取得できませんでした。時間をおいて再試行してください");
+        }
         if (cfg.lockout) {
           syncLockout(cfg.lockout.locked, cfg.lockout.remainingSeconds);
+          setAdminLockout(cfg.lockout.locked);
           setRemainingAttempts(cfg.lockout.remainingAttempts);
         }
       })
@@ -343,7 +363,7 @@ export function PortfolioManagerPage({
 
 
     if (authMode === "admin") {
-      if (isLocked) {
+      if (adminLocked) {
         setAuthError(`アカウントが一時ロックされています。残り約${Math.ceil(lockoutRemainingSeconds / 60)}分後に再試行してください。`);
         return;
       }
@@ -353,6 +373,10 @@ export function PortfolioManagerPage({
       }
       if (!authSecretCode.trim()) {
         setAuthError("秘密の暗号を入力してください（ひらがな・カタカナも入力可能です）");
+        return;
+      }
+      if (!turnstileSiteKey) {
+        setAuthError("ロボット確認を利用できません。時間をおいてページを再読み込みしてください");
         return;
       }
       if (!turnstileToken.trim()) {
@@ -385,6 +409,7 @@ export function PortfolioManagerPage({
         return;
       } else {
         if (res.locked) {
+          setAdminLockout(true);
           syncLockout(true, res.remainingSeconds || 900);
           setRemainingAttempts(0);
         } else if (typeof res.remainingAttempts === "number") {
@@ -945,7 +970,7 @@ export function PortfolioManagerPage({
             </div>
 
             {/* Lockout Warning */}
-            {isLocked && (
+            {adminLocked && (
               <div
                 role="alert"
                 aria-live="assertive"
@@ -972,7 +997,7 @@ export function PortfolioManagerPage({
               </div>
             )}
 
-            {authError && !isLocked && (
+            {authError && !adminLocked && (
               <div
                 role="alert"
                 aria-live="assertive"
@@ -1015,7 +1040,7 @@ export function PortfolioManagerPage({
                     onChange={(e) => setAuthPassword(e.target.value)}
                     placeholder={authMode === "admin" ? "管理者パスワード" : "ユーザー用アクセスパスワード"}
                     autoComplete="current-password"
-                    disabled={isSubmittingAuth || authLoading || isLocked}
+                    disabled={isSubmittingAuth || authLoading || adminLocked}
                     style={{
                       width: "100%",
                       padding: "11px 44px 11px 14px",
@@ -1086,7 +1111,7 @@ export function PortfolioManagerPage({
                         value={authSecretCode}
                         onChange={(e) => setAuthSecretCode(e.target.value)}
                         placeholder="ひらがな・カタカナ・英数字・記号で入力"
-                        disabled={isSubmittingAuth || authLoading || isLocked}
+                        disabled={isSubmittingAuth || authLoading || adminLocked}
                         style={{
                           width: "100%",
                           padding: "11px 44px 11px 14px",
@@ -1132,7 +1157,13 @@ export function PortfolioManagerPage({
                     </div>
                   </div>
 
-                  {!isLocked && (
+                  {!adminLocked && !turnstileSiteKey && (
+                    <div role="alert" style={{ marginBottom: "18px", color: "var(--neon-red)", fontSize: "12px" }}>
+                      ロボット確認を利用できません。時間をおいてページを再読み込みしてください。
+                    </div>
+                  )}
+
+                  {!adminLocked && turnstileSiteKey && (
                     <div style={{ marginBottom: "18px" }}>
                       <span
                         id="portfolio-turnstile-label"
@@ -1191,9 +1222,10 @@ export function PortfolioManagerPage({
                   disabled={
                     isSubmittingAuth ||
                     authLoading ||
-                    isLocked ||
+                    adminLocked ||
                     !authPassword.trim() ||
-                    (authMode === "admin" && (!authSecretCode.trim() || !turnstileToken.trim()))
+                    (authMode === "admin" &&
+                      (!turnstileSiteKey || !authSecretCode.trim() || !turnstileToken.trim()))
                   }
                 >
                   <KeyRound size={15} />
@@ -2259,7 +2291,9 @@ export function PortfolioManagerPage({
                 className="btn btn-ghost tiny"
                 style={{ fontSize: "11px", padding: "1px 6px" }}
                 onClick={() => {
-                  const f = getStockFundamentals(newTicker.trim());
+                  const normalized = normalizeTicker(newTicker);
+                  if (!normalized) return;
+                  const f = getStockFundamentals(normalized);
                   if (f && f.price > 0) {
                     setNewAverageCost(String(f.price));
                   }

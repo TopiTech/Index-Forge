@@ -141,21 +141,29 @@ export function formatChartDisplayDate(dateStr: string): string {
  * Exported so the behaviour is verifiable against the real component logic
  * instead of a copy of it.
  */
+function formatTechnicalPriceValue(
+  val: number,
+  ticker: string,
+  market?: string | null,
+): string {
+  const metaCurrency = detectStockCurrency(ticker, market);
+  const upperTicker = typeof ticker === "string" ? ticker.trim().toUpperCase() : "";
+  if (val > 0 && val < 20 && metaCurrency === "USD" && upperTicker.endsWith("=X")) {
+    return `$${val.toFixed(4)}`;
+  }
+  return formatStockPrice(val, ticker, { market });
+}
+
 export function formatTechnicalAxisPrice(
   val: number,
   ticker: string,
   market?: string | null,
 ): string {
   if (typeof val !== "number" || !Number.isFinite(val)) return "--";
-  const metaCurrency = detectStockCurrency(ticker, market);
-  const upperTicker = typeof ticker === "string" ? ticker.trim().toUpperCase() : "";
-  if (val > 0 && val < 20 && metaCurrency === "USD" && upperTicker.endsWith("=X")) {
-    return `$${val.toFixed(4)}`;
-  }
-  const formatted = formatStockPrice(val, ticker, { market });
+  const formatted = formatTechnicalPriceValue(val, ticker, market);
   if (formatted !== "---") return formatted;
   if (val === 0) {
-    return metaCurrency === "JPY" ? "¥0" : "$0.00";
+    return detectStockCurrency(ticker, market) === "JPY" ? "¥0" : "$0.00";
   }
   return "--";
 }
@@ -164,19 +172,20 @@ export function formatTechnicalTooltipValue(
   val: unknown,
   name: unknown,
   ticker: string,
+  market?: string | null,
 ): [string | number, string] {
   const isValidNum = typeof val === "number" && Number.isFinite(val);
   if (name === "volume") {
     return [isValidNum ? val.toLocaleString() : "--", "出来高"];
   }
   if (name === "close") {
-    return [isValidNum ? formatStockPrice(val, ticker) : "--", "終値"];
+    return [isValidNum ? formatTechnicalPriceValue(val, ticker, market) : "--", "終値"];
   }
   if (name === "sma25") {
-    return [isValidNum ? formatStockPrice(val, ticker) : "--", "SMA 25日"];
+    return [isValidNum ? formatTechnicalPriceValue(val, ticker, market) : "--", "SMA 25日"];
   }
   if (name === "sma75") {
-    return [isValidNum ? formatStockPrice(val, ticker) : "--", "SMA 75日"];
+    return [isValidNum ? formatTechnicalPriceValue(val, ticker, market) : "--", "SMA 75日"];
   }
   return [isValidNum ? val : "--", String(name)];
 }
@@ -1218,7 +1227,7 @@ export function StockTechnicalChart({
                     }}
                     labelStyle={{ color: "var(--text-primary)", fontWeight: 600, marginBottom: "4px" }}
                     formatter={(val: unknown, name: unknown) =>
-                      formatTechnicalTooltipValue(val, name, stock.ticker)
+                      formatTechnicalTooltipValue(val, name, stock.ticker, stock.market)
                     }
                   />
 

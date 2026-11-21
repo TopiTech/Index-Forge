@@ -3,9 +3,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { readFileSync } from "fs";
 import { resolve } from "path";
 import React from "react";
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import { render, screen, fireEvent, cleanup, act, waitFor } from "@testing-library/react";
 import { downloadBlob } from "./downloadFile";
 import { AddStockModal } from "../components/AddStockModal";
+import { ThemeHeatmap } from "../components/ThemeHeatmap";
 
 describe("UI Resilience and A11y Improvements (ISSUE-7, ISSUE-8, ISSUE-9)", () => {
   describe("ISSUE-7: Safe Asynchronous ObjectURL Revocation & Cross-Component Adoption", () => {
@@ -128,17 +129,67 @@ describe("UI Resilience and A11y Improvements (ISSUE-7, ISSUE-8, ISSUE-9)", () =
   });
 
   describe("ISSUE-9: Fullscreen-aware Tooltip Portal in ThemeHeatmap", () => {
-    it("preserves document.body assertion while supporting fullscreenElement portal target", () => {
-      const heatmapPath = resolve(__dirname, "../components/ThemeHeatmap.tsx");
-      const heatmapCode = readFileSync(heatmapPath, "utf-8");
+    afterEach(() => {
+      Reflect.deleteProperty(document, "fullscreenElement");
+      cleanup();
+    });
 
-      // Verify strict preservation of existing audit checks
-      expect(heatmapCode).toContain('typeof document !== "undefined" &&');
-      expect(heatmapCode).toContain("document.body &&");
-      expect(heatmapCode).toContain("createPortal(");
+    it("portals the tooltip into fullscreenElement and re-targets to document.body on fullscreenchange", async () => {
+      const fullscreenContainer = document.createElement("div");
+      document.body.appendChild(fullscreenContainer);
+      try {
+        Object.defineProperty(document, "fullscreenElement", {
+          configurable: true,
+          value: fullscreenContainer,
+        });
 
-      // Verify fullscreen-aware portal target fallback
-      expect(heatmapCode).toContain("(document.fullscreenElement as HTMLElement | null) ?? document.body");
+        render(
+          React.createElement(ThemeHeatmap, {
+            stockDetails: [
+              {
+                ticker: "7203",
+                name: "トヨタ自動車",
+                theme: "輸送用機器",
+                weight: 100,
+                currentPrice: 2850,
+                previousPrice: 2825,
+                change: 25,
+                changePct: 0.88,
+                contributionPt: 1.5,
+                contributionPct: 0.88,
+                sparkline: [2800, 2825, 2850],
+              },
+            ],
+            selectedTheme: null,
+            onSelectTheme: vi.fn(),
+          }),
+        );
+
+        const tile = screen.getByRole("button", { name: /トヨタ自動車/ });
+        fireEvent.focus(tile);
+        const tooltipInFullscreen = fullscreenContainer.querySelector('[role="tooltip"]');
+        expect(tooltipInFullscreen).not.toBeNull();
+        expect(document.body.querySelector(':scope > [role="tooltip"]')).toBeNull();
+
+        act(() => {
+          Object.defineProperty(document, "fullscreenElement", {
+            configurable: true,
+            value: null,
+          });
+          document.dispatchEvent(new Event("fullscreenchange"));
+        });
+
+        expect(fullscreenContainer.querySelector('[role="tooltip"]')).toBeNull();
+        expect(document.body.querySelector(':scope > [role="tooltip"]')).not.toBeNull();
+
+        // Switching viewMode clears active tooltip so unmounted tiles never leave a stale tooltip
+        fireEvent.click(screen.getByRole("button", { name: "テーマ別" }));
+        await waitFor(() => {
+          expect(document.body.querySelector('[role="tooltip"]')).toBeNull();
+        });
+      } finally {
+        fullscreenContainer.remove();
+      }
     });
   });
 });
