@@ -490,7 +490,9 @@ export function GlobalSearchModal({
     [filteredResults],
   );
   const remainingCount = Math.max(0, filteredResults.length - MAX_SEARCH_RESULTS);
-  const selectedItem = displayedResults[selectedIndex];
+  const activeSelectedIndex =
+    displayedResults.length > 0 ? Math.min(selectedIndex, displayedResults.length - 1) : 0;
+  const selectedItem = displayedResults[activeSelectedIndex];
 
   const handleSelect = useCallback(
     (item: (typeof filteredResults)[number]) => {
@@ -531,30 +533,38 @@ export function GlobalSearchModal({
       // the keyboard.
       if (isInteractiveKeyTarget(e.target, inputRef.current)) return;
 
+      if (displayedResults.length === 0) return;
+
       if (e.key === "ArrowDown") {
         e.preventDefault();
-        setSelectedIndex((prev) => (prev < displayedResults.length - 1 ? prev + 1 : 0));
+        setSelectedIndex((prev) => {
+          const current = Math.min(prev, displayedResults.length - 1);
+          return current < displayedResults.length - 1 ? current + 1 : 0;
+        });
       } else if (e.key === "ArrowUp") {
         e.preventDefault();
-        setSelectedIndex((prev) => (prev > 0 ? prev - 1 : displayedResults.length - 1));
-      } else if (e.key === "Enter" && displayedResults[selectedIndex]) {
+        setSelectedIndex((prev) => {
+          const current = Math.min(prev, displayedResults.length - 1);
+          return current > 0 ? current - 1 : displayedResults.length - 1;
+        });
+      } else if (e.key === "Enter" && displayedResults[activeSelectedIndex]) {
         e.preventDefault();
-        handleSelect(displayedResults[selectedIndex]);
+        handleSelect(displayedResults[activeSelectedIndex]);
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, displayedResults, filteredResults.length, selectedIndex, handleSelect]);
+  }, [isOpen, displayedResults, filteredResults.length, activeSelectedIndex, handleSelect]);
 
   // Ensure active keyboard selection stays visible in scrollable container
   useEffect(() => {
     if (!isOpen || displayedResults.length === 0) return;
     const targetEl = listRef.current?.querySelector<HTMLElement>(
-      `[data-result-index="${selectedIndex}"]`,
+      `[data-result-index="${activeSelectedIndex}"]`,
     );
     targetEl?.scrollIntoView({ block: "nearest" });
-  }, [selectedIndex, isOpen, displayedResults.length]);
+  }, [activeSelectedIndex, isOpen, displayedResults.length]);
 
   if (!isOpen) return null;
 
@@ -599,7 +609,7 @@ export function GlobalSearchModal({
             aria-expanded={isOpen && displayedResults.length > 0}
             aria-controls={listboxId}
             aria-activedescendant={
-              displayedResults.length > 0 ? optionId(selectedIndex) : undefined
+              displayedResults.length > 0 ? optionId(activeSelectedIndex) : undefined
             }
             aria-label="銘柄・テーマ・指数の検索"
             className="global-search-input"
@@ -615,7 +625,10 @@ export function GlobalSearchModal({
               type="button"
               className="btn btn-ghost"
               style={{ padding: "4px" }}
-              onClick={() => setQuery("")}
+              onClick={() => {
+                setQuery("");
+                setSelectedIndex(0);
+              }}
               aria-label="検索キーワードをクリア"
             >
               <X size={16} />
@@ -690,7 +703,7 @@ export function GlobalSearchModal({
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
               {displayedResults.map((item, idx) => {
-                const isSelected = idx === selectedIndex;
+                const isSelected = idx === activeSelectedIndex;
                 const isRecent = Boolean((item as { isRecent?: boolean }).isRecent);
                 return (
                   <div

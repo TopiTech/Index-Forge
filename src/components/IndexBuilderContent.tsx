@@ -190,6 +190,19 @@ export function IndexBuilderContent({
     }
   }, [baseValue, isBaseValueFocused]);
 
+  const resolveCommittedBaseValue = (): number | null => {
+    const trimmed = baseValueDraft.trim();
+    const rawVal = trimmed === "" ? 1000 : Number(trimmed);
+    if (!Number.isFinite(rawVal) || rawVal <= 0 || rawVal > 1000000) {
+      setError("基準値は1〜1,000,000の正の数値を入力してください");
+      return null;
+    }
+    const committed = Math.min(1000000, Math.max(1, rawVal));
+    setBaseValue(committed);
+    setBaseValueDraft(String(committed));
+    return committed;
+  };
+
   const commitBaseValue = (): number => {
     const parsed = toFiniteNumberOr(baseValueDraft, 1000);
     const clamped = Math.min(1000000, Math.max(1, parsed));
@@ -394,11 +407,13 @@ export function IndexBuilderContent({
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleExportJson = () => {
+    const finalBaseValue = resolveCommittedBaseValue();
+    if (finalBaseValue === null) return;
     const currentIndex: CustomIndex = {
       id: `custom-export-${Date.now()}-${safeRandomId(6)}`,
       name: name || "カスタム指数",
       description: description || "",
-      baseValue,
+      baseValue: finalBaseValue,
       basket,
     };
     const jsonStr = serializeIndexToJson(currentIndex);
@@ -520,19 +535,8 @@ export function IndexBuilderContent({
       return;
     }
 
-    const rawVal = baseValueDraft.trim() === "" ? 1000 : parseFloat(baseValueDraft);
-    if (
-      typeof rawVal !== "number" ||
-      !Number.isFinite(rawVal) ||
-      rawVal <= 0 ||
-      rawVal > 1000000
-    ) {
-      setError("基準値は1〜1,000,000の正の数値を入力してください");
-      return;
-    }
-    const finalBaseValue = Math.min(1000000, Math.max(1, rawVal));
-    setBaseValue(finalBaseValue);
-    setBaseValueDraft(String(finalBaseValue));
+    const finalBaseValue = resolveCommittedBaseValue();
+    if (finalBaseValue === null) return;
 
     if (isUser && maxStocks !== null && maxStocks > 0 && basket.length > maxStocks) {
       setError(
@@ -640,11 +644,13 @@ export function IndexBuilderContent({
       setError("構成銘柄を1つ以上追加してください");
       return;
     }
+    const finalBaseValue = resolveCommittedBaseValue();
+    if (finalBaseValue === null) return;
     const tempIndex: CustomIndex = {
       id: `temp-${Date.now()}-${safeRandomId(6)}`,
       name: name.trim() || "シミュレーションプレビュー指数",
       description: description.trim() || "シミュレーターから一時表示中の独自指数",
-      baseValue,
+      baseValue: finalBaseValue,
       basket,
     };
     if (onPreviewInDashboard) {

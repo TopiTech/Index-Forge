@@ -1480,14 +1480,29 @@ export async function recordAdminLoginFailure(
   await ensurePasswordTable(env);
   const now = Math.floor(Date.now() / 1000);
   try {
+    // Only continue incrementing an active (non-expired) attempt window; once a
+    // lockout has elapsed (`locked_until <= now`), the next failure starts a
+    // fresh 5-attempt window instead of immediately re-locking at 6 attempts.
     await env.DB.prepare(
       `INSERT INTO admin_login_attempts (ip, failed_count, last_failed_at, locked_until)
        VALUES (?, 1, ?, 0)
        ON CONFLICT(ip) DO UPDATE SET
-         failed_count = CASE WHEN admin_login_attempts.last_failed_at >= ? THEN admin_login_attempts.failed_count + 1 ELSE 1 END,
+         failed_count = CASE
+           WHEN admin_login_attempts.last_failed_at >= ?
+             AND (COALESCE(admin_login_attempts.locked_until, 0) <= 0 OR admin_login_attempts.locked_until > excluded.last_failed_at)
+           THEN admin_login_attempts.failed_count + 1
+           ELSE 1
+         END,
          last_failed_at = excluded.last_failed_at,
          locked_until = CASE
-           WHEN (CASE WHEN admin_login_attempts.last_failed_at >= ? THEN admin_login_attempts.failed_count + 1 ELSE 1 END) >= ? THEN ?
+           WHEN (
+             CASE
+               WHEN admin_login_attempts.last_failed_at >= ?
+                 AND (COALESCE(admin_login_attempts.locked_until, 0) <= 0 OR admin_login_attempts.locked_until > excluded.last_failed_at)
+               THEN admin_login_attempts.failed_count + 1
+               ELSE 1
+             END
+           ) >= ? THEN ?
            ELSE 0
          END`,
     )
@@ -3804,6 +3819,9 @@ export async function fetchLiveStockFundamentals(
     ? []
     : baseline.historicalFinances;
   let hasLivePrice = false;
+  let hasLiveChange = false;
+  let hasLiveChangePct = false;
+  let hasLivePrevClose = false;
   // True once this request obtained valuation metrics from Yahoo. When a live
   // price exists without them, the nullable metrics below are reported as null
   // instead of falling back to the static anchor (DATA-01/DATA-02).
@@ -3915,10 +3933,10 @@ export async function fetchLiveStockFundamentals(
     const detail = result.summaryDetail || {};
     const earnings = result.earnings || {};
 
-    if (typeof priceObj.regularMarketPrice?.raw === "number" && priceObj.regularMarketPrice.raw > 0) {
+    if (typeof priceObj.regularMarketPrice?.raw === "number" && Number.isFinite(priceObj.regularMarketPrice.raw) && priceObj.regularMarketPrice.raw > 0) {
       currentPrice = priceObj.regularMarketPrice.raw;
       hasLivePrice = true;
-    } else if (typeof chartMeta.regularMarketPrice === "number" && chartMeta.regularMarketPrice > 0) {
+    } else if (typeof chartMeta.regularMarketPrice === "number" && Number.isFinite(chartMeta.regularMarketPrice) && chartMeta.regularMarketPrice > 0) {
       currentPrice = chartMeta.regularMarketPrice;
       hasLivePrice = true;
     } else if (chartCloses.length > 0) {
@@ -3933,26 +3951,48 @@ export async function fetchLiveStockFundamentals(
       }
     }
 
-    if (typeof priceObj.regularMarketChange?.raw === "number") {
+    if (typeof priceObj.regularMarketPreviousClose?.raw === "number" && Number.isFinite(priceObj.regularMarketPreviousClose.raw) && priceObj.regularMarketPreviousClose.raw > 0) {
+      prevClose = priceObj.regularMarketPreviousClose.raw;
+      hasLivePrevClose = true;
+    } else if (typeof chartMeta.chartPreviousClose === "number" && Number.isFinite(chartMeta.chartPreviousClose) && chartMeta.chartPreviousClose > 0) {
+      prevClose = chartMeta.chartPreviousClose;
+      hasLivePrevClose = true;
+    } else if (hasLivePrice && chartCloses.length >= 2) {
+      prevClose = chartCloses[chartCloses.length - 2];
+      hasLivePrevClose = true;
+    }
+
+    if (typeof priceObj.regularMarketChange?.raw === "number" && Number.isFinite(priceObj.regularMarketChange.raw)) {
       change = priceObj.regularMarketChange.raw;
-    } else if (typeof chartMeta.regularMarketChange === "number") {
+      hasLiveChange = true;
+    } else if (typeof chartMeta.regularMarketChange === "number" && Number.isFinite(chartMeta.regularMarketChange)) {
       change = chartMeta.regularMarketChange;
-    } else if (typeof chartMeta.chartPreviousClose === "number") {
-      change = Number((currentPrice - chartMeta.chartPreviousClose).toFixed(priceDecimals));
+      hasLiveChange = true;
+    } else if (hasLivePrevClose) {
+      change = Number((currentPrice - prevClose).toFixed(priceDecimals));
+      hasLiveChange = true;
+    } else if (hasLivePrice) {
+      change = 0;
     }
 
-    if (typeof priceObj.regularMarketChangePercent?.raw === "number") {
+    if (!hasLivePrevClose && hasLivePrice && hasLiveChange) {
+      prevClose = Number((currentPrice - change).toFixed(priceDecimals));
+      hasLivePrevClose = true;
+    } else if (!hasLivePrevClose && hasLivePrice) {
+      prevClose = currentPrice;
+    }
+
+    if (typeof priceObj.regularMarketChangePercent?.raw === "number" && Number.isFinite(priceObj.regularMarketChangePercent.raw)) {
       changePct = Number((priceObj.regularMarketChangePercent.raw * 100).toFixed(2));
-    } else if (typeof chartMeta.regularMarketChangePercent === "number") {
+      hasLiveChangePct = true;
+    } else if (typeof chartMeta.regularMarketChangePercent === "number" && Number.isFinite(chartMeta.regularMarketChangePercent)) {
       changePct = Number(chartMeta.regularMarketChangePercent.toFixed(2));
+      hasLiveChangePct = true;
+    } else if (hasLivePrice) {
+      // Never retain demo baseline.changePercent once live price data arrives.
+      changePct = prevClose > 0 && Number.isFinite(change) ? Number(((change / prevClose) * 100).toFixed(2)) : 0;
+      hasLiveChangePct = true;
     }
-
-    prevClose =
-      typeof priceObj.regularMarketPreviousClose?.raw === "number"
-        ? priceObj.regularMarketPreviousClose.raw
-        : typeof chartMeta.chartPreviousClose === "number"
-          ? chartMeta.chartPreviousClose
-          : Number((currentPrice - change).toFixed(priceDecimals));
 
     volume =
       priceObj.regularMarketVolume?.raw ||
@@ -4018,8 +4058,10 @@ export async function fetchLiveStockFundamentals(
         isEstimatedPer = false;
         perNote = undefined;
       }
-      const livePbr = stats.priceToBook?.raw || null;
-      if (livePbr && livePbr > 0) pbr = Number(livePbr.toFixed(2));
+      const livePbr = stats.priceToBook?.raw;
+      if (typeof livePbr === "number" && Number.isFinite(livePbr) && livePbr > 0) {
+        pbr = Number(livePbr.toFixed(2));
+      }
 
       const rawDiv = detail.dividendYield?.raw ?? detail.trailingAnnualDividendYield?.raw;
       const normalizedDividendYield = normalizeDividendYield(rawDiv, "fraction");
@@ -4061,7 +4103,7 @@ export async function fetchLiveStockFundamentals(
       }
 
       const rawRoe = fin.returnOnEquity?.raw;
-      if (typeof rawRoe === "number") {
+      if (typeof rawRoe === "number" && Number.isFinite(rawRoe)) {
         roe = Number((rawRoe * 100).toFixed(1));
       }
 
@@ -4268,19 +4310,42 @@ export async function fetchLiveStockFundamentals(
                   Number.isFinite(q.trailingAnnualDividendRate))),
           );
           if (q && hasQuoteValuation) {
-            if (typeof q.regularMarketPrice === "number" && q.regularMarketPrice > 0) {
+            if (
+              typeof q.regularMarketPrice === "number" &&
+              Number.isFinite(q.regularMarketPrice) &&
+              q.regularMarketPrice > 0
+            ) {
               currentPrice = q.regularMarketPrice;
               hasLivePrice = true;
             }
-            if (typeof q.regularMarketChange === "number") change = q.regularMarketChange;
-            if (typeof q.regularMarketChangePercent === "number") changePct = Number(q.regularMarketChangePercent.toFixed(2));
-            if (typeof q.regularMarketPreviousClose === "number") prevClose = q.regularMarketPreviousClose;
-            if (typeof q.regularMarketVolume === "number") volume = q.regularMarketVolume;
-            if (typeof q.regularMarketDayHigh === "number") dayHigh = q.regularMarketDayHigh;
-            if (typeof q.regularMarketDayLow === "number") dayLow = q.regularMarketDayLow;
-            if (typeof q.fiftyTwoWeekHigh === "number") yearHigh = q.fiftyTwoWeekHigh;
-            if (typeof q.fiftyTwoWeekLow === "number") yearLow = q.fiftyTwoWeekLow;
-            if (typeof q.marketCap === "number" && q.marketCap > 0) {
+            if (typeof q.regularMarketPreviousClose === "number" && Number.isFinite(q.regularMarketPreviousClose) && q.regularMarketPreviousClose > 0) {
+              prevClose = q.regularMarketPreviousClose;
+              hasLivePrevClose = true;
+            }
+            if (typeof q.regularMarketChange === "number" && Number.isFinite(q.regularMarketChange)) {
+              change = q.regularMarketChange;
+              hasLiveChange = true;
+            } else if (hasLivePrevClose && hasLivePrice) {
+              change = Number((currentPrice - prevClose).toFixed(priceDecimals));
+              hasLiveChange = true;
+            }
+            if (!hasLivePrevClose && hasLivePrice && hasLiveChange) {
+              prevClose = Number((currentPrice - change).toFixed(priceDecimals));
+              hasLivePrevClose = true;
+            }
+            if (typeof q.regularMarketChangePercent === "number" && Number.isFinite(q.regularMarketChangePercent)) {
+              changePct = Number(q.regularMarketChangePercent.toFixed(2));
+              hasLiveChangePct = true;
+            } else if (!hasLiveChangePct && hasLivePrice) {
+              changePct = prevClose > 0 && Number.isFinite(change) ? Number(((change / prevClose) * 100).toFixed(2)) : 0;
+              hasLiveChangePct = true;
+            }
+            if (typeof q.regularMarketVolume === "number" && Number.isFinite(q.regularMarketVolume)) volume = q.regularMarketVolume;
+            if (typeof q.regularMarketDayHigh === "number" && Number.isFinite(q.regularMarketDayHigh)) dayHigh = q.regularMarketDayHigh;
+            if (typeof q.regularMarketDayLow === "number" && Number.isFinite(q.regularMarketDayLow)) dayLow = q.regularMarketDayLow;
+            if (typeof q.fiftyTwoWeekHigh === "number" && Number.isFinite(q.fiftyTwoWeekHigh)) yearHigh = q.fiftyTwoWeekHigh;
+            if (typeof q.fiftyTwoWeekLow === "number" && Number.isFinite(q.fiftyTwoWeekLow)) yearLow = q.fiftyTwoWeekLow;
+            if (typeof q.marketCap === "number" && Number.isFinite(q.marketCap) && q.marketCap > 0) {
               marketCap = isUS ? Math.round(q.marketCap / 1_000_000) : Math.round(q.marketCap / 100_000_000);
             }
             // Start every nullable valuation metric from null before reading `q`
@@ -4307,7 +4372,7 @@ export async function fetchLiveStockFundamentals(
               isEstimatedPer = true;
               perNote = "会社予想非開示のため直近実績(TTM)より推計";
             }
-            if (typeof q.priceToBook === "number" && q.priceToBook > 0) pbr = Number(q.priceToBook.toFixed(2));
+            if (typeof q.priceToBook === "number" && Number.isFinite(q.priceToBook) && q.priceToBook > 0) pbr = Number(q.priceToBook.toFixed(2));
             const trailingYieldPercent = normalizeDividendYield(q.trailingAnnualDividendYield, "fraction");
             if (trailingYieldPercent !== null) {
               dividendYield = trailingYieldPercent;
@@ -5510,10 +5575,10 @@ export async function fetchLiveMarketCalendarAsync(
 
         let liveUs10yYield: number | null = null;
         for (const q of results) {
-          if (q.symbol === "^IRX" && typeof q.regularMarketPrice === "number" && q.regularMarketPrice > 0) {
+          if (q.symbol === "^IRX" && typeof q.regularMarketPrice === "number" && Number.isFinite(q.regularMarketPrice) && q.regularMarketPrice > 0) {
             liveFomcRate = q.regularMarketPrice;
           }
-          if (q.symbol === "^TNX" && typeof q.regularMarketPrice === "number" && q.regularMarketPrice > 0) {
+          if (q.symbol === "^TNX" && typeof q.regularMarketPrice === "number" && Number.isFinite(q.regularMarketPrice) && q.regularMarketPrice > 0) {
             liveUs10yYield = q.regularMarketPrice;
           }
         }

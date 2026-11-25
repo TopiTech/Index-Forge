@@ -306,4 +306,42 @@ describe("Worker Unit 2 behavioral fixes and edge cases", () => {
     await fetchLiveMacroEventsFromApiAsync(jstNextDayRef);
     expect(requestedUrls[0]).toContain("from=2025-03-06&to=2025-06-18");
   });
+
+  it("derives changePercent from chart price and chartPreviousClose when quoteSummary and v7/quote are unavailable", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/v8/finance/chart/")) {
+          return new Response(
+            JSON.stringify({
+              chart: {
+                result: [
+                  {
+                    meta: {
+                      regularMarketPrice: 3300,
+                      chartPreviousClose: 3000,
+                    },
+                    indicators: {
+                      quote: [{ close: [3000, 3150, 3300] }],
+                    },
+                  },
+                ],
+              },
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        return new Response("{}", { status: 403 });
+      }),
+    );
+
+    const data = await fetchLiveStockFundamentals("7203");
+    expect(data.price).toBe(3300);
+    expect(data.previousClose).toBe(3000);
+    expect(data.change).toBe(300);
+    expect(data.changePercent).toBe(10);
+    expect(data.isDemoData).toBeUndefined();
+    expect(data.per).toBeNull();
+  });
 });

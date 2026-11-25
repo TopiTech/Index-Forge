@@ -25,9 +25,9 @@ import {
 } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
 import { useLockoutCountdown } from "../hooks/useLockoutCountdown";
+import { useTurnstileConfig } from "../hooks/useTurnstileConfig";
 import { ModalBase } from "./ModalBase";
 import { TurnstileWidget, type TurnstileWidgetRef } from "./TurnstileWidget";
-import { getTurnstileConfig } from "../lib/auth";
 import {
   loadPortfolioPositions,
   savePortfolioPositions,
@@ -155,7 +155,6 @@ export function PortfolioManagerPage({
   const [authSecretCode, setAuthSecretCode] = useState("");
   const [showSecretCode, setShowSecretCode] = useState(false);
   const [turnstileToken, setTurnstileToken] = useState("");
-  const [turnstileSiteKey, setTurnstileSiteKey] = useState("1x00000000000000000000AA");
   const [remainingAttempts, setRemainingAttempts] = useState<number | null>(null);
   const [adminLockout, setAdminLockout] = useState(false);
   const {
@@ -220,32 +219,18 @@ export function PortfolioManagerPage({
   }, []);
 
   // Fetch Turnstile config and lockout state if unauthenticated
-  useEffect(() => {
-    if (isAuthenticated) return;
-    let isMounted = true;
-    getTurnstileConfig()
-      .then((cfg) => {
-        if (!isMounted) return;
-        if (cfg.siteKey) {
-          setTurnstileSiteKey(cfg.siteKey);
-        } else if (cfg.unavailable) {
-          setTurnstileSiteKey("");
-          setTurnstileToken("");
-          setAuthError("ロボット確認の設定を取得できませんでした。時間をおいて再試行してください");
-        }
-        if (cfg.lockout) {
-          syncLockout(cfg.lockout.locked, cfg.lockout.remainingSeconds);
-          setAdminLockout(cfg.lockout.locked);
-          setRemainingAttempts(cfg.lockout.remainingAttempts);
-        }
-      })
-      .catch(() => {
-        // Ignore transient config fetch failures.
-      });
-    return () => {
-      isMounted = false;
-    };
-  }, [isAuthenticated, syncLockout]);
+  const { siteKey: turnstileSiteKey, loading: turnstileConfigLoading } = useTurnstileConfig({
+    enabled: !isAuthenticated,
+    onUnavailable: () => {
+      setTurnstileToken("");
+      setAuthError("ロボット確認の設定を取得できませんでした。時間をおいて再試行してください");
+    },
+    onLockout: (lockout) => {
+      syncLockout(lockout.locked, lockout.remainingSeconds);
+      setAdminLockout(lockout.locked);
+      setRemainingAttempts(lockout.remainingAttempts);
+    },
+  });
 
   // Synchronize positions & watchlist when auth state changes.
   //
@@ -1180,7 +1165,12 @@ export function PortfolioManagerPage({
                     </div>
                   </div>
 
-                  {!adminLocked && !turnstileSiteKey && (
+                  {!adminLocked && turnstileConfigLoading && (
+                    <div className="muted tiny" style={{ marginBottom: "18px" }}>
+                      ロボット確認を読み込み中...
+                    </div>
+                  )}
+                  {!adminLocked && !turnstileConfigLoading && !turnstileSiteKey && (
                     <div role="alert" style={{ marginBottom: "18px", color: "var(--neon-red)", fontSize: "12px" }}>
                       ロボット確認を利用できません。時間をおいてページを再読み込みしてください。
                     </div>

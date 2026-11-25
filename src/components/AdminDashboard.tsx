@@ -27,9 +27,9 @@ import {
 } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
 import { useLockoutCountdown } from "../hooks/useLockoutCountdown";
+import { useTurnstileConfig } from "../hooks/useTurnstileConfig";
 import { storeAuth, generateSecurePassword } from "../lib/auth";
 import {
-  getTurnstileConfig,
   changeAdminSecretCode,
   sanitizeAdminToken,
   sanitizeUserPasswordList,
@@ -212,7 +212,6 @@ export function AdminDashboard({
   const [adminSecretCodeInput, setAdminSecretCodeInput] = useState("");
   const [showAdminSecretCode, setShowAdminSecretCode] = useState(false);
   const [turnstileToken, setTurnstileToken] = useState("");
-  const [turnstileSiteKey, setTurnstileSiteKey] = useState("1x00000000000000000000AA");
   const {
     isLocked,
     remainingSeconds: lockoutRemainingSeconds,
@@ -598,30 +597,21 @@ export function AdminDashboard({
   }, [selectedEditIndexId, indices]);
 
   // Fetch Turnstile config and initial lockout status
-  useEffect(() => {
-    if (!isAdmin) {
-      getTurnstileConfig()
-        .then((cfg) => {
-          if (!isMountedRef.current) return;
-          if (cfg.siteKey) {
-            setTurnstileSiteKey(cfg.siteKey);
-          } else if (cfg.unavailable) {
-            setTurnstileSiteKey("");
-            setTurnstileToken("");
-            setLoginError("ロボット確認の設定を取得できませんでした。時間をおいて再試行してください");
-          }
-          if (cfg.lockout?.locked) {
-            syncLockout(true, cfg.lockout.remainingSeconds);
-          }
-          if (typeof cfg.lockout?.remainingAttempts === "number") {
-            setRemainingAttempts(cfg.lockout.remainingAttempts);
-          }
-        })
-        .catch(() => {
-          // Ignore transient config fetch failures; defaults remain in place.
-        });
-    }
-  }, [isAdmin, syncLockout]);
+  const { siteKey: turnstileSiteKey, loading: turnstileConfigLoading } = useTurnstileConfig({
+    enabled: !isAdmin,
+    onUnavailable: () => {
+      setTurnstileToken("");
+      setLoginError("ロボット確認の設定を取得できませんでした。時間をおいて再試行してください");
+    },
+    onLockout: (lockout) => {
+      if (lockout.locked) {
+        syncLockout(true, lockout.remainingSeconds);
+      }
+      if (typeof lockout.remainingAttempts === "number") {
+        setRemainingAttempts(lockout.remainingAttempts);
+      }
+    },
+  });
 
   // Admin login submit with Turnstile, secret code, and lockout handling
   const handleAdminLogin = async (e: React.FormEvent) => {
@@ -1469,7 +1459,12 @@ export function AdminDashboard({
                 </div>
               </div>
 
-              {!isLocked && !turnstileSiteKey && (
+              {!isLocked && turnstileConfigLoading && (
+                <div className="muted tiny" style={{ marginBottom: 16 }}>
+                  ロボット確認を読み込み中...
+                </div>
+              )}
+              {!isLocked && !turnstileConfigLoading && !turnstileSiteKey && (
                 <div role="alert" style={{ marginBottom: 16, color: "var(--neon-red)", fontSize: 12 }}>
                   ロボット確認を利用できません。時間をおいてページを再読み込みしてください。
                 </div>

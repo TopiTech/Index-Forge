@@ -339,5 +339,91 @@ describe("useSimulation sync warnings (R33)", () => {
     expect(view.stockUniverseLength).toBe(1);
     expect(view.error).toBeNull();
     expect(view.usingDemoData).toBe(false);
+    // Sync batch failure warnings must survive `setStockUniverse(universe)` committing
+    // immediately after calculation resolves (the recompute effect must not wipe them).
+    expect(view.syncWarnings).toContain(formatSyncBatchFailureWarning(1));
+  });
+
+  it("retains missing-ticker warnings after fetch settles and across equal re-renders", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/api/sync-prices")) {
+          return jsonResponse({ ok: true, results: [{ ticker: "7203", status: "cached", lastSynced: 1700000000 }] });
+        }
+        if (url.includes("/api/calculate")) {
+          return jsonResponse({
+            ok: true,
+            baseValue: 1000,
+            basket: [],
+            series: [
+              { date: "2026-01-02", close: 100, value: 100 },
+              { date: "2026-01-03", close: 110, value: 110 },
+            ],
+            stockUniverse: [
+              {
+                ticker: "7203",
+                name: "7203",
+                theme: "テスト",
+                sector: "Unknown",
+                latestPrice: 110,
+                series: [
+                  { date: "2026-01-02", close: 100, value: 100 },
+                  { date: "2026-01-03", close: 110, value: 110 },
+                ],
+              },
+              {
+                ticker: "9984",
+                name: "9984",
+                theme: "テスト",
+                sector: "Unknown",
+                latestPrice: 0,
+                series: [],
+              },
+            ],
+            syncStatus: { total: 2, found: 1 },
+          });
+        }
+        if (url.includes("/api/snapshot")) return snapshotResponse();
+        return jsonResponse({});
+      }),
+    );
+
+    const basketWithMissing: BasketItem[] = [
+      { ticker: "7203", name: "7203", theme: "テスト", weight: 50 },
+      { ticker: "9984", name: "9984", theme: "テスト", weight: 50 },
+    ];
+
+    vi.useFakeTimers();
+    const { rerender } = render(<Harness items={basketWithMissing} />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+      await flush();
+    });
+
+    expect(view.syncWarnings.some((w) => w.includes("9984"))).toBe(true);
+
+    await act(async () => {
+      rerender(<Harness items={basketWithMissing.map((item) => ({ ...item }))} />);
+      await flush();
+    });
+
+    expect(view.syncWarnings.some((w) => w.includes("9984"))).toBe(true);
+
+    // Weight update recomputes locally and still discloses the un-synced ticker.
+    await act(async () => {
+      rerender(
+        <Harness
+          items={[
+            { ticker: "7203", name: "7203", theme: "テスト", weight: 70 },
+            { ticker: "9984", name: "9984", theme: "テスト", weight: 30 },
+          ]}
+        />,
+      );
+      await flush();
+    });
+
+    expect(view.syncWarnings.some((w) => w.includes("9984"))).toBe(true);
   });
 });

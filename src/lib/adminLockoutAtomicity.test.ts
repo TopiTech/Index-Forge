@@ -60,7 +60,10 @@ function createAtomicMockEnv() {
                 number,
               ];
               const existing = attempts.get(ip);
-              const withinWindow = existing ? existing.last_failed_at >= windowStart : false;
+              const withinWindow = existing
+                ? existing.last_failed_at >= windowStart &&
+                  (existing.locked_until <= 0 || existing.locked_until > now)
+                : false;
               const failedCount = existing && withinWindow ? (existing.failed_count || 0) + 1 : 1;
               attempts.set(ip, {
                 ip,
@@ -134,6 +137,31 @@ describe("atomic admin lockout counter", () => {
 
     const res = await recordAdminLoginFailure(env as never, ip);
 
+    expect(res.failedCount).toBe(1);
+    expect(res.locked).toBe(false);
+    expect(res.remainingAttempts).toBe(ADMIN_LOGIN_MAX_ATTEMPTS - 1);
+  });
+
+  it("restarts the 5-attempt window on the first failure after an expired lockout", async () => {
+    const env = createAtomicMockEnv();
+    const ip = "198.51.100.4";
+    const now = Math.floor(Date.now() / 1000);
+    // Simulate a lockout that expired at this exact second (`locked_until === now`)
+    // while `last_failed_at` is still `now - 900` (>= windowStart in SQL).
+    env.attempts.set(ip, {
+      ip,
+      failed_count: ADMIN_LOGIN_MAX_ATTEMPTS,
+      last_failed_at: now - 900,
+      locked_until: now,
+    });
+
+    const preCheck = await checkAdminLoginLockout(env as never, ip);
+    expect(preCheck.locked).toBe(false);
+    expect(preCheck.remainingAttempts).toBe(ADMIN_LOGIN_MAX_ATTEMPTS);
+
+    const res = await recordAdminLoginFailure(env as never, ip);
+    const insert = env.statements.find((s) => s.includes("INSERT INTO admin_login_attempts"));
+    expect(insert).toContain("locked_until > excluded.last_failed_at");
     expect(res.failedCount).toBe(1);
     expect(res.locked).toBe(false);
     expect(res.remainingAttempts).toBe(ADMIN_LOGIN_MAX_ATTEMPTS - 1);

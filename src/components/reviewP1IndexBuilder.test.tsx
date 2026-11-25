@@ -69,4 +69,24 @@ describe("IndexBuilderContent preset quota (P1-04)", () => {
     );
     expect(screen.getByLabelText("任天堂を削除")).toBeTruthy();
   });
+
+  it("validates uncommitted baseValueDraft on dashboard preview instead of silently using stale baseValue", () => {
+    const onPreviewInDashboard = vi.fn();
+    render(<IndexBuilderContent onSave={vi.fn()} onPreviewInDashboard={onPreviewInDashboard} />);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /戦略プリセット「グローバルIP・エンタメ」を適用/ }),
+    );
+    const baseInput = document.getElementById("builder-base-input") as HTMLInputElement;
+    fireEvent.change(baseInput, { target: { value: "0" } });
+
+    fireEvent.click(screen.getByRole("button", { name: /ダッシュボードで一時プレビュー/ }));
+    expect(onPreviewInDashboard).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert").textContent).toMatch(/1〜1,000,000/);
+
+    fireEvent.change(baseInput, { target: { value: "2500" } });
+    fireEvent.click(screen.getByRole("button", { name: /ダッシュボードで一時プレビュー/ }));
+    expect(onPreviewInDashboard).toHaveBeenCalledTimes(1);
+    expect(onPreviewInDashboard.mock.calls[0]?.[0]?.baseValue).toBe(2500);
+  });
 });

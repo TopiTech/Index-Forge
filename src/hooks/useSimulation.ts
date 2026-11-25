@@ -129,6 +129,10 @@ export function sameWarnings(previous: readonly string[], next: readonly string[
   return previous.length === next.length && previous.every((value, index) => value === next[index]);
 }
 
+function serializeBasketSignature(items: readonly BasketItem[]): string {
+  return items.map((item) => `${normalizeTicker(item.ticker)}:${item.weight}`).join("|");
+}
+
 /**
  * True when two price series are equivalent.
  *
@@ -202,6 +206,11 @@ export function useSimulation(
 
   const abortRef = useRef<AbortController | null>(null);
   const knownTickersRef = useRef<string>("");
+  const lastFetchedComputationRef = useRef<{
+    universe: StockSeries[];
+    basketSignature: string;
+    baseValue: number;
+  } | null>(null);
   const mountedRef = useRef(true);
   useEffect(() => {
     mountedRef.current = true;
@@ -232,6 +241,7 @@ export function useSimulation(
    */
   const abortInFlight = useCallback(() => {
     requestIdRef.current += 1;
+    lastFetchedComputationRef.current = null;
     if (abortRef.current) {
       abortRef.current.abort();
       abortRef.current = null;
@@ -291,6 +301,11 @@ export function useSimulation(
         // The fetched data already covers this ticker set; record it so the
         // effect recomputes in memory instead of re-arming a fetch.
         knownTickersRef.current = currentTickersKey;
+        lastFetchedComputationRef.current = {
+          universe: stockUniverse,
+          basketSignature: serializeBasketSignature(basket),
+          baseValue,
+        };
         return;
       }
 
@@ -300,6 +315,7 @@ export function useSimulation(
       const controller = new AbortController();
       abortRef.current = controller;
       const requestId = ++requestIdRef.current;
+      lastFetchedComputationRef.current = null;
       /** True when a newer request has superseded this one. */
       const isSuperseded = () => requestId !== requestIdRef.current;
 
@@ -467,6 +483,11 @@ export function useSimulation(
         }
 
         if (controller.signal.aborted || isSuperseded()) return;
+        lastFetchedComputationRef.current = {
+          universe,
+          basketSignature: serializeBasketSignature(basket),
+          baseValue,
+        };
         setStockUniverse(universe);
         setCustomSeries(series);
         knownTickersRef.current = currentTickersKey;
@@ -549,6 +570,18 @@ export function useSimulation(
     }
 
     if (action === "recompute") {
+      // Do not clobber sync/missing-ticker warnings that `runSimulation` just
+      // published when React commits its `setStockUniverse(universe)` update.
+      const lastFetched = lastFetchedComputationRef.current;
+      if (
+        lastFetched &&
+        lastFetched.universe === stockUniverse &&
+        lastFetched.baseValue === baseValue &&
+        lastFetched.basketSignature === serializeBasketSignature(basket)
+      ) {
+        return;
+      }
+      lastFetchedComputationRef.current = null;
       // Weights changed, or the server returned no price rows for one of the
       // tickers: recompute from the data we already have. Re-fetching cannot
       // add missing data and previously looped forever at ~4 requests/second
@@ -559,10 +592,20 @@ export function useSimulation(
       });
       // The data was computed locally from the cached universe, so a warning
       // about an earlier failed sync no longer describes what is displayed.
-      // Carried-forward prices still do (H-4): recompute the disclosure from
-      // the same universe the series was just recomputed from.
+      // Carried-forward and missing-ticker disclosures still do.
       setSyncWarnings((prev) => {
-        const next = getIndexCoverageWarnings(basket, stockUniverse);
+        const coverageWarnings = getIndexCoverageWarnings(basket, stockUniverse);
+        const requestBasket = sanitizeBasketForRequest(basket).basket;
+        const missingTickers = getMissingPriceDataTickers(requestBasket, stockUniverse);
+        const next =
+          missingTickers.length > 0
+            ? Array.from(
+                new Set([
+                  ...coverageWarnings,
+                  `一部銘柄の価格データが取得できませんでした: ${missingTickers.join(", ")}`,
+                ]),
+              )
+            : coverageWarnings;
         return sameWarnings(prev, next) ? prev : next;
       });
       return;

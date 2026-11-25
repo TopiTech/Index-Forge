@@ -172,4 +172,27 @@ describe("C7: search options contain no nested interactive controls", () => {
     fireEvent.click(watchButton);
     expect(onAddToWatchlist).toHaveBeenCalledWith("7203");
   });
+
+  it("resets active option index to 0 when clicking the clear query button", () => {
+    Object.defineProperty(Element.prototype, "scrollIntoView", {
+      configurable: true,
+      value: () => {},
+    });
+    render(<GlobalSearchModal isOpen onClose={() => {}} onNavigate={() => {}} />);
+
+    const input = screen.getByRole("combobox") as HTMLInputElement;
+    fireEvent.keyDown(window, { key: "ArrowDown" });
+    fireEvent.keyDown(window, { key: "ArrowDown" });
+    expect(input.getAttribute("aria-activedescendant")).toMatch(/-option-2$/);
+
+    fireEvent.change(input, { target: { value: "トヨタ" } });
+    expect(input.getAttribute("aria-activedescendant")).toMatch(/-option-0$/);
+
+    fireEvent.keyDown(window, { key: "ArrowDown" });
+    expect(input.getAttribute("aria-activedescendant")).toMatch(/-option-1$/);
+
+    fireEvent.click(screen.getByRole("button", { name: "検索キーワードをクリア" }));
+    expect(input.value).toBe("");
+    expect(input.getAttribute("aria-activedescendant")).toMatch(/-option-0$/);
+  });
 });

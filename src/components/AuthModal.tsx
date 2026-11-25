@@ -2,9 +2,9 @@ import React, { useRef, useState, useEffect } from "react";
 import { KeyRound, Shield, AlertCircle, Eye, EyeOff, User, Lock } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
 import { useLockoutCountdown } from "../hooks/useLockoutCountdown";
+import { useTurnstileConfig } from "../hooks/useTurnstileConfig";
 import { ModalBase } from "./ModalBase";
 import { TurnstileWidget, type TurnstileWidgetRef } from "./TurnstileWidget";
-import { getTurnstileConfig } from "../lib/auth";
 import { useTheme } from "../lib/theme";
 
 interface AuthModalProps {
@@ -34,7 +34,6 @@ export function AuthModal({
   const [secretCode, setSecretCode] = useState("");
   const [showSecretCode, setShowSecretCode] = useState(false);
   const [turnstileToken, setTurnstileToken] = useState("");
-  const [turnstileSiteKey, setTurnstileSiteKey] = useState("1x00000000000000000000AA");
 
   // Lockout / Rate limit info
   const [remainingAttempts, setRemainingAttempts] = useState<number | null>(null);
@@ -86,37 +85,19 @@ export function AuthModal({
   }, [adminLocked]);
 
   // Fetch Turnstile configuration and admin lockout state when opened
-  useEffect(() => {
-    if (!isOpen) return;
-
-    let isMounted = true;
-    getTurnstileConfig()
-      .then((cfg) => {
-        if (!isMounted) return;
-        if (cfg.siteKey) {
-          setTurnstileSiteKey(cfg.siteKey);
-        } else if (cfg.unavailable) {
-          // A production test key would render a widget whose token the Worker
-          // rejects. Fail closed with an explicit, retryable message instead.
-          setTurnstileSiteKey("");
-          setTurnstileToken("");
-          setError("ロボット確認の設定を取得できませんでした。時間をおいて再試行してください");
-        }
-        if (cfg.lockout) {
-          // UI-06: this lockout is the administrator one.
-          syncLockout(cfg.lockout.locked, cfg.lockout.remainingSeconds);
-          setAdminLockout(cfg.lockout.locked);
-          setRemainingAttempts(cfg.lockout.remainingAttempts);
-        }
-      })
-      .catch(() => {
-        // Ignore transient config fetch failures.
-      });
-
-    return () => {
-      isMounted = false;
-    };
-  }, [isOpen, syncLockout]);
+  const { siteKey: turnstileSiteKey, loading: turnstileConfigLoading } = useTurnstileConfig({
+    enabled: isOpen,
+    onUnavailable: () => {
+      setTurnstileToken("");
+      setError("ロボット確認の設定を取得できませんでした。時間をおいて再試行してください");
+    },
+    onLockout: (lockout) => {
+      // UI-06: this lockout is the administrator one.
+      syncLockout(lockout.locked, lockout.remainingSeconds);
+      setAdminLockout(lockout.locked);
+      setRemainingAttempts(lockout.remainingAttempts);
+    },
+  });
 
   /**
    * Arrow-key navigation between the two mode buttons.
@@ -558,7 +539,12 @@ export function AuthModal({
             </div>
 
             {/* Cloudflare Turnstile Verification Widget */}
-            {!adminLocked && !turnstileSiteKey && (
+            {!adminLocked && turnstileConfigLoading && (
+              <div className="muted tiny" style={{ marginBottom: 16 }}>
+                ロボット確認を読み込み中...
+              </div>
+            )}
+            {!adminLocked && !turnstileConfigLoading && !turnstileSiteKey && (
               <div role="alert" style={{ marginBottom: 16, color: "var(--neon-red)", fontSize: 12 }}>
                 ロボット確認を利用できません。時間をおいてダイアログを開き直してください。
               </div>
